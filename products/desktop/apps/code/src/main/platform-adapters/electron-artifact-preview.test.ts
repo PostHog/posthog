@@ -62,14 +62,25 @@ describe("artifact preview webviews", () => {
   it.each([
     ["https://us.posthog.com/login", true],
     ["https://us.posthog.com/project/1/dashboard/2", true],
+    ["https://us.posthog.com/project/1", true],
     ["https://us.posthog.com/project/1/dashboards/2", true],
     ["https://us.posthog.com/project/1/insights/abc", true],
+    ["https://us.posthog.com/project/1/feature_flags/42", true],
+    ["https://us.posthog.com/project/1/replay/playlists", true],
+    ["https://us.posthog.com/project/1/settings/project", true],
+    ["https://us.posthog.com/project/1/future-product/view", true],
+    ["https://us.posthog.com/project/2/dashboard", false],
+    ["https://us.posthog.com/project/1/ai/thread", false],
+    ["https://us.posthog.com/project/1/code", false],
+    ["https://us.posthog.com/ai", false],
     ["https://us.posthog.com/project/1/max", false],
     ["https://eu.posthog.com/project/1/dashboards", false],
     ["https://example.com", false],
     ["javascript:alert(1)", false],
   ])("checks Classic navigation to %s", (url, allowed) => {
-    expect(isClassicNavigation(url, "https://us.posthog.com")).toBe(allowed);
+    expect(isClassicNavigation(url, "https://us.posthog.com", "1")).toBe(
+      allowed,
+    );
   });
 
   it("removes the desktop preload from Classic guests", () => {

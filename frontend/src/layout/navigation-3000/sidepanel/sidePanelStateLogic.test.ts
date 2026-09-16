@@ -5,6 +5,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
+import * as classicEmbed from '../classicEmbed'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 describe('sidePanelStateLogic', () => {
@@ -21,9 +22,23 @@ describe('sidePanelStateLogic', () => {
         await expectLogic(logic).toMatchValues({ sidePanelOpen: false, selectedTab: null })
     })
 
-    it('opens only on an explicit openSidePanel trigger', async () => {
-        logic.actions.openSidePanel(SidePanelTab.Max)
-        await expectLogic(logic).toMatchValues({ sidePanelOpen: true, selectedTab: SidePanelTab.Max })
+    it.each([
+        [false, SidePanelTab.Max, true],
+        [true, SidePanelTab.Max, false],
+        [true, SidePanelTab.Info, true],
+        [true, SidePanelTab.Activity, true],
+    ])('opens an explicit panel with Classic %s, tab %s, open %s', async (classic, tab, open) => {
+        const context = jest.replaceProperty(
+            classicEmbed,
+            'classicEmbedContext',
+            classic ? { parentOrigin: 'https://us.posthog.com', projectId: '1' } : null
+        )
+        try {
+            logic.actions.openSidePanel(tab)
+            await expectLogic(logic).toMatchValues({ sidePanelOpen: open, selectedTab: tab })
+        } finally {
+            context.restore()
+        }
     })
 
     it('carries selectedTabOptions when opening', async () => {

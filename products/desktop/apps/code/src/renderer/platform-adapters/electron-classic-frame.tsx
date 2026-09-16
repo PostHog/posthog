@@ -14,12 +14,15 @@ export function ElectronClassicFrame({
     onStatusChange("loading");
     const guest = document.createElement("webview");
     guest.className = "flex size-full";
-    guest.setAttribute("aria-label", "PostHog web dashboards");
+    guest.setAttribute("aria-label", "PostHog web app");
     guest.setAttribute(
       "partition",
       `posthog-classic-${new URL(url).hostname.replaceAll(".", "-")}-${accountId}`,
     );
-    guest.setAttribute("src", url);
+    const target = new URL(url);
+    target.searchParams.set("__desktop_classic", "1");
+    target.searchParams.set("__desktop_parent_origin", target.origin);
+    guest.setAttribute("src", target.href);
     const ready = (): void => onStatusChange("ready");
     const failed = (event: Event): void => {
       const failure = event as Event & {

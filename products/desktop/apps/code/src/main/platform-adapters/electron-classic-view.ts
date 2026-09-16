@@ -4,7 +4,11 @@ import { logger } from "../utils/logger";
 const ORIGINS = new Set(["https://us.posthog.com", "https://eu.posthog.com"]);
 const log = logger.scope("classic-view");
 
-export function isClassicNavigation(url: string, origin: string): boolean {
+export function isClassicNavigation(
+  url: string,
+  origin: string,
+  projectId?: string,
+): boolean {
   try {
     const target = new URL(url);
     return (
@@ -12,8 +16,13 @@ export function isClassicNavigation(url: string, origin: string): boolean {
       target.origin === origin &&
       !target.username &&
       !target.password &&
+      !/^\/(ai|max|chat|code)(\/|$)/.test(target.pathname) &&
+      (!projectId ||
+        !target.pathname.startsWith("/project/") ||
+        target.pathname.match(/^\/project\/(\d+)(?:\/|$)/)?.[1] ===
+          projectId) &&
       (!target.pathname.startsWith("/project/") ||
-        /^\/project\/\d+\/(dashboard|dashboards|insights|saved_insights)(\/|$)/.test(
+        /^\/project\/\d+(?:\/|$)(?!(?:ai|max|chat|code)(?:\/|$))/.test(
           target.pathname,
         ))
     );
@@ -59,39 +68,47 @@ export function lockDownClassicView(
   entryUrl: string,
 ): void {
   const origin = new URL(entryUrl).origin;
+  const projectId = new URL(entryUrl).pathname.match(
+    /^\/project\/(\d+)\//,
+  )?.[1];
   guest.setWindowOpenHandler(() => ({ action: "deny" }));
   guest.session.setPermissionCheckHandler(() => false);
   guest.session.setPermissionRequestHandler(
     (_contents, _permission, callback) => callback(false),
   );
   guest.on("will-navigate", (event, url) => {
-    if (!isClassicNavigation(url, origin)) event.preventDefault();
+    if (!isClassicNavigation(url, origin, projectId)) event.preventDefault();
   });
   guest.on("will-redirect", (event, url) => {
-    if (!isClassicNavigation(url, origin)) event.preventDefault();
+    if (!isClassicNavigation(url, origin, projectId)) event.preventDefault();
   });
   guest.on("will-frame-navigate", (event) => {
-    if (event.isMainFrame && !isClassicNavigation(event.url, origin))
+    if (event.isMainFrame && !isClassicNavigation(event.url, origin, projectId))
       event.preventDefault();
   });
   guest.on("did-navigate-in-page", (_event, url, isMainFrame) => {
-    if (isMainFrame && !isClassicNavigation(url, origin)) {
+    if (isMainFrame && !isClassicNavigation(url, origin, projectId)) {
       void guest
         .loadURL(entryUrl)
         .catch((error: unknown) =>
-          log.warn("Could not return to dashboards", { error }),
+          log.warn("Could not return to Classic", { error }),
         );
     }
   });
-  guest.on("dom-ready", () => {
-    void guest
-      .insertCSS(`
-      .app-layout > .left-nav, #side-panel, [data-attr="ask-ai-button"], [data-attr="open-context-panel-ai-button"] { display: none !important; }
-      .app-layout { --left-nav-width: 0px !important; grid-template: 'content' 1fr / minmax(0, 1fr) !important; }
-      #main-content { max-width: 100% !important; }
-    `)
-      .catch((error: unknown) =>
-        log.warn("Could not apply Classic layout", { error }),
-      );
+  guest.on("did-navigate", (_event, url) => {
+    const target = new URL(url);
+    if (
+      target.pathname.match(/^\/project\/(\d+)(?:\/|$)/)?.[1] === projectId &&
+      isClassicNavigation(url, origin, projectId) &&
+      target.searchParams.get("__desktop_classic") !== "1"
+    ) {
+      target.searchParams.set("__desktop_classic", "1");
+      target.searchParams.set("__desktop_parent_origin", origin);
+      void guest
+        .loadURL(target.href)
+        .catch((error: unknown) =>
+          log.warn("Could not load Classic layout", { error }),
+        );
+    }
   });
 }

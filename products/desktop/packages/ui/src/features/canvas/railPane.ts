@@ -102,7 +102,6 @@ export function isRestorableVisitHref(
 }
 
 const PANES_WITH_SIDEBAR = new Set<NavRailPane>([
-  "classic",
   "spaces",
   "activity",
   "canvases",

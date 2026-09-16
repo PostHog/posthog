@@ -1944,13 +1944,20 @@ class TestCSPMiddleware(APIBaseTest):
     @parameterized.expand(
         [
             ("canonical_dashboard", "/project/1/dashboard?__desktop_classic=1", False, True, False),
+            ("project_home", "/project/1?__desktop_classic=1", False, True, False),
             ("dashboard", "/project/1/dashboards?__desktop_classic=1", False, True, False),
             ("insight", "/project/1/insights/abc?__desktop_classic=1", False, True, False),
             ("local_dashboard", "/project/1/dashboards?__desktop_classic=1", True, True, True),
             ("normal_dashboard", "/project/1/dashboards", True, False, False),
             ("chat", "/project/1/ai?__desktop_classic=1", True, False, False),
-            ("prefix", "/project/1/dashboards-other?__desktop_classic=1", True, False, False),
+            ("product", "/project/1/feature_flags?__desktop_classic=1", False, True, False),
+            ("product_tab", "/project/1/replay/playlists?__desktop_classic=1", True, True, True),
+            ("settings", "/project/1/settings/project?__desktop_classic=1", False, True, False),
+            ("chat_thread", "/project/1/ai/thread?__desktop_classic=1", True, False, False),
+            ("desktop", "/project/1/code?__desktop_classic=1", True, False, False),
+            ("prefix", "/projects/1/dashboard?__desktop_classic=1", True, False, False),
             ("login", "/login?__desktop_classic=1", True, False, False),
+            ("api", "/api/projects/1/dashboards?__desktop_classic=1", True, False, False),
             ("disabled", "/project/1/dashboards?__desktop_classic=0", True, False, False),
             (
                 "untrusted_parent",

@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { ReactNode, RefObject, useEffect } from 'react'
+import { ReactNode, useEffect } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -8,37 +8,40 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+
 import { ClassicEmbedContext, isClassicEmbedPath } from './classicEmbed'
 
 export function ClassicEmbed({
     context,
     children,
-    mainRef,
 }: {
     context: ClassicEmbedContext
     children: ReactNode
-    mainRef: RefObject<HTMLElement>
 }): JSX.Element {
-    const { location, searchParams, hashParams } = useValues(router)
+    const { location } = useValues(router)
     const { activeSceneId } = useValues(sceneLogic)
     const { user } = useValues(userLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { activePanelIdentifier } = useValues(panelLayoutLogic)
+    const { clearActivePanelIdentifier, showLayoutPanel } = useActions(panelLayoutLogic)
     const accountId = user?.uuid
-    const allowed = isClassicEmbedPath(location.pathname, context.projectId)
-    const ready =
-        allowed &&
-        String(currentTeamId) === context.projectId &&
-        [Scene.Dashboards, Scene.Dashboard, Scene.Insight].includes(activeSceneId as Scene)
+    const allowed = isClassicEmbedPath(location.pathname, context.projectId) && activeSceneId !== Scene.Max
+    const ready = allowed && String(currentTeamId) === context.projectId && !!activeSceneId
 
     useEffect(() => {
-        if (searchParams.__desktop_classic !== '1' || searchParams.__desktop_parent_origin !== context.parentOrigin) {
-            router.actions.replace(
-                location.pathname,
-                { ...searchParams, __desktop_classic: '1', __desktop_parent_origin: context.parentOrigin },
-                hashParams
-            )
+        if (activePanelIdentifier === 'Chat') {
+            clearActivePanelIdentifier()
+            showLayoutPanel(false)
         }
-    }, [context.parentOrigin, location.pathname, searchParams, hashParams])
+    }, [activePanelIdentifier, clearActivePanelIdentifier, showLayoutPanel])
+
+    useEffect(() => {
+        const url = new URL(window.location.href)
+        url.searchParams.set('__desktop_classic', '1')
+        url.searchParams.set('__desktop_parent_origin', context.parentOrigin)
+        window.history.replaceState(window.history.state, '', url.href)
+    }, [context.parentOrigin, location.pathname, location.search, location.hash])
 
     useEffect(() => {
         const report = (): void => {
@@ -73,21 +76,9 @@ export function ClassicEmbed({
         }
     }, [allowed, ready, accountId, currentTeamId, context])
 
-    return (
-        <div className="Navigation3000 flex-col">
-            <main
-                ref={mainRef}
-                id="main-content"
-                tabIndex={0}
-                className="@container/main-content p-4"
-                aria-label="Classic web page"
-            >
-                {allowed ? (
-                    children
-                ) : (
-                    <LemonButton to={`/project/${context.projectId}/dashboard`}>Return to dashboards</LemonButton>
-                )}
-            </main>
-        </div>
+    return allowed ? (
+        <>{children}</>
+    ) : (
+        <LemonButton to={`/project/${context.projectId}/dashboard`}>Return to Classic</LemonButton>
     )
 }

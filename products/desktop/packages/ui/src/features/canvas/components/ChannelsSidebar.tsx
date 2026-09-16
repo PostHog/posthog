@@ -29,7 +29,6 @@ import {
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
-import { ClassicSidebar } from "@posthog/ui/features/classic/ClassicSidebar";
 import { InboxPane } from "@posthog/ui/features/inbox/components/InboxPane";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
@@ -177,7 +176,6 @@ function RailPaneBody({
   sidebarVisible: boolean;
   pendingTabSwitch: boolean;
 }): ReactElement {
-  if (railPane === "classic") return <ClassicSidebar />;
   if (showsActivityDetail) {
     return (
       <ActivityFeedList

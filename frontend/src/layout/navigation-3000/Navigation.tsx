@@ -110,17 +110,9 @@ export function Navigation({
 
     const noPaddingScene = sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw'
 
-    if (classicEmbedContext) {
-        return (
-            <ClassicEmbed context={classicEmbedContext} mainRef={mainRef}>
-                {children}
-            </ClassicEmbed>
-        )
-    }
-
     if (mode !== 'full') {
         const showMinimalNavigation = mode === 'minimal' || mode === 'zen'
-        return (
+        const minimalLayout = (
             // eslint-disable-next-line react/forbid-dom-props
             <div
                 className="Navigation3000 flex-col"
@@ -139,9 +131,14 @@ export function Navigation({
                 <main className={mode === 'zen' ? 'p-4' : undefined}>{children}</main>
             </div>
         )
+        return classicEmbedContext ? (
+            <ClassicEmbed context={classicEmbedContext}>{minimalLayout}</ClassicEmbed>
+        ) : (
+            minimalLayout
+        )
     }
 
-    return (
+    const layout = (
         <>
             {/* eslint-disable-next-line react/forbid-elements */}
             <a
@@ -284,4 +281,6 @@ export function Navigation({
             </div>
         </>
     )
+
+    return classicEmbedContext ? <ClassicEmbed context={classicEmbedContext}>{layout}</ClassicEmbed> : layout
 }

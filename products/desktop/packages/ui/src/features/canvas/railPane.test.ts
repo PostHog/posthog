@@ -137,6 +137,7 @@ describe("railPaneHasSidebar", () => {
         ["/reports/report-1?from=%2Finbox%2Ftriage", true],
         ["/inbox/triage?reportId=report-1", false],
         ["/inbox/reports", true],
+        ["/classic", false],
       ] as const) {
         routing.href = href;
         rerender();

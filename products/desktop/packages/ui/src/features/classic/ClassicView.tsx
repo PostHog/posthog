@@ -48,7 +48,7 @@ export function ClassicContent({
   return (
     <section
       className="flex h-full min-w-0 flex-col"
-      aria-label="Classic dashboards"
+      aria-label="Classic web app"
     >
       <ChromeBar
         actions={
@@ -63,7 +63,7 @@ export function ClassicContent({
             />
             <Button
               size="icon"
-              aria-label="Reload dashboards"
+              aria-label="Reload Classic"
               onClick={reload}
               disabled={status === "loading"}
             >
@@ -107,7 +107,7 @@ export function ClassicContent({
                 <EmptyTitle>PostHog did not load</EmptyTitle>
                 <EmptyDescription>
                   {errorDetail ??
-                    "Check your connection, then select Reload dashboards."}
+                    "Check your connection, then select Reload Classic."}
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>
@@ -137,8 +137,7 @@ export function ClassicView(): ReactElement {
         <EmptyHeader>
           <EmptyTitle>Classic is not available for this connection</EmptyTitle>
           <EmptyDescription>
-            Open the desktop app with a US or EU cloud project to use
-            dashboards.
+            Open the desktop app with a US or EU cloud project to use Classic.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>

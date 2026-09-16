@@ -24,6 +24,7 @@ import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
+import { classicEmbedContext } from '~/layout/navigation-3000/classicEmbed'
 import {
     NavExperimentTab,
     PANEL_NAVBAR_COLLAPSE_THRESHOLD,
@@ -193,7 +194,7 @@ export function NavBar(): JSX.Element {
                         {/* Collapsed nav has no room for the search bar, so it keeps the icon-only trigger */}
                         {isLayoutNavCollapsed && <NavSearchButton toggleCommand={toggleCommand} />}
 
-                        {isLayoutNavCollapsed && (
+                        {isLayoutNavCollapsed && !classicEmbedContext && (
                             <ButtonPrimitive
                                 className="group w-full justify-center"
                                 data-attr="nav-tab-chat-collapsed"
@@ -240,7 +241,11 @@ export function NavBar(): JSX.Element {
 
                 <Tabs.Root
                     className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-hidden"
-                    value={isLayoutNavCollapsed && navExperimentActiveTab === 'chat' ? 'home' : navExperimentActiveTab}
+                    value={
+                        classicEmbedContext || (isLayoutNavCollapsed && navExperimentActiveTab === 'chat')
+                            ? 'home'
+                            : navExperimentActiveTab
+                    }
                     onValueChange={(value) => {
                         posthog.capture('nav tab clicked', { tab: value })
                         setNavExperimentTab(value as NavExperimentTab)
@@ -252,7 +257,7 @@ export function NavBar(): JSX.Element {
                 >
                     <div className={cn('p-1', isLayoutNavCollapsed && 'hidden')}>
                         <Tabs.List className="relative flex items-center gap-1 shrink-0 z-0 p-1 rounded-lg bg-(--color-bg-fill-highlight-50) dark:bg-surface-primary">
-                            {TAB_CONFIG.map((tab) => (
+                            {TAB_CONFIG.filter((tab) => !classicEmbedContext || tab.id !== 'chat').map((tab) => (
                                 <Tabs.Tab
                                     key={tab.id}
                                     value={tab.id}
@@ -296,7 +301,7 @@ export function NavBar(): JSX.Element {
                         {/* Lazy until first activated: the visited list only ever grows, so once
                             mounted the panel never unmounts — keepMounted then preserves it across
                             tab switches. Users who never open chat never pay for its chunk. */}
-                        {visitedNavTabs.includes('chat') && (
+                        {!classicEmbedContext && visitedNavTabs.includes('chat') && (
                             <Tabs.Panel
                                 value="chat"
                                 className="absolute inset-0 flex flex-col"

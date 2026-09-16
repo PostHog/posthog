@@ -76,13 +76,13 @@ export function SceneTitlePanelButton({
     // Open Info tab if scene has panel content, otherwise default to PostHog AI
     const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
 
-    if (sidePanelOpen || classicEmbedContext) {
+    if (sidePanelOpen || (classicEmbedContext && !scenePanelIsPresent)) {
         return null
     }
 
     return (
         <>
-            {!sceneMenuBarEnabled && (
+            {!sceneMenuBarEnabled && !classicEmbedContext && (
                 <ButtonPrimitive
                     className={cn(buttonClassName, maxButtonLabel && 'w-auto px-2')}
                     onClick={(e) => {

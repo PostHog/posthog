@@ -13,6 +13,7 @@ import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { AvailableFeature, SidePanelTab } from '~/types'
 
 import type { TeamPublicType, TeamType } from '../../../types'
+import { classicEmbedContext } from '../classicEmbed'
 import { sidePanelContextLogic } from './sidePanelContextLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 import type { SidePanelSceneContext } from './types'
@@ -173,7 +174,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.Info)
                 }
 
-                tabs.push(SidePanelTab.Max)
+                if (!classicEmbedContext) {
+                    tabs.push(SidePanelTab.Max)
+                }
                 tabs.push(SidePanelTab.Notebooks)
 
                 // Activity entries and comments are both stored against the scene's activity scope. A

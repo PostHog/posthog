@@ -6,6 +6,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
+import { classicEmbedContext } from '~/layout/navigation-3000/classicEmbed'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { PROJECT_TREE_KEY, ProjectTree } from '../ProjectTree/ProjectTree'
@@ -66,7 +67,7 @@ export function PanelLayoutPanels(): JSX.Element | null {
                     isActiveInPanel={activePanelIdentifier === 'Shortcuts'}
                 />
             ),
-            Chat: (
+            Chat: !classicEmbedContext ? (
                 <div
                     className="pointer-events-auto flex flex-col h-full min-h-screen max-h-screen bg-surface-tertiary border-r overflow-hidden w-[var(--project-panel-width)]"
                     data-attr="nav-panel-chat"
@@ -85,7 +86,7 @@ export function PanelLayoutPanels(): JSX.Element | null {
                         <NavTabChat inPanel onItemClick={onChatItemClick} />
                     </Suspense>
                 </div>
-            ),
+            ) : undefined,
         }),
         // activePanelIdentifier feeds isActiveInPanel so kept trees refocus search on re-activation;
         // it only changes on panel switches, so this memo still shields trees from unrelated re-renders.

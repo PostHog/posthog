@@ -18,7 +18,7 @@ export function WebClassicFrame({
     target.searchParams.set("__desktop_classic", "1");
     target.searchParams.set("__desktop_parent_origin", window.location.origin);
     const frame = document.createElement("iframe");
-    frame.title = "PostHog web dashboards";
+    frame.title = "PostHog web app";
     frame.className = "size-full border-0";
     frame.setAttribute(
       "sandbox",
@@ -33,7 +33,7 @@ export function WebClassicFrame({
         () =>
           onStatusChange(
             "error",
-            "Open the web app and sign in with the same account. Then reload dashboards. The web app must include Classic support and allow this browser host.",
+            "Open the web app and sign in with the same account. Then reload Classic. The web app must include Classic support and allow this browser host.",
           ),
         15000,
       );
@@ -64,7 +64,7 @@ export function WebClassicFrame({
       } else {
         onStatusChange(
           "error",
-          "This page or account does not match Classic. Open the web app to check your account, then reload dashboards.",
+          "This page or account does not match Classic. Open the web app to check your account and project, then reload Classic.",
         );
       }
     };

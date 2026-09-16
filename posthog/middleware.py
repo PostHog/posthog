@@ -1319,7 +1319,7 @@ class CSPMiddleware:
             # names only our own origin.
             frame_ancestors = "frame-ancestors https://posthog.com https://preview.posthog.com"
             if request.GET.get("__desktop_classic") == "1" and re.match(
-                r"^/project/\d+/(dashboard|dashboards|insights)(?:/|$)", request.path
+                r"^/project/\d+(?:/|$)(?!(?:ai|max|chat|code)(?:/|$))", request.path
             ):
                 frame_ancestors += " 'self'"
                 if settings.DEBUG or settings.SITE_URL.endswith(".dev.posthog.dev"):

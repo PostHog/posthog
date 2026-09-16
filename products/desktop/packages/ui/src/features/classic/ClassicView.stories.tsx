@@ -1,10 +1,8 @@
-import { SidebarSimpleIcon } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
 import { visibleRailDestinations } from "@posthog/ui/features/canvas/components/railDestinations";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { type ReactElement, useEffect, useState } from "react";
-import { ClassicSidebar } from "./ClassicSidebar";
+import { type ReactElement, useEffect } from "react";
 import { ClassicContent } from "./ClassicView";
 import type { ClassicFrameProps } from "./classicFrameHost";
 
@@ -46,17 +44,9 @@ function ClassicPreview({
   before?: boolean;
   failed?: boolean;
 }): ReactElement {
-  const [expanded, setExpanded] = useState(true);
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       <ChromeBar inset="control">
-        <Button
-          size="icon"
-          aria-label="Toggle sidebar"
-          onClick={() => setExpanded(!expanded)}
-        >
-          <SidebarSimpleIcon />
-        </Button>
         <span className="text-xs">PostHog Desktop</span>
       </ChromeBar>
       <div className="flex min-h-0 flex-1">
@@ -90,11 +80,6 @@ function ClassicPreview({
               </Button>
             ))}
         </div>
-        {!before && expanded && (
-          <div className="flex w-60 shrink-0 border-border border-r">
-            <ClassicSidebar />
-          </div>
-        )}
         <div className="min-w-0 flex-1">
           {before ? (
             <div className="p-6 text-muted-foreground text-xs">

@@ -35,7 +35,10 @@ export function useRailSurface(): RailSurface {
 
   return {
     pane,
-    hasSidebar: !inTriage && (!channelsLayout || railPaneHasSidebar(pane)),
+    hasSidebar:
+      pane !== "classic" &&
+      !inTriage &&
+      (!channelsLayout || railPaneHasSidebar(pane)),
     showsActivityDetail: channelsLayout && pane === "activity",
   };
 }
