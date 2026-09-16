@@ -47,11 +47,12 @@ NO_TRANSACTION_MARKER = "-- no-transaction"
 
 # The index a concurrent build names, so the invalid-index guard below can look at that index
 # alone. Postgres does not accept a schema-qualified name here: the index lands in the table's
-# schema.
+# schema. Inside a quoted name it writes an embedded quote as two quotes, so the name branch
+# accepts a doubled quote to keep such a name parseable.
 CONCURRENT_INDEX_CREATE = re.compile(
     r"""^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+
         (?:IF\s+NOT\s+EXISTS\s+)?
-        (?P<name>"[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)\s+ON\b""",
+        (?P<name>"(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*)\s+ON\b""",
     re.IGNORECASE | re.VERBOSE,
 )
 
@@ -129,7 +130,10 @@ def _concurrent_index_target(sql_content: str) -> str | None:
     if not match:
         return None
     name = match.group("name")
-    return name[1:-1] if name.startswith('"') else name.lower()
+    if not name.startswith('"'):
+        return name.lower()
+    # pg_class holds the name unescaped, so collapse each doubled quote back to one.
+    return name[1:-1].replace('""', '"')
 
 
 def _invalid_indexes_named(cursor, index_name: str) -> list[str]:

@@ -72,6 +72,11 @@ class TestConcurrentIndexTarget(SimpleTestCase):
             ("create_below_a_comment_block", "-- no-transaction\n-- why\nCREATE INDEX CONCURRENTLY i ON t (c);", "i"),
             ("create_unique_over_two_lines", "CREATE UNIQUE INDEX CONCURRENTLY Mixed\n    ON t (c);", "mixed"),
             ("create_with_a_quoted_name", 'CREATE INDEX CONCURRENTLY "Mixed" ON t (c);', "Mixed"),
+            (
+                "create_with_a_doubled_quote_in_the_quoted_name",
+                'CREATE UNIQUE INDEX CONCURRENTLY "Mixed""unique" ON t (c);',
+                'Mixed"unique',
+            ),
             ("create_without_a_name", "CREATE INDEX CONCURRENTLY ON t (c);", None),
             ("drop", "DROP INDEX CONCURRENTLY IF EXISTS i;", None),
         ]
