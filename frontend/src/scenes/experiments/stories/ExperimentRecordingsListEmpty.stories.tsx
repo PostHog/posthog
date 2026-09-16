@@ -100,6 +100,19 @@ export const ExperimentRecordingsEmptyVariantHasNone: Story = {
 }
 
 /**
+ * Narrowed to one variant on a run too young to have recordings either way. The copy stays the
+ * too-early one, because the list is most likely empty for every variant, and the banner carries
+ * the way out of the variant so the viewer is not left with nothing to click.
+ */
+export const ExperimentRecordingsEmptyTooEarlyWithVariantSelected: Story = {
+    decorators: [mswDecorator({ get: { [EXPERIMENT_PATH]: experimentRun('2025-05-30T09:00:00Z', null) } })],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('test-1'))
+    },
+}
+
+/**
  * Narrowed to the sessions the exposure happened in. The scope is offered only once the server
  * confirms this experiment can be asked for it, so the story answers that check first.
  */

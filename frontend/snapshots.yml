@@ -7820,6 +7820,10 @@ snapshots:
         hash: v1.k794b7964.461cc90ab6b2e52b99111e0631d253e47347647f994b2500ceb87eeb77c6b771.3taB8yr84NutLTUwM3FMvtp-Z9R0KSmjXY1j9hUx5R0
     scenes-app-experiments--experiment-recordings-empty-too-early--light:
         hash: v1.k794b7964.5cf3abd3f3e537339d3ed11cbc1dc3458c815dc86d604dbf8b10706f15e4256b.xrmpvVhU_I1uoQfXcreRrNEetOw5r37Uf3xQuow99nI
+    scenes-app-experiments--experiment-recordings-empty-too-early-with-variant-selected--dark:
+        hash: v1.k794b7964.5f4d54b0bbe64c6a906e4a290405648ce7c80c97c86f19d281ff9829fd19e05b.5YPMxoq0_-4wYzjQ7CiyCWqvPi6la0L9pRYSgTVAvJI
+    scenes-app-experiments--experiment-recordings-empty-too-early-with-variant-selected--light:
+        hash: v1.k794b7964.93da1e924fa384a4145cab3dda5debd9d1bb8cb4cce8c966e3c549fef7c3132f.VgpPDGtm07ehdQcnqCMd7YS-DdZqFpewcfqparhhwA4
     scenes-app-experiments--experiment-recordings-empty-unknown-in-window--dark:
         hash: v1.k794b7964.8cc424769dc71c1d102074ed089a9762c5c0b26328cc41d038a66020f6a9d3ac.wVEIH7FEp0NL6rq-dldcLPVuPLtX4C_h75c1OITmY2Y
     scenes-app-experiments--experiment-recordings-empty-unknown-in-window--light:
