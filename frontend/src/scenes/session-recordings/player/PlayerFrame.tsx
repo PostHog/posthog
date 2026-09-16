@@ -17,8 +17,12 @@ const BASE_CLICK_INDICATOR_DURATION_S = 1 / 3
 // click flashes past before a viewer can see it. Hold a floor above the ~100ms a flash needs.
 const MIN_CLICK_INDICATOR_DURATION_S = 0.15
 
-const clickIndicatorDuration = (speed: number): string =>
-    `${Math.max(BASE_CLICK_INDICATOR_DURATION_S / speed, MIN_CLICK_INDICATOR_DURATION_S)}s`
+// An exporter URL carries its playback speed as a query parameter, so the speed here can be 0 or
+// NaN. Both make the animation declaration invalid, which removes the indicator altogether.
+const clickIndicatorDuration = (speed: number): string => {
+    const scaled = speed > 0 ? BASE_CLICK_INDICATOR_DURATION_S / speed : BASE_CLICK_INDICATOR_DURATION_S
+    return `${Math.max(scaled, MIN_CLICK_INDICATOR_DURATION_S)}s`
+}
 
 // rrweb builds its replay iframe on about:blank, and a frame on a local scheme inherits its
 // embedder's whole policy, report-uri included. Mounting rrweb inside a real document instead puts

@@ -46,6 +46,10 @@ describe('PlayerFrame', () => {
         [1, '0.3333333333333333s'],
         [4, '0.15s'],
         [16, '0.15s'],
+        // An exporter URL can carry any playerSpeed value, and an unusable one must not leave the
+        // player with an invalid animation duration and no indicator.
+        [0, '0.3333333333333333s'],
+        [NaN, '0.3333333333333333s'],
     ])('holds the click indicator above the floor at %sx speed', (speed, expectedDuration) => {
         playerSettingsLogic.actions.setSpeed(speed)
 
