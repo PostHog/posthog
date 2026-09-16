@@ -17,6 +17,7 @@ from requests.exceptions import (
     ReadTimeout,
 )
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -33,7 +34,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
     MetaAdsSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import RESOURCE_SCHEMAS
+from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import (
+    RESOURCE_SCHEMAS,
+    HoistedColumn,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 logger = structlog.get_logger(__name__)
@@ -186,7 +190,7 @@ def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
     return get_integration_by_id(config.meta_ads_integration_id, team_id)
 
 
-@dataclass
+@frozen
 class MetaAdsSchema:
     name: str
     primary_keys: list[str]
@@ -201,6 +205,8 @@ class MetaAdsSchema:
     is_stats: bool = False
     # The Graph API returns the node itself rather than a paged `data` list (`GET /act_<id>`).
     single_object: bool = False
+    # Scalar columns to copy out of the nested objects in each row (see `HoistedColumn`).
+    hoisted_columns: tuple[HoistedColumn, ...] = ()
 
 
 # Note: can make this static but keeping schemas.py to match other schema files for now
@@ -220,6 +226,7 @@ def get_schemas() -> dict[str, MetaAdsSchema]:
             partition_format=schema_def.get("partition_format"),
             is_stats=schema_def.get("is_stats", False),
             single_object=schema_def.get("single_object", False),
+            hoisted_columns=schema_def.get("hoisted_columns", ()),
         )
 
         schemas[resource_name] = schema
@@ -883,6 +890,30 @@ def _fetch_single_object(url: str, params: dict, access_token: str) -> collectio
     yield [response.json()]
 
 
+def _hoisted_values(row: dict, hoisted_columns: tuple[HoistedColumn, ...]) -> dict:
+    values = {}
+    for hoisted in hoisted_columns:
+        nested = row.get(hoisted.source_field)
+        values[hoisted.column] = nested.get(hoisted.key) if isinstance(nested, dict) else None
+    return values
+
+
+def _hoist_columns(
+    batches: collections.abc.Iterable[list[dict]], hoisted_columns: tuple[HoistedColumn, ...]
+) -> collections.abc.Generator[list[dict]]:
+    """Add each hoisted column to every row, read out of the row's nested object.
+
+    The column is always written, as ``None`` when the nested object is missing or is not an
+    object, so every row of the table carries the same columns whatever Meta returns for it.
+    """
+    if not hoisted_columns:
+        yield from batches
+        return
+
+    for batch in batches:
+        yield [{**row, **_hoisted_values(row, hoisted_columns)} for row in batch]
+
+
 def _make_paginated_api_request(
     url: str,
     params: dict,
@@ -993,7 +1024,10 @@ def meta_ads_source(
         formatted_url = schema.url.format(API_VERSION=api_version, account_id=_clean_account_id(config.account_id))
 
         if schema.single_object:
-            yield from _fetch_single_object(formatted_url, {"fields": ",".join(schema.field_names)}, access_token)
+            yield from _hoist_columns(
+                _fetch_single_object(formatted_url, {"fields": ",".join(schema.field_names)}, access_token),
+                schema.hoisted_columns,
+            )
             return
 
         params = {
@@ -1006,8 +1040,9 @@ def meta_ads_source(
         if schema.is_stats:
             params.update(_attribution_params(config))
 
-        yield from _make_paginated_api_request(
-            formatted_url, params, access_token, time_range, resumable_source_manager
+        yield from _hoist_columns(
+            _make_paginated_api_request(formatted_url, params, access_token, time_range, resumable_source_manager),
+            schema.hoisted_columns,
         )
 
     return SourceResponse(

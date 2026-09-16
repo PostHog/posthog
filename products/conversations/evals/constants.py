@@ -22,6 +22,7 @@ TICKET_TYPES: tuple[TicketType, ...] = ("how_to", "diagnostic", "account_billing
 # the fixture asks for.
 PIPELINE_RESULT_TO_EVAL_OUTCOME: dict[str, EvalOutcome] = {
     "persisted": "answerable",
+    "suggested": "escalate",
     "escalated_with_best": "escalate",
     "escalated_no_reply": "escalate",
     "escalated_with_findings": "escalate",

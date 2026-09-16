@@ -3,11 +3,11 @@
 //! was mutated). Each step is one transaction that commits its work together
 //! with the step advance — see the engine's correctness model.
 //!
-//! Sealing fences each victim on its owning leader — `FencePerson` rejects
-//! writes while the op lives and returns the exact sealed version, so no
-//! margin is needed — and completion calls `ReleaseFence(committed)` per
-//! victim, which makes the leader produce the death document into the
-//! changelog and evict its cache entry. The unmapped transaction still
+//! Sealing fences the victims on their leaders, one `FencePersons` per
+//! partition — a fence rejects writes while the op lives and returns the
+//! exact sealed version — and completion releases them the same way, one
+//! `ReleaseFences` per partition, which produces the death documents and
+//! evicts the leaders' cache entries. The unmapped transaction still
 //! writes the person tombstone directly: it is the durable revival floor
 //! the sync plane reads (sanctioned by the RFC); the death document
 //! confirms it downstream (writer, ClickHouse) at the same version,
@@ -24,16 +24,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use common_sqlx_macros::{mirrored_query, mirrored_query_as, mirrored_query_scalar};
-use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::postgres::PgPool;
-use tonic::Code;
 use uuid::Uuid;
 
-use personhog_proto::personhog::types::v1::{
-    FencePersonRequest, LifecycleOpType, ReleaseFenceRequest, ReleaseOutcome,
-};
+use personhog_proto::personhog::types::v1::LifecycleOpType;
 
 use crate::config::IdentityTables;
 use crate::leader::LifecycleLeader;
@@ -41,7 +36,10 @@ use crate::lifecycle::engine::{
     advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError, Tx, STEP_ABORTED,
     STEP_COMPLETED,
 };
-use crate::storage::postgres::begin_timed;
+use crate::lifecycle::leader_calls::{
+    fence_victims, release_fenced, Fenced, FencedVictim, LeaderCalls,
+};
+use crate::pools::{IdentityPools, Lane};
 
 // Derived from the shared enum so the op-type string cannot drift from
 // the leader's fence records or the lifecycle_op CHECK constraint.
@@ -147,17 +145,13 @@ struct PersonStatus {
     status: String,
 }
 
-struct FencedVictim {
-    person_id: i64,
-    person_uuid: Uuid,
-    sealed_version: i64,
-    sealed_created_at: i64,
-}
-
 pub struct DeleteDriver {
     leader: Arc<dyn LifecycleLeader>,
     tables: IdentityTables,
     leader_call_concurrency: usize,
+    /// The leaders' partition count, which decides which victims share a
+    /// fence call.
+    num_partitions: u32,
 }
 
 impl DeleteDriver {
@@ -165,14 +159,25 @@ impl DeleteDriver {
         leader: Arc<dyn LifecycleLeader>,
         tables: IdentityTables,
         leader_call_concurrency: usize,
+        num_partitions: u32,
     ) -> Self {
         tables.validate().expect("invalid identity table set");
+        assert!(num_partitions > 0, "num_partitions must be > 0");
         Self {
             leader,
             tables,
             // Clamped to 1: a zero-width buffered stream never polls.
             leader_call_concurrency: leader_call_concurrency.max(1),
+            num_partitions,
         }
+    }
+
+    fn leader_calls(&self) -> LeaderCalls<'_> {
+        LeaderCalls::new(
+            self.leader.as_ref(),
+            self.leader_call_concurrency,
+            self.num_partitions,
+        )
     }
 }
 
@@ -186,7 +191,7 @@ impl OpDriver for DeleteDriver {
         DeleteStep::Started.as_str()
     }
 
-    async fn run_step(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
         let step = DeleteStep::parse(&op.step).ok_or_else(|| {
             SagaError::CorruptState(format!(
                 "delete op {} is on unknown step '{}'",
@@ -194,28 +199,10 @@ impl OpDriver for DeleteDriver {
             ))
         })?;
         match step {
-            DeleteStep::Started => mark(pool, &self.tables, op).await,
-            DeleteStep::Marked => {
-                seal(
-                    pool,
-                    self.leader.as_ref(),
-                    &self.tables,
-                    self.leader_call_concurrency,
-                    op,
-                )
-                .await
-            }
-            DeleteStep::Sealed => unmap(pool, &self.tables, op).await,
-            DeleteStep::Unmapped => {
-                complete(
-                    pool,
-                    self.leader.as_ref(),
-                    &self.tables,
-                    self.leader_call_concurrency,
-                    op,
-                )
-                .await
-            }
+            DeleteStep::Started => mark(pools, &self.tables, op).await,
+            DeleteStep::Marked => seal(pools, self.leader_calls(), &self.tables, op).await,
+            DeleteStep::Sealed => unmap(pools, &self.tables, op).await,
+            DeleteStep::Unmapped => complete(pools, self.leader_calls(), &self.tables, op).await,
         }
     }
 }
@@ -235,11 +222,11 @@ fn parse_request(op: &OpRow) -> Result<DeleteRequest, SagaError> {
 /// `skipped_conflict`. Requested ids with no live person row get no row at
 /// all — they surface as `not_found` in the outcome. If nothing was claimed
 /// the op aborts here, before anything was mutated.
-async fn mark(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
+async fn mark(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
     let request = parse_request(op)?;
     let team_id = op.team_id as i32;
     let person_table = &tables.person;
-    let mut tx = begin_timed(pool).await?;
+    let mut tx = pools.begin(Lane::Heavy).await?;
 
     // Rows from a previous attempt of this op (crash between the insert and
     // the advance): whatever they claimed stays claimed.
@@ -281,10 +268,10 @@ async fn mark(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), 
     let marked: Vec<i64> = mirrored_query_scalar!(
         tables.is_validation(),
         r#"
-        INSERT INTO {lifecycle_op_person} (op_id, team_id, person_id, person_uuid, role, status)
-        SELECT $1, $2, u.person_id, u.person_uuid, 'victim', $5
+        INSERT INTO {lifecycle_op_person} (op_id, team_id, person_id, person_uuid, role, status, mark_active)
+        SELECT $1, $2, u.person_id, u.person_uuid, 'victim', $5, true
         FROM unnest($3::bigint[], $4::uuid[]) AS u(person_id, person_uuid)
-        ON CONFLICT (team_id, person_id) WHERE status IN ('marked', 'sealed') DO NOTHING
+        ON CONFLICT (team_id, person_id) WHERE mark_active DO NOTHING
         RETURNING person_id
         "#,
         op.op_id,
@@ -352,7 +339,7 @@ async fn mark(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), 
         tables.is_validation(),
         r#"
         SELECT count(*) as "count!" FROM {lifecycle_op_person}
-        WHERE op_id = $1 AND status IN ('marked', 'sealed')
+        WHERE op_id = $1 AND mark_active
         "#,
         op.op_id
         => fetch_one(&mut *tx)
@@ -399,7 +386,7 @@ async fn mark(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), 
     Ok(())
 }
 
-/// `marked → sealed`: fence every victim's owning leader and
+/// `marked → sealed`: fence every victim on its owning leader and
 /// persist the exact sealed versions. The fences are the step's only
 /// external effect and a same-op re-fence is a re-seal returning fresh
 /// state, so the fan-out is safe to repeat; the sealed values and the step
@@ -407,7 +394,7 @@ async fn mark(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), 
 /// (epoch milliseconds, as the leader seals it) alongside `version`; its
 /// presence is what marks a victim as fenced when the release runs.
 ///
-/// A victim the leader reports NOT_FOUND vanished between the claim
+/// A victim the leader reports not found vanished between the claim
 /// recheck and its fence (destroyed by another actor) — its mark row is
 /// removed so it settles as `not_found`, mirroring the merge driver's
 /// vanished-source handling. A definitive refusal propagates and parks the
@@ -415,57 +402,39 @@ async fn mark(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), 
 /// past `started`, and a parked delete is an operator signal, not a stuck
 /// customer flow.
 async fn seal(
-    pool: &PgPool,
-    leader: &dyn LifecycleLeader,
+    pools: &IdentityPools,
+    calls: LeaderCalls<'_>,
     tables: &IdentityTables,
-    leader_call_concurrency: usize,
     op: &OpRow,
 ) -> Result<(), SagaError> {
     let victims: Vec<i64> = mirrored_query_scalar!(
         tables.is_validation(),
         r#"
         SELECT person_id FROM {lifecycle_op_person}
-        WHERE op_id = $1 AND status IN ('marked', 'sealed')
+        WHERE op_id = $1 AND mark_active
         ORDER BY person_id
         "#,
         op.op_id
-        => fetch_all(pool)
+        => fetch_all(pools.fast())
     )?;
+    let fenced = fence_victims(calls, op, &victims).await?;
 
-    let fence_calls: Vec<_> = victims
-        .iter()
-        .map(|&person_id| {
-            let request = FencePersonRequest {
-                team_id: op.team_id,
-                person_id,
-                op_id: op.op_id.to_string(),
-                op_type: LifecycleOpType::Delete.into(),
-            };
-            async move { (person_id, leader.fence_person(request).await) }
-        })
-        .collect();
-    let fence_results: Vec<_> = stream::iter(fence_calls)
-        .buffer_unordered(leader_call_concurrency)
-        .collect()
-        .await;
-
-    let mut sealed_ids: Vec<i64> = Vec::with_capacity(fence_results.len());
-    let mut sealed_versions: Vec<i64> = Vec::with_capacity(fence_results.len());
-    let mut sealed_created_ats: Vec<i64> = Vec::with_capacity(fence_results.len());
+    let mut sealed_ids: Vec<i64> = Vec::with_capacity(fenced.len());
+    let mut sealed_versions: Vec<i64> = Vec::with_capacity(fenced.len());
+    let mut sealed_created_ats: Vec<i64> = Vec::with_capacity(fenced.len());
     let mut vanished: Vec<i64> = Vec::new();
-    for (person_id, result) in fence_results {
-        match result {
-            Ok(response) => {
-                let sealed = response.sealed.ok_or_else(|| {
-                    SagaError::CorruptState(format!(
-                        "fence response for person {person_id} carries no sealed state"
-                    ))
-                })?;
+    for outcome in fenced {
+        match outcome {
+            Fenced::Sealed {
+                person_id,
+                version,
+                created_at,
+            } => {
                 sealed_ids.push(person_id);
-                sealed_versions.push(sealed.version);
-                sealed_created_ats.push(sealed.created_at);
+                sealed_versions.push(version);
+                sealed_created_ats.push(created_at);
             }
-            Err(status) if status.code() == Code::NotFound => {
+            Fenced::Vanished(person_id) => {
                 tracing::error!(
                     op_id = %op.op_id,
                     person_id,
@@ -473,13 +442,10 @@ async fn seal(
                 );
                 vanished.push(person_id);
             }
-            // FencePerson mints no semantic refusal today; adding one
-            // needs an abort path first (see the merge driver's).
-            Err(status) => return Err(SagaError::leader(status)),
         }
     }
 
-    let mut tx = begin_timed(pool).await?;
+    let mut tx = pools.begin(Lane::Heavy).await?;
     mirrored_query!(
         tables.is_validation(),
         r#"
@@ -487,7 +453,7 @@ async fn seal(
         SET status = $2, sealed = jsonb_build_object('version', u.version, 'created_at', u.created_at)
         FROM unnest($3::bigint[], $4::bigint[], $5::bigint[]) AS u(person_id, version, created_at)
         WHERE lop.op_id = $1 AND lop.person_id = u.person_id
-          AND lop.status IN ('marked', 'sealed')
+          AND lop.mark_active
         "#,
         op.op_id,
         STATUS_SEALED,
@@ -501,7 +467,7 @@ async fn seal(
             tables.is_validation(),
             r#"
             DELETE FROM {lifecycle_op_person}
-            WHERE op_id = $1 AND person_id = ANY($2) AND status IN ('marked', 'sealed')
+            WHERE op_id = $1 AND person_id = ANY($2) AND mark_active
             "#,
             op.op_id,
             &vanished
@@ -534,9 +500,13 @@ async fn seal(
 /// at sealed + 1 so the tombstone outranks every write the old incarnation
 /// ever produced. Revival (a later create on the same key) upserts above
 /// this version.
-async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
+async fn unmap(
+    pools: &IdentityPools,
+    tables: &IdentityTables,
+    op: &OpRow,
+) -> Result<(), SagaError> {
     let team_id = op.team_id as i32;
-    let mut tx = begin_timed(pool).await?;
+    let mut tx = pools.begin(Lane::Heavy).await?;
 
     let mut victims: Vec<i64> = mirrored_query_scalar!(
         tables.is_validation(),
@@ -697,10 +667,9 @@ async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(),
 /// exactly when `FencePerson` sealed them, so an op sealed pre-fence (or
 /// across a kill-switch flip) completes without phantom release calls.
 async fn complete(
-    pool: &PgPool,
-    leader: &dyn LifecycleLeader,
+    pools: &IdentityPools,
+    calls: LeaderCalls<'_>,
     tables: &IdentityTables,
-    leader_call_concurrency: usize,
     op: &OpRow,
 ) -> Result<(), SagaError> {
     let request = parse_request(op)?;
@@ -717,36 +686,15 @@ async fn complete(
         ORDER BY person_id
         "#,
         op.op_id
-        => fetch_all(pool)
+        => fetch_all(pools.fast())
     )?;
-    let release_calls: Vec<_> = fenced
-        .iter()
-        .map(|victim| {
-            let request = ReleaseFenceRequest {
-                team_id: op.team_id,
-                person_id: victim.person_id,
-                person_uuid: victim.person_uuid.to_string(),
-                op_id: op.op_id.to_string(),
-                outcome: ReleaseOutcome::Committed.into(),
-                sealed_version: Some(victim.sealed_version),
-                created_at: victim.sealed_created_at,
-            };
-            async move { leader.release_fence(request).await }
-        })
-        .collect();
-    let release_results: Vec<_> = stream::iter(release_calls)
-        .buffer_unordered(leader_call_concurrency)
-        .collect()
-        .await;
-    for result in release_results {
-        result.map_err(SagaError::leader)?;
-    }
+    release_fenced(calls, op, &fenced).await?;
 
-    let mut tx = begin_timed(pool).await?;
+    let mut tx = pools.begin(Lane::Heavy).await?;
 
     mirrored_query!(
         tables.is_validation(),
-        "UPDATE {lifecycle_op_person} SET status = $2 WHERE op_id = $1 AND status = 'sealed'",
+        "UPDATE {lifecycle_op_person} SET status = $2, mark_active = false WHERE op_id = $1 AND status = 'sealed'",
         op.op_id,
         STATUS_DELETED
         => execute(&mut *tx)

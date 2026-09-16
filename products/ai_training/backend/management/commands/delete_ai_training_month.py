@@ -4,12 +4,11 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 
 from products.ai_training.backend.config import key_table_name
-from products.ai_training.backend.privacy.reader import KEY_READ_LEASE_SECONDS
-from products.ai_training.backend.privacy.store import AITrainingPrivacyStore
+from products.ai_training.backend.privacy.store import KEY_READ_LEASE_SECONDS, AITrainingPrivacyStore
 
 
 class Command(BaseCommand):
-    help = "Permanently block an ML session month and remove its session and image keys."
+    help = "Permanently remove the session and image keys of an ML session month."
 
     def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument("session_month", help="UTC session start month, in YYYY-MM format")

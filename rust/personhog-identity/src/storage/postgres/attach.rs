@@ -3,10 +3,10 @@
 
 use std::collections::HashMap;
 
-use sqlx::postgres::PgPool;
 use sqlx::Row;
 
 use crate::config::IdentityTables;
+use crate::pools::{IdentityPools, Lane};
 use crate::storage::error::StorageResult;
 use crate::storage::types::AttachOutcome;
 
@@ -21,7 +21,7 @@ use crate::storage::types::AttachOutcome;
 /// check rejects persons held by a live op. The rare statement that slips
 /// both leaves an orphaned mapping the next resolve treats as absent.
 pub(super) async fn attach_distinct_ids(
-    pool: &PgPool,
+    pools: &IdentityPools,
     tables: &IdentityTables,
     team_id: i64,
     person_id: i64,
@@ -43,7 +43,7 @@ pub(super) async fn attach_distinct_ids(
         WHERE NOT EXISTS (
             SELECT 1 FROM {lop} m
             WHERE m.team_id = p.team_id AND m.person_id = p.id
-              AND m.status IN ('marked', 'sealed')
+              AND m.mark_active
         )
         ON CONFLICT (team_id, distinct_id) DO UPDATE SET
             person_id = EXCLUDED.person_id,
@@ -56,7 +56,7 @@ pub(super) async fn attach_distinct_ids(
         person = tables.person,
         lop = tables.lifecycle_op_person,
     );
-    let mut conn = super::acquire_timed(pool).await?;
+    let mut conn = pools.acquire(Lane::Heavy).await?;
     let written = sqlx::query(&insert_sql)
         .bind(&sorted)
         .bind(person_id)
