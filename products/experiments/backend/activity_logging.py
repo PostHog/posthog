@@ -12,7 +12,7 @@ from products.experiments.backend.models.web_experiment import WebExperiment
 DERIVED_RUNNING_TIME_KEYS = ("recommended_running_time", "recommended_sample_size")
 
 
-def _without_derived_running_time_keys(value: Any) -> dict[str, Any]:
+def _without_derived_running_time_keys(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         return {}
     return {key: item for key, item in value.items() if key not in DERIVED_RUNNING_TIME_KEYS}
