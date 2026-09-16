@@ -1,19 +1,17 @@
 use crate::api::errors::FlagError;
 use crate::flags::flag_models::MultivariateFlagVariant;
 
-pub fn is_in_rollout(hash: f64, percentage: f64) -> bool {
-    percentage == 100.0 || hash <= percentage / 100.0
-}
-
-pub(crate) fn rollout_with_hash(
+/// V1 rollout inclusion. The hash is a closure because identifier resolution and hashing
+/// must stay lazy at 100%: a flag at full rollout is included even when the identifier
+/// cannot be resolved.
+pub fn is_in_rollout(
     percentage: f64,
     hash: impl FnOnce() -> Result<f64, FlagError>,
 ) -> Result<bool, FlagError> {
-    // Identifier resolution and hashing must remain lazy at 100%.
     if percentage == 100.0 {
         return Ok(true);
     }
-    Ok(is_in_rollout(hash()?, percentage))
+    Ok(hash()? <= percentage / 100.0)
 }
 
 pub fn select_variant(hash: f64, variants: &[MultivariateFlagVariant]) -> Option<&str> {
@@ -34,12 +32,12 @@ mod tests {
     #[test]
     fn full_rollout_bypasses_hash_errors() {
         let hash_error = || Err(FlagError::HashKeyOverrideError);
-        assert!(rollout_with_hash(100.0, hash_error).unwrap());
+        assert!(is_in_rollout(100.0, hash_error).unwrap());
         assert!(matches!(
-            rollout_with_hash(99.0, hash_error),
+            is_in_rollout(99.0, hash_error),
             Err(FlagError::HashKeyOverrideError)
         ));
-        assert!(rollout_with_hash(100.0, || panic!("must not hash")).unwrap());
+        assert!(is_in_rollout(100.0, || panic!("must not hash")).unwrap());
     }
 
     #[test]

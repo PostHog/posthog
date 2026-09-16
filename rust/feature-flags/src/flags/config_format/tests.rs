@@ -26,7 +26,7 @@ fn v1_cache_round_trip_preserves_discriminator_and_unknown_fields() {
             filters["version"] = version;
         }
         let decoded: FeatureFlag = serde_json::from_value(flag(filters.clone())).unwrap();
-        assert_eq!(decoded.filters.config_format(), ConfigFormat::V1);
+        assert!(decoded.filters.is_v1());
         assert_eq!(serde_json::to_value(&decoded).unwrap()["filters"], filters);
         assert_eq!(decoded.version, Some(2));
     }
@@ -54,12 +54,7 @@ fn non_v1_cache_documents_remain_opaque_and_keep_healthy_siblings() {
                 "flags": [flag(filters.clone()), {"id": 2, "team_id": 1, "key": "healthy", "active": true, "filters": {"groups": [{"rollout_percentage": 100}]}}],
                 "evaluation_metadata": {"dependency_stages": [[1, 2]], "flags_with_missing_deps": [], "transitive_deps": {"1": [], "2": []}}
             })).unwrap();
-            let format = if version == json!(2) || version == json!(2.0) {
-                ConfigFormat::V2
-            } else {
-                ConfigFormat::Unsupported
-            };
-            assert_eq!(wrapper.flags[0].filters.config_format(), format);
+            assert!(!wrapper.flags[0].filters.is_v1());
             assert_eq!(
                 serde_json::to_value(&wrapper).unwrap()["flags"][0]["filters"],
                 filters

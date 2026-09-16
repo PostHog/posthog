@@ -859,7 +859,29 @@ impl FeatureFlagMatcher {
         let mut errors_while_computing_flags = overrides.hash_key_override_error;
         let mut evaluated_flags_map = HashMap::new();
 
-        // Collect flags from evaluation stages for preparation steps
+        // A stored config this service cannot evaluate is classified once per request, not
+        // per flag inside `get_match`: it gets an error response entry here, and joins
+        // `filtered_out_flag_ids` so it is skipped by preparation and evaluation and
+        // pre-seeded false below — the same treatment an inactive flag gets, so a
+        // dependent's `flag_evaluates_to: false` condition still resolves.
+        let unsupported_format = FlagError::flag_data_parsing("unsupported configuration format");
+        let mut unsupported_flag_ids: Vec<FeatureFlagId> = Vec::new();
+        for flag in evaluation_stages.iter().flatten() {
+            if !flag.filters.is_v1() && !self.filtered_out_flag_ids.contains(&flag.id) {
+                evaluated_flags_map.insert(
+                    flag.key.clone(),
+                    FlagDetails::create_error(flag, &unsupported_format, None),
+                );
+                unsupported_flag_ids.push(flag.id);
+            }
+        }
+        if !unsupported_flag_ids.is_empty() {
+            errors_while_computing_flags = true;
+            self.filtered_out_flag_ids.extend(unsupported_flag_ids);
+        }
+
+        // Collect flags from evaluation stages for preparation steps. Non-v1 documents are
+        // excluded: preparation reads v1 fields that are empty defaults for them.
         let flags: Vec<&FeatureFlag> = evaluation_stages
             .iter()
             .flatten()
@@ -1365,7 +1387,6 @@ impl FeatureFlagMatcher {
         request_hash_key_override: &Option<String>,
     ) -> Result<FeatureFlagMatch, FlagError> {
         if flags_with_missing_deps.contains(&flag.id) {
-            flag.filters.require_v1()?;
             return Ok(FeatureFlagMatch::missing_dependency());
         }
 
@@ -2067,10 +2088,11 @@ impl FeatureFlagMatcher {
         if let Some(holdout) = &flag.filters.holdout {
             let percentage = holdout.exclusion_percentage_clamped();
 
-            if percentage < 100.0
-                && self.get_holdout_hash(flag, None, request_hash_key_override)?
-                    > (percentage / 100.0)
-            {
+            // The holdout threshold is the v1 rollout predicate: `exclusion_percentage_clamped`
+            // is in [0, 100], so a hash at or below it is in holdout.
+            if !crate::flags::v1_bucketing::is_in_rollout(percentage, || {
+                self.get_holdout_hash(flag, None, request_hash_key_override)
+            })? {
                 // User's hash is above the exclusion threshold — not in holdout
                 return Ok((false, None, FeatureFlagMatchReason::OutOfRolloutBound));
             }
@@ -2215,7 +2237,7 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
-        let included = crate::flags::v1_bucketing::rollout_with_hash(rollout_percentage, || {
+        let included = crate::flags::v1_bucketing::is_in_rollout(rollout_percentage, || {
             self.get_hash(
                 feature_flag,
                 "",

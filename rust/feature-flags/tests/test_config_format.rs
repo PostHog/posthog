@@ -89,8 +89,9 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
     let team = db.insert_new_team(None).await?;
     let redis = setup_redis_client(Some(DEFAULT_TEST_CONFIG.redis_url.clone())).await;
     update_team_in_hypercache(redis.clone(), &team).await?;
+    let docs = documents();
     let mut flags = Vec::new();
-    for (key, filters, active, deleted) in documents() {
+    for (key, filters, active, deleted) in docs.clone() {
         if cached {
             flags.push(
                 json!({"id": flags.len() + 1, "team_id": team.id, "key": key,
@@ -116,95 +117,95 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
     if cached {
         insert_flags_for_team_in_redis(redis, team.id, Some(json!(flags).to_string())).await?;
     } else {
-        let built = build_flags_cache(db.non_persons_reader.clone(), team.id).await?;
-        let serialized = serde_json::to_value(&built)?;
-        for (key, filters, active, deleted) in documents() {
-            if !active || deleted {
-                continue;
-            }
-            let stored = serialized["flags"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|flag| flag["key"] == key)
-                .unwrap();
-            assert_eq!(stored["filters"].get("version"), filters.get("version"));
-            if key.starts_with("rejected-") {
-                assert_eq!(stored["filters"], filters);
-            }
-        }
+        // Mirrors Python (`products/feature_flags/backend/facade/references.py`): an
+        // evaluable non-v1 document fails the team's whole rebuild, so the previous entry
+        // and ETag survive. The request path below reads Postgres directly instead.
+        assert!(build_flags_cache(db.non_persons_reader.clone(), team.id)
+            .await
+            .is_err());
     }
     let server = common::ServerHandle::for_config(DEFAULT_TEST_CONFIG.clone()).await;
     let client = reqwest::Client::new();
     let payload = json!({"token": team.api_token, "distinct_id": "example-person"});
 
-    for _ in 0..2 {
-        for (endpoint, version) in [
-            ("flags", "2"),
-            ("flags", "1"),
-            ("decide", "1"),
-            ("decide", "2"),
-            ("decide", "3"),
-            ("decide", "4"),
-        ] {
-            let response = client
-                .post(format!(
-                    "http://{}/flags?v={version}&config=false",
-                    server.addr
-                ))
-                .header("X-Original-Endpoint", endpoint)
-                .json(&payload)
-                .send()
-                .await?;
-            assert_eq!(response.status(), 200, "{endpoint} v{version}");
-            assert_eq!(response.headers()["content-type"], "application/json");
-            let body: Value = response.json().await?;
-            if endpoint == "flags" || version == "3" || version == "4" {
-                assert_eq!(body["errorsWhileComputingFlags"], true, "{body}");
-            } else {
-                assert!(body.get("errorsWhileComputingFlags").is_none());
-            }
-            if endpoint == "flags" && version == "2" || endpoint == "decide" && version == "4" {
+    for (endpoint, version, errors_reported, shape) in [
+        ("flags", "2", true, Shape::Detailed),
+        ("flags", "1", true, Shape::Map { rejected: true }),
+        ("decide", "1", false, Shape::EnabledKeys),
+        ("decide", "2", false, Shape::Map { rejected: false }),
+        ("decide", "3", true, Shape::Map { rejected: true }),
+        ("decide", "4", true, Shape::Detailed),
+    ] {
+        let response = client
+            .post(format!(
+                "http://{}/flags?v={version}&config=false",
+                server.addr
+            ))
+            .header("X-Original-Endpoint", endpoint)
+            .json(&payload)
+            .send()
+            .await?;
+        assert_eq!(response.status(), 200, "{endpoint} v{version}");
+        assert_eq!(response.headers()["content-type"], "application/json");
+        let body: Value = response.json().await?;
+        if errors_reported {
+            assert_eq!(body["errorsWhileComputingFlags"], true, "{body}");
+        } else {
+            assert!(body.get("errorsWhileComputingFlags").is_none(), "{body}");
+        }
+        match shape {
+            Shape::Detailed => {
                 for key in ["absent", "one", "one-float"] {
                     assert_eq!(body["flags"][key]["enabled"], true, "{body}");
-                    assert_eq!(
-                        body["flags"][key]["metadata"]["version"],
-                        if cached { 2 } else { 0 }
-                    );
+                    assert_eq!(body["flags"][key]["metadata"]["version"], 2, "{body}");
                 }
-                for (key, _, active, deleted) in documents() {
+                for (key, _, active, deleted) in &docs {
                     if key.starts_with("rejected-") {
-                        assert_eq!(body["flags"][&key]["failed"], true, "{body}");
+                        assert_eq!(body["flags"][key]["failed"], true, "{body}");
                         assert_eq!(
-                            body["flags"][&key]["reason"]["code"],
+                            body["flags"][key]["reason"]["code"],
                             "flag_data_parsing_error"
                         );
-                        assert!(body["flags"][&key]["metadata"]["payload"].is_null());
-                    } else if !active || deleted {
-                        assert!(body["flags"].get(&key).is_none(), "{body}");
+                        assert!(body["flags"][key]["metadata"]["payload"].is_null());
+                    } else if !active || *deleted {
+                        assert!(body["flags"].get(key).is_none(), "{body}");
                     }
                 }
-            } else if endpoint == "decide" && version == "1" {
+            }
+            Shape::EnabledKeys => {
                 let mut keys = body["featureFlags"].as_array().unwrap().clone();
                 keys.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
                 assert_eq!(
                     keys,
                     vec![json!("absent"), json!("one"), json!("one-float")]
                 );
-            } else {
+            }
+            Shape::Map { rejected } => {
                 let mut expected = json!({"absent": true, "one": true, "one-float": true});
-                if endpoint == "flags" || version == "3" {
-                    for (key, _, _, _) in documents() {
+                if rejected {
+                    for (key, _, _, _) in &docs {
                         if key.starts_with("rejected-") {
                             expected[key] = json!(false);
                         }
                     }
                 }
-                assert_eq!(body["featureFlags"], expected);
+                assert_eq!(body["featureFlags"], expected, "{endpoint} v{version}");
             }
         }
     }
     Ok(())
+}
+
+/// The response shape each endpoint/version pair returns for the same evaluation.
+#[derive(Clone, Copy)]
+enum Shape {
+    /// Detailed `flags` map: `/flags?v=2` and `/decide?v=4`.
+    Detailed,
+    /// `featureFlags` as an array of enabled keys: `/decide?v=1`.
+    EnabledKeys,
+    /// `featureFlags` as a key -> value map. `rejected` is whether unevaluable flags are
+    /// retained in it as false rather than omitted.
+    Map { rejected: bool },
 }
 
 #[tokio::test]
@@ -256,4 +257,56 @@ async fn non_v1_rejects_before_preparation_and_missing_dependency_default() {
         response.flags["rejected"].reason.code,
         "flag_data_parsing_error"
     );
+}
+
+/// A v1 flag whose condition depends on a non-v1 flag still evaluates: the unevaluable
+/// flag is seeded false like any other flag the matcher skips, so `flag_evaluates_to:
+/// false` matches instead of silently missing the dependency.
+#[tokio::test]
+async fn a_dependent_v1_flag_still_matches_against_a_non_v1_dependency() {
+    let db = TestContext::new(None).await;
+    let cohort_cache = Arc::new(CohortCacheManager::new(
+        db.non_persons_reader.clone(),
+        None,
+        None,
+    ));
+    let mut matcher = FeatureFlagMatcher::new(
+        "example-person".to_string(),
+        None,
+        1,
+        db.create_postgres_router(),
+        cohort_cache,
+        mock_group_type_cache(HashMap::new()),
+        None,
+    );
+    let flags: Vec<FeatureFlag> = serde_json::from_value(json!([
+        {"id": 1, "team_id": 1, "key": "blocker", "active": true,
+         "filters": {"version": 2, "groups": [{"rollout_percentage": 100}]}},
+        {"id": 2, "team_id": 1, "key": "dependent", "active": true,
+         "filters": {"groups": [{"rollout_percentage": 100, "properties": [
+            {"type": "flag", "key": "1", "value": false, "operator": "flag_evaluates_to"}]}]}}
+    ]))
+    .unwrap();
+    let response = matcher
+        .evaluate_all_feature_flags(
+            FeatureFlagList {
+                flags: PreparedFlags::seal(flags),
+                evaluation_metadata: Arc::new(EvaluationMetadata {
+                    dependency_stages: vec![vec![1], vec![2]],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            None,
+            None,
+            None,
+            Uuid::new_v4(),
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+    assert!(response.flags["blocker"].failed);
+    assert!(response.flags["dependent"].enabled);
+    assert!(response.errors_while_computing_flags);
 }

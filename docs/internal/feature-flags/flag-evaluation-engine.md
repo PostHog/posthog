@@ -5,20 +5,21 @@ The Rust feature flags service evaluates flags using a deterministic, hash-based
 ## Architecture overview
 
 Stored configuration dispatch reads `filters.version`; the row's `FeatureFlag.version` remains a concurrency counter.
-An absent discriminator or numeric 1 (including 1.0) selects v1.
-Numeric 2 (including 2.0) selects the recognized but unsupported v2 arm.
-All other discriminator values are unsupported.
+An absent discriminator or numeric 1 (including 1.0) selects v1; every other value, 2 included, is a format this service does not evaluate.
+The classification matches Python's `detect_config_format` (`products/feature_flags/backend/facade/config.py`).
 
 Cache and PostgreSQL ingress classify the original document before decoding v1 fields.
 Non-v1 objects stay opaque in the filters passthrough map so cache round trips retain them and the cache byte budget includes them.
-They bypass v1 regex, cohort, dependency, and property preparation.
-Eligible non-v1 flags return the existing per-flag parsing error.
+
+The evaluator classifies them once per request, next to `filtered_out_flag_ids`, rather than failing per flag inside `get_match`: an eligible non-v1 flag gets a `flag_data_parsing_error` response entry, is skipped by regex, cohort, dependency, and property preparation, and is pre-seeded false like any other skipped flag, so a dependent's `flag_evaluates_to: false` condition still resolves.
 Detailed responses mark them failed.
 The legacy `/flags` map and `/decide?v=3` retain false entries with `errorsWhileComputingFlags=true`; older `/decide` formats omit them.
 Healthy siblings still evaluate, and request eligibility remains unchanged.
 Malformed v1 documents retain the existing ingress error behavior.
 
-The Rust cache builder preserves the discriminator when blanking inactive v1 filters and leaves non-v1 documents opaque.
+The internal batch evaluation endpoint rejects a non-v1 target before it pages the team.
+The Rust cache builder fails a team's rebuild on an evaluable non-v1 document, the way Python does.
+`/remote_config` stays outside this boundary: it reads `filters.payloads["true"]` raw, as Django's shadow-compared view does.
 This boundary does not make legacy definitions producers or older cache writers safe for persisted v2 rows.
 Those paths need independent exclusion and deployment-floor protection before such rows can exist.
 

@@ -4,42 +4,30 @@ use serde_json::Value;
 use crate::api::errors::FlagError;
 use crate::flags::flag_models::FlagFilters;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ConfigFormat {
-    V1,
-    V2,
-    Unsupported,
-}
-
-impl ConfigFormat {
-    fn from_version(version: Option<&Value>) -> Self {
-        match version {
-            None => Self::V1,
-            Some(Value::Number(number)) => match number.as_f64() {
-                Some(1.0) => Self::V1,
-                Some(2.0) => Self::V2,
-                _ => Self::Unsupported,
-            },
-            Some(_) => Self::Unsupported,
-        }
+/// Mirrors Python's `detect_config_format` (products/feature_flags/backend/facade/config.py):
+/// an absent discriminator or numeric 1 selects v1, everything else (including 2) is a
+/// format this service does not evaluate.
+fn is_v1_version(version: Option<&Value>) -> bool {
+    match version {
+        None => true,
+        // JSON booleans are not `Value::Number`, so `true` cannot read as 1 here.
+        Some(Value::Number(number)) => number.as_f64() == Some(1.0),
+        Some(_) => false,
     }
 }
 
 impl FlagFilters {
-    pub(crate) fn config_format(&self) -> ConfigFormat {
-        ConfigFormat::from_version(self.extra.get("version"))
-    }
-
     pub(crate) fn is_v1(&self) -> bool {
-        self.config_format() == ConfigFormat::V1
+        is_v1_version(self.extra.get("version"))
     }
 
     pub(crate) fn require_v1(&self) -> Result<(), FlagError> {
-        match self.config_format() {
-            ConfigFormat::V1 => Ok(()),
-            ConfigFormat::V2 | ConfigFormat::Unsupported => Err(FlagError::flag_data_parsing(
+        if self.is_v1() {
+            Ok(())
+        } else {
+            Err(FlagError::flag_data_parsing(
                 "unsupported feature flag configuration format",
-            )),
+            ))
         }
     }
 }
@@ -49,14 +37,15 @@ pub(crate) fn decode_filters(value: Value) -> Result<FlagFilters, serde_json::Er
     let Value::Object(document) = value else {
         return Err(serde::de::Error::custom("expected a filters object"));
     };
-    match ConfigFormat::from_version(document.get("version")) {
-        ConfigFormat::V1 => serde_json::from_value(Value::Object(document)),
-        ConfigFormat::V2 | ConfigFormat::Unsupported => Ok(FlagFilters {
+    if is_v1_version(document.get("version")) {
+        serde_json::from_value(Value::Object(document))
+    } else {
+        Ok(FlagFilters {
             // Keep the document opaque: v1-looking fields may have unrelated types.
             // The passthrough map also accounts for these bytes in the prepared cache.
             extra: document,
             ..Default::default()
-        }),
+        })
     }
 }
 
@@ -67,13 +56,17 @@ where
     decode_filters(Value::deserialize(deserializer)?).map_err(serde::de::Error::custom)
 }
 
+/// The single place a `FlagFilters` turns back into stored JSON: the derived `Serialize`
+/// impl flattens `extra`, which for an opaque non-v1 document would emit the typed fields
+/// twice. Serialize through here, not through the struct.
 pub(crate) fn serialize_filters<S>(filters: &FlagFilters, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    match filters.config_format() {
-        ConfigFormat::V1 => filters.serialize(serializer),
-        ConfigFormat::V2 | ConfigFormat::Unsupported => filters.extra.serialize(serializer),
+    if filters.is_v1() {
+        filters.serialize(serializer)
+    } else {
+        filters.extra.serialize(serializer)
     }
 }
 

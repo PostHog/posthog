@@ -51,6 +51,15 @@ pub async fn build_flags_cache(
     team_id: TeamId,
 ) -> Result<HypercacheFlagsWrapper, FlagError> {
     let mut flags = FeatureFlagList::from_pg(pg_reader.clone(), team_id).await?;
+    // Both writers of this entry must agree. Python reads references through
+    // `products/feature_flags/backend/facade/references.py`, which raises
+    // `ConfigFormatError` on an evaluable non-v1 document and so fails the team's whole
+    // rebuild, keeping the previous entry and ETag. Publishing a document the service
+    // cannot evaluate instead would make the two writers disagree permanently, and shadow
+    // compare report it forever. Unevaluable flags are never classified, in either writer.
+    for flag in flags.iter().filter(|flag| is_evaluable(flag)) {
+        flag.filters.require_v1()?;
+    }
     retain_evaluable_and_referenced_flags(&mut flags);
     let evaluation_metadata = compute_flag_dependencies(&flags)?;
     let cohorts = fetch_referenced_cohorts(pg_reader, team_id, &flags).await?;
@@ -96,19 +105,17 @@ fn retain_evaluable_and_referenced_flags(flags: &mut Vec<FeatureFlag>) {
 /// `products/feature_flags/backend/flags_cache.py`.
 fn blank_inactive_filters(flags: &mut [FeatureFlag]) {
     for flag in flags.iter_mut().filter(|f| !is_evaluable(f)) {
-        if flag.filters.is_v1() {
-            let version = flag.filters.extra.remove("version");
-            flag.filters = FlagFilters::default();
-            if let Some(version) = version {
-                flag.filters.extra.insert("version".to_string(), version);
-            }
-        }
+        // Unconditional, including for a non-v1 document: an unevaluable flag is never
+        // classified, and Python writes the same blank `{"groups": []}` for every one.
+        flag.filters = FlagFilters::default();
     }
 }
 
 /// Yields all property filters from an active, non-deleted flag's filter groups.
+/// `build_flags_cache` has already rejected evaluable non-v1 documents, and an unevaluable
+/// flag yields nothing, so `groups` here is always the v1 release conditions.
 fn active_flag_properties(flag: &FeatureFlag) -> impl Iterator<Item = &PropertyFilter> {
-    let groups = if is_evaluable(flag) && flag.filters.is_v1() {
+    let groups = if is_evaluable(flag) {
         flag.filters.groups.as_slice()
     } else {
         &[]
@@ -1021,31 +1028,24 @@ mod tests {
     }
 
     #[test]
-    fn test_blank_inactive_filters_retains_config_format() {
+    fn test_blank_inactive_filters_blanks_every_config_format() {
         for version in [
             serde_json::json!(1),
-            serde_json::json!(1.0),
             serde_json::json!(2),
-            serde_json::json!(2.0),
             serde_json::json!(3),
             serde_json::json!(null),
         ] {
-            let document =
-                serde_json::json!({"version": version, "groups": [{"rollout_percentage": 100}]});
             let flag: FeatureFlag = serde_json::from_value(serde_json::json!({
-                "id": 1, "team_id": 1, "key": "inactive", "active": false, "filters": document
+                "id": 1, "team_id": 1, "key": "inactive", "active": false,
+                "filters": {"version": version, "groups": [{"rollout_percentage": 100}]}
             }))
             .unwrap();
-            let v1 = flag.filters.is_v1();
             let mut flags = vec![flag];
             blank_inactive_filters(&mut flags);
             let after = serde_json::to_value(&flags[0]).unwrap();
-            let expected = if v1 {
-                serde_json::json!({"version": version, "groups": []})
-            } else {
-                document
-            };
-            assert_eq!(after["filters"], expected);
+            // Python's `_blank_inactive_filters()` writes this same shape for every stored
+            // format; the discriminator goes with the rest of the unreachable document.
+            assert_eq!(after["filters"], serde_json::json!({"groups": []}));
         }
     }
 }
