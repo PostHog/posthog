@@ -1,4 +1,5 @@
 import re
+import json
 import math
 from dataclasses import replace
 from typing import Any
@@ -39,6 +40,7 @@ ITERATION_STATUS_CHOICES = api.ITERATION_STATUS_CHOICES
 
 TARGET_EVENT_MAX_LENGTH = 255
 AGENT_DESCRIPTION_MAX_LENGTH = 2000
+OBJECT_JSON_MAX_BYTES = 64 * 1024
 OUTPUT_PERSON_PROPERTY_MAX_LENGTH = 255
 
 # The target event is interpolated into the sandboxed training agent's prompt brief, so reject
@@ -147,12 +149,26 @@ def resolve_target(
 
 
 class ObjectJSONField(serializers.JSONField):
-    """A JSON field whose schema says object, so a list or scalar is a 400 rather than a 500 downstream."""
+    """A JSON object the agent writes and Postgres stores.
+
+    The schema says object, so a list or scalar is a 400 here rather than a 500 downstream. The
+    value is re-encoded because ``STRICT_JSON`` is off: a nested NaN or a NUL character parses
+    fine and then fails the ``jsonb`` insert, and the encoded size is capped because the
+    object rides along on every iteration and comes back in every run and history response.
+    """
 
     def to_internal_value(self, data: Any) -> Any:
         value = super().to_internal_value(data)
         if not isinstance(value, dict):
             raise serializers.ValidationError("Must be a JSON object.")
+        try:
+            encoded = json.dumps(value, allow_nan=False)
+        except ValueError as exc:
+            raise serializers.ValidationError("Must not contain NaN or infinite numbers.") from exc
+        if "\\u0000" in encoded:
+            raise serializers.ValidationError("Must not contain NUL characters.")
+        if len(encoded) > OBJECT_JSON_MAX_BYTES:
+            raise serializers.ValidationError(f"Must be at most {OBJECT_JSON_MAX_BYTES} bytes as JSON.")
         return value
 
 

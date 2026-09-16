@@ -20,6 +20,7 @@ from products.autoresearch.backend.models import (
 )
 from products.autoresearch.backend.presentation.views.serializers import (
     AGENT_DESCRIPTION_MAX_LENGTH,
+    OBJECT_JSON_MAX_BYTES,
     CompleteTrainingRunSerializer,
     RecordIterationSerializer,
 )
@@ -575,6 +576,13 @@ class TestAgentWriteSerializers(SimpleTestCase):
                 "oversized_rationale",
                 {"agent_description": "x" * (AGENT_DESCRIPTION_MAX_LENGTH + 1)},
                 "agent_description",
+            ),
+            ("nested_nan_in_spec", {"model_spec": {**VALID_SPEC, "model_params": {"C": float("nan")}}}, "model_spec"),
+            ("nul_in_recipe", {"recipe_snapshot": {**VALID_RECIPE, "note": "a\x00b"}}, "recipe_snapshot"),
+            (
+                "oversized_recipe",
+                {"recipe_snapshot": {**VALID_RECIPE, "pad": "x" * OBJECT_JSON_MAX_BYTES}},
+                "recipe_snapshot",
             ),
         ]
     )
