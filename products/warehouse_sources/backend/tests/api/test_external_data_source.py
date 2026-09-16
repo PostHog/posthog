@@ -60,7 +60,9 @@ from products.warehouse_sources.backend.models.external_data_destination import 
     ExternalDataDestination,
     ExternalDataSourceDestination,
 )
-from products.warehouse_sources.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
+from products.warehouse_sources.backend.presentation.views.external_data_schema.serializers import (
+    ExternalDataSchemaSerializer,
+)
 from products.warehouse_sources.backend.presentation.views.external_data_source import (
     DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE,
     INVALID_CREDENTIALS_FALLBACK_MESSAGE,
@@ -1136,7 +1138,7 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["cdc_ingest_mode"] == "buffered"
 
     @patch(
-        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.external_data_workflow_exists",
         return_value=False,
     )
     def test_bulk_update_schemas(self, _mock_workflow_exists):
@@ -1179,7 +1181,7 @@ class TestExternalDataSource(APIBaseTest):
         assert schema_two.should_sync is False
 
     @patch(
-        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.external_data_workflow_exists",
         return_value=False,
     )
     def test_bulk_update_schemas_sets_primary_key_columns(self, _mock_workflow_exists):
@@ -1213,7 +1215,7 @@ class TestExternalDataSource(APIBaseTest):
             assert schema.sync_type_config.get("primary_key_columns") == ["id"]
 
     @patch(
-        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.external_data_workflow_exists",
         return_value=True,
     )
     def test_bulk_update_schemas_runs_deferred_temporal_updates(self, _mock_workflow_exists):
@@ -1228,7 +1230,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         with patch(
-            "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.sync_external_data_job_workflow"
         ) as mock_sync_external_data_job_workflow:
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
@@ -1245,7 +1247,7 @@ class TestExternalDataSource(APIBaseTest):
         assert mock_sync_external_data_job_workflow.call_args.args[0].id == schema.id
 
     @patch(
-        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.external_data_workflow_exists",
         return_value=False,
     )
     def test_bulk_update_schemas_runs_source_discovery_outside_transaction(self, _mock_workflow_exists):
@@ -1302,7 +1304,7 @@ class TestExternalDataSource(APIBaseTest):
         ]
     )
     @patch(
-        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.external_data_workflow_exists",
         return_value=False,
     )
     def test_bulk_update_schemas_one_schema_failing_does_not_block_others(
@@ -1312,7 +1314,7 @@ class TestExternalDataSource(APIBaseTest):
         # mid-save, or a validation error raised inside update() — must not roll back or block the
         # others: every schema is attempted, and the failures are reported per schema (503 for a
         # database error, 400 when it is only validation) instead of 500ing the whole batch.
-        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+        from products.warehouse_sources.backend.presentation.views.external_data_schema.serializers import (
             ExternalDataSchemaSerializer,
         )
 
@@ -1342,7 +1344,7 @@ class TestExternalDataSource(APIBaseTest):
         with (
             patch.object(ExternalDataSchemaSerializer, "update", _failing_update),
             patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.sync_external_data_job_workflow"
             ),
         ):
             response = self.client.patch(
@@ -1411,7 +1413,7 @@ class TestExternalDataSource(APIBaseTest):
         assert invalid_schema.sync_frequency_interval == invalid_original
 
     @patch(
-        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.external_data_workflow_exists",
         return_value=False,
     )
     def test_bulk_update_schemas_fails_when_schedule_update_fails_after_save(self, _mock_workflow_exists):
@@ -1429,7 +1431,7 @@ class TestExternalDataSource(APIBaseTest):
 
         with (
             patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.sync_external_data_job_workflow",
                 side_effect=Exception("temporal unavailable"),
             ),
             patch("products.warehouse_sources.backend.presentation.views.external_data_source.logger") as mock_logger,
@@ -1452,7 +1454,7 @@ class TestExternalDataSource(APIBaseTest):
         assert any(call.kwargs.get("schema_id") == str(schema.id) for call in mock_logger.warning.call_args_list)
 
     @patch(
-        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.external_data_workflow_exists",
         return_value=False,
     )
     def test_bulk_update_schemas_webhook_reconcile_raising_does_not_500(self, _mock_workflow_exists):
@@ -1486,7 +1488,7 @@ class TestExternalDataSource(APIBaseTest):
 
         with (
             patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function",
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.get_or_create_webhook_hog_function",
                 return_value=mock_hog_fn_result,
             ),
             patch(
@@ -1522,7 +1524,7 @@ class TestExternalDataSource(APIBaseTest):
         assert schema.sync_type == ExternalDataSchema.SyncType.WEBHOOK
 
     @patch(
-        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.external_data_workflow_exists",
         return_value=False,
     )
     def test_bulk_update_schemas_apply_sync_defaults_fills_settings_from_source(self, _mock_workflow_exists):
@@ -1567,7 +1569,7 @@ class TestExternalDataSource(APIBaseTest):
                 return_value=discovered,
             ) as mock_get_schemas,
             patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.sync_external_data_job_workflow"
             ) as mock_sync_workflow,
         ):
             response = self.client.patch(
@@ -1595,7 +1597,7 @@ class TestExternalDataSource(APIBaseTest):
         assert mock_sync_workflow.call_args.kwargs == {"create": True, "should_sync": True}
 
     @patch(
-        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.external_data_workflow_exists",
         return_value=False,
     )
     def test_bulk_update_schemas_apply_sync_defaults_webhook_only_fails_only_that_schema(self, _mock_workflow_exists):
@@ -1630,7 +1632,7 @@ class TestExternalDataSource(APIBaseTest):
                 return_value=discovered,
             ),
             patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.sync_external_data_job_workflow"
             ),
         ):
             response = self.client.patch(
@@ -1657,7 +1659,7 @@ class TestExternalDataSource(APIBaseTest):
         assert normal_schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
     @patch(
-        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.external_data_workflow_exists",
         return_value=True,
     )
     def test_bulk_update_schemas_apply_sync_defaults_discovery_failure_spares_other_items(self, _mock_workflow_exists):
@@ -1681,7 +1683,7 @@ class TestExternalDataSource(APIBaseTest):
                 side_effect=requests.ConnectionError("connection refused"),
             ),
             patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.unpause_external_data_schedule"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.unpause_external_data_schedule"
             ) as mock_unpause,
         ):
             response = self.client.patch(
@@ -1722,7 +1724,7 @@ class TestExternalDataSource(APIBaseTest):
         ]
     )
     @patch(
-        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.external_data_workflow_exists",
         return_value=False,
     )
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
@@ -1769,7 +1771,7 @@ class TestExternalDataSource(APIBaseTest):
         assert mock_capture_exception.called is should_capture
 
     @patch(
-        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.external_data_workflow_exists",
         return_value=True,
     )
     def test_bulk_update_schemas_apply_sync_defaults_noop_for_configured_schema(self, _mock_workflow_exists):
@@ -1789,7 +1791,7 @@ class TestExternalDataSource(APIBaseTest):
                 "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas"
             ) as mock_get_schemas,
             patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.unpause_external_data_schedule"
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.serializers.unpause_external_data_schedule"
             ),
         ):
             response = self.client.patch(
