@@ -129,21 +129,63 @@ class GitLabIntegration:
         if response.status_code != 200:
             raise GitLabIntegrationError(f"GitLabIntegration: failed to close issue: {response.text[:300]}")
 
-    def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
-        """Search existing GitLab issues in the connected project for the link-existing flow."""
+    def _get_issue_by_iid(self, issue_iid: int) -> dict[str, Any] | None:
         hostname = self.integration.config.get("hostname")
         project_id = self.integration.config.get("project_id")
         access_token = self.integration.sensitive_config.get("access_token")
+        url = f"{hostname}/api/v4/projects/{project_id}/issues/{issue_iid}"
+        self._validate_api_url(url)
 
+        response = requests.get(
+            url,
+            headers={"PRIVATE-TOKEN": access_token},
+            allow_redirects=False,
+            timeout=10,
+        )
+        if response.status_code == 404:
+            return None
+        if response.status_code != 200:
+            raise GitLabIntegrationError(
+                f"GitLabIntegration: failed to retrieve issue: {response.text[:300]}",
+            )
+        issue = response.json()
+        return issue if isinstance(issue, dict) else None
+
+    @staticmethod
+    def _issue_results(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        for issue in issues:
+            iid = issue.get("iid")
+            if iid is None:
+                continue
+            results.append(
+                {
+                    "id": str(iid),
+                    "title": issue.get("title") or f"#{iid}",
+                    "url": issue.get("web_url") or "",
+                    # Matches the shape GitLabIntegration.create_issue stores.
+                    "external_context": {"issue_id": iid},
+                }
+            )
+        return results
+
+    def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
+        """Search existing GitLab issues in the connected project for the link-existing flow."""
+        issue_id_match = re.fullmatch(r"#?([1-9][0-9]{0,9})", query.strip())
+        if issue_id_match:
+            issue = self._get_issue_by_iid(int(issue_id_match.group(1)))
+            if issue:
+                return self._issue_results([issue])
+
+        hostname = self.integration.config.get("hostname")
+        project_id = self.integration.config.get("project_id")
+        access_token = self.integration.sensitive_config.get("access_token")
         url = f"{hostname}/api/v4/projects/{project_id}/issues"
         self._validate_api_url(url)
 
         # A blank query lists the project's recent issues instead of filtering.
         params: dict[str, str | int] = {"per_page": limit, "order_by": "updated_at"}
-        issue_id_match = re.fullmatch(r"#?([1-9][0-9]{0,9})", query.strip())
-        if issue_id_match:
-            params["iids[]"] = int(issue_id_match.group(1))
-        elif query.strip():
+        if query.strip():
             params["search"] = query
             params["in"] = "title"
         response = requests.get(
@@ -161,35 +203,4 @@ class GitLabIntegration:
         if not isinstance(issues, list):
             return []
 
-        if issue_id_match and not issues:
-            params = {"per_page": limit, "order_by": "updated_at", "search": query, "in": "title"}
-            response = requests.get(
-                url,
-                headers={"PRIVATE-TOKEN": access_token},
-                params=params,
-                allow_redirects=False,
-                timeout=10,
-            )
-            if response.status_code != 200:
-                raise GitLabIntegrationError(
-                    f"GitLabIntegration: failed to search issues: {response.text[:300]}",
-                )
-            issues = response.json()
-            if not isinstance(issues, list):
-                return []
-
-        results: list[dict[str, Any]] = []
-        for issue in issues:
-            iid = issue.get("iid")
-            if iid is None:
-                continue
-            results.append(
-                {
-                    "id": str(iid),
-                    "title": issue.get("title") or f"#{iid}",
-                    "url": issue.get("web_url") or "",
-                    # Matches the shape GitLabIntegration.create_issue stores.
-                    "external_context": {"issue_id": iid},
-                }
-            )
-        return results
+        return self._issue_results(issues)

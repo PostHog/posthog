@@ -86,15 +86,17 @@ class TestGitLabIntegrationModel:
             sensitive_config={"access_token": "token123"},
         )
         mock_get.return_value.status_code = 200
-        mock_get.return_value.json.return_value = [
-            {"iid": 42, "title": "Checkout failed", "web_url": "https://gitlab.com/acme/app/-/issues/42"}
-        ]
+        mock_get.return_value.json.return_value = {
+            "iid": 42,
+            "title": "Checkout failed",
+            "web_url": "https://gitlab.com/acme/app/-/issues/42",
+        }
 
         results = GitLabIntegration(integration).search_issues("#42")
 
         assert results[0]["id"] == "42"
-        assert mock_get.call_args.kwargs["params"]["iids[]"] == 42
-        assert "search" not in mock_get.call_args.kwargs["params"]
+        assert mock_get.call_args.args[0] == "https://gitlab.com/api/v4/projects/1/issues/42"
+        assert "params" not in mock_get.call_args.kwargs
 
     @patch("posthog.models.integration.gitlab.requests.get")
     @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
@@ -106,8 +108,7 @@ class TestGitLabIntegrationModel:
             config={"hostname": "https://gitlab.com", "project_id": 1},
             sensitive_config={"access_token": "token123"},
         )
-        issue_id_response = MagicMock(status_code=200)
-        issue_id_response.json.return_value = []
+        issue_id_response = MagicMock(status_code=404)
         title_response = MagicMock(status_code=200)
         title_response.json.return_value = [
             {"iid": 84, "title": "Migration for #42", "web_url": "https://gitlab.com/acme/app/-/issues/84"}
