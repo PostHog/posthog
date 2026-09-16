@@ -3903,6 +3903,16 @@ export namespace Schemas {
       Short: 'short',
     } as const;
 
+    export type AnnotationScope = typeof AnnotationScope[keyof typeof AnnotationScope];
+
+
+    export const AnnotationScope = {
+      DashboardItem: 'dashboard_item',
+      Dashboard: 'dashboard',
+      Project: 'project',
+      Organization: 'organization',
+    } as const;
+
     export type Curve = typeof Curve[keyof typeof Curve];
 
 
@@ -4061,6 +4071,8 @@ export namespace Schemas {
       aggregationAxisPostfix?: string | null;
       /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
       aggregationAxisPrefix?: string | null;
+      /** Render only annotations with this scope. Unset renders every scope. */
+      annotationsScope?: AnnotationScope | null;
       breakdown_histogram_bin_count?: number | null;
       /** Chart rendering style overrides (line shape). */
       chartStyle?: ChartStyle | null;
@@ -4284,6 +4296,8 @@ export namespace Schemas {
     export type FunnelsFilterResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
 
     export interface FunnelsFilter {
+      /** Render only annotations with this scope. Only applies to historical-trends funnels. */
+      annotationsScope?: AnnotationScope | null;
       binCount?: number | null;
       breakdownAttributionType?: BreakdownAttributionType | null;
       breakdownAttributionValue?: number | null;
@@ -9734,6 +9748,8 @@ export namespace Schemas {
 
     /**
      * * `persisted` - persisted
+     * * `suggested` - suggested
+     * * `escalated_with_findings` - escalated_with_findings
      * * `escalated_with_best` - escalated_with_best
      * * `escalated_no_reply` - escalated_no_reply
      * * `skipped_unactionable` - skipped_unactionable
@@ -9746,6 +9762,8 @@ export namespace Schemas {
 
     export const AiTriageResultEnum = {
       Persisted: 'persisted',
+      Suggested: 'suggested',
+      EscalatedWithFindings: 'escalated_with_findings',
       EscalatedWithBest: 'escalated_with_best',
       EscalatedNoReply: 'escalated_no_reply',
       SkippedUnactionable: 'skipped_unactionable',
@@ -17481,8 +17499,8 @@ export namespace Schemas {
          * @maxLength 200
          */
       key: string;
-      /** The stored JSON value. */
-      value: unknown;
+      /** The stored JSON value. Omitted from a key inventory. */
+      value?: unknown;
       /** When the entry was last written. */
       updated_at: string;
     }
@@ -17493,6 +17511,13 @@ export namespace Schemas {
     export interface CanvasStateResponse {
       /** The canvas's shared entries plus the caller's own user-scoped entries. */
       entries: CanvasStateEntry[];
+      /**
+         * Next entry offset, or null when complete.
+         * @nullable
+         */
+      next_offset: number | null;
+      /** True when no further entries remain for this selection. */
+      complete: boolean;
     }
 
     /**
@@ -17511,6 +17536,31 @@ export namespace Schemas {
       key: string;
       /** JSON value to store (at most 64 KB serialized), or null to delete the key. */
       value: unknown;
+    }
+
+    export interface CanvasStateValueResponse {
+      /** Scope of this value.
+       *
+       * * `user` - user
+       * * `shared` - shared */
+      scope: CanvasStateScopeEnum;
+      /** Key of this value. */
+      key: string;
+      /** A chunk of JSON text. Join all chunks in order, then parse the complete JSON. */
+      value_json: string;
+      /** Content revision. Pass it on subsequent reads; a changed value returns 409. */
+      revision: string;
+      /** Character offset of this chunk. */
+      offset: number;
+      /** Character length of the complete JSON text. */
+      total_length: number;
+      /**
+         * Next character offset, or null when complete.
+         * @nullable
+         */
+      next_offset: number | null;
+      /** True when no further chunks remain. Earlier chunks are still needed when offset is nonzero. */
+      complete: boolean;
     }
 
     /**
@@ -19644,6 +19694,7 @@ export namespace Schemas {
 
     /**
      * * `saml` - Saml
+     * * `oidc` - Oidc
      * * `scim` - Scim
      * * `xaa` - Xaa
      */
@@ -19652,6 +19703,7 @@ export namespace Schemas {
 
     export const ConfigScopeEnum = {
       Saml: 'saml',
+      Oidc: 'oidc',
       Scim: 'scim',
       Xaa: 'xaa',
     } as const;
@@ -23746,7 +23798,6 @@ export namespace Schemas {
     /**
      * * `tiered` - tiered
      * * `managed_viewset` - managed_viewset
-     * * `legacy` - legacy
      * * `no_node` - no_node
      */
     export type FrequencyModeEnum = typeof FrequencyModeEnum[keyof typeof FrequencyModeEnum];
@@ -23755,7 +23806,6 @@ export namespace Schemas {
     export const FrequencyModeEnum = {
       Tiered: 'tiered',
       ManagedViewset: 'managed_viewset',
-      Legacy: 'legacy',
       NoNode: 'no_node',
     } as const;
 
@@ -23836,11 +23886,10 @@ export namespace Schemas {
     }
 
     export interface SyncFrequencyBounds {
-      /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns the view, 'legacy' means the v1 backend, where any cadence is accepted and no bounds apply, and 'no_node' means the view has no data modeling node to store a cadence on.
+      /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns the view, and 'no_node' means the view has no data modeling node to store a cadence on.
        *
        * * `tiered` - tiered
        * * `managed_viewset` - managed_viewset
-       * * `legacy` - legacy
        * * `no_node` - no_node */
       frequency_mode: FrequencyModeEnum;
       /** Every cadence a picker may show, coarsest-last, each marked allowed or blocked with its cause. Empty outside 'tiered' mode. */
@@ -48604,6 +48653,7 @@ export namespace Schemas {
       /** Feature configured by this identity provider configuration.
        *
        * * `saml` - Saml
+       * * `oidc` - Oidc
        * * `scim` - Scim
        * * `xaa` - Xaa */
       config_scope?: ConfigScopeEnum | BlankEnum | null;
@@ -48613,6 +48663,22 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Whether SAML is fully configured on this config. */
       readonly has_saml: boolean;
+      /** Whether OIDC has an issuer, client ID, and client secret. */
+      readonly has_oidc: boolean;
+      /** Whether an encrypted OIDC client secret is saved. */
+      readonly has_oidc_client_secret: boolean;
+      /** HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document. */
+      oidc_issuer_url?: string;
+      /**
+         * Client ID of the organization's OIDC application.
+         * @maxLength 512
+         */
+      oidc_client_id?: string;
+      /**
+         * OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.
+         * @maxLength 4096
+         */
+      oidc_client_secret?: string;
       /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
       readonly saml_relay_state: string;
       /**
@@ -55013,7 +55079,7 @@ export namespace Schemas {
     export interface NotebookCellState {
       /** Durable cell identity, used by the cell run and edit endpoints. */
       node_id: string;
-      /** Cell kind: 'sql', 'python', 'saved_insight' (embedded insight, never runs), or 'markdown' (prose, a heading, or a fenced block; never runs and joins no dependency graph). */
+      /** Cell kind: 'sql', 'python', 'saved_insight' (an insight with an optional prepared dataframe), or 'markdown' (prose, a heading, or a fenced block; never runs and joins no dependency graph). */
       cell_type: string;
       /** Name other cells reference this cell's result by; blank means display-only. */
       dataframe_name: string;
@@ -55395,6 +55461,8 @@ export namespace Schemas {
     export type NotebookSQLV2RunRequestRefs = {[key: string]: NotebookSQLV2Ref};
 
     export interface NotebookSQLV2RunRequest {
+      /** Reuse the requesting user's running or completed HogQL run with the same cell and resolved query from the last hour. Does not apply to token-only callers, kernel runs, or connection runs. */
+      reuse_results?: boolean;
       /** ProseMirror node id of the SQLV2 node being run. */
       node_id: string;
       /** Execution kind. 'hogql' is a SQL node — pushed to ClickHouse, or rerouted to the sandbox's DuckDB when it references a local frame; 'python' runs the code in the sandbox kernel, materializing referenced upstream nodes as pandas frames first.
@@ -62556,7 +62624,7 @@ export namespace Schemas {
        * * `on-track` - on-track
        * * `all` - all */
       sla?: TicketSlaFilterEnum;
-      /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. */
+      /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, in_progress. */
       aiTriageResult?: AiTriageResultEnum[];
       /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter. */
       assignee?: TicketViewFiltersAssigneeItem[];
@@ -67553,6 +67621,7 @@ export namespace Schemas {
       /** Feature configured by this identity provider configuration.
        *
        * * `saml` - Saml
+       * * `oidc` - Oidc
        * * `scim` - Scim
        * * `xaa` - Xaa */
       config_scope?: ConfigScopeEnum | BlankEnum | null;
@@ -67562,6 +67631,22 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** Whether SAML is fully configured on this config. */
       readonly has_saml?: boolean;
+      /** Whether OIDC has an issuer, client ID, and client secret. */
+      readonly has_oidc?: boolean;
+      /** Whether an encrypted OIDC client secret is saved. */
+      readonly has_oidc_client_secret?: boolean;
+      /** HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document. */
+      oidc_issuer_url?: string;
+      /**
+         * Client ID of the organization's OIDC application.
+         * @maxLength 512
+         */
+      oidc_client_id?: string;
+      /**
+         * OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.
+         * @maxLength 4096
+         */
+      oidc_client_secret?: string;
       /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
       readonly saml_relay_state?: string;
       /**
@@ -70568,7 +70653,7 @@ export namespace Schemas {
      */
     export interface PatchedSignalScoutConfigUpdate {
       /**
-         * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+         * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
          * @maxLength 200
          */
       display_name?: string;
@@ -81173,10 +81258,15 @@ export namespace Schemas {
      */
     export interface ScannerScoutCreate {
       /**
-         * Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.
+         * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+         * @maxLength 200
+         */
+      display_name?: string;
+      /**
+         * Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.
          * @maxLength 64
          */
-      name: string;
+      name?: string;
       /**
          * Short description of the signal or behavior this scout investigates.
          * @maxLength 1024
@@ -82634,6 +82724,11 @@ export namespace Schemas {
          */
       run_cron_schedule?: string | null;
       /**
+         * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+         * @maxLength 200
+         */
+      display_name?: string;
+      /**
          * The skill to register a config for. Any valid skill name works — the config row is what makes a skill a scout. The skill must already exist on this project — author it via the skills store first.
          * @maxLength 200
          */
@@ -82645,10 +82740,15 @@ export namespace Schemas {
      */
     export interface SignalScoutCreate {
       /**
-         * Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.
+         * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+         * @maxLength 200
+         */
+      display_name?: string;
+      /**
+         * Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.
          * @maxLength 64
          */
-      name: string;
+      name?: string;
       /**
          * Short description of the signal or behavior this scout investigates.
          * @maxLength 1024
@@ -93358,6 +93458,17 @@ export namespace Schemas {
       head_sha: string;
       /** When this page was last changed in the wiki history. */
       updated_at: string;
+      /** Character offset of this chunk. */
+      offset: number;
+      /** Character length of the complete page. */
+      total_length: number;
+      /**
+         * Next character offset, or null when complete.
+         * @nullable
+         */
+      next_offset: number | null;
+      /** True when no further chunks remain. Do not write a page until all chunks are read. */
+      complete: boolean;
     }
 
     /**
@@ -96519,7 +96630,25 @@ export namespace Schemas {
 
     export type ContextLayerPagesRetrieveParams = {
     /**
+     * Head from the first chunk. Required for continuation. A changed head returns 409.
+     * @minLength 1
+     * @maxLength 64
+     */
+    head_sha?: string;
+    /**
+     * Maximum characters to read. Omit for the full page.
+     * @minimum 1
+     * @maximum 12000
+     */
+    limit?: number;
+    /**
+     * Character offset from next_offset.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Repo-relative Markdown path of the page to read.
+     * @minLength 1
      */
     path: string;
     };
@@ -98065,7 +98194,37 @@ export namespace Schemas {
 
     export type CanvasesStateRetrieveParams = {
     /**
-     * Only return entries in this scope.
+     * Only read this exact key.
+     * @minLength 1
+     * @maxLength 200
+     */
+    key?: string;
+    /**
+     * Only read entries whose key starts with this prefix.
+     * @maxLength 200
+     */
+    key_prefix?: string;
+    /**
+     * True returns a key inventory without stored values.
+     */
+    keys_only?: boolean;
+    /**
+     * Maximum entries per page. Omit for the full state. Prefer an inventory and state/value for large values.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Entry offset from next_offset. Keep filters unchanged between pages.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Only read this scope.
+     *
+     * * `user` - user
+     * * `shared` - shared
+     * @minLength 1
      */
     scope?: CanvasesStateRetrieveScope;
     };
@@ -98074,8 +98233,50 @@ export namespace Schemas {
 
 
     export const CanvasesStateRetrieveScope = {
-      Shared: 'shared',
       User: 'user',
+      Shared: 'shared',
+    } as const;
+
+    export type CanvasesStateValueRetrieveParams = {
+    /**
+     * Exact key to read.
+     * @minLength 1
+     * @maxLength 200
+     */
+    key: string;
+    /**
+     * Maximum JSON characters in this response.
+     * @minimum 1
+     * @maximum 12000
+     */
+    limit?: number;
+    /**
+     * Character offset from next_offset.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Revision from the first chunk. Required when offset is greater than zero.
+     * @minLength 1
+     * @maxLength 64
+     */
+    revision?: string;
+    /**
+     * Scope of the value to read.
+     *
+     * * `user` - user
+     * * `shared` - shared
+     * @minLength 1
+     */
+    scope: CanvasesStateValueRetrieveScope;
+    };
+
+    export type CanvasesStateValueRetrieveScope = typeof CanvasesStateValueRetrieveScope[keyof typeof CanvasesStateValueRetrieveScope];
+
+
+    export const CanvasesStateValueRetrieveScope = {
+      User: 'user',
+      Shared: 'shared',
     } as const;
 
     export type CanvasesVersionsRetrieveParams = {
@@ -98300,7 +98501,25 @@ export namespace Schemas {
 
     export type ContextLayerAgentPagesRetrieveParams = {
     /**
+     * Head from the first chunk. Required for continuation. A changed head returns 409.
+     * @minLength 1
+     * @maxLength 64
+     */
+    head_sha?: string;
+    /**
+     * Maximum characters to read. Omit for the full page.
+     * @minimum 1
+     * @maximum 12000
+     */
+    limit?: number;
+    /**
+     * Character offset from next_offset.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Repo-relative Markdown path of the page to read.
+     * @minLength 1
      */
     path: string;
     };
@@ -98318,7 +98537,7 @@ export namespace Schemas {
 
     export type ConversationsTicketsListParams = {
     /**
-     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `in_progress`.
+     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `in_progress`.
      */
     ai_triage_result?: string;
     /**
@@ -103979,7 +104198,31 @@ export namespace Schemas {
      * @maximum 100
      */
     limit?: number;
+    /**
+     * Only return runs with this status. Use failed to read errors even when canvas state is unavailable.
+     *
+     * * `not_started` - Not Started
+     * * `queued` - Queued
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     * @minLength 1
+     */
+    status?: LoopsRunsRetrieveStatus;
     };
+
+    export type LoopsRunsRetrieveStatus = typeof LoopsRunsRetrieveStatus[keyof typeof LoopsRunsRetrieveStatus];
+
+
+    export const LoopsRunsRetrieveStatus = {
+      NotStarted: 'not_started',
+      Queued: 'queued',
+      InProgress: 'in_progress',
+      Completed: 'completed',
+      Failed: 'failed',
+      Cancelled: 'cancelled',
+    } as const;
 
     export type LoopsTriggerCreateBodyOne = { [key: string]: unknown };
 
@@ -105726,6 +105969,11 @@ export namespace Schemas {
     };
 
     export type SignalsScoutConfigListParams = {
+    /**
+     * Case-insensitive substring filter over a scout's display name and its skill name. A scout matches on either, so a person who knows the label and a caller who knows the identifier both find it. Omit for the whole fleet.
+     * @minLength 1
+     */
+    search?: string;
     /**
      * Comma-separated tags, e.g. `revenue,on-call`. Returns the scouts carrying at least one of them. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. Omit for the whole fleet.
      * @minLength 1
