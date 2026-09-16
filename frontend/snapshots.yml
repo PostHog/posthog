@@ -7012,6 +7012,10 @@ snapshots:
         hash: v1.k794b7964.32d5329bf4ce6055010743914ec226973cc4d455a70581692f97d8cae13c04f1.4Zd5MpCXYXWDIegWaghLkfmgRx11JTVSpbyCab_3_YU
     scenes-app-customer-analytics-account-detail--default--light:
         hash: v1.k794b7964.3a6ffd58e88bdd30817bc9c6b1c2c9f9bae8825975c121157efb3bd6fbba9f39.81lpbCyMf0S_9mRYZFcT97ecch6YY1--yoxMK2hI-xU
+    scenes-app-customer-analytics-account-detail--external-id--dark:
+        hash: v1.k794b7964.090e775f774e8bdae503cc210948f5ce1fe1aabe89c6a0b1b1353967eafaf293.DIOrnSXEMRt92ojJZ9_n74wkPzytjdqzeDJc8o4687c
+    scenes-app-customer-analytics-account-detail--external-id--light:
+        hash: v1.k794b7964.152409fdf0caeaafb9988a592ffa02ae7447352c3a6cac7adea2b59262754052.oOzz88WC10NSA__e7bWSr26aB_blhvaKHt9ZJX9pSn8
     scenes-app-customer-analytics-account-detail--narrow--dark:
         hash: v1.k794b7964.31ffca7eb6c59cf545dd8f16e7a532149448b95c65444aa14d5e776a0875dafd.lULK4-DoenY3SeZK1Sfr50doCkqdIbyl9U35M4ah00g
     scenes-app-customer-analytics-account-detail--narrow--light:

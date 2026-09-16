@@ -1013,15 +1013,15 @@ async fn apply_ai_byte_limits(
     }
 }
 
-/// Per-batch tally of how the shared global rate limiter classified each
-/// evaluated event. All three fields count events (not distinct_ids) and all
-/// three charge the limiter, so `allowed + limited + already_disabled` equals
-/// the non-Drop events reaching this stage.
+/// Per-batch tally from the shared global rate limiter. Counts events, not
+/// distinct_ids: `allowed + limited + already_disabled` covers every non-Drop event.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct TokenDistinctIdTally {
     allowed: u64,
     limited: u64,
     already_disabled: u64,
+    /// Subset of `already_disabled`; keep it out of the sum above.
+    already_disabled_over_budget: u64,
 }
 
 async fn apply_token_distinct_id_limits(
@@ -1034,6 +1034,7 @@ async fn apply_token_distinct_id_limits(
     let mut limited_event_count: u64 = 0;
     let mut allowed_count: u64 = 0;
     let mut already_disabled_count: u64 = 0;
+    let mut already_disabled_over_budget_count: u64 = 0;
 
     for event in events.iter_mut() {
         if event.result != EventResult::Ok {
@@ -1052,6 +1053,9 @@ async fn apply_token_distinct_id_limits(
         // person processing, so it still gets its warning stamped below.
         if event.force_disable_person_processing {
             already_disabled_count += 1;
+            if limited {
+                already_disabled_over_budget_count += 1;
+            }
             continue;
         }
 
@@ -1085,13 +1089,26 @@ async fn apply_token_distinct_id_limits(
         .increment(allowed_count);
     }
 
-    if already_disabled_count > 0 {
+    if already_disabled_over_budget_count > 0 {
         metrics::counter!(
             CAPTURE_V1_RATE_LIMITER,
             "limiter" => "token_distinct_id",
             "outcome" => "already_disabled",
+            "over_budget" => "true",
         )
-        .increment(already_disabled_count);
+        .increment(already_disabled_over_budget_count);
+    }
+
+    let already_disabled_under_budget_count =
+        already_disabled_count - already_disabled_over_budget_count;
+    if already_disabled_under_budget_count > 0 {
+        metrics::counter!(
+            CAPTURE_V1_RATE_LIMITER,
+            "limiter" => "token_distinct_id",
+            "outcome" => "already_disabled",
+            "over_budget" => "false",
+        )
+        .increment(already_disabled_under_budget_count);
     }
 
     if limited_event_count > 0 {
@@ -1130,6 +1147,7 @@ async fn apply_token_distinct_id_limits(
         allowed: allowed_count,
         limited: limited_event_count,
         already_disabled: already_disabled_count,
+        already_disabled_over_budget: already_disabled_over_budget_count,
     }
 }
 
@@ -2849,7 +2867,7 @@ mod tests {
         events[0].force_disable_person_processing = true;
         events[0].details = Some(DETAIL_PERSON_PROCESSING_DISABLED);
 
-        apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
+        let tally = apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
 
         assert!(
             calls
@@ -2857,6 +2875,15 @@ mod tests {
                 .unwrap()
                 .contains(&"phc_tok:user-1".to_string()),
             "already-disabled event must still charge the key's fleet count"
+        );
+        assert_eq!(
+            tally,
+            TokenDistinctIdTally {
+                allowed: 1,
+                limited: 0,
+                already_disabled: 1,
+                already_disabled_over_budget: 1,
+            }
         );
         // Its stamping is untouched: result stays Ok, no overflow reroute.
         let flagged = find_by_did(&events, "user-1");
@@ -2906,6 +2933,7 @@ mod tests {
                 allowed: 1,
                 limited: 0,
                 already_disabled: 1,
+                already_disabled_over_budget: 0,
             }
         );
         // Invariant: the three tally fields account for exactly the charged
@@ -2941,6 +2969,7 @@ mod tests {
                 allowed: 1,
                 limited: 4,
                 already_disabled: 0,
+                already_disabled_over_budget: 0,
             }
         );
     }
