@@ -3,11 +3,15 @@ from datetime import datetime
 
 import pytest
 
+from pydantic import ValidationError
+
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
     FixVerificationOutput,
     ReportPresentationOutput,
     SignalFinding,
+    SignalFindingUpdate,
+    _finding_schema_reminder,
     _render_previous_metrics_context,
     _render_signal_for_research,
     build_fix_verification_prompt,
@@ -154,6 +158,33 @@ class TestBuildInitialResearchPrompt:
         if not has_previous_finding:
             assert "There is no previous finding for this signal" in initial_prompt
             assert "There is no previous finding for this signal" in followup_prompt
+
+
+class TestFindingResponseRequiredFields:
+    def test_a_finding_carrying_every_other_field_still_needs_verified(self):
+        """`verified` must stay required. Giving it a default would silently record a claim
+        nobody confirmed as one that was checked, which is worse than rejecting the reply."""
+        payload = {
+            "previous_finding_correct": False,
+            "finding": {
+                "signal_id": "sig-1",
+                "relevant_code_paths": ["example.py"],
+                "relevant_commit_hashes": {"abc1234": "introduced the parser"},
+                "data_queried": "Queried the relevant events.",
+            },
+        }
+
+        with pytest.raises(ValidationError) as exc_info:
+            SignalFindingUpdate.model_validate(payload)
+
+        assert [problem["loc"] for problem in exc_info.value.errors()] == [("finding", "verified")]
+
+    def test_both_finding_prompts_name_the_required_finding_fields(self):
+        signal = _make_signal({})
+        reminder = _finding_schema_reminder()
+        assert "`verified`" in reminder
+        for prompt in (build_initial_research_prompt(signal, 2), build_signal_investigation_prompt(signal, 2, 2)):
+            assert reminder in prompt
 
 
 class TestBuildFixVerificationPrompt:

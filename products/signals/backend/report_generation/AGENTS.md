@@ -64,6 +64,12 @@ This module is intentionally prompt-orchestration only.
 Production persistence is handled outside `run_multi_turn_research()`, in the caller activity, so this module stays isolated from report DB writes.
 Fix verification is best-effort. Generation failures do not fail completed research, but cancellation still does.
 
+### A per-signal finding degrades on its own
+
+A signal turn whose reply cannot be extracted or validated (`ValueError`, which covers `ValidationError` and every extraction failure) costs that signal only: its finding is dropped, or the report's previous finding for it is kept, and the run continues through the remaining signals and the judgments. A dead session is a `RuntimeError` — an empty turn, a poll timeout, an agent error — and still ends the run, because the turns after it cannot succeed either.
+
+Signal 1 is the exception. Its reply is parsed inside `MultiTurnSession.start`, which raises before the session reaches this module, so an invalid first finding still costs the whole report. The charts and metrics notes below describe the same failure on the presentation turn, which has no degrade path of its own either.
+
 ### Charts
 
 The presentation step can also author `charts` — query nodes the inbox draws on the report body, so a finding about a metric move is visible next to the sentence describing it. They are the same `SignalReport.charts` the scout channel writes (schema + bounds in `report_charts.py`), authored in the same structured response as the title/summary so the summary can place one with a `[label](chart:<id>)` markdown link. This is the pipeline counterpart of the scout `emit_report` charts path.

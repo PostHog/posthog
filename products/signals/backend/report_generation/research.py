@@ -64,7 +64,7 @@ __all__ = [
 
 
 def _rejection_reason(error: Exception) -> str:
-    """Why a chart was rejected, as failing field and rule only — never the rejected content."""
+    """Why a response was rejected, as failing field and rule only — never the rejected content."""
     if not isinstance(error, ValidationError):
         return type(error).__name__
     return ", ".join(
@@ -607,6 +607,13 @@ _ACTIONABILITY_CRITERIA = f"""## Actionability criteria
 `already_addressed` is broader than "merged": set it `true` when the fix has landed in recent code changes **or** is already in flight — an open pull request, a recently active branch, or an assigned / in-progress issue or agent task covering the same problem. An immediately-actionable report can open a draft PR automatically, so a `false` here on work someone already has going produces a competing PR the team has to throw away. If you haven't checked yet, do the in-flight check from the research protocol now rather than defaulting to `false`, and name what you found (or that you found nothing) in your explanation."""
 
 
+def _finding_schema_reminder() -> str:
+    """Name the finding's required fields in prose. The schema block alone does not always stop
+    the agent dropping one, and the dropped field is never worth the turn it costs."""
+    required = ", ".join(f"`{name}`" for name in SignalFinding.model_json_schema()["required"])
+    return f"Include every field the schema marks required. In a `finding` that means {required}."
+
+
 def build_initial_research_prompt(
     first_signal: SignalData,
     total_signals: int,
@@ -678,7 +685,9 @@ Investigate this signal, then respond with a JSON object matching this schema:
 
 <jsonschema>
 {finding_schema}
-</jsonschema>"""
+</jsonschema>
+
+{_finding_schema_reminder()}"""
 
 
 def build_signal_investigation_prompt(
@@ -708,7 +717,9 @@ Investigate this signal using the same protocol, then respond with a JSON object
 
 <jsonschema>
 {finding_schema}
-</jsonschema>"""
+</jsonschema>
+
+{_finding_schema_reminder()}"""
 
 
 def build_actionability_prompt(
@@ -1030,11 +1041,25 @@ async def run_multi_turn_research(
                 total,
                 previous_finding=previous_finding,
             )
-            response = await session.send_followup(
-                followup_prompt,
-                SignalFindingUpdate,
-                label=f"signal_{i}_of_{total}",
-            )
+            try:
+                response = await session.send_followup(
+                    followup_prompt,
+                    SignalFindingUpdate,
+                    label=f"signal_{i}_of_{total}",
+                )
+            except ValueError as e:
+                # Every extraction and schema failure is a ValueError, so keep the loss to this
+                # signal: drop its finding, or keep the previous one. A dead session (empty turn,
+                # poll timeout) is a RuntimeError and still ends the run, since no later turn can
+                # succeed either.
+                logger.warning(
+                    "research: signal %d of %d returned no usable finding (%s)", i, total, _rejection_reason(e)
+                )
+                if previous_finding is not None:
+                    old_artefacts.append(previous_finding)
+                if output_fn:
+                    output_fn(f"Signal {i}/{total} returned no usable finding, continuing without it")
+                continue
             finding, is_new = _resolve_finding_response(response, previous_finding, signal.signal_id)
             (new_artefacts if is_new else old_artefacts).append(finding)
             if output_fn:
