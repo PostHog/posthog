@@ -77,6 +77,7 @@ jobs:
     # Learning mode: nothing reads these outputs, so a recommendation cannot change what runs.
     # Fork and Dependabot runs get no secret; the queue always runs everything anyway.
     # The step fails open, because this telemetry must not turn a passing workflow red.
+    # Drafts skip E2E entirely, so a verdict recorded on one would have no run to check against.
     dynamic-ci-filter:
         name: Trunk Dynamic CI (Learning Mode)
         if: >-
@@ -84,7 +85,8 @@ jobs:
             github.repository == 'PostHog/posthog' &&
             github.event.pull_request.head.repo.full_name == github.repository &&
             github.actor != 'dependabot[bot]' &&
-            !startsWith(github.head_ref, 'trunk-merge/')
+            !startsWith(github.head_ref, 'trunk-merge/') &&
+            github.event.pull_request.draft != true
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions: {}
