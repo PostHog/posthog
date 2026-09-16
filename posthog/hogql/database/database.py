@@ -673,11 +673,21 @@ def _unentitled_system_tables(team: Team) -> set[str]:
     return {name for name, feature in required_features.items() if not organization.is_feature_available(feature)}
 
 
+def unentitled_system_tables(team: Team) -> frozenset[str]:
+    """The system tables this team's organization is not entitled to.
+
+    Organization-wide, so a caller deciding for many principals reads it once and hands it to
+    :func:`system_table_denials` for each of them.
+    """
+    return frozenset(_unentitled_system_tables(team))
+
+
 def _compute_system_table_access_decision(
     team: Team,
     user: Optional[User | SyntheticUser | SharedLinkUser],
     user_access_control: Optional[UserAccessControl] = None,
     allowed_system_tables: Collection[str] | None = None,
+    unentitled: Collection[str] | None = None,
 ) -> tuple[Optional[UserAccessControl], set[str]]:
     """Decide which scoped system tables to hide, doing the access-control I/O here so the build phase
     can apply the result without querying. Returns the warmed UserAccessControl (preloaded, so later
@@ -706,7 +716,7 @@ def _compute_system_table_access_decision(
 
     # Applies to every principal below, admins included - an entitlement the organization does not
     # have cannot be granted by a role.
-    unentitled = _unentitled_system_tables(team)
+    unentitled = set(unentitled) if unentitled is not None else _unentitled_system_tables(team)
 
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for shared link / team token).
     if user is None or isinstance(user, SyntheticUser | SharedLinkUser):
@@ -745,14 +755,20 @@ def _compute_system_table_access_decision(
 
 
 def system_table_denials(
-    team: Team, user: User, user_access_control: Optional[UserAccessControl] = None
+    team: Team,
+    user: User,
+    user_access_control: Optional[UserAccessControl] = None,
+    *,
+    unentitled: Collection[str] | None = None,
 ) -> frozenset[str]:
     """The bare names of the ``system.*`` tables this user may not read.
 
     Runs the access-control and entitlement checks that ``create_for`` would run, and nothing else,
-    so a caller that only needs the answer does not pay for a whole database build.
+    so a caller that only needs the answer does not pay for a whole database build. Pass
+    ``unentitled`` from :func:`unentitled_system_tables` to read the organization's entitlements once
+    across many users.
     """
-    return frozenset(_compute_system_table_access_decision(team, user, user_access_control)[1])
+    return frozenset(_compute_system_table_access_decision(team, user, user_access_control, unentitled=unentitled)[1])
 
 
 class Database(BaseModel):

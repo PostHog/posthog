@@ -181,6 +181,40 @@ class TestMetricSubjectAccess(BaseTest):
             ("view", str(self.extra_view.id)),
         }
 
+    def test_a_warehouse_table_named_after_a_system_table_is_not_pinned(self) -> None:
+        shadow = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="system_annotations",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://bucket/system_annotations",
+        )
+
+        pinned = pin_referenced_subjects(
+            self.team.id,
+            "custom_sql",
+            {"query": "SELECT * FROM {metric} WHERE amount < (SELECT 1 FROM system.annotations)"},
+            subject=self.subject,
+        )
+
+        assert pinned is not None
+        assert ("table", str(shadow.id)) not in {(ref["subject_type"], ref["subject_uuid"]) for ref in pinned}
+
+    def test_a_direct_connection_table_does_not_shadow_the_view_of_the_same_name(self) -> None:
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name=self.extra_view.name,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://bucket/thresholds",
+            external_data_source=ExternalDataSource.objects.create(
+                team=self.team, source_type="Postgres", access_method=ExternalDataSource.AccessMethod.DIRECT
+            ),
+        )
+
+        pinned = pin_referenced_subjects(self.team.id, "custom_sql", self.config, subject=self.subject)
+
+        assert pinned is not None
+        assert ("view", str(self.extra_view.id)) in {(ref["subject_type"], ref["subject_uuid"]) for ref in pinned}
+
     @parameterized.expand([("allowed", set(), True), ("denied", {"revenue_rows"}, False)])
     def test_readable_metric_identity_controls_history(self, _name: str, denied: set[str], expected: bool) -> None:
         check, suite = self._check_and_suite()
