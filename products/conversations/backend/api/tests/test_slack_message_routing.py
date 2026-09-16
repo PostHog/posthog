@@ -12,6 +12,7 @@ from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team import Team
 
 from products.conversations.backend.cache import is_nudge_suppressed
 from products.conversations.backend.models import TeamConversationsSlackConfig, Ticket
@@ -39,6 +40,17 @@ TASKS_MODULE = "products.conversations.backend.tasks.slack"
 MESSAGE_TS = "1700000000.000100"
 MESSAGE_SENT_AT = datetime(2023, 11, 14, 22, 13, 20, 100, tzinfo=UTC)
 USE_TEAMMATE_EMAIL = "use-the-org-members-own-email"
+
+
+def _create_slack_ticket(team: Team) -> Ticket:
+    return Ticket.objects.create_with_number(
+        team=team,
+        channel_source=Channel.SLACK,
+        widget_session_id="",
+        distinct_id="",
+        slack_channel_id="C_CONFIG",
+        slack_thread_ts=MESSAGE_TS,
+    )
 
 
 class TestSlackMessageRouting(BaseTest):
@@ -1367,16 +1379,6 @@ class TestSupporthogInteractivity(BaseTest):
         payload["message"]["thread_ts"] = thread_ts
         return payload
 
-    def _open_ticket(self) -> Ticket:
-        return Ticket.objects.create_with_number(
-            team=self.team,
-            channel_source=Channel.SLACK,
-            widget_session_id="",
-            distinct_id="",
-            slack_channel_id="C_CONFIG",
-            slack_thread_ts=MESSAGE_TS,
-        )
-
     def _link_click_properties(self) -> dict:
         _team, event_name, event_props = self.mock_capture_support_event.call_args.args
         assert event_name == "support slack ticket link clicked"
@@ -1385,7 +1387,7 @@ class TestSupporthogInteractivity(BaseTest):
     @patch(f"{TASKS_MODULE}.resolve_slack_user")
     @patch(f"{TASKS_MODULE}.get_slack_client")
     def test_view_sends_the_link_to_an_org_member_only_they_can_see(self, mock_get_client, mock_resolve_user):
-        ticket = self._open_ticket()
+        ticket = _create_slack_ticket(self.team)
         mock_resolve_user.return_value = {"name": "Teammate", "email": self.user.email, "team_id": "T123"}
 
         process_supporthog_interactivity(self._view_payload(ticket.ticket_number), "T123")
@@ -1403,7 +1405,7 @@ class TestSupporthogInteractivity(BaseTest):
     @patch(f"{TASKS_MODULE}.resolve_slack_user")
     @patch(f"{TASKS_MODULE}.get_slack_client")
     def test_view_withholds_the_link_from_a_non_member(self, mock_get_client, mock_resolve_user):
-        ticket = self._open_ticket()
+        ticket = _create_slack_ticket(self.team)
         mock_resolve_user.return_value = {"name": "Customer", "email": "customer@example.com", "team_id": "T123"}
 
         process_supporthog_interactivity(self._view_payload(ticket.ticket_number), "T123")
@@ -1418,7 +1420,7 @@ class TestSupporthogInteractivity(BaseTest):
     def test_view_withholds_the_link_from_an_external_workspace(self, mock_get_client, mock_resolve_user):
         # A Slack Connect participant's profile email is set by their own workspace, so an
         # email that matches a teammate is not proof of membership on its own.
-        ticket = self._open_ticket()
+        ticket = _create_slack_ticket(self.team)
         mock_resolve_user.return_value = {"name": "Outsider", "email": self.user.email, "team_id": "T_OTHER"}
 
         process_supporthog_interactivity(self._view_payload(ticket.ticket_number), "T123")
@@ -1444,18 +1446,8 @@ class TestSupporthogInteractivity(BaseTest):
 
 
 class TestTicketConfirmationBlocks(BaseTest):
-    def _ticket(self) -> Ticket:
-        return Ticket.objects.create_with_number(
-            team=self.team,
-            channel_source=Channel.SLACK,
-            widget_session_id="",
-            distinct_id="",
-            slack_channel_id="C_CONFIG",
-            slack_thread_ts=MESSAGE_TS,
-        )
-
     def test_confirmation_carries_a_view_button_and_no_url(self):
-        ticket = self._ticket()
+        ticket = _create_slack_ticket(self.team)
 
         blocks = ticket_created_blocks(ticket, self.team)
 
@@ -1467,7 +1459,7 @@ class TestTicketConfirmationBlocks(BaseTest):
         assert json.loads(button["value"]) == {"ticket_number": ticket.ticket_number}
 
     def test_deep_link_addresses_the_ticket_by_number(self):
-        ticket = self._ticket()
+        ticket = _create_slack_ticket(self.team)
 
         assert ticket_deep_link(ticket, self.team).endswith(
             f"/project/{self.team.id}/support/tickets/{ticket.ticket_number}"
