@@ -357,7 +357,7 @@ class Breakdown:
                     (isinstance(gte, int) or isinstance(gte, float)) and (isinstance(lt, int) or isinstance(lt, float))
                 ):
                     raise ValueError(
-                        "Breakdown value must contain valid float or int values if the the bin count is selected."
+                        "Breakdown value must contain valid float or int values if the bin count is selected."
                     )
 
                 return ast.And(
@@ -367,7 +367,7 @@ class Breakdown:
                     ]
                 )
             except json.JSONDecodeError:
-                raise ValueError("Breakdown value must be a valid JSON array if the the bin count is selected.")
+                raise ValueError("Breakdown value must be a valid JSON array if the bin count is selected.")
 
         return ast.CompareOperation(
             left=self._get_breakdown_values_transform(left, normalize_url=normalize_url, path_cleaning=path_cleaning),
