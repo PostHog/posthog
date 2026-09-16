@@ -1,15 +1,24 @@
 import { marked } from 'marked'
 import { memo, useMemo } from 'react'
 
+import { rewriteAgentObjectTags } from 'lib/components/AgentObjectTags/rewriteAgentObjectTags'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-
-import { stripObjectTags } from '../utils/stripObjectTags'
+import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { urls } from 'scenes/urls'
 
 function parseMarkdownIntoBlocks(markdown: string): string[] {
     // Convert single newlines to markdown line breaks (two spaces + newline)
     const withLineBreaks = markdown.replace(/(?<!\n)\n(?!\n)/g, '  \n')
     const tokens = marked.lexer(withLineBreaks)
     return tokens.map((token) => token.raw)
+}
+
+function rewriteObjectTags(markdown: string): string {
+    // Agent object tags (`<insight id="…">label</insight>`) become links into the
+    // current project, carrying the agent's label; stripping them instead posted
+    // empty bullets wherever a reply cited an object.
+    const teamId = getCurrentTeamIdOrNone()
+    return rewriteAgentObjectTags(markdown, teamId !== null ? urls.project(teamId) : '')
 }
 
 /**
@@ -25,7 +34,7 @@ export const MarkdownMessage = memo(function MarkdownMessage({
     id: string
     className?: string
 }): JSX.Element {
-    const blocks = useMemo(() => parseMarkdownIntoBlocks(stripObjectTags(content)), [content])
+    const blocks = useMemo(() => parseMarkdownIntoBlocks(rewriteObjectTags(content)), [content])
     return (
         <LemonMarkdown.Container className={className}>
             {blocks.map((block, index) => (
