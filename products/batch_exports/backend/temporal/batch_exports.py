@@ -305,7 +305,11 @@ def iter_records(
     else:
         query_parameters = base_query_parameters
 
-    yield from client.stream_query_as_arrow(query_str, query_parameters=query_parameters)
+    # Named so a query that dies mid-stream can be looked up in ClickHouse's query log.
+    query_id = str(uuid.uuid4())
+    LOGGER.debug("Running batch export records query", query_id=query_id, team_id=team_id)
+
+    yield from client.stream_query_as_arrow(query_str, query_parameters=query_parameters, query_id=query_id)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
