@@ -173,7 +173,7 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
     scanner: BaseScanner = scanner_from_snapshot(snapshot)
     scanner = await _inject_known_freeform_tags(scanner, inputs)
     video_clock = await sync_to_async(_load_video_clock)(
-        inputs.team_id, llm_inputs.session_id, llm_inputs.metadata.duration_seconds
+        inputs.team_id, inputs.exported_asset_id, llm_inputs.metadata.duration_seconds
     )
     return await run_scan(
         snapshot=snapshot,
@@ -192,38 +192,31 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
 _UNCUT_TOLERANCE_S = 2.0
 
 
-def _load_video_clock(team_id: int, session_id: str, session_duration_s: float | None) -> VideoClock:
-    """The clock for the video this scan is about to read, from the asset the rasterizer just rendered.
+def _load_video_clock(team_id: int, exported_asset_id: int, session_duration_s: float | None) -> VideoClock:
+    """The clock for the video this scan is about to read, from the asset the rasterizer rendered.
 
-    Without a cut map the clock is identity, which is only correct when the render cut nothing. The model cites
-    video seconds, so using identity on a video that *was* cut puts every citation early by the cut time — the
-    failure this conversion exists to prevent, and an invisible one. The two durations settle it: a video as long
-    as its session lost nothing, and anything shorter did. Refuse rather than emit timestamps we know are wrong.
+    An asset predating the cut map leaves the clock unknown. The model cites video seconds, so assuming
+    nothing was cut would put every citation early by the cut time, which is the failure this conversion
+    exists to prevent and an invisible one. The durations settle it: a video as long as its session lost
+    nothing. Refuse rather than emit timestamps we know we cannot place.
     """
-    asset = (
-        ExportedAsset.objects.filter(
-            team_id=team_id,
-            is_system=True,
-            export_format="video/mp4",
-            export_context__session_recording_id=session_id,
-        )
-        .order_by("-created_at")
-        .first()
-    )
-    export_context = asset.export_context if asset else None
-    clock = video_clock_from_export_context(export_context)
-    if not clock.is_identity:
+    asset = ExportedAsset.objects.filter(team_id=team_id, pk=exported_asset_id).first()
+    clock = video_clock_from_export_context(asset.export_context if asset else None)
+    if clock is not None:
         return clock
 
-    video_duration_s = (export_context or {}).get("video_duration_s")
-    tolerance = max(_UNCUT_TOLERANCE_S, (session_duration_s or 0) * 0.02)
-    if video_duration_s is not None and session_duration_s and session_duration_s - video_duration_s <= tolerance:
-        return clock
+    video_duration_s = (asset.export_context or {}).get("video_duration_s") if asset else None
+    if (
+        video_duration_s is not None
+        and session_duration_s
+        and session_duration_s - video_duration_s <= _UNCUT_TOLERANCE_S
+    ):
+        return VideoClock(spans=())
 
     logger.warning(
         "replay_vision.video_clock.missing_cut_map",
         team_id=team_id,
-        session_id=session_id,
+        exported_asset_id=exported_asset_id,
         video_duration_s=video_duration_s,
         session_duration_s=session_duration_s,
     )
@@ -236,7 +229,8 @@ def _load_video_clock(team_id: int, session_id: str, session_duration_s: float |
 def _navigation_on_video_clock(entry: NavigationEntry, clock: VideoClock) -> dict[str, Any]:
     """Navigation timeline `t` values, moved onto the clock the model cites in."""
     payload = entry.model_dump()
-    payload["rec_t"] = int(clock.session_ms_to_video_s(entry.rec_t * 1000))
+    payload["vid_t"] = int(clock.session_ms_to_video_s(entry.rec_t * 1000))
+    del payload["rec_t"]
     return payload
 
 
@@ -244,8 +238,8 @@ def _signal_on_session_clock(signal: SignalFinding, clock: VideoClock) -> Signal
     """Signal bounds come back in video seconds; downstream absolute-time math needs session seconds."""
     return signal.model_copy(
         update={
-            "start_time": clock.video_s_to_session_ms(signal.start_time) // 1000,
-            "end_time": clock.video_s_to_session_ms(signal.end_time) // 1000,
+            "start_time": clock.video_s_to_session_s(signal.start_time),
+            "end_time": clock.video_s_to_session_s(signal.end_time),
         }
     )
 
@@ -509,7 +503,9 @@ async def _run_mission(
             step,
             validate=functools.partial(
                 _validate_signal_timestamps,
-                duration_seconds=video_clock.video_duration_s or llm_inputs.metadata.duration_seconds,
+                duration_seconds=llm_inputs.metadata.duration_seconds
+                if video_clock.is_identity
+                else video_clock.video_duration_s,
             ),
         )
         if step.name == STEP_SIGNALS

@@ -964,6 +964,7 @@ class TestEgressConsentRecheck:
                     CallScannerProviderInputs(
                         team_id=team.id,
                         observation_id=uuid.uuid4(),
+                        exported_asset_id=1,
                         file_uri="gemini://files/x",
                         mime_type="video/mp4",
                     ),
@@ -1050,7 +1051,11 @@ class TestKnownFreeformTags:
     @pytest.mark.asyncio
     async def test_injection_is_gated_and_best_effort(self) -> None:
         inputs = CallScannerProviderInputs(
-            team_id=1, observation_id=uuid.uuid4(), file_uri="gemini://files/x", mime_type="video/mp4"
+            team_id=1,
+            observation_id=uuid.uuid4(),
+            exported_asset_id=1,
+            file_uri="gemini://files/x",
+            mime_type="video/mp4",
         )
         monitor = MonitorScanner(prompt="x")
         no_freeform = ClassifierScanner(prompt="x", tags=["a"])
@@ -1100,6 +1105,7 @@ class TestKnownFreeformTags:
                 CallScannerProviderInputs(
                     team_id=target.team_id,
                     observation_id=target.id,
+                    exported_asset_id=1,
                     file_uri="gemini://files/x",
                     mime_type="video/mp4",
                 ),
@@ -3320,7 +3326,11 @@ class TestGeminiErrorRedaction:
                 await ActivityEnvironment().run(
                     call_scanner_provider_activity,
                     CallScannerProviderInputs(
-                        team_id=1, observation_id=uuid.uuid4(), file_uri="gemini://files/x", mime_type="video/mp4"
+                        team_id=1,
+                        observation_id=uuid.uuid4(),
+                        exported_asset_id=1,
+                        file_uri="gemini://files/x",
+                        mime_type="video/mp4",
                     ),
                 )
         assert exc_info.value.kind is FailureKind.PROVIDER_REJECTED
@@ -3351,7 +3361,11 @@ class TestGeminiErrorRedaction:
                 await ActivityEnvironment().run(
                     call_scanner_provider_activity,
                     CallScannerProviderInputs(
-                        team_id=1, observation_id=uuid.uuid4(), file_uri="gemini://files/x", mime_type="video/mp4"
+                        team_id=1,
+                        observation_id=uuid.uuid4(),
+                        exported_asset_id=1,
+                        file_uri="gemini://files/x",
+                        mime_type="video/mp4",
                     ),
                 )
         assert exc_info.value.kind is FailureKind.PROVIDER_TRANSIENT

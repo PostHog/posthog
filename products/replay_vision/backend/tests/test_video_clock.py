@@ -32,6 +32,7 @@ class TestVideoClock:
         self, _label: str, video_s: float, expected_ms: int
     ) -> None:
         clock = video_clock_from_export_context({"inactivity_periods": _PERIODS})
+        assert clock is not None
         assert clock.video_s_to_session_ms(video_s) == expected_ms
 
     @parameterized.expand(
@@ -45,17 +46,25 @@ class TestVideoClock:
         self, _label: str, session_ms: int, expected_video_s: float
     ) -> None:
         clock = video_clock_from_export_context({"inactivity_periods": _PERIODS})
+        assert clock is not None
         assert clock.session_ms_to_video_s(session_ms) == expected_video_s
 
-    def test_without_a_cut_map_both_clocks_are_the_same(self) -> None:
-        clock = video_clock_from_export_context({})
+    def test_a_render_that_cut_nothing_leaves_both_clocks_the_same(self) -> None:
+        clock = video_clock_from_export_context({"inactivity_periods": []})
+        assert clock is not None
         assert clock.is_identity
         assert clock.video_s_to_session_ms(42.0) == 42_000
         assert clock.session_ms_to_video_s(42_000) == 42.0
 
     def test_the_video_length_bounds_what_can_be_cited(self) -> None:
-        assert video_clock_from_export_context({"inactivity_periods": _PERIODS}).video_duration_s == 76.0
+        clock = video_clock_from_export_context({"inactivity_periods": _PERIODS})
+        assert clock is not None
+        assert clock.video_duration_s == 76.0
         assert VideoClock(spans=()).video_duration_s is None
+
+    def test_an_asset_that_never_recorded_what_it_cut_has_no_clock(self) -> None:
+        assert video_clock_from_export_context({"video_duration_s": 10.0}) is None
+        assert video_clock_from_export_context(None) is None
 
 
 class TestMissingCutMapIsRefusedUnlessProvablyUncut:
@@ -63,10 +72,10 @@ class TestMissingCutMapIsRefusedUnlessProvablyUncut:
 
     def _load(self, export_context: dict | None, session_duration_s: float | None) -> VideoClock:
         with patch.object(ExportedAsset, "objects") as objects:
-            objects.filter.return_value.order_by.return_value.first.return_value = (
+            objects.filter.return_value.first.return_value = (
                 SimpleNamespace(export_context=export_context) if export_context is not None else None
             )
-            return _load_video_clock(1, "s", session_duration_s)
+            return _load_video_clock(1, 7, session_duration_s)
 
     def test_a_video_as_long_as_its_session_lost_nothing_so_identity_is_exact(self) -> None:
         assert self._load({"video_duration_s": 199.0}, 200.0).is_identity
@@ -74,7 +83,7 @@ class TestMissingCutMapIsRefusedUnlessProvablyUncut:
     @parameterized.expand(
         [
             ("the video is materially shorter, so stretches were cut", {"video_duration_s": 120.0}, 200.0),
-            ("no video duration to compare against", {}, 200.0),
+            ("no video duration to compare against", {"other": 1}, 200.0),
             ("no session duration to compare against", {"video_duration_s": 120.0}, None),
             ("no asset at all", None, 200.0),
         ]

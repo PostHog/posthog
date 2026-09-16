@@ -4,12 +4,15 @@ The rasterizer cuts inactive stretches out of the rendered MP4, so a position in
 behind the wall-clock moment it shows. Everything the model sees is on the video clock, because that
 is the clock it can index exactly; everything we persist is on the session clock, because that is
 what the player seeks to.
+
+`clipTimeForMoment` in products/desktop/packages/ui/src/features/inbox/components/detail/recordingClipTime.ts
+is the TypeScript sibling of this mapping. The two have to change together.
 """
 
-from collections.abc import Iterable, Sequence
 from typing import Any
 
 from posthog.dataclasses import frozen
+from posthog.temporal.session_replay.rasterize_recording.types import InactivityPeriod
 
 
 @frozen
@@ -24,7 +27,10 @@ class ActiveSpan:
 
 @frozen
 class VideoClock:
-    """Maps session seconds to video seconds and back, across the cuts the rasterizer made."""
+    """Maps session seconds to video seconds and back, across the cuts the rasterizer made.
+
+    No spans means the render cut nothing, so both clocks read the same.
+    """
 
     spans: tuple[ActiveSpan, ...]
 
@@ -38,47 +44,54 @@ class VideoClock:
         return self.spans[-1].video_to_s if self.spans else None
 
     def session_ms_to_video_s(self, session_ms: int) -> float:
-        if self.is_identity:
-            return session_ms / 1000
-        session_s = session_ms / 1000
-        for span in self.spans:
-            if session_s < span.session_from_s:
-                return span.video_from_s  # inside a cut: the video jumps straight to here
-            if session_s <= span.session_to_s:
-                return span.video_from_s + (session_s - span.session_from_s)
-        return self.spans[-1].video_to_s
+        return self._project(session_ms / 1000, to_video=True)
 
     def video_s_to_session_ms(self, video_s: float) -> int:
+        return int(self._project(video_s, to_video=False) * 1000)
+
+    def video_s_to_session_s(self, video_s: float) -> int:
+        return int(self._project(video_s, to_video=False))
+
+    def _project(self, value_s: float, *, to_video: bool) -> float:
+        """Walk the kept stretches and move `value_s` onto the other clock.
+
+        A value inside a cut has only one place it could be shown, so it collapses onto the point the
+        video resumes; a boundary instant resolves to the stretch before the cut; past the end clamps.
+        """
         if self.is_identity:
-            return int(video_s * 1000)
+            return value_s
         for span in self.spans:
-            if video_s < span.video_from_s:
-                return int(span.session_from_s * 1000)
-            if video_s <= span.video_to_s:  # a boundary instant resolves to the stretch before the cut
-                return int((span.session_from_s + (video_s - span.video_from_s)) * 1000)
-        return int(self.spans[-1].session_to_s * 1000)
+            src_from, src_to = (
+                (span.session_from_s, span.session_to_s) if to_video else (span.video_from_s, span.video_to_s)
+            )
+            dst_from = span.video_from_s if to_video else span.session_from_s
+            if value_s < src_from:
+                return dst_from
+            if value_s <= src_to:
+                return dst_from + (value_s - src_from)
+        last = self.spans[-1]
+        return last.video_to_s if to_video else last.session_to_s
 
 
-def _spans_from_periods(periods: Iterable[dict[str, Any]]) -> list[ActiveSpan]:
-    # `ts_*` is the session clock and `recording_ts_*` the video clock, despite how the names read.
+def video_clock_from_export_context(export_context: dict[str, Any] | None) -> VideoClock | None:
+    """The clock a rendered asset describes, or None when the asset never recorded what it cut.
+
+    A completed render always writes the map, so a present-but-empty one is proof that nothing was
+    cut. Only an asset rendered before the rasterizer recorded it at all is genuinely unknown.
+    """
+    if export_context is None or "inactivity_periods" not in export_context:
+        return None
+    periods = [InactivityPeriod.model_validate(p) for p in export_context["inactivity_periods"] or []]
     spans = [
         ActiveSpan(
-            session_from_s=float(p["ts_from_s"]),
-            session_to_s=float(p["ts_to_s"]),
-            video_from_s=float(p["recording_ts_from_s"]),
-            video_to_s=float(p["recording_ts_to_s"]),
+            session_from_s=p.ts_from_s,
+            session_to_s=p.ts_to_s,
+            video_from_s=p.recording_ts_from_s,
+            video_to_s=p.recording_ts_to_s,
         )
         for p in periods
-        if p.get("active")
+        # A period missing either clock cannot be mapped; dropping it leaves the surrounding spans intact.
+        if p.active and p.ts_to_s is not None and p.recording_ts_from_s is not None and p.recording_ts_to_s is not None
     ]
     spans.sort(key=lambda span: span.video_from_s)
-    return spans
-
-
-def video_clock_from_export_context(export_context: dict[str, Any] | None) -> VideoClock:
-    """Build the clock from a rendered asset's context. Falls back to identity, which is correct only
-    when nothing was cut — callers should log when periods are missing from an asset that has them."""
-    periods: Sequence[dict[str, Any]] = (export_context or {}).get("inactivity_periods") or []
-    if not periods:
-        return VideoClock(spans=())
-    return VideoClock(spans=tuple(_spans_from_periods(periods)))
+    return VideoClock(spans=tuple(spans))
