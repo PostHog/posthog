@@ -1,5 +1,5 @@
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -15,6 +15,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.tasks.backend.constants import CI_STATUSES, PR_STATES
 from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.temporal.babysit_pr.snapshot import FailingCheck
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.activities import TaskProcessingContext
 
@@ -37,6 +38,9 @@ class GetPrContextOutput:
     ci_status: str = "none"
     changes_requested: bool = False
     unresolved_threads: int = 0
+    # Named so the follow-up prompt can point the agent at the checks that failed and their
+    # logs, instead of telling it to go and find them.
+    failing_checks: list[FailingCheck] = field(default_factory=list)
 
 
 def is_pr_actionable(pr: GetPrContextOutput) -> bool:
@@ -193,4 +197,8 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
             ci_status=pull_request.get("ci_status", "none"),
             changes_requested=pull_request.get("review_decision") == "changes_requested",
             unresolved_threads=pull_request.get("unresolved_threads", 0),
+            failing_checks=[
+                FailingCheck(key=check["key"], details_url=check.get("details_url"))
+                for check in pull_request.get("failing_checks") or []
+            ],
         )

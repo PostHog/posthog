@@ -2499,6 +2499,32 @@ class TestGitHubIntegrationPullRequestBabysitSnapshot(BaseTest):
 
         assert [(check["key"], check["details_url"]) for check in result["failing_checks"]] == expected
 
+    def test_the_plain_snapshot_names_the_same_failing_checks(self):
+        rollup = {"state": "FAILURE", "contexts": {"nodes": [self._FAILING_CONTEXT]}}
+        payload = {
+            "repository": {
+                "pullRequest": {
+                    "number": 7,
+                    "title": "Add a thing",
+                    "url": BABYSIT_PR_URL,
+                    "state": "OPEN",
+                    "isDraft": False,
+                    "mergeable": "MERGEABLE",
+                    "author": {"login": "posthog-bot"},
+                    "reviewThreads": {"nodes": []},
+                    "commits": {"nodes": [{"commit": {"statusCheckRollup": rollup}}]},
+                }
+            }
+        }
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload):
+            result = self._github().get_pull_request_snapshot(BABYSIT_PR_URL)
+
+        assert result["ci_status"] == "failing"
+        assert [(check["key"], check["details_url"]) for check in result["failing_checks"]] == [
+            ("backend", "https://ci.example.com/1")
+        ]
+
     def test_invalid_pull_request_url_is_reported_as_failure_without_calling_github(self):
         with patch.object(GitHubIntegration, "_gh_graphql") as mock_graphql:
             result = self._github().get_pull_request_babysit_snapshot("https://example.com/not/a/pull-request")

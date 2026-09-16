@@ -330,6 +330,17 @@ def increment_pr_babysit_decision(decision: str) -> None:
         pass
 
 
+def increment_ci_follow_up_dispatch(trigger: str) -> None:
+    try:
+        meter = workflow.metric_meter().with_additional_attributes({"trigger": trigger})
+        meter.create_counter(
+            "tasks_ci_follow_up_dispatch",
+            "CI follow-up messages sent to the agent, by what made the budget available",
+        ).add(1)
+    except Exception:
+        pass
+
+
 def increment_pr_babysit_snapshot(outcome: str, *, pr_state: str = "unknown") -> None:
     try:
         meter = _metric_meter({"outcome": outcome, "pr_state": pr_state})

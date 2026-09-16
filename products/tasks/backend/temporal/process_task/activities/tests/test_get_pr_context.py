@@ -11,6 +11,7 @@ from parameterized import parameterized
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 
 from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
+from products.tasks.backend.temporal.babysit_pr.snapshot import FailingCheck
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
     DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS,
     GetPrContextInput,
@@ -166,6 +167,7 @@ class TestGetPrContextActivity:
             "ci_status": "failing",
             "review_decision": "changes_requested",
             "unresolved_threads": 1,
+            "failing_checks": [{"key": "CI/backend", "details_url": "https://ci.example.com/1"}],
         }
         integration = MagicMock()
         integration.get_pull_request_snapshot.return_value = snapshot
@@ -183,6 +185,7 @@ class TestGetPrContextActivity:
         assert result.ci_status == "failing"
         assert result.changes_requested is True
         assert result.unresolved_threads == 1
+        assert result.failing_checks == [FailingCheck(key="CI/backend", details_url="https://ci.example.com/1")]
         integration.get_pull_request_snapshot.assert_called_once_with(pr_url)
 
     @pytest.mark.django_db

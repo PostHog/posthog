@@ -13,6 +13,8 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.temporal.babysit_pr.prompts import format_failing_checks
+from products.tasks.backend.temporal.babysit_pr.snapshot import FailingCheck
 from products.tasks.backend.temporal.constants import (
     ACK_TIMEOUT,
     CI_FOLLOW_UP_DELAY,
@@ -37,6 +39,7 @@ from products.tasks.backend.temporal.execute_sandbox.workflow import (
     ChildCompletionPayload,
     ExecuteSandboxInput,
 )
+from products.tasks.backend.temporal.metrics import increment_ci_follow_up_dispatch
 from products.tasks.backend.temporal.patches import ci_follow_up_actionable_gate
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
     GetPrContextInput,
@@ -87,6 +90,9 @@ _PATCH_ID_ACCEPTED_ACK_RESETS_REPLACEMENT_BUDGET = "tasks-task-management-accept
 _PATCH_ID_DURABLE_REPLACEMENT_BUDGET_PERSISTENCE = "tasks-task-management-durable-replacement-budget-persistence"
 _PATCH_ID_TERMINAL_PENDING_FOLLOWUP_BARRIER = "tasks-task-management-terminal-pending-followup-barrier"
 _PATCH_ID_GENERATION_SAFE_PENDING_FOLLOWUPS = "tasks-task-management-generation-safe-pending-followups"
+# Re-arming the CI budget on a user request lets the loop schedule follow-up rounds a
+# pre-rollout history never recorded.
+_PATCH_ID_CI_BUDGET_REARM = "tasks-task-management-ci-budget-rearm"
 _CHILD_SIGNAL_TERMINAL_ERROR_TYPES = {
     "ExternalWorkflowExecutionNotFound",
     "NamespaceNotFound",
@@ -266,6 +272,10 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self._heartbeat_received: bool = False
         self._last_active_time: Optional[datetime] = None
         self._ci_repetitions: int = 0
+        # Failing checks read on the tick that decided to fire, named in the CI prompt.
+        self._pending_ci_checks: list[FailingCheck] = []
+        # A user re-opened the CI budget since the last follow-up dispatch.
+        self._ci_budget_rearmed: bool = False
         self._pr_fingerprint: Optional[str] = None
         # Last observed unresolved review-thread count. Starting at 0 means
         # feedback posted before the first poll still reads as new.
@@ -644,6 +654,8 @@ class TaskManagementWorkflow(PostHogWorkflow):
         # terminal and handled last so we don't drop in-flight messages.
         while self._pending_external_followups:
             followup = self._pending_external_followups.pop(0)
+            if _patch_enabled(_PATCH_ID_CI_BUDGET_REARM):
+                self._rearm_ci_follow_up()
             delivered = await self._signal_child_followup(
                 message=followup.message,
                 artifact_ids=followup.artifact_ids,
@@ -1243,6 +1255,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 raise ValueError(f"Unknown CIFollowUpDecision: {decision}")
 
     async def _should_run_ci_follow_up(self) -> CIFollowUpDecision:
+        self._pending_ci_checks = []
         pr_context = await workflow.execute_activity(
             get_pr_context,
             GetPrContextInput(context=self.context),
@@ -1262,6 +1275,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
             if not fingerprint_changed:
                 return CIFollowUpDecision.SKIP
             self._pr_fingerprint = pr_context.fingerprint
+            self._pending_ci_checks = pr_context.failing_checks
             return CIFollowUpDecision.FIRE
         # New unresolved review threads are feedback for the agent, and comparing
         # against the last-seen count means its own thread replies (which never
@@ -1288,11 +1302,30 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 "repetitions": self._ci_repetitions,
             },
         )
-        return CIFollowUpDecision.FIRE if fire else CIFollowUpDecision.SKIP
+        if not fire:
+            return CIFollowUpDecision.SKIP
+        self._pending_ci_checks = pr_context.failing_checks
+        return CIFollowUpDecision.FIRE
+
+    def _rearm_ci_follow_up(self) -> None:
+        """Give the CI loop its rounds back, because the user just asked for more work.
+
+        The counter only ever climbed inside a sandbox session, and a PR that was missing
+        once forced it to the maximum, so a run could reach a state where it never looked
+        at CI again however often the user asked.
+        """
+        self._ci_repetitions = 0
+        self._pr_fingerprint = None
+        self._ci_budget_rearmed = True
 
     async def _dispatch_ci_follow_up(self) -> None:
         self._ci_repetitions += 1
+        increment_ci_follow_up_dispatch("user_rearmed" if self._ci_budget_rearmed else "scheduled")
+        self._ci_budget_rearmed = False
         ci_message = (self._context.ci_prompt if self._context else None) or DEFAULT_CI_MESSAGE
+        if self._pending_ci_checks:
+            ci_message = f"{ci_message}\n\n{format_failing_checks(self._pending_ci_checks)}"
+            self._pending_ci_checks = []
         self._last_active_time = workflow.now()
         await self._signal_child_followup(message=ci_message, artifact_ids=[], source=FOLLOWUP_SOURCE_CI)
 
