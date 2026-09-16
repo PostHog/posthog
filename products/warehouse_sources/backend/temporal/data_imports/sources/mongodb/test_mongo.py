@@ -399,26 +399,13 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "Port contains non-digit characters. Hint: username and password must be escaped "
                 "according to RFC 3986, use urllib.parse.quote_plus",
             ),
-            # ServerSelectionTimeoutError variants — cluster unreachable for the whole selection
-            # timeout. All carry the "Topology Description:" suffix regardless of the per-reason text.
-            ("no_servers", "No servers found yet, Timeout: 5.0s, Topology Description: ..."),
+            # The resolver says the cluster host name does not exist. pymongo reports it as a
+            # server-selection timeout, but the OS marker makes it a connection-string mistake that
+            # no retry recovers, unlike the bare topology timeout below.
             (
-                "no_replica_set_members",
-                "No replica set members found yet, Timeout: 10.0s, Topology Description: "
-                "<TopologyDescription topology_type: ReplicaSetNoPrimary>",
-            ),
-            # Host resolves but every connection attempt is closed for the whole window — the driver
-            # never identifies the server (topology_type: Unknown) and wraps the per-server
-            # AutoReconnect. Persistent connectivity/config problem, not a momentary blip.
-            (
-                "connection_closed_selection_timeout",
-                "cluster0.example.mongodb.net:27017: connection closed (configured timeouts: "
-                "socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: 10.0s, "
-                "Topology Description: <TopologyDescription id: abc, topology_type: Unknown, "
-                "servers: [<ServerDescription ('cluster0.example.mongodb.net', 27017) "
-                "server_type: Unknown, rtt: None, error=AutoReconnect('cluster0.example.mongodb.net:"
-                "27017: connection closed (configured timeouts: socketTimeoutMS: 20000.0ms, "
-                "connectTimeoutMS: 20000.0ms)')>]>",
+                "dns_name_not_found",
+                "cluster0.example.mongodb.net:27017: [Errno -2] Name or service not known, Timeout: "
+                "10.0s, Topology Description: <TopologyDescription topology_type: Unknown>",
             ),
             # Atlas SQL / Data Federation endpoint (*.query.mongodb.net) — unusable by the standard
             # driver, so the topology stays Unknown and selection times out. Despite the "connection
@@ -461,6 +448,24 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "cluster0.example.mongodb.net:27017: connection closed (configured timeouts: "
                 "socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)",
             ),
+            # A cluster that is down for one selection window emits the same server-selection
+            # timeout a permanently blocked one does, so none of these may disable the schema.
+            ("no_servers", "No servers found yet, Timeout: 5.0s, Topology Description: ..."),
+            (
+                "no_replica_set_members",
+                "No replica set members found yet, Timeout: 10.0s, Topology Description: "
+                "<TopologyDescription topology_type: ReplicaSetNoPrimary>",
+            ),
+            (
+                "connection_closed_selection_timeout",
+                "cluster0.example.mongodb.net:27017: connection closed (configured timeouts: "
+                "socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: 10.0s, "
+                "Topology Description: <TopologyDescription id: abc, topology_type: Unknown, "
+                "servers: [<ServerDescription ('cluster0.example.mongodb.net', 27017) "
+                "server_type: Unknown, rtt: None, error=AutoReconnect('cluster0.example.mongodb.net:"
+                "27017: connection closed (configured timeouts: socketTimeoutMS: 20000.0ms, "
+                "connectTimeoutMS: 20000.0ms)')>]>",
+            ),
         ]
     )
     def test_transient_errors_are_retryable(self, _name, error_msg):
@@ -473,7 +478,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("code_name", "AuthenticationFailed", "password"),
             ("message", "Authentication failed", "password"),
             ("atlas_bad_auth", "bad auth", "password"),
-            ("unreachable_topology", "Topology Description:", "allowlist"),
+            ("dns_name_not_found", "Name or service not known", "resolved"),
             ("atlas_sql_endpoint", "query.mongodb.net", "connection string"),
             ("unescaped_credentials", "must be escaped according to RFC 3986", "connection string"),
             ("document_missing_id", "one of its documents has no _id field", "view"),
@@ -525,6 +530,28 @@ class TestGetRetryableErrors(SimpleTestCase):
         assert any(pattern in MONGO_KEYS_UNAVAILABLE_ERROR for pattern in self.retryable), (
             f"MongoDB signing keys unavailable should be classified retryable: {MONGO_KEYS_UNAVAILABLE_ERROR}"
         )
+
+    def test_server_selection_timeout_is_classified_retryable(self):
+        # Regression: a cluster down for one selection window used to disable the schema, leaving
+        # the table stale until someone re-enabled the sync by hand.
+        error_msg = (
+            "No replica set members found yet, Timeout: 10.0s, Topology Description: "
+            "<TopologyDescription topology_type: ReplicaSetNoPrimary>"
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB server selection timeout should be classified retryable: {error_msg}"
+        )
+
+    def test_exhausted_server_selection_timeout_replaces_the_topology_dump(self):
+        # The schema stays enabled, so the stored error is what the user reads. Left alone it would
+        # be the raw dump of every seed host, port, and per-server driver exception.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import MongoDBSource
+
+        error_msg = "No servers found yet, Timeout: 5.0s, Topology Description: <TopologyDescription ...>"
+        exhausted = MongoDBSource().get_retry_exhausted_errors()
+        message = next((m for pattern, m in exhausted.items() if pattern in error_msg), None)
+        assert message is not None
+        assert "Topology Description" not in message
 
     def test_interrupted_at_shutdown_is_classified_retryable(self):
         # NotPrimaryError raised when a read is killed by a routine replica-set failover (the
