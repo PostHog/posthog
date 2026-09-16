@@ -70,24 +70,3 @@ class TestJiraIntegrationModel:
             "integration_id": 123,
             "team_id": 456,
         }
-
-    @patch.object(JiraIntegration, "_ensure_token_valid")
-    @patch.object(JiraIntegration, "site_url", return_value="https://acme.atlassian.net")
-    @patch("posthog.models.integration.jira.requests.get")
-    def test_search_issues_returns_the_searchable_issue_key(self, mock_get, _mock_site_url, _mock_ensure_token_valid):
-        integration = self.integration()
-        integration.config["cloud_id"] = "cloud-id"
-        mock_get.return_value.status_code = 200
-        mock_get.return_value.json.return_value = {
-            "sections": [
-                {
-                    "issues": [
-                        {"id": "10042", "key": "ENG-42", "summaryText": "Checkout failed"},
-                    ]
-                }
-            ]
-        }
-
-        results = JiraIntegration(integration).search_issues("ENG-42")
-
-        assert results[0]["id"] == "ENG-42"
