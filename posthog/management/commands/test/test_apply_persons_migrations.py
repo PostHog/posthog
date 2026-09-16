@@ -31,7 +31,9 @@ class TestNoTransactionMarker(SimpleTestCase):
     @parameterized.expand(
         [
             ("first_line", "-- no-transaction\nCREATE INDEX CONCURRENTLY a ON t (c);", True),
-            ("after_other_comments", "-- why\n\n-- no-transaction\nCREATE INDEX CONCURRENTLY a ON t (c);", True),
+            ("first_line_with_suffix", "-- no-transaction (concurrent)\nCREATE INDEX CONCURRENTLY a ON t (c);", True),
+            ("after_other_comments", "-- why\n\n-- no-transaction\nCREATE INDEX CONCURRENTLY a ON t (c);", False),
+            ("after_a_blank_line", "\n-- no-transaction\nCREATE INDEX CONCURRENTLY a ON t (c);", False),
             ("absent", "-- why\nCREATE INDEX a ON t (c);", False),
             ("only_after_a_statement", "CREATE INDEX a ON t (c);\n-- no-transaction\n", False),
         ]

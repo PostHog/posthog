@@ -10,7 +10,7 @@ migration is only executed once. Also bridges the sqlx _sqlx_migrations
 tracking table so that environments transitioning from sqlx don't re-apply
 already-applied migrations.
 
-Each file runs inside a transaction, unless it carries the -- no-transaction
+Each file runs inside a transaction, unless it opens with the -- no-transaction
 marker that CONCURRENTLY index builds need.
 """
 
@@ -39,7 +39,7 @@ HOBBY_SKIP_MIGRATIONS = {
 
 TRACKING_TABLE = "_persons_migrations_applied"
 
-# Marker a migration file carries when it must not run inside a transaction, because
+# Marker a migration file opens with when it must not run inside a transaction, because
 # Postgres rejects CREATE/DROP INDEX CONCURRENTLY there. Same convention as the sqlx
 # runners that read these files in Rust.
 NO_TRANSACTION_MARKER = "-- no-transaction"
@@ -84,16 +84,13 @@ def _record_migration(cursor, filename: str) -> None:
 
 
 def _runs_outside_transaction(sql_content: str) -> bool:
-    """Report whether the leading comment block of a migration carries the marker."""
-    for line in sql_content.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if not stripped.startswith("--"):
-            return False
-        if stripped == NO_TRANSACTION_MARKER:
-            return True
-    return False
+    """Report whether a migration opens with the marker.
+
+    sqlx tests the raw file content with starts_with, so a marker below a header comment or
+    a blank line is transactional under the Rust runners. Match that test exactly: a file
+    this runner accepts must behave the same way in the sqlx job that applies it.
+    """
+    return sql_content.startswith(NO_TRANSACTION_MARKER)
 
 
 def _holds_multiple_statements(sql_content: str) -> bool:
