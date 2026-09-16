@@ -242,6 +242,7 @@ class ExperimentQueryRunner(QueryRunner):
         self.user_facing = user_facing
         self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
         self.bypass_warehouse_access_control = bypass_warehouse_access_control
+        self._requested_as_of = as_of
         # Tags the terminal `experiment metric error` event with where the load came from. Defaults to "ui"
         # because the generic /query API path constructs runners without kwargs; internal callers that own
         # their own retries/telemetry (recalc, warming, canary, backfills) must pass None or user_facing=False
@@ -303,7 +304,6 @@ class ExperimentQueryRunner(QueryRunner):
             start_is_dw = isinstance(self.query.metric.start_event, ExperimentDataWarehouseNode)
             completion_is_dw = isinstance(self.query.metric.completion_event, ExperimentDataWarehouseNode)
             self.is_data_warehouse_query = start_is_dw or completion_is_dw
-        self.is_ratio_metric = isinstance(self.query.metric, ExperimentRatioMetric)
 
         self.stats_method = get_experiment_stats_method(self.experiment)
 
@@ -1022,6 +1022,16 @@ class ExperimentQueryRunner(QueryRunner):
         if last_refresh is None:
             return None
         return last_refresh + timedelta(hours=24)
+
+    def single_flight_variant(self) -> str:
+        # A recalculation passes its own window end, warehouse access, and execution time. None of
+        # them reach the cache key, so a recalculation must not pair with a results request.
+        as_of = self._requested_as_of.isoformat() if self._requested_as_of else ""
+        return (
+            f"{super().single_flight_variant()}:as_of={as_of}"
+            f":bypass_warehouse_access_control={self.bypass_warehouse_access_control}"
+            f":max_execution_time={self.max_execution_time}"
+        )
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()

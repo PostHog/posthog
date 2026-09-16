@@ -36,6 +36,7 @@ import {
 } from '../../../utils/scoutRunsWindow'
 import { MAX_SCOUT_TAGS, normalizeScoutTags } from '../../../utils/scoutTags'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
+import { ScoutRepositoriesPicker } from './ScoutRepositoriesPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 import { ScoutWriteScopesPicker } from './ScoutWriteScopesPicker'
 
@@ -231,6 +232,16 @@ export function ScoutCreateModal({
                         {({ value, onChange }) => (
                             <ScoutMcpServersPicker
                                 selectedServerIds={value ?? []}
+                                onChange={onChange}
+                                disabledReason={busyReason}
+                            />
+                        )}
+                    </LemonField>
+
+                    <LemonField name="config.repositories">
+                        {({ value, onChange }) => (
+                            <ScoutRepositoriesPicker
+                                selectedRepositories={value ?? []}
                                 onChange={onChange}
                                 disabledReason={busyReason}
                             />

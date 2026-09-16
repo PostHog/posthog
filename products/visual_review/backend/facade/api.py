@@ -38,10 +38,12 @@ from ..logic import (
     flakiness,
     gating,
     history,
+    owners,
     quarantine,
     repos,
     run_queries,
     runs,
+    story_index,
     thumbnails,
     toleration,
 )
@@ -365,13 +367,16 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
     )
 
 
-def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
+def get_flakiness_overview(repo_id: UUID, team_id: int) -> contracts.FlakinessOverview:
     """Snapshot identities carrying rendering instability or an open quarantine.
 
     Backs the flakiness page. See `flakiness.get_flakiness_overview` for the
     scoping rule and query shape.
     """
     raw = flakiness.get_flakiness_overview(repo_id)
+    owner_team_by_key = owners.owner_teams(
+        repos.get_repo(repo_id, team_id), [flakiness.snapshot_key(row) for row in raw.rows], raw.newest_run_by_type
+    )
 
     quarantine_user_ids = {
         row.quarantine.created_by_id for row in raw.rows if row.quarantine and row.quarantine.created_by_id
@@ -414,6 +419,7 @@ def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
                     if row.quarantine is not None
                     else None
                 ),
+                owner_team=owner_team_by_key.get(flakiness.snapshot_key(row)),
             )
         )
 
@@ -523,7 +529,15 @@ def add_snapshots(input: contracts.AddSnapshotsInput, run_id: UUID, team_id: int
         contracts.UploadTarget(content_hash=u["content_hash"], url=u["url"], fields=u["fields"]) for u in uploads
     ]
 
-    return contracts.AddSnapshotsResult(added=added, uploads=upload_targets)
+    story_index_upload = None
+    if input.story_index_hash:
+        upload = story_index.register_story_index(run_id, team_id, input.story_index_hash)
+        if upload is not None:
+            story_index_upload = contracts.UploadTarget(
+                content_hash=input.story_index_hash, url=upload.url, fields=upload.fields
+            )
+
+    return contracts.AddSnapshotsResult(added=added, uploads=upload_targets, story_index_upload=story_index_upload)
 
 
 def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:

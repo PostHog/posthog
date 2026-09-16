@@ -54,6 +54,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxTemplate,
     get_sandbox_class_for_run_backend,
     get_sandbox_class_for_sandbox_id,
+    needs_full_history,
     sandbox_repo_path,
     workload_for_origin_product,
 )
@@ -317,7 +318,7 @@ def _prewarmed_resume_needs_fresh_agent(
 
 
 def _is_blobless_signals_clone_enabled(ctx: TaskProcessingContext) -> bool:
-    if ctx.origin_product != Task.OriginProduct.SIGNAL_REPORT:
+    if not needs_full_history(ctx.origin_product):
         return False
 
     try:
@@ -340,6 +341,21 @@ def _is_blobless_signals_clone_enabled(ctx: TaskProcessingContext) -> bool:
         return False
 
 
+def _repository_snapshot_integration_id(ctx: TaskProcessingContext, *, has_repo: bool) -> int | None:
+    """The integration to look up a repository-setup snapshot under, or None to clone instead.
+
+    A read-only run never restores one. Those snapshots carry the token their creator cloned with in every
+    `.git/config`, which is the write-capable installation token for a task sandbox, and nothing
+    rewrites a restored remote before the agent starts unless a branch is checked out. They are
+    also arbitrarily old, and a run without a branch never fetches, so a scout would read a tree
+    from whenever the snapshot was taken. A fresh clone with the read-only mint is the only tree
+    that holds both guarantees.
+    """
+    if not has_repo or ctx.custom_image_name or ctx.github_read_access:
+        return None
+    return ctx.github_integration_id
+
+
 def _resolve_sandbox_github_token(
     ctx: TaskProcessingContext,
     *,
@@ -350,10 +366,10 @@ def _resolve_sandbox_github_token(
 ) -> str:
     """Decide which GitHub credential (if any) a fresh sandbox gets.
 
-    A repo-less run that requested read-only access is resolved FIRST: a task whose team has GitHub
+    A run that requested read-only access is resolved FIRST: a task whose team has GitHub
     connected can carry the team integration, so has_github_credentials is true for it. Resolved the
     other way around, the write-capable installation token would reach a run that asked for
-    read-only. The read-only mint is best-effort (empty string on failure, never the full token);
+    read-only. Repository selection does not grant write access. The read-only mint is best-effort (empty string on failure, never the full token);
     the full credential path keeps its raise-on-failure contract for repo-backed runs that can't
     work without credentials.
 
@@ -363,7 +379,7 @@ def _resolve_sandbox_github_token(
     one only after the create-time Desktop gate passed. So a repo-less run with no integration
     stays credential-less, and an entitled discussion can clone a private repository and push.
     """
-    if ctx.github_read_access and not has_repo:
+    if ctx.github_read_access:
         github_token = get_readonly_github_token(ctx.team_id) or ""
         emit_agent_log(
             ctx.run_id,
@@ -618,13 +634,14 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         snapshot_mount_path: str | None = None
         # Repo-setup snapshots come from default-base sandboxes; restoring one would silently
         # drop the custom base image. Resume snapshots were taken from this task's own sandbox.
-        if has_repo and ctx.github_integration_id is not None and not ctx.custom_image_name:
+        snapshot_integration_id = _repository_snapshot_integration_id(ctx, has_repo=has_repo)
+        if snapshot_integration_id is not None:
             with StepTimer(
                 "snapshot_lookup",
                 origin_product=ctx.origin_product,
                 runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
             ) as snapshot_lookup_timer:
-                snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, ctx.repositories)
+                snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(snapshot_integration_id, ctx.repositories)
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
             if snapshot is not None:
@@ -640,7 +657,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             emit_agent_log(ctx.run_id, "debug", "Creating environment without repository")
 
         task = _load_task(ctx)
-        shallow_clone = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
+        shallow_clone = not needs_full_history(task.origin_product)
 
         actor_user = get_task_run_credential_user(task, ctx.state)
         credential_repository = repository or (ctx.repositories[0] if ctx.repositories else None)
@@ -1208,10 +1225,10 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
-        if ctx.github_read_access and input.repository is None:
-            # Same priority rule as fresh provisioning (_resolve_sandbox_github_token): a repo-less
-            # read-only run must never regain the write-capable token on resume. Best-effort — an
-            # empty token just leaves the sandbox without GitHub access.
+        if ctx.github_read_access:
+            # Same priority rule as fresh provisioning (_resolve_sandbox_github_token): a
+            # read-only run must never regain the write-capable token on resume, cloned repos or
+            # not. Best-effort, since an empty token just leaves the sandbox without GitHub access.
             github_token = get_readonly_github_token(ctx.team_id) or ""
         elif ctx.has_github_credentials:
             try:
@@ -1255,8 +1272,10 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
-        if input.repository:
-            set_git_remote_token(sandbox, input.repository, github_token or None)
+        # Every clone embeds the token in its own `origin`, so a multi-repository run has to rewrite
+        # each of them or the secondary checkouts keep the snapshot's expired token.
+        for repository in ctx.repositories or ([input.repository] if input.repository else []):
+            set_git_remote_token(sandbox, repository, github_token or None)
 
         # Replace both credential domains even when resolution returns no token,
         # so revoked credentials cannot survive in a resumed filesystem snapshot.

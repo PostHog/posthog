@@ -42,7 +42,6 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
-from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
@@ -93,7 +92,11 @@ from posthog.models.activity_logging.activity_log import (
     load_activity,
     log_activity,
 )
-from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
+from posthog.models.activity_logging.activity_page import (
+    ActivityLogPaginatedResponseSerializer,
+    activity_page_response,
+    parse_activity_page_params,
+)
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
@@ -1705,7 +1708,6 @@ Background calculation can be tracked using the `query_status` response field.""
     destroy=extend_schema(parameters=[INSIGHT_ID_PATH_PARAMETER]),
 )
 class InsightViewSet(
-    QueryCoalescingMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
@@ -2682,11 +2684,12 @@ When set, the specified dashboard's filters and date range override will be appl
     )
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
-        activity_page = load_activity(scope="Insight", team_id=self.team_id, limit=limit, page=page)
-        return activity_page_response(activity_page, limit, page, request)
+        activity_page = load_activity(
+            scope="Insight", team_id=self.team_id, limit=page_params.limit, page=page_params.page
+        )
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @extend_schema(
         parameters=[
@@ -2713,8 +2716,7 @@ When set, the specified dashboard's filters and date range override will be appl
     )
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         item = self.get_object()
 
@@ -2722,10 +2724,10 @@ When set, the specified dashboard's filters and date range override will be appl
             scope="Insight",
             team_id=self.team_id,
             item_ids=[str(item.id)],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["POST"], detail=False)
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="CANCEL")
