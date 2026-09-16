@@ -107,8 +107,7 @@ export function useTaskAgentDefaults(): TaskAgentDefaultsResult {
       // The harness has to move with it. The composer opens on whichever adapter it last
       // used and ignores a default belonging to a different one, so a Claude default set
       // from a composer left on Codex would be skipped outright — clearing the model
-      // alone doesn't help, because the two never meet. The runtime moves for the same
-      // reason: a Pi default is unreachable from a composer left on the ACP harness.
+      // alone doesn't help, because the two never meet.
       const adapter = preferredRunAdapter(next.resolved);
       if (adapter) {
         settings.setLastUsedAdapter(adapter);

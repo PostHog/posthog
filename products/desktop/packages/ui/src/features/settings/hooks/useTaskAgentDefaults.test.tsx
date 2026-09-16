@@ -156,8 +156,6 @@ describe("useTaskAgentDefaults", () => {
     );
   });
 
-  // A Pi default is unreachable from a composer left on the ACP harness, so the
-  // runtime has to follow the resolved preference the same way the adapter does.
   it("moves the runtime to pi when the new default names pi", async () => {
     const piDefault = {
       runtime: "pi",

@@ -166,8 +166,6 @@ export function pickPreferredRunSelection(
   if (lastUsedModel || lastUsedReasoningEffort) return null;
   const model = defaults?.model;
   if (!model) return null;
-  // A pi preference is not an ACP selection: its model must not seed an ACP
-  // composer just because the id also appears in the adapter's model list.
   if (defaults?.runtime === "pi") {
     return null;
   }

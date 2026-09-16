@@ -223,8 +223,6 @@ export function TaskAgentDefaultsSettings() {
     useSettingsStore();
   const [pendingAdapter, setPendingAdapter] = useState<Adapter | null>(null);
   const piHarnessEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
-  // The catalog decides whether the default can even be picked: offering Pi with no
-  // model to save would write an incomplete preference.
   const { data: piModels = [], isPending: isPiModelCatalogLoading } =
     usePiModelCatalog(piHarnessEnabled);
   const shownPreferences = myPreferences.model

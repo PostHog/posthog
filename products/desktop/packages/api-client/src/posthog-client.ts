@@ -372,12 +372,9 @@ export const NO_TASK_RUN_DEFAULTS: TaskRunDefaults = {
 };
 
 /**
- * A stored preference selection. All-null means the level is unset and the one
- * below it applies — a personal preference falls back to the project default, and
- * the project default to each surface's built-in model. A pi preference pairs
- * `runtime: "pi"` with a model and carries no adapter; an acp preference pairs
- * `runtime_adapter` with a model. A null `runtime` means acp, matching rows
- * written before the field existed.
+ * A stored preference. All fields null means the level is unset and the one
+ * below it applies — a personal preference falls back to the project default,
+ * and the project default to each surface's built-in model.
  */
 export interface TaskRunPreferences {
   runtime: string | null;
