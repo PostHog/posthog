@@ -7,7 +7,6 @@ import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
-import { hexToRGBA } from 'lib/utils/colors'
 import { roundToDecimal } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -19,6 +18,7 @@ import type { GroupTypeIndex, LabelGroupType } from '~/types'
 import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
+import { dimHexColor } from '../../trends/shared/compareDimming'
 import { retentionGraphLogic } from '../retentionGraphLogic'
 import { retentionModalLogic } from '../retentionModalLogic'
 import {
@@ -98,7 +98,7 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
             getColor: (entry, index) => {
                 const color = getRetentionColor(entry.rawBreakdownValue, fadeCohorts ? 0 : index)
                 return fadeCohorts && color
-                    ? hexToRGBA(color, retentionSeriesOpacity(index, filteredTrendSeries.length))
+                    ? dimHexColor(color, retentionSeriesOpacity(index, filteredTrendSeries.length))
                     : color
             },
         })
@@ -143,6 +143,9 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
                     altTitle={altTitle}
                     renderCount={(value) => (isPercentage ? `${roundToDecimal(value)}%` : `${roundToDecimal(value)}`)}
                     renderSeriesOverride={(datum) => {
+                        if (series[datum.datasetIndex]?.meta?.isMean) {
+                            return datum.label ?? ''
+                        }
                         const showCohortPrefix = selectedInterval !== null || !shouldShowMeanPerBreakdown
                         return showCohortPrefix ? `Cohort ${datum.label ?? ''}` : (datum.label ?? '')
                     }}
@@ -160,6 +163,7 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
             groupTypeLabel,
             onRowClick,
             canClick,
+            series,
         ]
     )
 
