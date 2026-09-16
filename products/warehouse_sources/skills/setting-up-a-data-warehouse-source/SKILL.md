@@ -115,8 +115,20 @@ to `external-data-sources-create` — you need the db-schema response to build a
 
 **`external-data-sources-db-schema` is not exposed over MCP** (`enabled: false` in
 `products/warehouse_sources/mcp/tools.yaml`), so an MCP agent cannot complete this flow. Steps 1 to 3 below record
-the API contract for the in-app wizard and for direct API callers. Over MCP, use the one-step setup and then adjust
-each table with `external-data-schemas-partial-update` — that reaches the same end state without a db-schema call.
+the API contract for the in-app wizard and for direct API callers.
+
+Over MCP there is no equal substitute. One-step setup plus `external-data-schemas-partial-update` comes closest, but
+it does not reach the same end state:
+
+- Setup enables every discovered table and starts a billable import for each one straight away. A later
+  `partial-update` pauses the next sync. It does not stop the run already going and it does not remove the rows it
+  imported, so the user pays for the tables they did not want.
+- Setup can register a remote webhook. A schema update does not remove it.
+- CDC is out of reach. `external-data-sources-enable-cdc-create` is not exposed over MCP either, so
+  `partial-update` can store `sync_type: "cdc"` on a source that has no CDC provisioning behind it.
+
+When the user hand-picks tables and those extra imports matter, send them to the in-app wizard rather than
+approximate this flow over MCP.
 
 ```text
          ┌────────────────────┐
@@ -163,12 +175,14 @@ field definitions. The response is a dict keyed by source type. Each entry descr
     the chosen option's fields apply to a `select`, and a `switch-group`'s fields apply only when the group is on.
     Ask for the active branch alone. Prompting for a Snowflake `private_key` when the user picked password auth is
     the usual way this goes wrong.
-  - Branches nest in the payload too. A `select` container carries the chosen option under `selection`, a
-    `switch-group` carries `enabled`, and the branch's own fields sit beside that key. Do not flatten them to the
-    top level. Flattening is not always an error, which is what makes it dangerous. `"auth_type": "keypair"` with
-    the branch fields beside it parses as the default `password` branch, and a `region` value with no
-    `use_custom_region` container parses as the group turned off. Both create the source on the wrong branch with
-    no message that says so.
+  - Only a `select` whose options declare their own `fields` becomes a container in the payload. That one carries
+    the chosen option under `selection`, with the branch's fields beside it. A plain select takes its value
+    directly — MySQL `using_ssl` is a scalar boolean — and a `multiple` select takes a `string[]`. Wrapping either
+    of those in a `selection` object makes the converter fail. A `switch-group` always carries `enabled`.
+  - Do not flatten a container to the top level. Flattening is not always an error, which is what makes it
+    dangerous. `"auth_type": "keypair"` with the branch fields beside it parses as the default `password` branch,
+    and a `region` value with no `use_custom_region` container parses as the group turned off. Both create the
+    source on the wrong branch with no message that says so.
 - `featured`, `unreleasedSource` — use to gauge readiness. Skip sources marked `unreleasedSource: true` unless the
   user explicitly asked for a preview.
 
