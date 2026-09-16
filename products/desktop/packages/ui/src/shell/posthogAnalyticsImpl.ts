@@ -8,7 +8,12 @@ import type {
   AnalyticsProperties,
   IAnalytics,
 } from "@posthog/platform/analytics";
-import type { Adapter, ModelAccess } from "@posthog/shared";
+import {
+  type Adapter,
+  CLOUD_REGIONS,
+  getCloudUrlFromRegion,
+  type ModelAccess,
+} from "@posthog/shared";
 import {
   type EventPropertyMap,
   isInboxAnalyticsEvent,
@@ -111,6 +116,32 @@ let flagsUnavailable = false;
 
 const SESSION_IDLE_TIMEOUT_SECONDS = 36_000;
 
+// Free-text path segments on this app's own backend that posthog-js's default
+// templating (all-digit or uuid-like segments only) won't catch: a team-skill
+// name, and the nested file path under it — see getLlmSkillBodyPage,
+// publishLlmSkillVersion, and getLlmSkillFile in
+// packages/api-client/src/posthog-client.ts. Extend these two patterns if a
+// future endpoint puts other free text (not just an id) in its path.
+const LLM_SKILL_FILE_PATH_RE =
+  /^(\/api\/environments\/)\d+(\/llm_skills\/name\/)[^/]+(\/files\/).+$/;
+const LLM_SKILL_NAME_PATH_RE =
+  /^(\/api\/environments\/)\d+(\/llm_skills\/name\/)[^/]+$/;
+
+// Returning a custom `path` from `metrics.network.attributes` (below) replaces
+// posthog-js's default templated path outright rather than layering on top of
+// it, so this re-templates the numeric environment id too instead of leaving
+// that to the default. Returns `undefined` for every other route on this
+// app's own backend, deferring to posthog-js's default templating for those.
+function templateOwnApiPath(pathname: string): string | undefined {
+  if (LLM_SKILL_FILE_PATH_RE.test(pathname)) {
+    return pathname.replace(LLM_SKILL_FILE_PATH_RE, "$1:id$2:id$3:id");
+  }
+  if (LLM_SKILL_NAME_PATH_RE.test(pathname)) {
+    return pathname.replace(LLM_SKILL_NAME_PATH_RE, "$1:id$2:id");
+  }
+  return undefined;
+}
+
 /**
  * Path attribute for the automatic network-duration metric. posthog-js's default
  * path templating only replaces numeric/uuid-like segments, so a presigned
@@ -118,17 +149,24 @@ const SESSION_IDLE_TIMEOUT_SECONDS = 36_000;
  * user-controlled filename — see `_build_artifact_storage_path` in
  * products/tasks/backend/facade/api.py) or any other non-API request would leak
  * that filename into the shared Metrics project. Only requests to the app's own
- * API host get path-based attribution; everything else collapses to a fixed
+ * backend host get path-based attribution; everything else collapses to a fixed
  * value.
+ *
+ * Backend URLs come from the region configuration. Analytics ingestion uses
+ * a separate host, so it cannot identify backend requests.
  */
 export function networkMetricPath(
   request: NetworkMetricsRequest,
-  apiHost: string,
 ): string | undefined {
   try {
-    const requestHost = new URL(request.url).host;
-    const appHost = new URL(apiHost).host;
-    return requestHost === appHost ? undefined : "external";
+    const requestUrl = new URL(request.url);
+    const isBackend = CLOUD_REGIONS.some(
+      (region) => getCloudUrlFromRegion(region) === requestUrl.origin,
+    );
+    if (!isBackend) {
+      return "external";
+    }
+    return templateOwnApiPath(requestUrl.pathname);
   } catch {
     return "external";
   }
@@ -165,10 +203,10 @@ export function initializePostHog(sessionId?: string) {
       // keyed by method/host/path (posthog-js templates numeric and uuid-like
       // path segments to `:id` before dimensioning). posthog-js's own capture/flags/session-recording
       // requests are excluded automatically. `attributes` keeps path-based
-      // attribution to this app's own API — see `networkMetricPath`.
+      // attribution to this app's own backend — see `networkMetricPath`.
       network: {
         attributes: (request) => {
-          const path = networkMetricPath(request, apiHost);
+          const path = networkMetricPath(request);
           return path === undefined ? undefined : { path };
         },
       },
