@@ -62,6 +62,30 @@ impl Authorizer {
         Ok(token)
     }
 
+    /// Resolve the token from a vendor-specific header that carries it verbatim, falling back to
+    /// `authorize`. For intakes such as Amazon Data Firehose, whose access key field is copied into
+    /// its own header. A pasted `Bearer ` prefix is tolerated, because the shape check would let it
+    /// through and the consumer would then drop every row for an unknown token.
+    pub fn authorize_from_header_or_bearer<'a>(
+        &self,
+        headers: &'a HeaderMap,
+        header_name: &str,
+        signal: Signal,
+    ) -> Result<&'a str, Rejection> {
+        let verbatim = headers
+            .get(header_name)
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.trim().split("Bearer ").last().unwrap_or("").trim())
+            .filter(|token| !token.is_empty());
+        match verbatim {
+            Some(token) => {
+                self.authorize_token(token, signal)?;
+                Ok(token)
+            }
+            None => self.authorize(headers, None, signal),
+        }
+    }
+
     /// Authorize a token that the caller resolved itself. The Datadog endpoint accepts the token
     /// in a path segment and in a bare `Authorization` value, so it cannot use `authorize`.
     pub fn authorize_token(&self, token: &str, signal: Signal) -> Result<(), Rejection> {

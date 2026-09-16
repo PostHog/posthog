@@ -1,5 +1,5 @@
 use crate::authorizer::Signal;
-use crate::log_record::{override_timestamp, KafkaLogRow};
+use crate::log_record::{apply_timestamp_override, datetime_from_millis, KafkaLogRow};
 use crate::service::{decode_body_if_gzip_magic, Service};
 use axum::{
     extract::State,
@@ -9,7 +9,7 @@ use axum::{
 };
 use base64::{engine::general_purpose::STANDARD as base64_standard, Engine};
 use bytes::Bytes;
-use chrono::{TimeZone, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Deserializer};
 use serde_json::json;
 use std::collections::HashMap;
@@ -172,16 +172,8 @@ pub fn datadog_log_to_kafka_row(
     let status = log.status.as_deref().or(query_params.status.as_deref());
     let (severity_text, severity_number) = normalize_datadog_severity(status);
 
-    let raw_timestamp = log
-        .timestamp
-        .and_then(|ts| {
-            // Datadog uses milliseconds since epoch
-            Utc.timestamp_millis_opt(ts).single()
-        })
-        .unwrap_or_else(Utc::now);
-
-    let (timestamp, original_timestamp) = override_timestamp(raw_timestamp);
-    let was_overridden = original_timestamp.is_some();
+    // Datadog uses milliseconds since epoch
+    let raw_timestamp = datetime_from_millis(log.timestamp);
 
     let service = log.service.or_else(|| query_params.service.clone());
     let hostname = log.hostname.or_else(|| query_params.hostname.clone());
@@ -237,9 +229,7 @@ pub fn datadog_log_to_kafka_row(
         attributes.insert(key.clone(), value.to_string());
     }
 
-    if let Some(original) = original_timestamp {
-        attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
-    }
+    let (timestamp, was_overridden) = apply_timestamp_override(raw_timestamp, &mut attributes);
 
     let row = KafkaLogRow {
         uuid: Uuid::now_v7().to_string(),
@@ -349,7 +339,7 @@ pub async fn export_datadog_logs_http(
     let rows: Vec<KafkaLogRow> = results.into_iter().map(|(row, _)| row).collect();
     if let Err(e) = service
         .sink
-        .write(&token, rows, body.len() as u64, timestamps_overridden)
+        .write(&token, rows, body.len() as u64, timestamps_overridden, None)
         .await
     {
         error!("Failed to send logs to Kafka: {}", e);
