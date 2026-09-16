@@ -715,14 +715,23 @@ class TestSummarizerScanner:
 
 
 class TestSummarizerScannerSteps:
-    def test_core_steps_are_a_single_required_summary_turn(self) -> None:
+    def test_core_steps_are_a_single_required_core_turn(self) -> None:
         scanner = scanner_from_db(
             _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
         )
         steps = scanner.core_steps()
-        assert [s.name for s in steps] == ["summary"]
+        assert [s.name for s in steps] == ["core"]
         assert steps[0].response_model is SummarizerSummaryResponse
         assert steps[0].required is True
+
+    @pytest.mark.parametrize(
+        "length,guidance", [("short", "1-2 sentences"), ("medium", "1 paragraph"), ("long", "3-5 paragraphs")]
+    )
+    def test_core_step_carries_the_configured_length_guidance(self, length: str, guidance: str) -> None:
+        scanner = scanner_from_db(
+            _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p", "length": length})
+        )
+        assert guidance in scanner.core_steps()[0].instruction
 
     def test_summary_step_makes_title_follow_operator_naming_convention(self) -> None:
         scanner = scanner_from_db(
@@ -737,12 +746,12 @@ class TestSummarizerScannerSteps:
         (summary_step,) = scanner.core_steps()
         assert "(t " in summary_step.instruction
 
-    def test_assemble_builds_output_from_summary_turn(self) -> None:
+    def test_assemble_builds_output_from_core_turn(self) -> None:
         scanner = scanner_from_db(
             _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
         )
         summary = SummarizerSummaryResponse(title="Onboarding", summary="Walked through demo", confidence=0.8)
-        out, signals = scanner.assemble({"summary": summary})
+        out, signals = scanner.assemble({"core": summary})
         assert isinstance(out, SummarizerOutput)
         assert (out.title, out.summary, out.confidence) == ("Onboarding", "Walked through demo", 0.8)
         assert signals == []
@@ -774,14 +783,30 @@ class TestSummaryEmbeddingText:
 
 class TestToEventProperties:
     def test_flattens_with_scanner_output_prefix(self) -> None:
-        out = MonitorOutput(verdict="yes", reasoning="found it", confidence=0.9)
+        # Notability rides onto the event too, so it is queryable in insights alongside the verdict.
+        out = MonitorOutput(
+            verdict="yes",
+            reasoning="found it",
+            confidence=0.9,
+            notability=0.8,
+            notability_reason="the export failed twice",
+        )
         props = out.to_event_properties()
         assert props == {
             "scanner_output_verdict": "yes",
             "scanner_output_reasoning": "found it",
             "scanner_output_reasoning_segments": [],
             "scanner_output_confidence": 0.9,
+            "scanner_output_notability": 0.8,
+            "scanner_output_notability_reason": "the export failed twice",
         }
+
+    def test_unjudged_notability_flattens_as_null_not_zero(self) -> None:
+        # A scan that skipped notability must not read as "not notable" downstream.
+        out = MonitorOutput(verdict="yes", reasoning="found it", confidence=0.9)
+        props = out.to_event_properties()
+        assert props["scanner_output_notability"] is None
+        assert props["scanner_output_notability_reason"] is None
 
     def test_excludes_scanner_type_discriminator(self) -> None:
         # `scanner_type` lives at the top-level event property; flattening it would duplicate.

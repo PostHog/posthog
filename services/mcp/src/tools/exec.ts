@@ -33,6 +33,16 @@ import {
  *  forcing catastrophic backtracking against tool metadata. */
 const MAX_SEARCH_PATTERN_LENGTH = 400
 
+/** Advertised on `tools/list` and on the runtime Tool. OpenAI's plugin verifier
+ *  requires these three hints (plus idempotent) to be present, not just defined
+ *  on the handler side. */
+export const EXEC_TOOL_ANNOTATIONS = {
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: true,
+    readOnlyHint: false,
+} as const
+
 /** One line telling the agent third-party tools exist and how to find them, for the
  *  `tools` listing. Returns undefined when nothing is connected. */
 async function resolveConnectedSummary(
@@ -1366,12 +1376,7 @@ export function createExecTool(
         description: toolDescription,
         schema: ExecSchema,
         scopes: [],
-        annotations: {
-            destructiveHint: false,
-            idempotentHint: false,
-            openWorldHint: true,
-            readOnlyHint: false,
-        },
+        annotations: { ...EXEC_TOOL_ANNOTATIONS },
         handler: async (_context: Context, params: z.infer<ExecSchema>) => {
             const { verb, rest } = parseCommand(params.command)
             // Reported up front so a command that throws (unknown tool, bad regex) still

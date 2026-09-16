@@ -196,7 +196,7 @@ func TestPrincipalRateLimitRunsBeforeBodyDecodeAndDoesNotCrossScopes(t *testing.
 	}
 	value := &catalog.Catalog{Tables: map[string]catalog.Table{}, Properties: map[string][]catalog.Property{}}
 	for _, authorization := range []serviceauth.Authorization{{TeamID: 1, UserID: 10}, {TeamID: 1, UserID: 20}} {
-		if err := s.catalogs.Put(authorization, "1", value); err != nil {
+		if err := s.catalogs.Put(authorization, "1", catalog.Prepare(value)); err != nil {
 			t.Fatal(err)
 		}
 	}
