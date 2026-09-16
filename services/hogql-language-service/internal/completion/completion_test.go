@@ -145,6 +145,11 @@ func TestCompletesScopedProjections(t *testing.T) {
 		{"malformed literal", "SELECT 'FROM orders AS x' WHERE x.| =", nil},
 		{"property shadow", "WITH events AS (SELECT amount AS properties FROM orders) SELECT events.properties.| FROM events", nil},
 		{"property shadow before from", "WITH events AS (SELECT amount AS properties FROM orders) SELECT events.properties.|", nil},
+		{"unrelated cte preserves properties", "WITH t AS (SELECT 1 AS x) SELECT properties.$geo_ci| FROM events JOIN t ON 1 = 1", map[string]string{"$geo_city": "String"}},
+		{"unrelated subquery preserves properties", "SELECT properties.$geo_ci| FROM events JOIN (SELECT 1 AS x) AS t ON 1 = 1", map[string]string{"$geo_city": "String"}},
+		{"renamed properties are unrelated", "WITH t AS (SELECT properties AS attrs FROM events) SELECT properties.$geo_ci| FROM events JOIN t ON 1 = 1", map[string]string{"$geo_city": "String"}},
+		{"derived properties are ambiguous", "WITH t AS (SELECT properties FROM events) SELECT properties.$geo_ci| FROM events JOIN t ON 1 = 1", nil},
+		{"qualified physical properties remain available", "WITH t AS (SELECT properties FROM events) SELECT e.properties.$geo_ci| FROM events AS e JOIN t ON 1 = 1", map[string]string{"$geo_city": "String"}},
 		{"derived body isolation", "SELECT * FROM orders AS x JOIN (SELECT x.| FROM events) AS s ON 1 = 1", nil},
 		{"joined derived sources", "WITH t AS (SELECT event FROM events) SELECT s.| FROM t JOIN (SELECT amount AS total FROM orders) AS s ON 1 = 1", map[string]string{"total": "float"}},
 		{"unicode prefix", "WITH t AS (SELECT amount AS `数額` FROM orders) SELECT t.数| FROM t", map[string]string{"数額": "float"}},
@@ -171,6 +176,63 @@ func TestCompletesScopedProjections(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func derivedLookupQuery(sources, aliases, fields, missing int) (string, int) {
+	items := make([]string, fields)
+	for index := range items {
+		items[index] = fmt.Sprintf("amount AS field_%03d", index)
+	}
+	ctes := []string{"c0 AS (SELECT " + strings.Join(items, ", ") + " FROM orders)"}
+	for index := 1; index < sources; index++ {
+		ctes = append(ctes, fmt.Sprintf("c%d AS (SELECT * FROM c0)", index))
+	}
+	from := "c0 AS a0"
+	for index := 1; index < aliases; index++ {
+		from += fmt.Sprintf(" JOIN c%d AS a%d ON 1 = 1", index%sources, index)
+	}
+	projections := strings.Repeat("unknown_identifier, ", missing) + "a0.field_000 AS known"
+	ctes = append(ctes, "result AS (SELECT "+projections+" FROM "+from+")")
+	prefix := "WITH " + strings.Join(ctes, ", ") + " SELECT result."
+	return prefix + " FROM result", len(prefix)
+}
+
+func TestDerivedLookupWork(t *testing.T) {
+	for _, test := range []struct {
+		name                              string
+		sources, aliases, fields, missing int
+		limit                             bool
+	}{
+		{name: "repeated aliases share one field index", sources: 1, aliases: 512, fields: 256, missing: 256},
+		{name: "distinct sources exhaust lookup budget", sources: 128, aliases: 128, fields: 8, missing: 512, limit: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			query, position := derivedLookupQuery(test.sources, test.aliases, test.fields, test.missing)
+			if err := querylimits.Validate(query); err != nil {
+				t.Fatal(err)
+			}
+			result, err := Complete(testCatalog(), query, position, PositionEncodingUTF8, "")
+			if test.limit {
+				if !errors.Is(err, querylimits.ErrFieldLookupTooLarge) || len(result.Suggestions) != 0 {
+					t.Fatalf("result = %#v, err = %v", result, err)
+				}
+			} else if known, ok := findSuggestion(result.Suggestions, "known"); err != nil || !ok || known.Detail != "float" {
+				t.Fatalf("result = %#v, err = %v", result, err)
+			}
+		})
+	}
+}
+
+func BenchmarkCompleteDerivedLookups(b *testing.B) {
+	query, position := derivedLookupQuery(1, 512, 256, 256)
+	schema := testCatalog()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := Complete(schema, query, position, PositionEncodingUTF8, ""); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 

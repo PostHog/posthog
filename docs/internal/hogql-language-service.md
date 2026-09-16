@@ -48,14 +48,16 @@ Validation checks aliased subquery output fields and continues to report only un
 
 Physical field completion borrows the catalog prefix index.
 Derived projections have a shared limit of 16,384 fields before deduplication.
-Completion returns HTTP 400 when expansion exceeds that limit; validation returns a `query_limit` diagnostic.
+Field resolution also has a request-wide budget of 1,048,576 work units, counting relation visits and identifier bytes used for lookups and derived-field indexes.
+Aliases of the same relation share a cached field index and one candidate entry for unqualified type resolution.
+Completion returns HTTP 400 when either limit is exceeded; validation returns a `query_limit` diagnostic.
 Derived qualified suggestions are sorted and deduplicated before pagination.
 
 ### Recovery and remaining work
 
 - Cursor replacement must produce parseable SQL to resolve CTE and subquery fields. Recovery for missing parentheses or incomplete predicates in multi-scope queries remains follow-up work.
 - For an incomplete single `SELECT` without `WITH`, completion can recover a parseable `FROM` clause before an unfinished predicate. The response retains `parseError`. Recovery never overlays parsed bindings or scans aliases from sibling scopes.
-- Property provenance through derived projections is not available. Completion suppresses property suggestions for derived owners, including CTEs that shadow built-in names such as `events`. Add provenance before enabling these suggestions.
+- Property provenance through derived projections is not available. Completion suppresses property suggestions for derived owners, including CTEs that shadow built-in names such as `events`. Unqualified physical properties remain available when joined derived relations do not project `properties`; a derived `properties` field makes the namespace ambiguous. Add provenance before enabling those ambiguous suggestions.
 - Select-alias visibility within the same query remains a separate layer. A projected alias is available to consumers of a CTE or subquery, not automatically to its defining query.
 - Table-name suggestions still use the catalog; adding visible CTE names to `FROM` and `JOIN` suggestions remains follow-up work.
 - Unaliased `FROM` subquery outputs, completion inside quoted identifiers, expression type inference, and complete set-operation semantics remain follow-up work.

@@ -105,12 +105,16 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 	document, bindings, qualified, parseErr := cursorBindings(schema, repaired, start, qualifier)
 
 	var suggestions []Suggestion
-	if namespace, propertyPrefix, ok := propertyContext(query[:position], bindings); ok {
+	namespace, propertyPrefix, propertyOK := propertyContext(query[:position], bindings)
+	if document != nil && document.LimitError() != nil {
+		return Result{}, document.LimitError()
+	}
+	if propertyOK {
 		return indexedResult(slices.Values(schema.Properties(namespace).Prefix(propertyPrefix)), "property", offset, parseErr), nil
 	} else if qualifier != "" {
 		entries := qualified.Prefix(lowerPrefix)
-		if document != nil && document.ProjectionLimitExceeded() {
-			return Result{}, querylimits.ErrCTEProjectionTooLarge
+		if document != nil && document.LimitError() != nil {
+			return Result{}, document.LimitError()
 		}
 		return indexedResult(entries, "field", offset, parseErr), nil
 	} else if mode == completionModeTable {
@@ -133,8 +137,8 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 			seen[relation] = true
 			suggestions = appendFields(suggestions, relation.Prefix(lowerPrefix))
 		}
-		if document != nil && document.ProjectionLimitExceeded() {
-			return Result{}, querylimits.ErrCTEProjectionTooLarge
+		if document != nil && document.LimitError() != nil {
+			return Result{}, document.LimitError()
 		}
 		if mode == completionModeExpression {
 			suggestions = appendFunctions(suggestions, lowerPrefix)

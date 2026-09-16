@@ -50,7 +50,9 @@ func Analyze(schema *catalog.PreparedCatalog, query string) (*Document, error) {
 	if err != nil {
 		return nil, err
 	}
-	document := &Document{budget: projectionBudget{remaining: querylimits.MaxCTEProjectedFields}}
+	document := &Document{budget: projectionBudget{
+		remaining: querylimits.MaxCTEProjectedFields, lookupRemaining: querylimits.MaxFieldLookupWork,
+	}}
 	for _, expr := range statements {
 		document.statements = append(document.statements, &Statement{
 			expr: expr, schema: schema, originalTableNames: originalTableNames, budget: &document.budget,
@@ -71,8 +73,14 @@ func (d *Document) Statements() iter.Seq[*Statement] {
 	}
 }
 
-func (d *Document) ProjectionLimitExceeded() bool {
-	return d.budget.exceeded
+func (d *Document) LimitError() error {
+	if d.budget.exceeded {
+		return querylimits.ErrCTEProjectionTooLarge
+	}
+	if d.budget.lookupExceeded {
+		return querylimits.ErrFieldLookupTooLarge
+	}
+	return nil
 }
 
 func (s *Statement) analyze() {
@@ -167,6 +175,13 @@ func (b Bindings) All() iter.Seq2[string, Relation] {
 	}
 }
 
+func (b Bindings) UniqueRelations() iter.Seq[Relation] {
+	if b.scope == nil {
+		return slices.Values([]Relation(nil))
+	}
+	return slices.Values(b.scope.uniqueBindings())
+}
+
 func (b Bindings) PropertyNamespace(parts []string) (string, bool) {
 	if len(parts) > 2 {
 		if _, bound := b.Relation(parts[0]); !bound && resolveCTE(b.scope, parts[0], b.position) != nil {
@@ -176,8 +191,13 @@ func (b Bindings) PropertyNamespace(parts []string) (string, bool) {
 	names := make(map[string]string, len(b.relations))
 	for name, relation := range b.relations {
 		if relation.cte != nil {
-			if (len(parts) > 2 && strings.EqualFold(parts[0], name)) || len(parts) == 2 {
+			if len(parts) > 2 && strings.EqualFold(parts[0], name) {
 				return "", false
+			}
+			if len(parts) == 2 {
+				if _, hasProperties := relation.Field("properties"); hasProperties || relation.cte.budget.exceeded || relation.cte.budget.lookupExceeded {
+					return "", false
+				}
 			}
 			continue
 		}

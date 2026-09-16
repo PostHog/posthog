@@ -3,6 +3,7 @@ package analysis
 import (
 	"regexp"
 	"strings"
+	"unicode"
 
 	clickhouse "github.com/orian/clickhouse-sql-parser/parser"
 
@@ -21,13 +22,16 @@ type cteBinding struct {
 	scope      *queryScope
 	budget     *projectionBudget
 	fields     []catalog.Entry
+	fieldIndex map[string]catalog.Entry
 	fieldsDone bool
 	resolving  bool
 }
 
 type projectionBudget struct {
-	remaining int
-	exceeded  bool
+	remaining       int
+	exceeded        bool
+	lookupRemaining int
+	lookupExceeded  bool
 }
 
 type queryScope struct {
@@ -35,6 +39,8 @@ type queryScope struct {
 	parent   *queryScope
 	bindings map[string]Relation
 	visible  map[string]Relation
+	unique   []Relation
+	budget   *projectionBudget
 	ctes     []*cteBinding
 	cteRoot  bool
 }
@@ -46,7 +52,7 @@ func queryScopes(statement clickhouse.Expr, budget *projectionBudget) []*querySc
 	byQuery := map[*clickhouse.SelectQuery]*queryScope{}
 	clickhouse.Walk(statement, func(node clickhouse.Expr) bool {
 		if query, ok := node.(*clickhouse.SelectQuery); ok {
-			scope := &queryScope{query: query, bindings: map[string]Relation{}}
+			scope := &queryScope{query: query, bindings: map[string]Relation{}, budget: budget}
 			scopes = append(scopes, scope)
 			byQuery[query] = scope
 		}
@@ -126,6 +132,9 @@ func span(query *clickhouse.SelectQuery) int {
 }
 
 func visibleBindings(scope *queryScope) map[string]Relation {
+	if scope.visible != nil {
+		return scope.visible
+	}
 	bindings := map[string]Relation{}
 	for current := scope; current != nil; current = current.parent {
 		for name, binding := range current.bindings {
@@ -137,7 +146,26 @@ func visibleBindings(scope *queryScope) map[string]Relation {
 			break
 		}
 	}
+	scope.visible = bindings
 	return bindings
+}
+
+func (s *queryScope) uniqueBindings() []Relation {
+	if s.unique != nil {
+		return s.unique
+	}
+	s.unique = make([]Relation, 0)
+	seen := map[Relation]bool{}
+	for _, relation := range visibleBindings(s) {
+		if !s.budget.lookup(1) {
+			return nil
+		}
+		if !seen[relation] {
+			seen[relation] = true
+			s.unique = append(s.unique, relation)
+		}
+	}
+	return s.unique
 }
 
 func normalizeHogQLTableReferences(query string) (string, map[string]string) {
@@ -204,16 +232,42 @@ func bindSubquery(expr *clickhouse.TableExpr, scopes []*queryScope, budget *proj
 	return true
 }
 
+func foldedFieldName(name string) string {
+	return strings.Map(func(r rune) rune {
+		first := r
+		for next := unicode.SimpleFold(r); next != r; next = unicode.SimpleFold(next) {
+			first = min(first, next)
+		}
+		return first
+	}, name)
+}
+
 func bindingField(binding Relation, name string) (catalog.Entry, bool) {
 	if binding.table != nil {
 		return binding.table.Fields.Exact(name)
 	}
-	for _, field := range bindingFields(binding) {
-		if strings.EqualFold(field.Name, name) {
-			return field, true
+	if binding.cte == nil {
+		return catalog.Entry{}, false
+	}
+	c := binding.cte
+	fields := c.projectedFields()
+	if !c.fieldsDone || !c.budget.lookup(len(name)+1) {
+		return catalog.Entry{}, false
+	}
+	if c.fieldIndex == nil {
+		c.fieldIndex = make(map[string]catalog.Entry, len(fields))
+		for _, field := range fields {
+			if !c.budget.lookup(len(field.Name) + 1) {
+				return catalog.Entry{}, false
+			}
+			key := foldedFieldName(field.Name)
+			if _, exists := c.fieldIndex[key]; !exists {
+				c.fieldIndex[key] = field
+			}
 		}
 	}
-	return catalog.Entry{}, false
+	field, ok := c.fieldIndex[foldedFieldName(name)]
+	return field, ok
 }
 
 func bindingFields(binding Relation) []catalog.Entry {
@@ -227,14 +281,14 @@ func bindingFields(binding Relation) []catalog.Entry {
 }
 
 func (c *cteBinding) projectedFields() []catalog.Entry {
-	if c.fieldsDone || c.resolving || c.scope == nil || c.budget.exceeded {
+	if c.fieldsDone || c.resolving || c.scope == nil || c.budget.exceeded || c.budget.lookupExceeded {
 		return c.fields
 	}
 	c.resolving = true
 	for _, item := range c.query.SelectItems {
 		if item.Alias != nil {
 			c.appendField(catalog.Entry{Name: item.Alias.Name, Type: projectedType(c.scope, item.Expr)})
-			if c.budget.exceeded {
+			if c.budget.exceeded || c.budget.lookupExceeded {
 				break
 			}
 			continue
@@ -261,7 +315,7 @@ func (c *cteBinding) projectedFields() []catalog.Entry {
 		default:
 			c.appendField(catalog.Entry{Name: item.Expr.String()})
 		}
-		if c.budget.exceeded {
+		if c.budget.exceeded || c.budget.lookupExceeded {
 			break
 		}
 	}
@@ -301,6 +355,9 @@ func (c *cteBinding) appendWildcardFields(scope *queryScope, qualifier string) {
 }
 
 func (b *projectionBudget) take(count int) int {
+	if b.lookupExceeded || b.exceeded {
+		return 0
+	}
 	if count <= b.remaining {
 		b.remaining -= count
 		return count
@@ -311,11 +368,27 @@ func (b *projectionBudget) take(count int) int {
 	return taken
 }
 
+// Count names as bytes so long identifiers cannot hide expensive work behind one lookup.
+func (b *projectionBudget) lookup(work int) bool {
+	if b.exceeded || b.lookupExceeded {
+		return false
+	}
+	if work > b.lookupRemaining {
+		b.lookupExceeded = true
+		return false
+	}
+	b.lookupRemaining -= work
+	return true
+}
+
 func projectedType(scope *queryScope, expr clickhouse.Expr) string {
 	bindings := visibleBindings(scope)
 	switch typed := expr.(type) {
 	case *clickhouse.Ident:
-		for _, binding := range bindings {
+		for _, binding := range scope.uniqueBindings() {
+			if !scope.budget.lookup(len(typed.Name) + 1) {
+				return ""
+			}
 			if field, ok := bindingField(binding, typed.Name); ok {
 				return field.Type
 			}

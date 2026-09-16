@@ -37,6 +37,9 @@ Validation checks those output fields and reports only underlying catalog tables
 Each request can expand up to 16,384 projected fields before deduplication.
 Larger projections return HTTP 400 for completion or a `query_limit` validation diagnostic.
 Select fewer fields to stay within the limit.
+Field lookup work has a separate request-wide budget.
+Queries that exceed it return HTTP 400 for completion or a `query_limit` validation diagnostic; reduce the number of sources or qualify field names.
+Joining a CTE or subquery without a `properties` output does not suppress the physical table's property suggestions or validation.
 
 Validation diagnostic offsets use `positionEncoding`, which defaults to UTF-16. Diagnostics include up to five visible
 typo suggestions ranked by case-insensitive Levenshtein distance. Dynamic properties use the same cached namespaces as
