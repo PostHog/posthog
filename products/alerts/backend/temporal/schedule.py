@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 SCHEDULE_ID = "alerts-product-check-due-schedule"
 
 
-async def create_alerts_product_check_due_schedule(client: "Client") -> None:
+async def create_alerts_product_tick_schedule(client: "Client") -> None:
     if settings.CLOUD_DEPLOYMENT != "DEV":
         return
 
