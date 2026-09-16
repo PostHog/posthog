@@ -60,6 +60,7 @@ import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/t
 import { HogFlowAction } from '../types'
 import { createAccountAssignmentFilterUpdate, parseAccountAssignmentFilter } from './accountAssignmentFilter'
 import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
+import { HogFlowDuration } from './components/HogFlowDuration'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
@@ -923,11 +924,17 @@ function FrequencySection({
     )
 }
 
+const DEFAULT_CONVERSION_WINDOW = '90d'
+
 function ConversionGoalSection(): JSX.Element {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
 
     const conversionEventFilters = workflow.conversion?.events?.[0]?.filters ?? {}
+    // What the worker measures when a workflow sets no window of its own
+    // (DEFAULT_CONVERSION_WINDOW_MINUTES in nodejs conversion-watcher.ts). Showing it makes the
+    // effective window visible; nothing is written until someone changes it.
+    const conversionWindow = workflow.conversion?.window ?? DEFAULT_CONVERSION_WINDOW
 
     return (
         <div className="flex flex-col py-2 w-full">
@@ -975,6 +982,22 @@ function ConversionGoalSection(): JSX.Element {
                         }
                         typeKey="workflow-conversion-event"
                         buttonCopy="Add event"
+                    />
+                </div>
+
+                <div className="flex flex-col gap-1 items-start">
+                    <span className="flex gap-1 items-center">
+                        <LemonLabel>Conversion window</LemonLabel>
+                        <Tooltip title="A person who meets the goal after this window is not counted as converted. The window runs from the moment they enter the workflow.">
+                            <IconInfo className="text-secondary" />
+                        </Tooltip>
+                    </span>
+                    <HogFlowDuration
+                        value={conversionWindow}
+                        onChange={(window) => setWorkflowValue('conversion', { ...workflow.conversion, window })}
+                        // A conversion window runs to 365 days, so it must not take the per-unit
+                        // ceilings that bound how long a single delay step waits.
+                        allowUnbounded
                     />
                 </div>
             </div>

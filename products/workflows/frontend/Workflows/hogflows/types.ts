@@ -36,7 +36,11 @@ export const HogFlowSchema = z.object({
         .nullable(),
     conversion: z
         .object({
-            window_minutes: z.number().nullable(),
+            // How long after entry a conversion counts, as a duration string: '7d', '12h'. The
+            // deprecated window_minutes says the same thing as a bare integer whose unit lives only
+            // in the field name, which is how seconds ended up stored in it.
+            window: z.string().optional(),
+            window_minutes: z.number().nullable().optional(),
             filters: z.any(),
             events: z
                 .array(
