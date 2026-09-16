@@ -11,6 +11,50 @@ import {
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  describe("Desktop beta terms", () => {
+    it.each([
+      [
+        "checks acceptance",
+        "get",
+        (client: PostHogAPIClient) => client.areDesktopBetaTermsAccepted(),
+      ],
+      [
+        "accepts terms",
+        "post",
+        (client: PostHogAPIClient) => client.acceptDesktopBetaTerms(),
+      ],
+    ] as const)(
+      "%s through the selected project",
+      async (_name, method, request) => {
+        const fetch = vi
+          .fn()
+          .mockResolvedValue(
+            new Response(
+              JSON.stringify({ is_desktop_beta_terms_accepted: true }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          );
+        const client = new PostHogAPIClient(
+          "https://app.posthog.test",
+          async () => "token",
+          async () => "token",
+          42,
+          { fetch },
+        );
+
+        await request(client);
+
+        expect(fetch).toHaveBeenCalledOnce();
+        expect((fetch.mock.calls[0][0] as URL).pathname).toBe(
+          "/api/projects/42/desktop_beta_terms/",
+        );
+        expect(fetch.mock.calls[0][1]).toMatchObject({
+          method: method.toUpperCase(),
+        });
+      },
+    );
+  });
+
   it("sends the selected scout to the runs endpoint", async () => {
     const fetch = vi
       .fn()
