@@ -22,15 +22,23 @@ ROUTES = """
 export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions': ['Actions', 'actions'],
     '/data-management/actions/:id': ['Action', 'action'],
+    '/data-management/actions/:id/:tab': [
+        'Action',
+        'actionTab',
+    ],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
     '/surveys/*': ['Surveys', 'surveys'],
+    [CLUSTER_URL_PATTERN]: ['Clusters', 'clusters'],
+    '/clusters/all': ['Clusters', 'clustersAll'],
 }
 """
 SCENES = """
 export const productScenes: Record<string, () => Promise<any>> = {
     Actions: () => import('../../products/actions/frontend/pages/Actions'),
-    Action: () => import('../../products/actions/frontend/pages/Action'),
+    Action: () =>
+        import('../../products/actions/frontend/pages/Action'),
     Surveys: () => import('../../products/surveys/frontend/Surveys'),
+    Clusters: () => import('../../products/clusters/frontend/Clusters'),
 }
 """
 
@@ -43,6 +51,12 @@ def test_parse_product_routes_groups_routes_by_scene_and_resolves_files() -> Non
     )
     assert scenes["NewAction"].file is None
     assert scenes["Surveys"].routes == ("/surveys/*",)
+    assert scenes["Action"] == SceneRoutes(
+        scene="Action",
+        routes=("/data-management/actions/:id", "/data-management/actions/:id/:tab"),
+        file="products/actions/frontend/pages/Action",
+    )
+    assert "Clusters" not in scenes
 
 
 @pytest.mark.parametrize(
@@ -63,13 +77,14 @@ def test_views_match_param_and_wildcard_routes() -> None:
     pageviews = {
         "/project/1/data-management/actions/42": 3,
         "/project/1/data-management/actions/42/": 1,
+        "/project/1/data-management/actions/42/history": 2,
         "/project/2/surveys/abc/results": 5,
         "/project/2/data-management/actions/new/": 0,
     }
 
     views = views_per_scene(scenes, pageviews)
 
-    assert views["Action"] == {"/data-management/actions/:id": 4}
+    assert views["Action"] == {"/data-management/actions/:id": 4, "/data-management/actions/:id/:tab": 2}
     assert views["Actions"] == {"/data-management/actions": 0}
     assert views["Surveys"] == {"/surveys/*": 5}
     assert views["NewAction"] == {"/data-management/actions/new/": 0}

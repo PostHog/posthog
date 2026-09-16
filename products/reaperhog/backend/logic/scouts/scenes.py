@@ -18,8 +18,12 @@ logger = logging.getLogger(__name__)
 PRODUCT_ROUTES_PATH = "frontend/src/products.tsx"
 PRODUCT_SCENES_PATH = "frontend/src/productScenes.tsx"
 
-_ROUTE = re.compile(r"^\s+'(/[^']*)':\s*\['([A-Za-z0-9_]+)'")
-_SCENE = re.compile(r"^\s+([A-Za-z0-9_]+):\s*\(\)\s*=>\s*import\('\.\./\.\./([^']+)'\)")
+# build-products.mjs generates the two files and the formatter wraps the long entries, so a route
+# array or a dynamic import can span lines. Match across the whole text rather than line by line: a
+# route this parser cannot see reads as a route with no traffic.
+_ROUTE = re.compile(r"^[ \t]+'(/[^']*)':\s*\[\s*'([A-Za-z0-9_]+)'", re.MULTILINE)
+_COMPUTED_ROUTE = re.compile(r"^[ \t]+\[[^\]]+\]:\s*\[\s*'([A-Za-z0-9_]+)'", re.MULTILINE)
+_SCENE = re.compile(r"^[ \t]+([A-Za-z0-9_]+):\s*\(\)\s*=>\s*import\('\.\./\.\./([^']+)'\)", re.MULTILINE)
 _PROJECT_PREFIX = re.compile(r"^/(?:project|organization)/[^/]+")
 _PARAM = re.compile(r":[A-Za-z0-9_]+")
 
@@ -49,15 +53,13 @@ class SceneRoutes:
 
 def parse_product_routes(routes_text: str, scenes_text: str) -> list[SceneRoutes]:
     routes_by_scene: dict[str, list[str]] = {}
-    for line in routes_text.splitlines():
-        match = _ROUTE.match(line)
-        if match:
-            routes_by_scene.setdefault(match.group(2), []).append(match.group(1))
-    file_by_scene: dict[str, str] = {}
-    for line in scenes_text.splitlines():
-        match = _SCENE.match(line)
-        if match:
-            file_by_scene[match.group(1)] = match.group(2)
+    for route, scene in _ROUTE.findall(routes_text):
+        routes_by_scene.setdefault(scene, []).append(route)
+    # A computed key holds its path in a constant that this file does not carry. Drop the whole scene,
+    # because the pageviews on the route behind that constant cannot be counted.
+    for scene in _COMPUTED_ROUTE.findall(routes_text):
+        routes_by_scene.pop(scene, None)
+    file_by_scene = dict(_SCENE.findall(scenes_text))
     return [
         SceneRoutes(scene=scene, routes=tuple(routes), file=file_by_scene.get(scene))
         for scene, routes in sorted(routes_by_scene.items())
