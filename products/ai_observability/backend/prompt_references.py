@@ -1,5 +1,7 @@
 import re
 
+from rest_framework import serializers
+
 from posthog.dataclasses import frozen
 from posthog.llm_prompt import normalize_prompt_to_string
 
@@ -12,13 +14,16 @@ from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPr
 # The length bounds mirror the LLMPromptDependency columns (name varchar(255),
 # label varchar(128)) and the int4 range for version, so an oversized value
 # makes the tag plain text instead of failing the row insert and rolling back
-# the write that carried it.
+# the write that carried it. Versions start at 1 and have no leading zeros,
+# so a selector that can never match a version is plain text too.
 PROMPT_REFERENCE_REGEX = re.compile(
     r"@@@prompt:"
     r"name=(?P<name>[A-Za-z0-9_-]{1,255})\|"
-    r"(?:version=(?P<version>[0-9]{1,9})|label=(?P<label>[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?))"
+    r"(?:version=(?P<version>[1-9][0-9]{0,8})|label=(?P<label>[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?))"
     r"@@@"
 )
+
+MAX_PROMPT_REFERENCES = 20
 
 
 @frozen
@@ -64,6 +69,14 @@ def record_prompt_references(prompt: LLMPrompt) -> list[LLMPromptDependency]:
         return []
     # A tag repeated in the content is one dependency edge.
     unique_references = list(dict.fromkeys(references))
+    # Raised from here so create, publish, and duplicate all share the one
+    # check; the surrounding transaction rolls the version row back with it.
+    if len(unique_references) > MAX_PROMPT_REFERENCES:
+        raise serializers.ValidationError(
+            f"A prompt can reference at most {MAX_PROMPT_REFERENCES} other prompts. "
+            "Remove some references and try again.",
+            code="too_many_references",
+        )
     return LLMPromptDependency.objects.bulk_create(
         [
             LLMPromptDependency(

@@ -51,6 +51,8 @@ class TestParsePromptReferences(SimpleTestCase):
                 [PromptReference(name="guardrails", version=999_999_999, label=None)],
             ),
             ("version_over_digit_limit_not_a_reference", "@@@prompt:name=guardrails|version=9999999999@@@", []),
+            ("version_zero_not_a_reference", "@@@prompt:name=guardrails|version=0@@@", []),
+            ("version_with_leading_zero_not_a_reference", "@@@prompt:name=guardrails|version=03@@@", []),
         ]
     )
     def test_parse(self, _name: str, text: str, expected: list[PromptReference]) -> None:
