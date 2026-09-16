@@ -391,6 +391,22 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert get_earliest_timestamp_unfiltered(self.team) == earliest_timestamp
 
+    def test_unfiltered_earliest_timestamp_reads_in_sort_key_order(self):
+        # A bare ORDER BY timestamp reads and sorts every row the team has.
+        captured: dict[str, object] = {}
+
+        def capture(query, args=None, **kwargs):
+            captured["query"] = query
+            captured["lookup"] = get_query_tags().lookup
+            return [[datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)]]
+
+        with patch("posthog.hogql_queries.utils.timestamp_utils.sync_execute", side_effect=capture):
+            get_earliest_timestamp_unfiltered(self.team)
+
+        normalized_query = " ".join(str(captured["query"]).split())
+        self.assertIn("ORDER BY toDate(timestamp) ASC, timestamp ASC", normalized_query)
+        self.assertEqual(captured["lookup"], "earliest_timestamp")
+
     @parameterized.expand(
         [
             # Naive inputs are interpreted in the passed (team) timezone, not UTC.
@@ -535,6 +551,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
             tags = get_query_tags()
             captured["product"] = tags.product
             captured["feature"] = tags.feature
+            captured["lookup"] = tags.lookup
             result = MagicMock()
             result.results = [[datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)]]
             return result
@@ -548,3 +565,4 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         self.assertEqual(captured["product"], expected_product)
         self.assertEqual(captured["feature"], expected_feature)
+        self.assertEqual(captured["lookup"], "earliest_timestamp")

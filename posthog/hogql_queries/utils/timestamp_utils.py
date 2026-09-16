@@ -26,6 +26,7 @@ from posthog.hogql.ast import SelectQuery
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team, User
@@ -172,7 +173,8 @@ def _earliest_timestamp_query_tags() -> AbstractContextManager[None]:
     marketing analytics keep their own attribution.
     """
     current = get_query_tags()
-    overrides: dict[str, Any] = {}
+    # The query-scan trigger uses this tag to leave the lookup out of the run it judges.
+    overrides: dict[str, Any] = {"lookup": "earliest_timestamp"}
     if current.product is None:
         overrides["product"] = Product.PRODUCT_ANALYTICS
     if current.feature is None:
@@ -280,22 +282,28 @@ def get_earliest_timestamp_unfiltered(team: Team) -> datetime:
     if cached_result is not None:
         return _coerce_to_datetime(cached_result, team.timezone_info)
 
-    query = ast.SelectQuery(
-        select=[ast.Field(chain=["timestamp"])],
-        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-        where=ast.CompareOperation(
-            op=ast.CompareOperationOp.Gt,
-            left=ast.Field(chain=["timestamp"]),
-            right=ast.Constant(value=UNFILTERED_EARLIEST_TIMESTAMP_FLOOR),
-        ),
-        order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC")],
-        limit=ast.Constant(value=1),
-    )
-
+    # Raw ClickHouse rather than HogQL: the events sort key is (team_id, toDate(timestamp), event, ...),
+    # so ordering by toDate(timestamp) lets ClickHouse read in order and stop after the first day.
+    # HogQL prints timestamp as toTimeZone(timestamp, tz), and toDate(toTimeZone(...)) does not match
+    # the sort key, so that form reads and sorts every row the team has.
     with _earliest_timestamp_query_tags():
-        result = execute_hogql_query(query=query, team=team)
-    if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
-        earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
+        result = sync_execute(
+            """
+            SELECT toTimeZone(timestamp, %(team_timezone)s)
+            FROM events
+            WHERE team_id = %(team_id)s AND timestamp > toDateTime64(%(floor)s, 6, 'UTC')
+            ORDER BY toDate(timestamp) ASC, timestamp ASC
+            LIMIT 1
+            """,
+            {
+                "team_id": team.pk,
+                "team_timezone": team.timezone,
+                "floor": UNFILTERED_EARLIEST_TIMESTAMP_FLOOR.strftime("%Y-%m-%d %H:%M:%S"),
+            },
+            team_id=team.pk,
+        )
+    if result and len(result) > 0 and len(result[0]) > 0 and result[0][0] is not None:
+        earliest_timestamp = _coerce_to_datetime(result[0][0], team.timezone_info)
         # Only cache real results: a team with no events yet should keep re-checking rather than
         # pinning a "now - delta" fallback for the full TTL.
         cache.set(cache_key, earliest_timestamp, timeout=EARLIEST_TIMESTAMP_CACHE_TTL)
