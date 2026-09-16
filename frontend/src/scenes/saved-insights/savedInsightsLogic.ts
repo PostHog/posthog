@@ -7,9 +7,9 @@ import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
-import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getCurrentTeamId, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { objectDiffShallow, objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
@@ -460,9 +460,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             },
         ],
     })),
-    reducers(() => {
-        const filtersPersistence = buildUserScopedPersistenceConfig('saved_insights_filters__')
-        return {
+    reducers(() => ({
             insights: {
                 updateInsight: (state, { insight }) => ({
                     ...state,
@@ -476,7 +474,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             },
             rawFilters: [
                 null as Partial<SavedInsightFilters> | null,
-                filtersPersistence,
+                {
+                    persist: true,
+                    storageKey: `scenes.saved-insights.savedInsightsLogic.${getCurrentUserIdOrNone() ?? 'anonymous'}.${getCurrentTeamId()}.rawFilters`,
+                },
                 {
                     setSavedInsightsFilters: (state, { filters, merge }) =>
                         cleanFilters({
@@ -509,8 +510,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     setDraftQuery: (_, { draftQuery }) => draftQuery,
                 },
             ],
-        }
-    }),
+    })),
     selectors({
         filters: [
             (s) => [s.rawFilters],

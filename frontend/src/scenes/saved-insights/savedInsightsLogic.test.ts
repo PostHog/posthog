@@ -29,7 +29,7 @@ jest.spyOn(api, 'create')
 
 const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
 const scenes: any = { [Scene.SavedInsights]: blankScene }
-const savedInsightsFiltersPersistenceKey = `${MOCK_DEFAULT_USER.id}__${MOCK_TEAM_ID}__saved_insights_filters__.scenes.saved-insights.savedInsightsLogic.rawFilters`
+const savedInsightsFiltersPersistenceKey = `scenes.saved-insights.savedInsightsLogic.${MOCK_DEFAULT_USER.id}.${MOCK_TEAM_ID}.rawFilters`
 
 const createInsight = (id: number, string = 'hi'): QueryBasedInsightModel =>
     ({
