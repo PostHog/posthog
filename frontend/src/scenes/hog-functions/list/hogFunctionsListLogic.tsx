@@ -16,7 +16,11 @@ import { CyclotronJobFiltersType, HogFunctionType, HogFunctionTypeType, UserType
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { AvailableFeature } from '../../../types'
-import { HogFunctionDeliveryType, getHogFunctionDeliveryType } from '../hog-function-utils'
+import {
+    HogFunctionDeliveryType,
+    getHogFunctionDeliveryType,
+    withoutSupersededPluginConfigs,
+} from '../hog-function-utils'
 
 export const CDP_TEST_HIDDEN_FLAG = '[CDP-TEST-HIDDEN]'
 const EMPTY_MANUAL_FUNCTIONS: HogFunctionType[] = []
@@ -326,11 +330,12 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                 manualFunctions: HogFunctionType[]
             ): HogFunctionType[] => {
                 const search = filters.search?.trim().toLowerCase()
+                const liveManual = withoutSupersededPluginConfigs(hogFunctions, manualFunctions)
                 const filteredManual = search
-                    ? manualFunctions.filter(
+                    ? liveManual.filter(
                           (f) => f.name?.toLowerCase().includes(search) || f.description?.toLowerCase().includes(search)
                       )
-                    : manualFunctions
+                    : liveManual
                 const enabledFirst = [...hogFunctions, ...filteredManual].sort(
                     (a, b) => Number(b.enabled) - Number(a.enabled)
                 )

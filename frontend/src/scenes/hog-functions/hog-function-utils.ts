@@ -1,10 +1,45 @@
-import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTypeType } from '~/types'
+import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionType, HogFunctionTypeType } from '~/types'
 
 export type HogFunctionDeliveryType = 'batch' | 'realtime'
 
 // Batch exports vs realtime destinations share `type: 'destination'`; the only signal is the id prefix.
 export function getHogFunctionDeliveryType(item: { id: string }): HogFunctionDeliveryType {
     return item.id.startsWith('batch-export-') ? 'batch' : 'realtime'
+}
+
+// A few inline plugins have a url slug that differs from their bundled processor id.
+// Mirrors PLUGIN_ID_OVERRIDES in posthog/cdp/legacy_destination_migration.py.
+const PLUGIN_ID_OVERRIDES: Record<string, string> = {
+    'semver-flattener': 'semver-flattener-plugin',
+    'user-agent': 'user-agent-plugin',
+}
+
+/** The bundled template a legacy plugin config runs, which a migrated legacy_destination also carries. */
+export function legacyPluginTemplateId(pluginUrl: string | undefined): string | undefined {
+    if (!pluginUrl) {
+        return undefined
+    }
+    const pluginId = pluginUrl.replace('inline://', '').replace('https://github.com/PostHog/', '')
+    return `plugin-${PLUGIN_ID_OVERRIDES[pluginId] ?? pluginId}`
+}
+
+/**
+ * Drops a plugin config that a migrated legacy destination replaces, matching how the consumer picks
+ * between them. Only an enabled migrated row supersedes: disable it and the plugin config runs again,
+ * so it has to reappear rather than keep running out of sight.
+ */
+export function withoutSupersededPluginConfigs(
+    hogFunctions: HogFunctionType[],
+    manualFunctions: HogFunctionType[]
+): HogFunctionType[] {
+    const supersededTemplateIds = new Set(
+        hogFunctions
+            // The list serializer omits template_id and exposes the template's id instead
+            .filter((f) => f.type === 'legacy_destination' && f.enabled)
+            .map((f) => f.template_id ?? f.template?.id)
+            .filter(Boolean)
+    )
+    return manualFunctions.filter((f) => !supersededTemplateIds.has(f.template_id))
 }
 
 export function humanizeHogFunctionType(type: HogFunctionTypeType, plural: boolean = false): string {
