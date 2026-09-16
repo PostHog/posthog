@@ -219,6 +219,52 @@ class TestWorkflowProposals(APIBaseTest):
         assert WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status == "suggested"
         assert HogFlow.objects.get(id=flow_id).draft is None
 
+    def test_a_field_change_is_refused_once_that_field_moved(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(
+            flow_id, content={"exit_condition": "exit_only_at_end"}, source_id="scalar", base_version=1
+        )
+        # A person changes the same field on the live workflow, which publishes it as version 2.
+        patched = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"exit_condition": "exit_on_trigger_not_matched"},
+            format="json",
+        )
+        assert patched.status_code == 200, patched.json()
+        assert patched.json()["version"] == 2
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/").json()["results"]
+        assert [item["is_stale"] for item in listed] == [True]
+        approve = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {"overwrite": True}
+        )
+        assert approve.status_code == 409, approve.json()
+        assert approve.json()["code"] == "proposal_out_of_date"
+        assert HogFlow.objects.get(id=flow_id).exit_condition == "exit_on_trigger_not_matched"
+        assert HogFlow.objects.get(id=flow_id).draft is None
+
+    def test_a_field_change_still_approves_after_an_edit_elsewhere(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(
+            flow_id, content={"exit_condition": "exit_only_at_end"}, source_id="scalar", base_version=1
+        )
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self._publish(flow_id)
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/").json()["results"]
+        assert [item["is_stale"] for item in listed] == [False]
+        approve = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {"overwrite": True}
+        )
+        assert approve.status_code == 200, approve.json()
+        draft = HogFlow.objects.get(id=flow_id).draft
+        assert draft["exit_condition"] == "exit_only_at_end"
+        assert {action["name"] for action in draft["actions"]} >= {"renamed"}
+
     def test_a_workflow_nobody_opted_in_is_not_suggested_against(self, _mock_flag):
         flow_id = self._create_active_flow()
         self.client.post(
@@ -509,7 +555,6 @@ class TestWorkflowProposals(APIBaseTest):
             "content": {"actions": [_trigger_action(), _webhook_action(url="https://proposed.example.com")]},
             "evidence": {"metric": "failure rate", "current_value": 1.0, "unit": "rate", "n": 240, "guardrails": []},
             "base_version": 1,
-            "source_type": "scout",
         }
         suggest_only = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -590,7 +635,6 @@ class TestWorkflowProposals(APIBaseTest):
                 "rationale": "A null field deletes it, and a webhook step without a url cannot be published.",
                 "content": {"actions": [{"id": "action_1", "config": {"inputs": {"url": None}}}]},
                 "base_version": 1,
-                "source_type": "scout",
             },
             format="json",
         )
@@ -692,17 +736,18 @@ class TestWorkflowProposals(APIBaseTest):
 
     def test_a_whole_list_proposal_must_say_which_version_it_read(self, _mock_flag):
         flow_id = self._create_active_flow()
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
-            {
-                "title": "Point the webhook somewhere else",
-                "rationale": "Testing the version contract.",
-                "content": {"actions": [_trigger_action(), _webhook_action()]},
-            },
-            format="json",
-        )
-        assert response.status_code == 400, response.json()
-        assert "base_version" in str(response.json())
+        for content in ({"actions": [_trigger_action(), _webhook_action()]}, {"exit_condition": "exit_only_at_end"}):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+                {
+                    "title": "Point the webhook somewhere else",
+                    "rationale": "Testing the version contract.",
+                    "content": content,
+                },
+                format="json",
+            )
+            assert response.status_code == 400, response.json()
+            assert "base_version" in str(response.json())
 
     @parameterized.expand(
         [

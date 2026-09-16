@@ -1288,8 +1288,8 @@ export interface WorkflowProposalCreateApi {
     content: WorkflowProposalCreateApiContent
     /** The metric numbers behind the proposal, so a human can judge it without re-deriving them. */
     evidence?: WorkflowProposalCreateApiEvidence
-    /** Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise. */
-    base_version?: number
+    /** Workflow version this was authored against, as read from the workflow. It is the snapshot approve compares against to tell whether someone edited the same steps or fields since, and a defaulted version would read as current however long the producer took. */
+    base_version: number
     /**
      * The step this is about, when it is about one. Both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest.
      * @maxLength 200

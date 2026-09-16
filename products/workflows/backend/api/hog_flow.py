@@ -3849,7 +3849,7 @@ class WorkflowProposalSerializer(serializers.ModelSerializer):
         cache = self.context.setdefault("proposal_conflicts", {})
         key = (proposal.hog_flow_id, proposal.base_version, json.dumps(proposal.content, sort_keys=True))
         if key not in cache:
-            cache[key] = conflicting_step_ids(proposal.hog_flow, proposal)
+            cache[key] = conflicting_parts(proposal.hog_flow, proposal)
         return bool(cache[key])
 
 
@@ -3869,12 +3869,10 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
         help_text="The metric numbers behind the proposal, so a human can judge it without re-deriving them.",
     )
     base_version = serializers.IntegerField(
-        required=False,
         help_text=(
-            "Workflow version this was authored against. Required when the proposal changes actions, "
-            "edges or variables: it is the snapshot approve compares against to tell whether someone "
-            "edited the same steps since, and a defaulted version would read as current however long "
-            "the producer took. Defaults to the current live version otherwise."
+            "Workflow version this was authored against, as read from the workflow. It is the snapshot "
+            "approve compares against to tell whether someone edited the same steps or fields since, "
+            "and a defaulted version would read as current however long the producer took."
         ),
     )
     step_id = serializers.CharField(
@@ -3951,21 +3949,6 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
         for field in PROPOSAL_MERGE_BY_ID_FIELDS:
             _validate_merge_keys(field, value.get(field))
         return value
-
-    def validate(self, attrs: dict) -> dict:
-        changes_the_graph = any(
-            field in attrs.get("content", {}) for field in (*PROPOSAL_WHOLE_LIST_FIELDS, *PROPOSAL_MERGE_BY_ID_FIELDS)
-        )
-        if changes_the_graph and attrs.get("base_version") is None:
-            raise exceptions.ValidationError(
-                {
-                    "base_version": (
-                        "Send the workflow version you read, so approving this can tell whether the "
-                        "workflow moved on while you were writing it."
-                    )
-                }
-            )
-        return attrs
 
 
 class WorkflowProposalApproveRequestSerializer(serializers.Serializer):
@@ -4120,37 +4103,50 @@ def _validate_merge_keys(field: str, items: Any) -> None:
 
 
 def describe_steps(hog_flow: HogFlow, step_ids: list[str]) -> list[str]:
-    """Step names for a person to read. A step deleted since has no name left, so it keeps its id."""
+    """Step names for a person to read. A step deleted since has no name left, so it keeps its id,
+    and a field name is already readable."""
     names = {_item_id(item): item.get("name") for item in snapshot_flow_content(hog_flow).get("actions") or []}
     return [names.get(step_id) or step_id for step_id in step_ids]
 
 
-def conflicting_step_ids(hog_flow: HogFlow, proposal: WorkflowProposal) -> list[str]:
-    """Steps the proposal changes that someone else already changed since it was written.
+def conflicting_parts(hog_flow: HogFlow, proposal: WorkflowProposal) -> list[str]:
+    """Parts of the workflow the proposal changes that someone else already changed since it was
+    written: step ids for `actions`, field names for everything else.
 
-    Merging per step means an unrelated edit elsewhere in the workflow is no longer a reason to
-    refuse, so the comparison is against the snapshot the proposal actually read: the steps it
-    names, as they were at `base_version`, against the steps as they are now."""
-    touched = {_item_id(item) for item in proposal.content.get("actions") or []} - {None}
-    changes_whole_list = any(field in proposal.content for field in PROPOSAL_WHOLE_LIST_FIELDS)
+    The check follows merge semantics. A step merges per field, so only the steps it names are
+    compared, as they were at `base_version` against as they are now. A whole-list field replaces
+    the list, so any publish since counts. Every other field replaces one value, so that value is
+    compared. An unrelated edit elsewhere in the workflow merges cleanly and is not a reason to refuse."""
+    touched_steps = {_item_id(item) for item in proposal.content.get("actions") or []} - {None}
+    touched_lists = [field for field in PROPOSAL_WHOLE_LIST_FIELDS if field in proposal.content]
+    touched_fields = [
+        field
+        for field in proposal.content
+        if field not in PROPOSAL_MERGE_BY_ID_FIELDS and field not in PROPOSAL_WHOLE_LIST_FIELDS
+    ]
     if hog_flow.version == proposal.base_version:
         return []
-    if changes_whole_list:
-        # A whole-list field replaces the list, so any publish since counts.
-        return sorted(touched) or ["edges"]
+    if touched_lists:
+        # A whole-list field carries the shape of the graph around the steps it lists, so any
+        # publish since it was read can drop something. Nothing narrower to compare.
+        return sorted({*touched_steps, *touched_lists, *touched_fields})
     base_revision = HogFlowRevision.objects.filter(hog_flow=hog_flow, version=proposal.base_version).first()
     if base_revision is None:
-        # Without the snapshot the proposal read, "changed since" is unanswerable.
-        return sorted(touched)
+        # Without the snapshot the proposal read, "changed since" is unanswerable. Refuse rather
+        # than stage a merge over an unknown base.
+        return sorted({*touched_steps, *touched_fields})
+    live_content = snapshot_flow_content(hog_flow)
     base_actions = {_item_id(item): item for item in base_revision.content.get("actions") or []}
-    live_actions = {_item_id(item): item for item in snapshot_flow_content(hog_flow).get("actions") or []}
-    return sorted(
+    live_actions = {_item_id(item): item for item in live_content.get("actions") or []}
+    moved_steps = [
         step_id
-        for step_id in touched
+        for step_id in touched_steps
         if base_actions.get(step_id) != live_actions.get(step_id)
         # A step the proposal adds is only a conflict if that id now exists.
         and not (step_id not in base_actions and step_id not in live_actions)
-    )
+    ]
+    moved_fields = [field for field in touched_fields if base_revision.content.get(field) != live_content.get(field)]
+    return sorted({*moved_steps, *moved_fields})
 
 
 # Their items reach helpers that read each item as a mapping, so anything else has to fail here as a 400.
@@ -5599,7 +5595,9 @@ class HogFlowViewSet(
                 raise ProposalAlreadyResolvedError()
             if locked.draft and not param_serializer.validated_data["overwrite"]:
                 raise DraftExistsError()
-            conflicts = conflicting_step_ids(locked, locked_proposal)
+            # A suggestion is only out of date when the steps or fields it changes moved under it.
+            # An edit somewhere else in the workflow merges cleanly and is not a reason to refuse.
+            conflicts = conflicting_parts(locked, locked_proposal)
             if conflicts:
                 raise ProposalOutOfDateError(describe_steps(locked, conflicts))
             expected_draft_updated_at = param_serializer.validated_data.get("expected_draft_updated_at")
