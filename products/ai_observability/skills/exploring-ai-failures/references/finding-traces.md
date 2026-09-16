@@ -7,18 +7,128 @@ see `exploring-llm-traces/references/events-and-properties.md` for the full sche
 
 ## Discover the trace taxonomy
 
-When the user isn't sure how their traffic splits, find the use cases before scoping to one:
+When the user isn't sure how their traffic splits, find the use cases before scoping to one.
+Apps label their traffic differently, and many label almost none of it.
+So measure what this project sets before you group by it.
+
+These queries count every event, including internal and test traffic, and `execute-sql` takes no
+test-account filter. The review batch below drops test accounts, so the two populations differ. Confirm
+a label you picked here with one filtered `query-llm-traces-list` call before you scope on it.
+
+### 1. Trace names
+
+`$ai_span_name` on `$ai_trace` events names the whole trace, which is the closest thing to a use case.
+(`$ai_trace_name` is the older name for the same thing, kept for older data.)
 
 ```sql
--- By trace-id prefix convention (many apps namespace trace ids like "support:", "summarize:")
-SELECT splitByChar(':', coalesce(properties.$ai_trace_id, ''))[1] AS kind, count() AS n
+SELECT coalesce(name, '(not set)') AS kind, count() AS traces
+FROM (
+    SELECT
+        toString(properties.$ai_trace_id) AS trace_id,
+        ifNull(
+            argMinIf(ifNull(nullIf(toString(properties.$ai_span_name), ''),
+                            nullIf(toString(properties.$ai_trace_name), '')),
+                     timestamp, event = '$ai_trace'),
+            argMin(ifNull(nullIf(toString(properties.$ai_span_name), ''),
+                          nullIf(toString(properties.$ai_trace_name), '')), timestamp)
+        ) AS name
+    FROM events
+    WHERE event IN ('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding',
+                    '$ai_metric', '$ai_feedback')
+        AND timestamp >= now() - INTERVAL 7 DAY
+        AND notEmpty(toString(properties.$ai_trace_id))
+    GROUP BY trace_id
+)
+GROUP BY kind ORDER BY traces DESC
+```
+
+The root `$ai_trace` event is emitted last, so a run still going or one that crashed partway has child
+events but no root. This counts every trace and falls back to a child event's name, the way the traces
+list does. Group on `$ai_trace` alone and those runs vanish, which hides the failures you came to find.
+
+### 2. App-set tags
+
+Many apps tag the traffic themselves, with `$ai_product`, `feature`, `agent_mode`, `$ai_agent_name`, or a
+team-specific property. The tag can sit on the generation, on the root `$ai_trace` event, or on both. Run
+`read-data-schema` on both events to see what this project has, then measure coverage of the
+generation-level candidates together:
+
+```sql
+SELECT count() AS generations,
+       round(100 * countIf(isNotNull(nullIf(toString(properties.$ai_product), '')))
+             / count(), 1) AS pct_ai_product,
+       round(100 * countIf(isNotNull(nullIf(toString(properties.$ai_span_name), '')))
+             / count(), 1) AS pct_span_name,
+       round(100 * countIf(isNotNull(nullIf(toString(properties.$ai_agent_name), '')))
+             / count(), 1) AS pct_agent_name
+FROM events
+WHERE event = '$ai_generation' AND timestamp >= now() - INTERVAL 7 DAY
+```
+
+Each count reads an empty tag as unset, so a property the app sets to `''` does not look covered. Use the
+same expression for any other candidate you add.
+
+These percentages count generations, not traces. One agentic trace emits many generations, so it
+outweighs many single-shot traces, and a trace whose generations carry several agent names lands in
+several buckets. Use the split to rank the candidates, not to size the use cases.
+
+A candidate you found on `$ai_trace` needs the trace-level measure instead. Count the traces that carry
+it against every trace, so a run whose root event never arrived stays in the denominator:
+
+```sql
+SELECT countDistinct(toString(properties.$ai_trace_id)) AS traces,
+       countDistinctIf(toString(properties.$ai_trace_id),
+                       notEmpty(toString(properties.<candidate>))) AS with_tag
+FROM events
+WHERE event IN ('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding',
+                '$ai_metric', '$ai_feedback')
+    AND timestamp >= now() - INTERVAL 7 DAY
+    AND notEmpty(toString(properties.$ai_trace_id))
+```
+
+At equal coverage, prefer the trace-level tag, because it already gives one value per trace.
+
+Group by the best-covered one, and keep the unset rows visible so you see how much traffic it misses:
+
+```sql
+SELECT coalesce(nullIf(toString(properties.<best-covered property>), ''), '(not set)') AS kind,
+       count() AS n
 FROM events
 WHERE event = '$ai_generation' AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY kind ORDER BY n DESC
 ```
 
-Or group by whatever feature property the app sets (`ai_product`, `agent_mode`, a custom tag). Then scope
-every query below to one slice.
+Group a trace-level tag the way rung 1 groups the name: resolve one value per trace first, then count
+the traces.
+
+### 3. Trace-id prefix
+
+A few apps namespace trace ids like `support:` or `summarize:`. Most SDKs generate an opaque UUID per
+trace instead, so count the prefixes before you split on them:
+
+```sql
+SELECT countDistinctIf(toString(properties.$ai_trace_id),
+                       notEmpty(toString(properties.$ai_trace_id))) AS traces,
+       countDistinctIf(toString(properties.$ai_trace_id),
+                       position(toString(properties.$ai_trace_id), ':') > 0) AS with_prefix
+FROM events
+WHERE event = '$ai_generation' AND timestamp >= now() - INTERVAL 7 DAY
+```
+
+A trace id is one value per trace, so count traces here rather than generation rows. Generations carrying
+no trace id fall out of both counts, because they cannot carry a prefix either. Split on
+`splitByChar(':', toString(properties.$ai_trace_id))[1]` only when `with_prefix` covers most of `traces`.
+
+### 4. Read and name
+
+When nothing above discriminates, pull a random sample (below), read it, and name the use cases from
+what the traces do. This is slower, and it always works.
+
+> **Reject a result that names nothing.** Three shapes all mean "this label does not split the traffic":
+> one huge `(not set)` bucket, because the app never sets the property; one bucket per trace, because the
+> value is an opaque id; and one generic bucket, because the value is a framework default such as
+> `LangGraph` or `RunnableSequence`. None of them is a taxonomy. Move down the ladder rather than scope
+> on one, because a category that mixes use cases blurs the failure modes you are trying to separate.
 
 ## Code errors
 
@@ -57,11 +167,24 @@ interesting ones with `query-llm-trace`.
 
 ## Manual review of a stratified batch
 
-Pull a mixed batch (slices and outcomes, not all errors) and read each candidate end to end:
+Pull a mixed batch (slices and outcomes, not all errors) and read each candidate end to end. The list
+returns the newest traces first, so ask for a random order. Otherwise a recent batch job, demo, or load
+test fills the batch, and you read one use case instead of a spread.
+
+When a label from Step 1 discriminates, run the request once per slice so each slice gets its own quota:
 
 ```json
 posthog:query-llm-traces-list
-{ "dateRange": { "date_from": "-7d" }, "filterTestAccounts": true }
+{ "dateRange": { "date_from": "-7d" }, "filterTestAccounts": true, "randomOrder": true, "limit": 10,
+  "properties": [{ "key": "$ai_span_name", "type": "event", "operator": "exact", "value": ["<slice>"] }] }
+```
+
+Run one more pass with `$ai_is_error` set to `"true"` so failed traces reach the batch, then drop the
+duplicate trace ids. When no label discriminates, take one random sample across all the traffic instead:
+
+```json
+posthog:query-llm-traces-list
+{ "dateRange": { "date_from": "-7d" }, "filterTestAccounts": true, "randomOrder": true, "limit": 30 }
 ```
 
 Then read each with `query-llm-trace`. Its one required argument is `traceId`, and the value to pass is

@@ -15,7 +15,8 @@ Top-level container for a trace. Emitted last, after all child events.
 | Property           | Type   | Description                                                  |
 | ------------------ | ------ | ------------------------------------------------------------ |
 | `$ai_trace_id`     | string | Unique trace identifier — shared by all events in this trace |
-| `$ai_trace_name`   | string | Name of the trace                                            |
+| `$ai_span_name`    | string | Name of the trace — the canonical use-case label             |
+| `$ai_trace_name`   | string | Older name for the same thing, kept for older data           |
 | `$ai_session_id`   | string | Groups multiple traces into a session                        |
 | `$ai_input_state`  | JSON   | Application state at trace start (can be very large)         |
 | `$ai_output_state` | JSON   | Application state at trace end (can be very large)           |
@@ -58,6 +59,8 @@ Individual LLM API call (e.g. a chat completion request).
 | `$ai_error`           | string     | Error message if generation failed                                   |
 | `$ai_base_url`        | string     | LLM API base URL                                                     |
 | `$ai_tools_called`    | string     | Comma-separated tool names called by the LLM                         |
+| `$ai_span_name`       | string     | Name of this generation                                              |
+| `$ai_agent_name`      | string     | Name of the agent that produced the generation                       |
 
 ### `$ai_embedding`
 
