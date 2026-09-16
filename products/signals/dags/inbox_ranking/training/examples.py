@@ -139,7 +139,14 @@ def assemble_snapshot(date: datetime.date, state: pd.DataFrame, labels: pd.DataF
 
 
 def birth_day_mask(state: pd.DataFrame, date: datetime.date) -> pd.Series:
-    """True for rows of the reports created on snapshot day `date`."""
+    """True for rows of the reports created on snapshot day `date`.
+
+    Creation day stands in for the report's first scoring moment. The two differ when a report
+    stays `potential` past midnight, because the state spine admits a report only once it promotes
+    or is born visible, so the report's first moment is its promotion day. Such a report is still
+    censored on that day, and the newborn pool never grades it. Closing that gap needs
+    `first_visible_at` carried in the state schema, which no partition has today.
+    """
     start, end = snapshot_bounds(date.isoformat())
     created = pd.to_datetime(state["report_created_at"], utc=True)
     return (created >= start) & (created < end)
