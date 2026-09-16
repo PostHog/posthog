@@ -12,8 +12,11 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Every read that orders by `-updated_at` filters by team or user first, so the
-        # planner takes those indexes instead and this one only costs write amplification.
+        # Customer-facing reads that order by `-updated_at` filter by team or user first, so the
+        # planner takes those indexes instead. The staff-only Django admin changelist does sort the
+        # whole table, so it loses this index and falls back to a sequential scan with a top-N sort.
+        # That page is rare enough that it does not justify the write amplification this index costs
+        # on every conversation write.
         SafeRemoveIndexConcurrently(
             model_name="conversation",
             name="ee_conversa_updated_19e4e6_idx",
