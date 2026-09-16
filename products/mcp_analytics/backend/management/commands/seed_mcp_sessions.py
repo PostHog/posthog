@@ -131,6 +131,34 @@ INTENTS_BY_TOOL: dict[str, list[str]] = {
 }
 DEFAULT_INTENT = "Helping the user investigate a recent product-analytics question without a specific recorded intent."
 
+# A slice of sessions reads as automated runs, so the overview's people/automations split has
+# both sides. The property is stamped only by PostHog's own hosted server; customer-instrumented
+# servers never set it, which is why the rest of the sessions omit it entirely.
+AUTOMATION_PROBABILITY = 0.2
+AUTOMATION_SCOPE_PRESET = "scout"
+
+# Self-reported model identity, weighted so "Unknown" stays a visible share of the model bars.
+MODEL_NAMES = ["claude-sonnet-5", "claude-opus-5", "gpt-5.6-sol", ""]
+MODEL_WEIGHTS = [4, 3, 2, 3]
+
+# Per-tool failure buckets as (error type, message). Messages carry ids and counts on purpose:
+# the failure-groups query must collapse them into one group.
+ERROR_BUCKETS_BY_TOOL: dict[str, list[tuple[str, str]]] = {
+    "query_run": [
+        ("internal", "Tool query_run returned an error"),
+        ("validation", 'Invalid input for "query_run": parameter "query" must be of type string'),
+    ],
+    "dashboard_get": [("api_4xx", "HTTP 404 Not Found on GET /api/projects/{project}/dashboards/{n}/")],
+    "feature_flag_get": [("validation", 'Invalid input for "feature_flag_get": missing required parameter: id')],
+    "person_get": [("api_4xx", "HTTP 404 Not Found on GET /api/projects/{project}/persons/{id}/")],
+}
+DEFAULT_ERROR_BUCKET = ("internal", "Upstream returned 500")
+
+# After a failed call the agent often tries the same tool again; a retry succeeds more often
+# than not, so the "what the agent did next" split shows every outcome.
+RETRY_PROBABILITY = 0.5
+RETRY_SUCCESS_PROBABILITY = 0.6
+
 MISSING_CAPABILITY_INTENTS: list[str] = [
     "Create a new dashboard and arrange the most relevant insights on it.",
     "Update a feature flag's rollout percentage for a specific customer cohort.",
@@ -362,15 +390,30 @@ class Command(BaseCommand):
             # One coherent intent per session so the clustering page has themes to group.
             primary_tool = rng.choice(TOOL_NAMES)
             session_intent = rng.choice(INTENTS_BY_TOOL.get(primary_tool, [DEFAULT_INTENT]))
+            is_automation = rng.random() < AUTOMATION_PROBABILITY
+            if is_automation:
+                session_intent = f"signals scout run {uuid.uuid4()}"
+            model_name = rng.choices(MODEL_NAMES, weights=MODEL_WEIGHTS, k=1)[0]
+            previous_tool: str | None = None
+            previous_errored = False
 
             cumulative_offset_s = 0
             for call_idx in range(calls):
                 cumulative_offset_s += call_intervals[call_idx]
                 timestamp = session_start + timedelta(seconds=cumulative_offset_s)
-                tool_name = rng.choice(TOOL_NAMES)
+                is_retry = previous_errored and previous_tool is not None and rng.random() < RETRY_PROBABILITY
+                tool_name = previous_tool if is_retry and previous_tool is not None else rng.choice(TOOL_NAMES)
                 # Skew error rate and latency per tool so the Tool quality tab has variation.
                 tool_error_rate = (stable_hash(tool_name) % 30) / 100.0
-                is_error = rng.random() < tool_error_rate
+                if is_retry:
+                    is_error = rng.random() >= RETRY_SUCCESS_PROBABILITY
+                else:
+                    is_error = rng.random() < tool_error_rate
+                error_type, error_message = (
+                    rng.choice(ERROR_BUCKETS_BY_TOOL.get(tool_name, [DEFAULT_ERROR_BUCKET])) if is_error else ("", "")
+                )
+                error_message = error_message.format(project=team.id, n=rng.randint(1000, 99999), id=uuid.uuid4())
+                previous_tool, previous_errored = tool_name, is_error
                 base_latency = 80 + (stable_hash(tool_name) % 400)
                 duration_ms = max(1, int(rng.gauss(base_latency, base_latency * 0.4)))
                 if is_error:
@@ -393,7 +436,14 @@ class Command(BaseCommand):
                         "$mcp_tool_description": TOOL_DESCRIPTIONS.get(tool_name, ""),
                         "$mcp_intent": session_intent,
                         "$mcp_intent_source": rng.choices(["context_parameter", "inferred"], weights=[7, 3], k=1)[0],
-                        "$mcp_error_message": "Upstream returned 500" if is_error else "",
+                        "$mcp_error_message": error_message,
+                        "$mcp_error_type": error_type,
+                        **(
+                            {"$mcp_llm_model": model_name, "$mcp_llm_model_source": "self_reported"}
+                            if model_name
+                            else {}
+                        ),
+                        **({"$mcp_scope_preset": AUTOMATION_SCOPE_PRESET} if is_automation else {}),
                         "$mcp_client_name": client_name,
                         "$mcp_client_version": "1.0.0",
                         "$mcp_protocol_version": "2025-03-26",
