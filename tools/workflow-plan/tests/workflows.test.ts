@@ -122,6 +122,7 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'ready PR' },
         {
             runs: [
+                'dynamic-ci-filter',
                 'turbo-tests',
                 'django',
                 'backend-coverage-report',
@@ -139,7 +140,7 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'merge queue', github: mergeQueue() },
         {
             runs: ['turbo-tests', 'django', 'django_tests'],
-            skipped: ['backend-coverage-report'],
+            skipped: ['backend-coverage-report', 'dynamic-ci-filter'],
         }
     ),
     backend(
@@ -154,6 +155,7 @@ const EXPECTATIONS: Expectation[] = [
         {
             runs: ['changes', 'django', 'django_tests'],
             skipped: [
+                'dynamic-ci-filter',
                 'validate-product-yamls',
                 'calculate-running-time',
                 'report-test-timings',
@@ -180,6 +182,7 @@ const EXPECTATIONS: Expectation[] = [
         {
             runs: ['changes', 'repo-checks', 'check-migrations', 'mirror-schema-cache', 'django_tests'],
             skipped: [
+                'dynamic-ci-filter',
                 'detect-snapshot-mode',
                 'turbo-tests',
                 'django',
@@ -237,14 +240,21 @@ const EXPECTATIONS: Expectation[] = [
     frontend(
         { name: 'draft PR', github: pullRequest({ draft: true }) },
         {
-            runs: ['changes', 'select-jest-tests', 'jest', 'frontend-typescript-checks', 'frontend_tests'],
+            runs: [
+                'changes',
+                'dynamic-ci-filter',
+                'select-jest-tests',
+                'jest',
+                'frontend-typescript-checks',
+                'frontend_tests',
+            ],
         }
     ),
     frontend(
         { name: 'merge queue', github: mergeQueue() },
         {
             runs: ['jest', 'frontend_tests'],
-            skipped: ['select-jest-tests'],
+            skipped: ['select-jest-tests', 'dynamic-ci-filter'],
         }
     ),
     frontend(
@@ -265,14 +275,14 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'fork PR', github: pullRequest({ fork: true }) },
         {
             runs: ['jest', 'frontend_tests'],
-            skipped: ['capture-jest-selection', 'report-test-signals', 'calculate-running-time'],
+            skipped: ['dynamic-ci-filter', 'capture-jest-selection', 'report-test-signals', 'calculate-running-time'],
         }
     ),
     frontend(
         { name: 'master push', github: push() },
         {
             runs: ['frontend-format', 'frontend-typescript-checks', 'frontend_tests'],
-            skipped: ['jest', 'select-jest-tests'],
+            skipped: ['jest', 'select-jest-tests', 'dynamic-ci-filter'],
         }
     ),
     frontend(
