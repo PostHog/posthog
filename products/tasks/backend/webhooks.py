@@ -1,14 +1,12 @@
 from django.db import transaction
 from django.db.models import Case, IntegerField, Q, Value, When
-from django.http import HttpResponse
 
 import structlog
 
-from posthog.api.github_webhooks.contracts import PullRequestAttribution
-from posthog.api.github_webhooks.integrations import _SCOPE_DB_ALIAS, _installation_id, _installation_team_ids
-from posthog.api.github_webhooks.metrics import GitHubWebhookAnalyticsEvent, observe_github_webhook_pr_event_dropped
-from posthog.api.github_webhooks.pull_requests import capture_pr_event, pr_state_for_action
 from posthog.event_usage import groups
+from posthog.github.installations import SCOPE_DB_ALIAS, installation_id, installation_team_ids
+from posthog.github.metrics import GitHubWebhookAnalyticsEvent, observe_github_webhook_pr_event_dropped
+from posthog.github.pull_request_events import PullRequestAttribution, capture_pr_event, pr_state_for_action
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
@@ -194,10 +192,10 @@ def _capture_task_pr_event(payload: dict, task_run: TaskRun | None, event: GitHu
     capture_pr_event(payload, attribution, event)
 
 
-def handle_pull_request_event(payload: dict) -> HttpResponse:
-    """Process a pre-verified pull_request webhook event.
+def handle_pull_request_event(payload: dict) -> None:
+    """Process a verified pull_request webhook event.
 
-    Called from the shared GitHub webhook dispatcher (unified dispatcher).
+    Registered as the ``tasks_pr_backstop`` ingress consumer.
     """
     action = payload.get("action")
     pull_request = payload.get("pull_request", {})
@@ -206,7 +204,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
 
     if not pr_url:
         logger.warning("github_pr_webhook_no_pr_url", action=action)
-        return HttpResponse(status=200)
+        return
 
     pr_state = pr_state_for_action(action, pull_request)
     analytics_event: GitHubWebhookAnalyticsEvent | None = None
@@ -227,7 +225,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         event_action = action or ""
     else:
         logger.debug("github_pr_webhook_ignored_action", action=action, pr_url=pr_url)
-        return HttpResponse(status=200)
+        return
 
     branch = pull_request.get("head", {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
@@ -292,19 +290,17 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         if task_run and pr_url in claimed_pr_urls:
             _cancel_wizard_run_on_close(task_run)
 
-    return HttpResponse(status=200)
 
+def handle_pull_request_review_event(payload: dict) -> None:
+    """Process a verified pull_request_review webhook event.
 
-def handle_pull_request_review_event(payload: dict) -> HttpResponse:
-    """Process a pre-verified pull_request_review webhook event.
-
-    Called from the shared GitHub webhook dispatcher (unified dispatcher). Captures a
+    Registered as the ``tasks_pr_review`` ingress consumer. Captures a
     ``pr_reviewed`` analytics event for human review submissions (approved,
     changes_requested, commented), attributed to the reviewer when their GitHub
     login resolves to an org member.
     """
     if payload.get("action") != "submitted":
-        return HttpResponse(status=200)
+        return
 
     review = payload.get("review") or {}
     reviewer = review.get("user") or {}
@@ -312,13 +308,13 @@ def handle_pull_request_review_event(payload: dict) -> HttpResponse:
     pr_url = pull_request.get("html_url")
     if not pr_url:
         logger.warning("github_pr_review_webhook_no_pr_url")
-        return HttpResponse(status=200)
+        return
 
     # StampHog, ReviewHog, and CI apps review every self-driving PR, so without this
     # filter the event stream is mostly bots and the human review signal drowns.
     if (reviewer.get("type") or "").lower() == "bot":
         logger.debug("github_pr_review_webhook_bot_review_skipped", pr_url=pr_url)
-        return HttpResponse(status=200)
+        return
 
     branch = (pull_request.get("head") or {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
@@ -335,7 +331,6 @@ def handle_pull_request_review_event(payload: dict) -> HttpResponse:
         pr_source="task" if task_run else "external",
         run_id=str(task_run.id) if task_run else None,
     )
-    return HttpResponse(status=200)
 
 
 def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
@@ -531,26 +526,24 @@ def _task_run_scope_team_ids(payload: dict) -> list[int]:
     a delivery for a run they created that way stops matching. Anything with no installation
     id, or an installation nothing is linked to, falls back to the unscoped lookup.
     """
-    external_id = _installation_id(payload)
+    external_id = installation_id(payload)
     if external_id is None:
         return []
 
-    team_ids = set(_installation_team_ids(payload))
+    team_ids = set(installation_team_ids(payload))
 
     # Left lazy on purpose: Django inlines these as subqueries, so the whole widening is one
     # indexed round-trip rather than three.
     user_ids = (
-        UserIntegration.objects.using(_SCOPE_DB_ALIAS)
+        UserIntegration.objects.using(SCOPE_DB_ALIAS)
         .filter(kind="github", integration_id=external_id)
         .values_list("user_id", flat=True)
     )
     org_ids = (
-        OrganizationMembership.objects.using(_SCOPE_DB_ALIAS)
+        OrganizationMembership.objects.using(SCOPE_DB_ALIAS)
         .filter(user_id__in=user_ids)
         .values_list("organization_id", flat=True)
     )
-    team_ids.update(
-        Team.objects.using(_SCOPE_DB_ALIAS).filter(organization_id__in=org_ids).values_list("id", flat=True)
-    )
+    team_ids.update(Team.objects.using(SCOPE_DB_ALIAS).filter(organization_id__in=org_ids).values_list("id", flat=True))
 
     return sorted(team_ids)
