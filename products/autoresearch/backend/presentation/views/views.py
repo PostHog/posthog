@@ -13,7 +13,7 @@ from dataclasses import fields
 from typing import Any, cast
 
 import structlog
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
@@ -47,6 +47,7 @@ from .serializers import (
     ResolvedTemplateSerializer,
     ResolveTemplateRequestSerializer,
     TemplateInfoSerializer,
+    TrainingRunHistoryQuerySerializer,
     TrainingRunHistorySerializer,
     ValidatePipelineRequestSerializer,
     ValidatePipelineResponseSerializer,
@@ -487,15 +488,22 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
         },
         summary="Record a training iteration",
         description=(
-            "Record one iteration of an open training run. Idempotent on iteration_number — re-sending the "
-            "same number updates that iteration. The recipe is validated server-side: model_class must be in "
-            "the allowlist and feature_sql must be a read-only SELECT keyed on person_id."
+            "Record one iteration of an open training run. Idempotent on iteration_number: re-sending the "
+            "same number updates that iteration. A new iteration_number is refused once the run's "
+            "iteration_budget is used. The recipe is validated server-side: feature_sql must be a read-only "
+            "SELECT from {anchors} keyed on person_id, and model_class must be set. The class allowlist "
+            "applies only at completion, to a run that uploaded no bundle."
         ),
     )
     @action(detail=True, methods=["post"], url_path="iterations")
     def record_iteration(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
-            iteration = api.record_iteration(self.team_id, self.kwargs["pk"], fields=dict(request.validated_data))
+            iteration = api.record_iteration(
+                self.team_id,
+                self.kwargs["pk"],
+                pipeline_id=_parent_pipeline_id(self),
+                fields=dict(request.validated_data),
+            )
         except TrainingRunNotFound:
             raise NotFound("Training run not found.")
         except AutoresearchConflict as exc:
@@ -515,9 +523,10 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
         },
         summary="Complete a training run",
         description=(
-            "Finalize a training run. The backend selects the best iteration (highest holdout score, or the "
-            "one you name), decides champion vs challenger via the promotion ladder, and persists the model. "
-            "Agents cannot set the champion directly — promotion is server-side."
+            "Finalize a training run. The backend selects the kept iteration with the highest holdout score, "
+            "decides champion vs challenger via the promotion ladder, and persists the model. "
+            "best_iteration_id is advisory: it breaks a tie at the top score and is otherwise logged and "
+            "ignored. Agents cannot set the champion directly, because promotion is server-side."
         ),
     )
     @action(detail=True, methods=["post"], url_path="complete")
@@ -527,6 +536,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
             training_run = api.complete_run(
                 self.team_id,
                 self.kwargs["pk"],
+                pipeline_id=_parent_pipeline_id(self),
                 best_iteration_id=data.get("best_iteration_id"),
                 model_explanation=data.get("model_explanation") or {},
                 recommended_next=data.get("recommended_next") or "",
@@ -538,16 +548,8 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
             raise ValidationError(str(exc)) from exc
         return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="limit",
-                type=int,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Maximum number of prior runs to return (default 5, capped at 20).",
-            )
-        ],
+    @validated_request(
+        query_serializer=TrainingRunHistoryQuerySerializer,
         responses={
             200: OpenApiResponse(
                 response=TrainingRunHistorySerializer,
@@ -564,10 +566,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
     )
     @action(detail=False, methods=["get"], url_path="history", pagination_class=None)
     def history(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        try:
-            limit = int(request.query_params.get("limit", 5))
-        except (TypeError, ValueError):
-            limit = 5
+        limit = request.validated_query_data["limit"]
         try:
             history = api.training_run_history(self.team_id, _require_parent_pipeline_id(self), limit=limit)
         except PipelineNotFound as exc:

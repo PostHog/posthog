@@ -229,6 +229,13 @@ def _require_legacy_recipe_is_runnable(recipe: dict[str, Any]) -> None:
             "Cannot persist a model: no complete bundle was uploaded and the selected "
             "iteration recorded no feature_sql for the legacy scoring path."
         )
+    if recipe.get("feature_transforms"):
+        # The in-process scorer fits on the raw feature_sql columns and never applies the
+        # transforms, so the served model would not be the one the holdout score describes.
+        raise PromotionError(
+            "Cannot persist a model on the legacy scoring path: it does not apply feature_transforms, "
+            "so a recipe that needs them must ship as an uploaded bundle."
+        )
     try:
         validate_model_class(str(recipe["model_class"]))
     except RecipeValidationError as exc:

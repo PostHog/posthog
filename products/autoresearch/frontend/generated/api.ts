@@ -300,7 +300,7 @@ export const getAutoresearchTrainingRunsCompleteCreateUrl = (projectId: string, 
 }
 
 /**
- * Finalize a training run. The backend selects the best iteration (highest holdout score, or the one you name), decides champion vs challenger via the promotion ladder, and persists the model. Agents cannot set the champion directly — promotion is server-side.
+ * Finalize a training run. The backend selects the kept iteration with the highest holdout score, decides champion vs challenger via the promotion ladder, and persists the model. best_iteration_id is advisory: it breaks a tie at the top score and is otherwise logged and ignored. Agents cannot set the champion directly, because promotion is server-side.
  * @summary Complete a training run
  */
 export const autoresearchTrainingRunsCompleteCreate = async (
@@ -326,7 +326,7 @@ export const getAutoresearchTrainingRunsIterationsCreateUrl = (projectId: string
 }
 
 /**
- * Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number updates that iteration. The recipe is validated server-side: model_class must be in the allowlist and feature_sql must be a read-only SELECT keyed on person_id.
+ * Record one iteration of an open training run. Idempotent on iteration_number: re-sending the same number updates that iteration. A new iteration_number is refused once the run's iteration_budget is used. The recipe is validated server-side: feature_sql must be a read-only SELECT from {anchors} keyed on person_id, and model_class must be set. The class allowlist applies only at completion, to a run that uploaded no bundle.
  * @summary Record a training iteration
  */
 export const autoresearchTrainingRunsIterationsCreate = async (

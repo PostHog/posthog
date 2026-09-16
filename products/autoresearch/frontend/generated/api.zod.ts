@@ -139,7 +139,7 @@ export const AutoresearchTrainingRunsCreateBody = /* @__PURE__ */ zod
     .describe('Input for opening an agent-driven training run.')
 
 /**
- * Finalize a training run. The backend selects the best iteration (highest holdout score, or the one you name), decides champion vs challenger via the promotion ladder, and persists the model. Agents cannot set the champion directly — promotion is server-side.
+ * Finalize a training run. The backend selects the kept iteration with the highest holdout score, decides champion vs challenger via the promotion ladder, and persists the model. best_iteration_id is advisory: it breaks a tie at the top score and is otherwise logged and ignored. Agents cannot set the champion directly, because promotion is server-side.
  * @summary Complete a training run
  */
 export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextDefault = ``
@@ -154,7 +154,7 @@ export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
             .uuid()
             .nullish()
             .describe(
-                'Iteration to promote as champion candidate. If omitted, the kept iteration with the highest holdout_score is used.'
+                'Advisory nomination. The server promotes the kept iteration with the highest holdout_score; this id only breaks a tie at that score, and a lower-scoring nomination is logged and ignored.'
             ),
         model_explanation: zod
             .looseObject({})
@@ -178,10 +178,11 @@ export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
     .describe('Input for finalizing a training run. The backend selects\/promotes the champion.')
 
 /**
- * Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number updates that iteration. The recipe is validated server-side: model_class must be in the allowlist and feature_sql must be a read-only SELECT keyed on person_id.
+ * Record one iteration of an open training run. Idempotent on iteration_number: re-sending the same number updates that iteration. A new iteration_number is refused once the run's iteration_budget is used. The recipe is validated server-side: feature_sql must be a read-only SELECT from {anchors} keyed on person_id, and model_class must be set. The class allowlist applies only at completion, to a run that uploaded no bundle.
  * @summary Record a training iteration
  */
 export const autoresearchTrainingRunsIterationsCreateBodyIterationNumberMin = 0
+export const autoresearchTrainingRunsIterationsCreateBodyIterationNumberMax = 2147483647
 
 export const autoresearchTrainingRunsIterationsCreateBodyTrainScoreMin = 0
 export const autoresearchTrainingRunsIterationsCreateBodyTrainScoreMax = 1
@@ -190,6 +191,8 @@ export const autoresearchTrainingRunsIterationsCreateBodyHoldoutScoreMin = 0
 export const autoresearchTrainingRunsIterationsCreateBodyHoldoutScoreMax = 1
 
 export const autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionDefault = ``
+export const autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionMax = 2000
+
 export const autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMin = 0
 export const autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMax = 1
 
@@ -198,6 +201,7 @@ export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
         iteration_number: zod
             .number()
             .min(autoresearchTrainingRunsIterationsCreateBodyIterationNumberMin)
+            .max(autoresearchTrainingRunsIterationsCreateBodyIterationNumberMax)
             .describe(
                 'Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).'
             ),
@@ -229,14 +233,15 @@ export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
             .describe('Held-out AUC for this iteration (0-1). Used to pick the champion at completion.'),
         agent_description: zod
             .string()
+            .max(autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionMax)
             .default(autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionDefault)
-            .describe("Agent's plain-English rationale for this iteration."),
+            .describe("Agent's plain-English rationale for this iteration. Max 2000 characters."),
         agent_confidence: zod
             .number()
             .min(autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMin)
             .max(autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMax)
             .nullish()
-            .describe("Agent's self-assessed confidence (0–1) that this iteration helps."),
+            .describe("Agent's self-assessed confidence (0-1) that this iteration helps."),
         parent_suggestion: zod
             .uuid()
             .nullish()

@@ -1,8 +1,12 @@
+from typing import Any
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
@@ -13,6 +17,11 @@ from products.autoresearch.backend.models import (
     AutoresearchPipeline,
     AutoresearchSuggestion,
     AutoresearchTrainingRun,
+)
+from products.autoresearch.backend.presentation.views.serializers import (
+    AGENT_DESCRIPTION_MAX_LENGTH,
+    CompleteTrainingRunSerializer,
+    RecordIterationSerializer,
 )
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 from products.autoresearch.backend.training import artifacts
@@ -49,16 +58,25 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
         )
         self.runs_url = f"/api/projects/{self.team.pk}/autoresearch/{self.pipeline.pk}/training_runs"
 
-    def _open_run(self) -> str:
-        resp = self.client.post(f"{self.runs_url}/", {}, format="json")
+    def _open_run(self, *, iteration_budget: int | None = None) -> str:
+        body = {"iteration_budget": iteration_budget} if iteration_budget else {}
+        resp = self.client.post(f"{self.runs_url}/", body, format="json")
         assert resp.status_code == status.HTTP_201_CREATED, resp.json()
         return resp.json()["id"]
 
     def _record(
-        self, run_id: str, *, number: int, status_value: str = "kept", holdout: float = 0.8, spec=None, recipe=None
-    ):
+        self,
+        run_id: str,
+        *,
+        number: int,
+        status_value: str = "kept",
+        holdout: float = 0.8,
+        spec: dict[str, Any] | None = None,
+        recipe: dict[str, Any] | None = None,
+        runs_url: str | None = None,
+    ) -> Any:
         return self.client.post(
-            f"{self.runs_url}/{run_id}/iterations/",
+            f"{runs_url or self.runs_url}/{run_id}/iterations/",
             {
                 "iteration_number": number,
                 "recipe_snapshot": recipe or VALID_RECIPE,
@@ -115,6 +133,24 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
         suggestion.refresh_from_db()
         assert suggestion.status == "acted_on"
         assert str(iteration.id) in [str(i) for i in suggestion.iterations.values_list("id", flat=True)]
+        # A re-send that omits the field keeps the attribution; an explicit null clears it.
+        assert self._record(run_id, number=0, holdout=0.95).status_code == status.HTTP_201_CREATED
+        iteration.refresh_from_db()
+        assert str(iteration.parent_suggestion_id) == str(suggestion.id)
+        resp = self.client.post(
+            f"{self.runs_url}/{run_id}/iterations/",
+            {
+                "iteration_number": 0,
+                "recipe_snapshot": VALID_RECIPE,
+                "model_spec": VALID_SPEC,
+                "status": "kept",
+                "parent_suggestion": None,
+            },
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_201_CREATED, resp.json()
+        iteration.refresh_from_db()
+        assert iteration.parent_suggestion_id is None
 
     def test_record_iteration_rejects_foreign_parent_suggestion(self):
         other_pipeline = AutoresearchPipeline.objects.create(
@@ -166,6 +202,30 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
         assert rows.count() == 1
         row = rows.first()
         assert row is not None and row.holdout_score == 0.9
+
+    def test_record_iteration_refuses_a_new_number_past_the_budget(self):
+        run_id = self._open_run(iteration_budget=1)
+        assert self._record(run_id, number=0, holdout=0.7).status_code == status.HTTP_201_CREATED
+        assert self._record(run_id, number=0, holdout=0.9).status_code == status.HTTP_201_CREATED
+        resp = self._record(run_id, number=1)
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "iteration budget" in str(resp.json())
+        assert AutoresearchIteration.objects.filter(training_run_id=UUID(run_id)).count() == 1
+
+    def test_write_actions_are_bound_to_the_pipeline_in_the_url(self):
+        other_pipeline = AutoresearchPipeline.objects.create(
+            team=self.team, created_by=self.user, name="Other", target_event="$pageview", horizon_days=7
+        )
+        other_runs_url = f"/api/projects/{self.team.pk}/autoresearch/{other_pipeline.pk}/training_runs"
+        run_id = self._open_run()
+        self._record(run_id, number=0)
+
+        assert self._record(run_id, number=1, runs_url=other_runs_url).status_code == status.HTTP_404_NOT_FOUND
+        resp = self.client.post(f"{other_runs_url}/{run_id}/complete/", {}, format="json")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+        run = AutoresearchTrainingRun.objects.get(pk=run_id, team_id=self.team.pk)
+        assert run.status == AutoresearchTrainingRun.Status.RUNNING
+        assert run.iterations.count() == 1
 
     def test_record_iteration_rejects_when_run_not_running(self):
         run_id = self._open_run()
@@ -401,6 +461,7 @@ class TestTrainingRunHistory(TeamScopedTestMixin, APIBaseTest):
             ("kept", 0.82, "added file RFM"),
         ]
         assert run["iterations"][0]["model_spec"]["model_class"] == "sklearn.linear_model.LogisticRegression"
+        assert run["iterations"][1]["recipe_snapshot"]["feature_sql"] == VALID_FEATURE_SQL
 
     def test_history_excludes_runs_that_are_not_completed(self):
         # An open (running) run with a recorded iteration must not surface as history.
@@ -428,8 +489,18 @@ class TestTrainingRunHistory(TeamScopedTestMixin, APIBaseTest):
         other_target = AutoresearchPipeline.objects.create(
             team=self.team, created_by=self.user, name="OtherTarget", target_event="$pageview", horizon_days=30
         )
+        # An action whose name matches the event is a different outcome, not a sibling.
+        same_name_action = AutoresearchPipeline.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="SameNameAction",
+            target_event="downloaded_file",
+            target_definition={"type": "action", "action_id": 42},
+            horizon_days=30,
+        )
         self._completed_run(sibling, iterations=[("kept", 0.75, "sibling run")])
         self._completed_run(other_target, iterations=[("kept", 0.90, "different target")])
+        self._completed_run(same_name_action, iterations=[("kept", 0.91, "same-name action")])
         self._completed_run(self.pipeline, iterations=[("kept", 0.80, "own run")])
 
         runs = self._history().json()["runs"]
@@ -445,9 +516,8 @@ class TestTrainingRunHistory(TeamScopedTestMixin, APIBaseTest):
         for _ in range(3):
             self._completed_run(self.pipeline, iterations=[("kept", 0.8, "run")])
         assert len(self._history(limit=2).json()["runs"]) == 2
-        # Out-of-range limits are clamped, not errored.
-        assert self._history(limit=0).status_code == status.HTTP_200_OK
-        assert len(self._history(limit=0).json()["runs"]) == 1
+        assert self._history(limit=0).status_code == status.HTTP_400_BAD_REQUEST
+        assert self._history(limit="many").status_code == status.HTTP_400_BAD_REQUEST
 
     def test_history_includes_distilled_run_summary(self):
         self._completed_run(
@@ -489,6 +559,42 @@ class TestTrainingRunHistory(TeamScopedTestMixin, APIBaseTest):
         self._completed_run(self.pipeline, iterations=[("kept", 0.8, "own")])
         runs = self._history().json()["runs"]
         assert all(r["iterations"][0]["agent_description"] != "leaked" for r in runs)
+
+
+class TestAgentWriteSerializers(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("nan_holdout", {"holdout_score": "NaN"}, "holdout_score"),
+            ("infinite_train_score", {"train_score": "Infinity"}, "train_score"),
+            ("nan_confidence", {"agent_confidence": "nan"}, "agent_confidence"),
+            ("iteration_number_past_int32", {"iteration_number": 2**31}, "iteration_number"),
+            ("list_shaped_recipe", {"recipe_snapshot": [VALID_FEATURE_SQL]}, "recipe_snapshot"),
+            ("string_shaped_spec", {"model_spec": "sklearn.linear_model.LogisticRegression"}, "model_spec"),
+            ("non_string_feature_sql", {"recipe_snapshot": {"feature_sql": 123}}, "non_field_errors"),
+            (
+                "oversized_rationale",
+                {"agent_description": "x" * (AGENT_DESCRIPTION_MAX_LENGTH + 1)},
+                "agent_description",
+            ),
+        ]
+    )
+    def test_record_iteration_rejects(self, _name: str, overrides: dict[str, Any], error_key: str) -> None:
+        data = {
+            "iteration_number": 0,
+            "recipe_snapshot": VALID_RECIPE,
+            "model_spec": VALID_SPEC,
+            "status": "kept",
+            "holdout_score": 0.8,
+            **overrides,
+        }
+        serializer = RecordIterationSerializer(data=data)
+        assert not serializer.is_valid()
+        assert error_key in serializer.errors, serializer.errors
+
+    def test_complete_rejects_a_non_object_explanation(self) -> None:
+        serializer = CompleteTrainingRunSerializer(data={"model_explanation": ["top_features"]})
+        assert not serializer.is_valid()
+        assert "model_explanation" in serializer.errors
 
 
 class _InMemoryStorage:

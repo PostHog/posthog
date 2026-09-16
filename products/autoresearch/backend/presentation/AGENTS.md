@@ -38,7 +38,8 @@ agent                                    server
 Consequences worth internalizing:
 
 - **Everything the agent sends is untrusted.** SQL it submits gets executed. `iterations` runs it through `../training/recipe_validation.py`.
-- **The write surface closes when the run does.** `iterations` and `complete` require the run to be RUNNING (or PENDING for `complete`), so a finished run is frozen.
+- **The write surface closes when the run does.** `iterations` and `complete` require the run to be RUNNING (or PENDING for `complete`), so a finished run is frozen. Recording takes the run row lock that completion takes, so the status check and the upsert see one state, and it refuses a new `iteration_number` once the run's `iteration_budget` is used.
+- **Nested writes are bound to the pipeline in the URL.** A run id under another pipeline's route is a 404, the same as the nested reads.
 - **`complete` does not accept a champion.** It triggers `complete_training_run()` in `../training/promotion.py`, which picks the champion server-side from the recorded iterations. The agent cannot promote itself.
 - If the agent cannot reach these tools, a run burns its full budget doing nothing and fails with `"Agent recorded no iterations before the run ended."` That symptom is almost always MCP connectivity, not the model.
 

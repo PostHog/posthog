@@ -56,14 +56,18 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         status: str = AutoresearchIteration.Status.KEPT,
         holdout: float | None = 0.8,
         feature_sql: str = ANCHORED_FEATURE_SQL,
+        feature_transforms: list[dict[str, str]] | None = None,
         model_class: str = "sklearn.linear_model.LogisticRegression",
     ) -> AutoresearchIteration:
+        recipe_snapshot: dict[str, object] = {"feature_sql": feature_sql} if feature_sql else {}
+        if feature_transforms:
+            recipe_snapshot["feature_transforms"] = feature_transforms
         return AutoresearchIteration.objects.create(
             pipeline=self.pipeline,
             training_run=run,
             iteration_number=number,
             recipe_hash=f"hash{number}",
-            recipe_snapshot={"feature_sql": feature_sql} if feature_sql else {},
+            recipe_snapshot=recipe_snapshot,
             model_spec={"model_class": model_class, "model_params": {}},
             holdout_score=holdout,
             status=status,
@@ -184,6 +188,9 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
             # in-process scorer resolves the class through importlib and refuses anything
             # off the allowlist, so this champion could never score.
             ("bundle_only_model_class", {"model_class": "my_package.MyClassifier"}),
+            # The in-process scorer fits on the raw columns, so a recipe whose holdout score
+            # was measured on transformed features would serve a different model.
+            ("feature_transforms", {"feature_transforms": [{"column": "c", "transform": "log1p"}]}),
         ]
     )
     def test_recipe_the_legacy_scorer_cannot_run_is_refused(self, _name, iteration_kwargs):

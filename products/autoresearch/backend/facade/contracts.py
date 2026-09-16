@@ -120,6 +120,7 @@ class IterationTrailEntry:
     train_score: float | None
     agent_description: str
     model_spec: dict[str, Any]
+    recipe_snapshot: dict[str, Any]
 
 
 @dataclass(frozen=True)

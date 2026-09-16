@@ -552,6 +552,11 @@ export const AutoresearchIterationStatusEnumApi = {
 } as const
 
 /**
+ * The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them.
+ */
+export type IterationTrailApiRecipeSnapshot = { [key: string]: unknown }
+
+/**
  * Compact, read-only view of one iteration for the cross-run history feed and the Training tab.
  */
 export interface IterationTrailApi {
@@ -581,6 +586,8 @@ export interface IterationTrailApi {
     agent_description?: string
     /** Model class and hyperparameters tried in this iteration. */
     model_spec: unknown
+    /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
+    recipe_snapshot: IterationTrailApiRecipeSnapshot
 }
 
 export interface AutoresearchTrainingRunApi {
@@ -673,7 +680,7 @@ export type CompleteTrainingRunApiModelExplanation = { [key: string]: unknown }
  */
 export interface CompleteTrainingRunApi {
     /**
-     * Iteration to promote as champion candidate. If omitted, the kept iteration with the highest holdout_score is used.
+     * Advisory nomination. The server promotes the kept iteration with the highest holdout_score; this id only breaks a tie at that score, and a lower-scoring nomination is logged and ignored.
      * @nullable
      */
     best_iteration_id?: string | null
@@ -722,6 +729,7 @@ export interface RecordIterationApi {
     /**
      * Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).
      * @minimum 0
+     * @maximum 2147483647
      */
     iteration_number: number
     /** Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms. */
@@ -748,10 +756,13 @@ export interface RecordIterationApi {
      * @nullable
      */
     holdout_score?: number | null
-    /** Agent's plain-English rationale for this iteration. */
+    /**
+     * Agent's plain-English rationale for this iteration. Max 2000 characters.
+     * @maxLength 2000
+     */
     agent_description?: string
     /**
-     * Agent's self-assessed confidence (0–1) that this iteration helps.
+     * Agent's self-assessed confidence (0-1) that this iteration helps.
      * @minimum 0
      * @maximum 1
      * @nullable
@@ -1195,7 +1206,9 @@ export type AutoresearchTrainingRunsListParams = {
 
 export type AutoresearchTrainingRunsHistoryRetrieveParams = {
     /**
-     * Maximum number of prior runs to return (default 5, capped at 20).
+     * Maximum number of prior runs to return (default 5, at most 20).
+     * @minimum 1
+     * @maximum 20
      */
     limit?: number
 }

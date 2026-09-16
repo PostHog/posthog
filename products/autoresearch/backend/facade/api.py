@@ -14,6 +14,8 @@ import hashlib
 from typing import Any
 from uuid import UUID
 
+from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone as django_timezone
 
 from posthog.models.team import Team
@@ -69,7 +71,7 @@ def flag_key() -> str:
     return AUTORESEARCH_FLAG
 
 
-_HISTORY_LIMIT_MAX = 20
+HISTORY_LIMIT_MAX = 20
 
 
 def _as_uuid(value: str | UUID | None) -> UUID | None:
@@ -166,6 +168,7 @@ def _iteration_trail_entry(row: AutoresearchIteration) -> IterationTrailEntry:
         train_score=row.train_score,
         agent_description=row.agent_description,
         model_spec=row.model_spec or {},
+        recipe_snapshot=row.recipe_snapshot or {},
     )
 
 
@@ -248,12 +251,25 @@ def _pipeline_row(team_id: int, pipeline_id: str | UUID, *, live_only: bool = Fa
 
 
 def _training_run_row(
-    team_id: int, training_run_id: str | UUID, *, pipeline_id: str | UUID | None = None
+    team_id: int,
+    training_run_id: str | UUID,
+    *,
+    pipeline_id: str | UUID | None = None,
+    with_iterations: bool = True,
+    for_update: bool = False,
 ) -> AutoresearchTrainingRun:
+    """One training run in this team, and under ``pipeline_id`` when the route names one.
+
+    ``for_update`` locks the run row only, not the joined pipeline row, which other claims lock.
+    """
     training_run_uuid = _as_uuid(training_run_id)
     if training_run_uuid is None:
         raise TrainingRunNotFound("Training run not found.")
-    qs = AutoresearchTrainingRun.objects.for_team(team_id).select_related("pipeline").prefetch_related("iterations")
+    qs = AutoresearchTrainingRun.objects.for_team(team_id).select_related("pipeline")
+    if with_iterations:
+        qs = qs.prefetch_related("iterations")
+    if for_update:
+        qs = qs.select_for_update(of=("self",))
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
     try:
@@ -539,37 +555,36 @@ def open_training_run(team_id: int, pipeline_id: str | UUID, *, iteration_budget
     return _training_run_to_contract(row)
 
 
-def record_iteration(team_id: int, training_run_id: str | UUID, *, fields: dict[str, Any]) -> Iteration:
+def record_iteration(
+    team_id: int, training_run_id: str | UUID, *, pipeline_id: str | UUID | None = None, fields: dict[str, Any]
+) -> Iteration:
     """Record one iteration of an open run. Idempotent on ``iteration_number``."""
-    training_run = _training_run_row(team_id, training_run_id)
-    if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
-        raise AutoresearchConflict("Can only record iterations on a running training run.")
-
     recipe_snapshot = fields["recipe_snapshot"]
     model_spec = fields["model_spec"]
     recipe_hash = hashlib.sha256(
         json.dumps({"recipe": recipe_snapshot, "spec": model_spec}, sort_keys=True).encode()
     ).hexdigest()
+    iteration_number = fields["iteration_number"]
 
-    # Scope the suggestion lookup to this run's pipeline so a foreign suggestion id
-    # cannot be attached across tenants.
-    parent_suggestion = None
-    parent_suggestion_id = _as_uuid(fields.get("parent_suggestion"))
-    if fields.get("parent_suggestion"):
-        if parent_suggestion_id is not None:
-            parent_suggestion = (
-                AutoresearchSuggestion.objects.for_team(team_id)
-                .filter(id=parent_suggestion_id, pipeline=training_run.pipeline)
-                .first()
+    # Completion locks the run row and freezes it. Recording takes the same lock so the status
+    # check and the upsert see one state: an iteration can no longer land on a run that
+    # completed in between and go missing from its champion selection and summary.
+    with transaction.atomic():
+        training_run = _training_run_row(
+            team_id, training_run_id, pipeline_id=pipeline_id, with_iterations=False, for_update=True
+        )
+        if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
+            raise AutoresearchConflict("Can only record iterations on a running training run.")
+
+        recorded = AutoresearchIteration.objects.filter(training_run=training_run)
+        is_new_number = not recorded.filter(iteration_number=iteration_number).exists()
+        if is_new_number and recorded.count() >= training_run.iteration_budget:
+            raise AutoresearchConflict(
+                f"Training run has used its iteration budget of {training_run.iteration_budget}. "
+                "Re-sending a recorded iteration_number still updates that iteration."
             )
-        if parent_suggestion is None:
-            raise AutoresearchConflict("parent_suggestion not found on this pipeline.")
 
-    iteration, _ = AutoresearchIteration.objects.update_or_create(
-        team_id=team_id,
-        training_run=training_run,
-        iteration_number=fields["iteration_number"],
-        defaults={
+        defaults: dict[str, Any] = {
             "pipeline": training_run.pipeline,
             "recipe_hash": recipe_hash,
             "recipe_snapshot": recipe_snapshot,
@@ -579,33 +594,64 @@ def record_iteration(team_id: int, training_run_id: str | UUID, *, fields: dict[
             "status": fields["status"],
             "agent_description": fields.get("agent_description", ""),
             "agent_confidence": fields.get("agent_confidence"),
-            "parent_suggestion": parent_suggestion,
-        },
-    )
+        }
+        # A re-send that omits parent_suggestion keeps the attribution it recorded the first
+        # time; only an explicit null clears it.
+        parent_suggestion = None
+        if "parent_suggestion" in fields:
+            parent_suggestion = _parent_suggestion_row(team_id, training_run, fields["parent_suggestion"])
+            defaults["parent_suggestion"] = parent_suggestion
 
-    # Spawning an iteration from a suggestion is itself acting on it — advance the suggestion so
-    # the UI reflects the pickup even if the agent never calls the respond endpoint.
-    if parent_suggestion and parent_suggestion.status in (
-        AutoresearchSuggestion.Status.QUEUED,
-        AutoresearchSuggestion.Status.PICKED_UP,
-    ):
-        parent_suggestion.status = AutoresearchSuggestion.Status.ACTED_ON
-        parent_suggestion.save(update_fields=["status", "updated_at"])
+        iteration, _ = AutoresearchIteration.objects.update_or_create(
+            team_id=team_id,
+            training_run=training_run,
+            iteration_number=iteration_number,
+            defaults=defaults,
+        )
+
+        # Spawning an iteration from a suggestion is itself acting on it, so the suggestion
+        # advances even if the agent never calls the respond endpoint.
+        if parent_suggestion and parent_suggestion.status in (
+            AutoresearchSuggestion.Status.QUEUED,
+            AutoresearchSuggestion.Status.PICKED_UP,
+        ):
+            parent_suggestion.status = AutoresearchSuggestion.Status.ACTED_ON
+            parent_suggestion.save(update_fields=["status", "updated_at"])
 
     return _iteration_to_contract(iteration)
+
+
+def _parent_suggestion_row(
+    team_id: int, training_run: AutoresearchTrainingRun, suggestion_id: Any
+) -> AutoresearchSuggestion | None:
+    """The suggestion an iteration acts on, scoped to the run's pipeline so a foreign id cannot attach."""
+    if not suggestion_id:
+        return None
+    suggestion_uuid = _as_uuid(suggestion_id)
+    suggestion = None
+    if suggestion_uuid is not None:
+        suggestion = (
+            AutoresearchSuggestion.objects.for_team(team_id)
+            .filter(id=suggestion_uuid, pipeline=training_run.pipeline)
+            .first()
+        )
+    if suggestion is None:
+        raise AutoresearchConflict("parent_suggestion not found on this pipeline.")
+    return suggestion
 
 
 def complete_run(
     team_id: int,
     training_run_id: str | UUID,
     *,
+    pipeline_id: str | UUID | None = None,
     best_iteration_id: Any = None,
     model_explanation: dict[str, Any] | None = None,
     recommended_next: str = "",
     distillation: str = "",
 ) -> TrainingRun:
-    """Finalize a run. Promotion is server-side — an agent cannot set the champion."""
-    training_run = _training_run_row(team_id, training_run_id)
+    """Finalize a run. Promotion is server-side, so an agent cannot set the champion."""
+    training_run = _training_run_row(team_id, training_run_id, pipeline_id=pipeline_id, with_iterations=False)
     if training_run.status not in (
         AutoresearchTrainingRun.Status.RUNNING,
         AutoresearchTrainingRun.Status.PENDING,
@@ -632,7 +678,7 @@ def training_run_history(team_id: int, pipeline_id: str | UUID, *, limit: int = 
     team, so a fresh pipeline still inherits what the team already learned about the target.
     """
     pipeline = _pipeline_row(team_id, pipeline_id)
-    limit = max(1, min(limit, _HISTORY_LIMIT_MAX))
+    limit = max(1, min(limit, HISTORY_LIMIT_MAX))
 
     completed = (
         AutoresearchTrainingRun.objects.for_team(team_id)
@@ -644,9 +690,7 @@ def training_run_history(team_id: int, pipeline_id: str | UUID, *, limit: int = 
     remaining = limit - len(runs)
     if remaining > 0:
         runs += list(
-            completed.filter(pipeline__target_event=pipeline.target_event)
-            .exclude(pipeline=pipeline)
-            .order_by("-completed_at")[:remaining]
+            completed.filter(_same_target_as(pipeline)).exclude(pipeline=pipeline).order_by("-completed_at")[:remaining]
         )
 
     return TrainingRunHistory(
@@ -665,6 +709,23 @@ def training_run_history(team_id: int, pipeline_id: str | UUID, *, limit: int = 
             )
             for run in runs
         ]
+    )
+
+
+def _same_target_as(pipeline: AutoresearchPipeline) -> Q:
+    """Sibling pipelines that predict the same outcome, not merely the same display name.
+
+    An action and an event can share a name, so an action target matches on its id, and an
+    event target also accepts the empty definition creation stored before it was normalized.
+    """
+    definition = pipeline.target_definition or {}
+    if definition.get("type") == "action":
+        return Q(
+            pipeline__target_definition__type="action",
+            pipeline__target_definition__action_id=definition.get("action_id"),
+        )
+    return Q(pipeline__target_event=pipeline.target_event) & (
+        Q(pipeline__target_definition__type="event") | ~Q(pipeline__target_definition__has_key="type")
     )
 
 

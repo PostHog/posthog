@@ -1,4 +1,5 @@
 import re
+import math
 from dataclasses import replace
 from typing import Any
 
@@ -37,6 +38,7 @@ TRAINING_RUN_STATUS_CHOICES = api.TRAINING_RUN_STATUS_CHOICES
 ITERATION_STATUS_CHOICES = api.ITERATION_STATUS_CHOICES
 
 TARGET_EVENT_MAX_LENGTH = 255
+AGENT_DESCRIPTION_MAX_LENGTH = 2000
 OUTPUT_PERSON_PROPERTY_MAX_LENGTH = 255
 
 # The target event is interpolated into the sandboxed training agent's prompt brief, so reject
@@ -142,6 +144,30 @@ def resolve_target(
 
 
 # ── Typed schema wrappers for JSONField -----------------------------------
+
+
+class ObjectJSONField(serializers.JSONField):
+    """A JSON field whose schema says object, so a list or scalar is a 400 rather than a 500 downstream."""
+
+    def to_internal_value(self, data: Any) -> Any:
+        value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Must be a JSON object.")
+        return value
+
+
+class FiniteFloatField(serializers.FloatField):
+    """A float that refuses NaN and infinity.
+
+    DRF coerces the strings "NaN" and "Infinity" to floats that pass every min/max check, and
+    Postgres ranks NaN above every finite score, so an unchecked NaN would win champion selection.
+    """
+
+    def to_internal_value(self, data: Any) -> float:
+        value = super().to_internal_value(data)
+        if not math.isfinite(value):
+            raise serializers.ValidationError("Must be a finite number.")
+        return value
 
 
 @extend_schema_field(
@@ -295,7 +321,43 @@ class ModelRecipeField(serializers.JSONField):
         ),
     }
 )
-class ModelExplanationField(serializers.JSONField):
+class ModelExplanationField(ObjectJSONField):
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": (
+            "Compact recipe for this iteration: feature_sql, a read-only HogQL SELECT that reads from "
+            "{anchors} and returns one row per person keyed on person_id, and optional feature_transforms."
+        ),
+        "example": {
+            "feature_sql": (
+                "SELECT a.person_id AS distinct_id, countIf(e.event = '$pageview') AS pageviews "
+                "FROM {anchors} a LEFT JOIN events e ON e.person_id = a.person_id AND e.timestamp < a.cutoff_ts "
+                "GROUP BY a.person_id, a.cutoff_ts"
+            ),
+            "feature_transforms": [],
+        },
+    }
+)
+class IterationRecipeField(ObjectJSONField):
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": (
+            "Model class and hyperparameters tried this iteration. Any model_class is accepted here, "
+            "because a bundle runs its own code. A run that uploads no bundle scores in process, and "
+            "completion then requires an allowlisted sklearn/xgboost classifier."
+        ),
+        "example": {"model_class": "sklearn.linear_model.LogisticRegression", "model_params": {"C": 1.0}},
+    }
+)
+class ModelSpecField(ObjectJSONField):
     pass
 
 
@@ -801,6 +863,9 @@ class IterationTrailSerializer(DataclassSerializer):
         allow_blank=True,
         help_text="The agent's one-line rationale for what it tried and why.",
     )
+    recipe_snapshot = IterationRecipeField(
+        help_text="The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them."
+    )
     model_spec = serializers.JSONField(help_text="Model class and hyperparameters tried in this iteration.")
 
     class Meta:
@@ -812,6 +877,7 @@ class IterationTrailSerializer(DataclassSerializer):
             "train_score",
             "agent_description",
             "model_spec",
+            "recipe_snapshot",
         ]
 
 
@@ -963,6 +1029,16 @@ class TrainingRunHistoryEntrySerializer(serializers.Serializer):
     iterations = IterationTrailSerializer(
         many=True,
         help_text="The iteration trail: every recipe tried, kept or discarded, with rationale and score.",
+    )
+
+
+class TrainingRunHistoryQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=5,
+        min_value=1,
+        max_value=api.HISTORY_LIMIT_MAX,
+        help_text=f"Maximum number of prior runs to return (default 5, at most {api.HISTORY_LIMIT_MAX}).",
     )
 
 
@@ -1136,37 +1212,6 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
 # ── Agent-recorded training serializers ────────────────────────────────────
 
 
-@extend_schema_field(
-    {
-        "type": "object",
-        "description": (
-            "Compact recipe for this iteration. Should contain feature_sql (a read-only HogQL SELECT "
-            "keyed on person_id) and optional feature_transforms."
-        ),
-        "example": {
-            "feature_sql": "SELECT person_id AS distinct_id, countIf(event='$pageview') AS pageviews FROM events GROUP BY person_id",
-            "feature_transforms": [],
-        },
-    }
-)
-class IterationRecipeField(serializers.JSONField):
-    pass
-
-
-@extend_schema_field(
-    {
-        "type": "object",
-        "description": (
-            "Model class and hyperparameters tried this iteration. model_class must be one of the "
-            "allowlisted sklearn/xgboost classifiers."
-        ),
-        "example": {"model_class": "sklearn.linear_model.LogisticRegression", "model_params": {"C": 1.0}},
-    }
-)
-class ModelSpecField(serializers.JSONField):
-    pass
-
-
 class OpenTrainingRunSerializer(serializers.Serializer):
     """Input for opening an agent-driven training run."""
 
@@ -1183,6 +1228,7 @@ class RecordIterationSerializer(serializers.Serializer):
 
     iteration_number = serializers.IntegerField(
         min_value=0,
+        max_value=2147483647,
         help_text="Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).",
     )
     recipe_snapshot = IterationRecipeField(
@@ -1195,14 +1241,14 @@ class RecordIterationSerializer(serializers.Serializer):
         choices=["kept", "discarded", "crashed"],
         help_text="'kept' if this iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure.",
     )
-    train_score = serializers.FloatField(
+    train_score = FiniteFloatField(
         required=False,
         allow_null=True,
         min_value=0,
         max_value=1,
         help_text="Training-set AUC for this iteration (0-1).",
     )
-    holdout_score = serializers.FloatField(
+    holdout_score = FiniteFloatField(
         required=False,
         allow_null=True,
         min_value=0,
@@ -1213,14 +1259,15 @@ class RecordIterationSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         default="",
-        help_text="Agent's plain-English rationale for this iteration.",
+        max_length=AGENT_DESCRIPTION_MAX_LENGTH,
+        help_text=f"Agent's plain-English rationale for this iteration. Max {AGENT_DESCRIPTION_MAX_LENGTH} characters.",
     )
-    agent_confidence = serializers.FloatField(
+    agent_confidence = FiniteFloatField(
         required=False,
         allow_null=True,
         min_value=0,
         max_value=1,
-        help_text="Agent's self-assessed confidence (0–1) that this iteration helps.",
+        help_text="Agent's self-assessed confidence (0-1) that this iteration helps.",
     )
     parent_suggestion = serializers.UUIDField(
         required=False,
@@ -1248,7 +1295,10 @@ class CompleteTrainingRunSerializer(serializers.Serializer):
     best_iteration_id = serializers.UUIDField(
         required=False,
         allow_null=True,
-        help_text="Iteration to promote as champion candidate. If omitted, the kept iteration with the highest holdout_score is used.",
+        help_text=(
+            "Advisory nomination. The server promotes the kept iteration with the highest holdout_score; "
+            "this id only breaks a tie at that score, and a lower-scoring nomination is logged and ignored."
+        ),
     )
     model_explanation = ModelExplanationField(
         required=False,
