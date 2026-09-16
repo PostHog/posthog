@@ -2346,6 +2346,17 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
 
         COHORT_FLAG_GENERATION_COMPLETED_COUNTER.labels(outcome="success").inc()
         COHORT_FLAG_GENERATION_DURATION_SECONDS.labels(outcome="success").observe(time.monotonic() - start_monotonic)
+        # The flush above finalized cohort state, including the recomputed count. Recording the run
+        # here as well keeps every static population path writing one history row per attempt, so a
+        # flag-backed cohort's calculation history is not just its failures.
+        CohortCalculationHistory.objects.create(
+            team_id=team_id,
+            cohort=cohort,
+            filters=cohort.filters or {},
+            started_at=started_at,
+            finished_at=timezone.now(),
+            count=cohort.count,
+        )
     except Exception as err:
         logger.exception(
             "cohort_from_feature_flag_failed",
@@ -2372,14 +2383,15 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         cohort._safe_save_cohort_state(team_id=team_id, processing_error=err)
         # The history `error` field is user-visible via the calculation history API, so
         # store the friendly message; raw exception details (internal URLs, instance
-        # config) stay in logs and error tracking only.
+        # config) stay in logs and error tracking only. This path only ever populates a
+        # static cohort, and nothing re-runs one, so the message must not ask for that.
         CohortCalculationHistory.objects.create(
             team_id=team_id,
             cohort=cohort,
             filters=cohort.filters or {},
             started_at=started_at,
             finished_at=timezone.now(),
-            error=get_friendly_error_message(error_code),
+            error=get_friendly_error_message(error_code, will_retry=False),
             error_code=error_code,
         )
         raise

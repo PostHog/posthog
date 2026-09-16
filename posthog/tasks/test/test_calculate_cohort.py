@@ -1614,16 +1614,25 @@ class TestCohortCalculationTasks(APIBaseTest):
         self.assertIsNone(cohort.last_calculation)
         self.assertIsNotNone(cohort.last_error_at)
 
-    def test_static_population_closes_its_history_row_when_a_retry_is_scheduled(self) -> None:
+    @parameterized.expand(
+        [
+            ("retry_scheduled", 0, True),
+            ("retries_exhausted", STATIC_POPULATION_MAX_RETRIES, False),
+        ]
+    )
+    @override_settings(DEBUG=False)
+    def test_static_population_history_records_whether_another_attempt_is_coming(
+        self, _name: str, retries: int, another_attempt_coming: bool
+    ) -> None:
         cohort = Cohort.objects.create(team=self.team, name="static cohort", is_static=True, is_calculating=True)
-        insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
+        insert_cohort_from_query.push_request(retries=retries, called_directly=False, is_eager=True)
         try:
-            with (
-                patch(QUERY_CH_INSERT_PATH),
-                patch(PG_SYNC_PATH, side_effect=OperationalError("server closed the connection unexpectedly")),
-                self.assertRaises(Retry),
-            ):
-                insert_cohort_from_query.run(cohort.id, self.team.pk)
+            with patch(QUERY_CH_INSERT_PATH), patch(PG_SYNC_PATH, side_effect=ClickHouseAtCapacity()):
+                if another_attempt_coming:
+                    with self.assertRaises(Retry):
+                        insert_cohort_from_query.run(cohort.id, self.team.pk)
+                else:
+                    insert_cohort_from_query.run(cohort.id, self.team.pk)
         finally:
             insert_cohort_from_query.pop_request()
 
@@ -1631,8 +1640,11 @@ class TestCohortCalculationTasks(APIBaseTest):
         # as a population still in flight.
         history = CohortCalculationHistory.objects.get(cohort=cohort)
         self.assertIsNotNone(history.finished_at)
+        self.assertEqual(history.error_code, CohortErrorCode.CAPACITY)
         assert history.error is not None
-        self.assertNotIn("server closed the connection", history.error)
+        # The history tab renders this text per attempt, so an attempt that already queued another
+        # one must not read as terminal.
+        self.assertEqual("automatically retry" in history.error, another_attempt_coming)
 
     def test_a_failed_import_records_its_own_reason_rather_than_an_older_one(self) -> None:
         cohort = Cohort.objects.create(team=self.team, name="static cohort", is_static=True)

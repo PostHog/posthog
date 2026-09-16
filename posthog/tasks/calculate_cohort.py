@@ -780,7 +780,9 @@ def calculate_cohort_from_list(
         # One history row records one attempt, so every exit closes it, including a scheduled
         # retry. An open row left behind would read as an import still in flight.
         if history is not None and cohort is not None:
-            _finalize_population_history(history, cohort=cohort, processing_error=processing_error)
+            _finalize_population_history(
+                history, cohort=cohort, processing_error=processing_error, will_retry=retry is not None
+            )
         # The batching helper finalizes success itself and leaves failure to this task, which has
         # to record it on every exit but a scheduled retry. That includes a retry whose broker
         # publish failed, where Celery raises Reject in place of Retry.
@@ -794,9 +796,17 @@ def calculate_cohort_from_list(
 
 
 def _finalize_population_history(
-    history: CohortCalculationHistory, *, cohort: Cohort, processing_error: BaseException | None
+    history: CohortCalculationHistory,
+    *,
+    cohort: Cohort,
+    processing_error: BaseException | None,
+    will_retry: bool,
 ) -> None:
-    """Close out the history record for one static population attempt."""
+    """Close out the history record for one static population attempt.
+
+    `will_retry` says whether this attempt scheduled another one. The history tab renders each
+    row's message verbatim, so an attempt with a retry queued keeps the copy that says so.
+    """
     history.finished_at = timezone.now()
     if processing_error is None:
         history.count = cohort.count
@@ -810,7 +820,7 @@ def _finalize_population_history(
         # history tab renders it verbatim. Raw exception text names the responding ClickHouse host
         # and quotes the failing SQL, so only the friendly message is stored; the exception itself
         # stays in the logs and in error tracking.
-        history.error = get_friendly_error_message(history.error_code, will_retry=False)
+        history.error = get_friendly_error_message(history.error_code, will_retry=will_retry)
     # A long population can outlive its Postgres connection, so record the outcome resiliently
     # instead of raising "connection is closed" over the error this row exists to report.
     save_recovery_bookkeeping(
@@ -918,7 +928,9 @@ def _populate_static_cohort(
         # One history row records one attempt, so every exit closes it, including a scheduled
         # retry. An open row left behind would read as a population still in flight.
         if history is not None and claimed is not None:
-            _finalize_population_history(history, cohort=claimed, processing_error=processing_error)
+            _finalize_population_history(
+                history, cohort=claimed, processing_error=processing_error, will_retry=retry is not None
+            )
         # Every exit but a scheduled retry finalizes state, so a retry whose broker publish failed
         # (Celery raises Reject in place of Retry) records the failure instead of stranding the
         # cohort in flight. A scheduled retry keeps is_calculating set for the next attempt.

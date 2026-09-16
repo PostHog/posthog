@@ -304,17 +304,15 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             </ButtonPrimitive>
                         )}
 
-                        {!cohort.is_static && (
-                            <ButtonPrimitive
-                                onClick={() => router.actions.push(urls.cohortCalculationHistory(cohort.id))}
-                                disabledReasons={{
-                                    'Save the cohort first': isNewCohort,
-                                }}
-                                menuItem
-                            >
-                                <IconClock /> Calculation history
-                            </ButtonPrimitive>
-                        )}
+                        <ButtonPrimitive
+                            onClick={() => router.actions.push(urls.cohortCalculationHistory(cohort.id))}
+                            disabledReasons={{
+                                'Save the cohort first': isNewCohort,
+                            }}
+                            menuItem
+                        >
+                            <IconClock /> Calculation history
+                        </ButtonPrimitive>
                     </ScenePanelActionsSection>
                     {!isNewCohort && (
                         <>
