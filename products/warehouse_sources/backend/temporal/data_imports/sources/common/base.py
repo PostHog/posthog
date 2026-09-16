@@ -236,13 +236,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """Customer-facing message when schema discovery runs past the interactive deadline.
 
         Discovery happens inside one HTTP request, so a source whose listing scales with the
-        customer's catalog can outlive the gateway. Override to name the field that narrows the
-        scan; the default only says the connection is too large to list interactively.
+        customer's catalog can outlive the gateway. Most of the catalog is SaaS APIs with no
+        control over how much gets listed, so the default asks for nothing the user cannot do.
+        A source with a field that narrows the scan overrides this and names that field.
         """
 
         return (
             "Listing the tables in this source took too long. It usually means the connection covers more "
-            "data than we can list in one go. Narrow it to a single schema or database, then try again."
+            "data than we can list in one go. Try again, and contact support if it keeps happening."
         )
 
     def get_retryable_errors(self) -> set[str]:

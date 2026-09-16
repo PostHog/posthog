@@ -5370,17 +5370,25 @@ class TestExternalDataSource(APIBaseTest):
             assert response.json()["message"] == str(error)
             mock_capture_exception.assert_not_called()
 
+    @parameterized.expand(
+        [
+            # Snowflake has a Schema field, so its own guidance names it.
+            ("source_with_a_narrowing_field", "Snowflake", ["Schema field"], []),
+            # Stripe has no schema or database, so the default must not ask the user to narrow one.
+            ("source_without_a_narrowing_field", "Stripe", ["contact support"], ["schema", "database"]),
+        ]
+    )
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_database_schema_answers_slow_discovery_with_the_source_guidance(
-        self, mock_get_source, mock_capture_exception
+        self, _name, source_type, expected_phrases, forbidden_phrases, mock_get_source, mock_capture_exception
     ):
         # Discovery on a wide account used to outlive the gateway, which killed the request with no
         # body — the wizard could not say what went wrong or what to change. Own the deadline so the
         # caller gets the source's own guidance instead.
         from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source import SnowflakeSource
 
-        source = SnowflakeSource()
+        source = SnowflakeSource() if source_type == "Snowflake" else StripeSource()
         mock_get_source.return_value = source
 
         def _never_returns(*args, **kwargs):
@@ -5398,11 +5406,15 @@ class TestExternalDataSource(APIBaseTest):
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
-                data={"source_type": "Snowflake"},
+                data={"source_type": source_type},
             )
 
         assert response.status_code == 400
-        assert "Schema field" in response.json()["message"]
+        message = response.json()["message"]
+        for phrase in expected_phrases:
+            assert phrase in message
+        for phrase in forbidden_phrases:
+            assert phrase not in message.lower()
         mock_capture_exception.assert_not_called()
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
