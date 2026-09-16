@@ -27,7 +27,9 @@ A team slug takes the root `owners.yaml` registry of the repo the merge came fro
 A repo that carries a registry answers for its own merges completely, including by omission: a registry lists the teams whose derived name is wrong, so a missing slug means the derived name is right.
 A repo carrying no registry inherits one, which is what lets `charts` route `team-data-stack` to `#group-data-stack` because the monorepo says so.
 Otherwise the slug name-matches a Slack channel, and the app joins one it was never invited to, so a team's digest starts without anyone wiring it up.
-Channels shared outside the workspace are skipped, and `notifications: false` on a registry entry is how a team opts out.
+A registry-derived or name-matched channel that is shared outside the workspace is skipped, because nobody chose it for the audience on purpose.
+A channel the repository declared under `digest:` is posted to even when shared.
+`notifications: false` on a registry entry is how a team opts out.
 The registry is asked where automation posts (`notifications`), which falls back to the team's own `slack` channel.
 A team that wants bots somewhere quieter says so once and every producer follows.
 

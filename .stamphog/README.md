@@ -17,7 +17,13 @@ It overrides `deny` and `allow`, and the differences are:
 - Every `rationale` records the false positives that shaped the rule in this repository.
 
 `review-guidance.md` replaces the default norms.
-It differs from the default in a handful of lines that name this repository's ownership files (`owners.yaml` and `product.yaml` rather than CODEOWNERS) and its own examples.
+It differs from the default in six lines:
+
+- Ownership is read from `owners.yaml` and `product.yaml` rather than CODEOWNERS, in two places.
+- Risky territory names event ingestion paths, where the default names data ingestion or write paths.
+- The opt-in signal is described as the stamphog label, where the default describes the repository's review settings and the label in label mode.
+- The incidental-keyword example is a warehouse connector fix.
+- The philosophy line says "We move fast" rather than "Move fast".
 
 There is no `steering.md`.
 

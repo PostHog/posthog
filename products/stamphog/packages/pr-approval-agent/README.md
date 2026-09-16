@@ -26,8 +26,8 @@ The stamphog product in [`products/stamphog/`](../../../stamphog/) runs `review_
 
 `WAIT` means either that an allowlisted reviewer bot still had a review in flight (👀 reaction) after the polling budget, or that the `Migration risk` check had not reported yet.
 Neither is a verdict on the PR, so the caller can retry unchanged.
-`ERROR` means the reviewer could not reach its LLM backend, through credentials, credit or an outage.
-It is an infrastructure failure, not a judgment on the PR.
+`ERROR` means the run failed before it could judge the PR: the LLM backend was unreachable through credentials, credit or an outage, the reviewer hit a non-retryable analysis failure such as its turn limit, or `review_pr.py` could not create the worktree for a stacked PR.
+It is never a judgment on the PR.
 
 How a verdict reaches GitHub, and what happens to a trigger label, is the caller's concern.
 For the hosted product see [`products/stamphog/README.md`](../../README.md#what-a-pr-author-sees).
@@ -334,7 +334,8 @@ The **migrations** deny-list is bypassed when the `Migration risk` check on the 
 The check is the same signal humans see in the PR's Checks tab.
 See `migration_risk.py` for how the engine reads it.
 
-If the check hasn't reported yet, the pipeline returns `WAIT` rather than a verdict.
+If the check hasn't reported yet, `review_local.py` returns `WAIT` rather than a verdict, because its caller can retry on the next push.
+`review_pr.py` has no such caller and returns `REFUSED` instead.
 The deny-list only matched because the engine could not tell a safe migration from a risky one, so a refusal would be a verdict on a race with CI rather than on the PR.
 A retry against the now-classified head commit reviews it properly.
 

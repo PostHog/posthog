@@ -41,7 +41,7 @@ Runs are listed in the Stamphog runs page in the PostHog app (`/stamphog/runs`),
 2. Open Stamphog in the PostHog app and select **Connect a repository**. The install callback syncs the repositories the installation can reach.
 3. Turn on **Enabled** for each repository you want reviewed. A connected repository reviews nothing until you do.
 4. Pick a **review mode**: "All PRs" reviews every pull request, "Label-triggered" reviews only PRs carrying the trigger label. Set the trigger label name next to the mode.
-5. Turn on **Digest enabled** if you want the daily Slack digest of merged PRs.
+5. Turn on **Digest enabled** if you want the daily Slack digest of merged PRs. The project needs a connected Slack integration first, or the digest run stops silently before posting.
 
 Connecting a repository and the digest toggle need the `editor` level on the `stamphog` resource.
 The gating fields, which are enabled, review mode and trigger label, need `manager`, because they decide whether a pull request is reviewed at all.
@@ -105,7 +105,7 @@ A merge fans out to every audience it belongs to, and each audience resolves to 
 
 - A `repo:` audience takes the channel that repository declared under `digest:`.
 - A team slug takes the root `owners.yaml` registry of the repository the merge came from.
-- A repository carrying no registry inherits the monorepo's.
+- A repository carrying no registry inherits the first non-empty registry among the team's connected repositories, in repository name order.
 - Otherwise the slug name-matches a Slack channel, and the app joins it.
 - A registry-derived or name-matched channel that is shared outside the workspace is skipped. A channel the repository declared under `digest:` is posted to even when shared, because someone chose it on purpose. `notifications: false` on a registry entry opts a team out.
 
@@ -138,7 +138,8 @@ The sandbox runs an LLM over untrusted PR content, so it holds no long-lived sec
 It gets a per-run `phe_` scoped token from the Go ai-gateway, pinned to `product=aio_stamphog`, capped at $5 and one hour, and revoked when the sandbox is destroyed.
 Egress is fenced to an explicit domain allowlist.
 Posted bodies are scrubbed and markdown-image-neutralized.
-Approvals are governed by a strict supersession protocol, so no approval survives a push or a re-review.
+Approvals are governed by a strict supersession protocol, so no approval survives a re-review or a push that changes the PR's diff.
+A push that leaves the PR's own unified diff byte-identical, such as a base merge that touches none of its files, keeps the approval standing.
 Disabling a repository stops new runs and retracts a standing approval on the next head change, not at the moment of disabling.
 Details and invariants: [AGENTS.md](AGENTS.md).
 
