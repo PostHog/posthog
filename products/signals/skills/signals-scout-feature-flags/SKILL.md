@@ -1,5 +1,6 @@
 ---
 name: signals-scout-feature-flags
+scout-display-name: Feature flags
 description: >
   Signals scout for PostHog feature flags. Watches the flag roster and the
   `$feature_flag_called` stream for evaluation cliffs, ghost flags, response-distribution

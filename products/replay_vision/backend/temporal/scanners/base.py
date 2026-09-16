@@ -51,12 +51,12 @@ class SignalFinding(BaseModel, frozen=True):
     start_time: int = Field(
         ge=0,
         description=(
-            "When the issue starts in the recording, in seconds — copy the whole-number `REC_T` value shown in the "
-            "video footer at that moment (`REC_T` is seconds since the recording started)."
+            "When the issue starts, in whole seconds of video time counted from the start of the video file — the "
+            "same scale you cite moments in, not the footer's `REC_T`."
         ),
     )
     end_time: int = Field(
-        ge=0, description="When the issue ends in the recording, in seconds — the `REC_T` value from the footer."
+        ge=0, description="When the issue ends, in whole seconds of video time — the same scale as `start_time`."
     )
     url: str = Field(
         description="The page the issue happened on — copy the `URL:` value shown in the video footer at that moment."
@@ -67,7 +67,7 @@ class SignalFinding(BaseModel, frozen=True):
             "reveals the issue — the visual detail the events don't capture (e.g. a spinner overlapping a button, an "
             "error toast that flashed off-screen, a layout shift, visible hesitation). Then say what happened, where "
             "in the product, and the user impact. Quote exact on-screen labels and button text when visible. Plain "
-            "prose with no timestamp references — no `(t …)` markers, no `REC_T`, no 'at N seconds', no event IDs; "
+            "prose with no timestamp references — no `(t …)` markers, no timestamps, no 'at N seconds', no event IDs; "
             "the timing lives in `start_time`/`end_time`."
         )
     )
@@ -232,6 +232,7 @@ class BaseScanner(BaseModel, frozen=True):
         product_context: str = "",
         event_descriptions: dict[str, str] | None = None,
         tool_budget: int = DEFAULT_MAX_TOOL_ITERATIONS,
+        network_state: Literal["available", "clean", "none"] = "none",
     ) -> str:
         """The conversation's shared opening: framing, footer, events tool, calibration, navigation timeline, and
         session metadata and identity. `navigation` and `session_identity` take dumped model dicts (plain dicts keep
@@ -248,6 +249,7 @@ class BaseScanner(BaseModel, frozen=True):
             event_descriptions=event_descriptions or {},
             tool_budget=tool_budget,
             default_tool_budget=DEFAULT_MAX_TOOL_ITERATIONS,
+            network_state=network_state,
         )
 
     def core_steps(self) -> list[MissionStep]:

@@ -519,6 +519,15 @@ export interface PatchedExperimentHoldoutApi {
     readonly user_access_level?: string | null
 }
 
+export interface ExperimentSavedMetricLinkedExperimentApi {
+    /** Experiment ID. */
+    id: number
+    /** Experiment name. */
+    name: string
+    /** True when the experiment is launched and not yet stopped. */
+    is_running: boolean
+}
+
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -546,6 +555,8 @@ export interface ExperimentSavedMetricApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Experiments using this shared metric (soft-deleted experiments excluded). Populated only on single-metric retrieve; always an empty list in list responses. */
+    readonly linked_experiments: readonly ExperimentSavedMetricLinkedExperimentApi[]
 }
 
 export interface PaginatedExperimentSavedMetricListApi {
@@ -584,6 +595,8 @@ export interface PatchedExperimentSavedMetricApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    /** Experiments using this shared metric (soft-deleted experiments excluded). Populated only on single-metric retrieve; always an empty list in list responses. */
+    readonly linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[]
 }
 
 /**
@@ -1963,7 +1976,7 @@ export interface EndExperimentApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. A personal API key needs the task:write scope (403 otherwise). Skipped when the conclusion is empty, or when no connected repository can be resolved. */
     open_cleanup_pr?: boolean
     /**
      * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used.
@@ -2544,7 +2557,7 @@ export interface ShipVariantApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. A personal API key needs the task:write scope (403 otherwise). Skipped when the conclusion is empty, or when no connected repository can be resolved. */
     open_cleanup_pr?: boolean
     /**
      * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used.

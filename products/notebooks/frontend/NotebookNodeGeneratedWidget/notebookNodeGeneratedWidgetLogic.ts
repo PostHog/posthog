@@ -84,6 +84,7 @@ export type NotebookNodeGeneratedWidgetLogicProps = {
     prompt: string
     model: WidgetModel
     isEditable: boolean
+    prepareInsightDataframes?: () => Promise<void>
     persistNotebook: () => Promise<void>
     getContent: () => JSONContent | null
     reusableWidgetId?: string
@@ -302,7 +303,7 @@ export function getWidgetDataDependencies(
     frameNames: string[]
 ): { missingFrameNames: string[]; nodeIds: string[] } {
     if (!content || !frameNames.length) {
-        return { missingFrameNames: [], nodeIds: [] }
+        return { missingFrameNames: frameNames, nodeIds: [] }
     }
     const graph = buildNotebookDependencyGraph(content)
     const frameNodes = collectNotebookFrameNodes(content)
@@ -1122,6 +1123,8 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     const generationId = uuidv4()
                     let aborted = false
                     try {
+                        await props.prepareInsightDataframes?.()
+                        await props.persistNotebook()
                         const requestGeneration = async (): Promise<WidgetStatusApi> =>
                             await requestWithTimeout((signal) =>
                                 notebooksWidgetGenerate(
@@ -1406,35 +1409,42 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     }
                     actions.loadSource()
                 },
-                runDataDependencies: () => {
+                runDataDependencies: async () => {
                     if (values.dataRefreshInFlight || values.runDataDependenciesDisabledReason) {
                         return
                     }
-                    const content = props.getContent()
-                    const sourceFrameNames = getWidgetSourceFrameNames(
-                        values.activeFrameNames,
-                        values.status?.input_bindings ?? {}
-                    )
-                    const { missingFrameNames, nodeIds } = getWidgetDataDependencies(content, sourceFrameNames)
-                    if (missingFrameNames.length) {
-                        const message =
-                            'The widget expects notebook data that is no longer available. Restore the missing SQL or Python cell, or update the widget source.'
+                    actions.setRuntimeError(null)
+                    actions.dataRefreshStarted()
+                    try {
+                        await props.prepareInsightDataframes?.()
+                        if (props.prepareInsightDataframes) {
+                            await props.persistNotebook()
+                        }
+                        const content = props.getContent()
+                        const sourceFrameNames = getWidgetSourceFrameNames(
+                            values.activeFrameNames,
+                            values.status?.input_bindings ?? {}
+                        )
+                        const { missingFrameNames, nodeIds } = getWidgetDataDependencies(content, sourceFrameNames)
+                        if (missingFrameNames.length) {
+                            throw new Error(
+                                'The widget expects notebook data that is no longer available. Restore the missing insight, SQL, or Python cell, or update the widget source.'
+                            )
+                        }
+                        if (!nodeIds.length) {
+                            actions.widgetDataChainFinished([])
+                            return
+                        }
+                        actions.runWidgetDataChain(content, nodeIds)
+                    } catch (error) {
+                        cache.widgetDataRefreshRequested = false
+                        actions.dataRefreshFinished()
+                        const message = errorMessage(error)
                         actions.setRuntimeError(message)
                         // The runtimeError banner only renders in the expanded preview, so a toast keeps
                         // the failure visible when the widget is collapsed or still behind the trust gate.
                         lemonToast.error(message)
-                        return
                     }
-                    if (!nodeIds.length) {
-                        const message = 'No matching notebook data cells were found. Check the widget source.'
-                        actions.setRuntimeError(message)
-                        lemonToast.error(message)
-                        return
-                    }
-                    actions.setRuntimeError(null)
-                    cache.widgetDataRefreshRequested = true
-                    actions.dataRefreshStarted()
-                    actions.runWidgetDataChain(content, nodeIds)
                 },
                 restoreSelectedVersion: async () => {
                     const expectedCurrentVersionId = values.status?.current_version_id

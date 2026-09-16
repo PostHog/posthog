@@ -6,11 +6,13 @@ import pytest
 from unittest import mock
 
 import requests
+import requests_mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.bill_com import (
     PAGE_SIZE,
     BillComAuthError,
     BillComClient,
+    BillComRedirectError,
     BillComResumeConfig,
     base_url,
     bill_com_source,
@@ -382,3 +384,55 @@ class TestBillCom:
 
         assert pages == [[{"id": "00n1", "createdTime": "2026-03-01T00:00:00Z"}]]
         assert session.get.call_args.kwargs["params"]["filters"] == "updatedTime:gte:2026-03-01T00:00:00.000Z"
+
+
+class TestRedirectsRefused:
+    # `requests` drops `Authorization` on a cross-host redirect but replays custom headers, so
+    # `sessionId` and `devKey` would reach the redirect target. The session refuses every 3xx.
+    API_ROOT = "https://gateway.prod.bill.com/connect/v3"
+    TARGET_URL = "https://www.bill.com/connect/v3/bills"
+
+    def _real_client(self) -> BillComClient:
+        return BillComClient(
+            username="finance@acme.com",
+            password="pw",
+            organization_id="org-1",
+            dev_key="dev-key",
+            environment="production",
+            api_version="v3",
+        )
+
+    @pytest.mark.parametrize("status", [301, 302])
+    def test_list_page_refuses_redirect_and_keeps_session_headers_on_api_host(self, status: int) -> None:
+        with requests_mock.Mocker() as m:
+            m.post(f"{self.API_ROOT}/login", json={"sessionId": "sess-1"})
+            m.get(f"{self.API_ROOT}/bills", status_code=status, headers={"Location": self.TARGET_URL})
+            m.get(self.TARGET_URL, status_code=403)
+
+            with pytest.raises(BillComRedirectError, match="redirected the API request to www.bill.com"):
+                self._real_client().list_page("/bills", {"max": PAGE_SIZE})
+
+            assert [r.hostname for r in m.request_history] == ["gateway.prod.bill.com", "gateway.prod.bill.com"]
+            list_request = m.request_history[-1]
+            assert list_request.headers["sessionId"] == "sess-1"
+            assert list_request.headers["devKey"] == "dev-key"
+
+    def test_login_refuses_redirect_so_the_sign_in_body_is_not_replayed(self) -> None:
+        # A 307 keeps the POST body (password and developer key) on the redirected request.
+        with requests_mock.Mocker() as m:
+            m.post(f"{self.API_ROOT}/login", status_code=307, headers={"Location": self.TARGET_URL})
+            m.post(self.TARGET_URL, json={"sessionId": "stolen"})
+
+            with pytest.raises(BillComRedirectError):
+                self._real_client().login()
+
+            assert [r.hostname for r in m.request_history] == ["gateway.prod.bill.com"]
+
+    def test_validate_credentials_reports_the_redirect(self) -> None:
+        with requests_mock.Mocker() as m:
+            m.post(f"{self.API_ROOT}/login", status_code=302, headers={"Location": self.TARGET_URL})
+
+            is_valid, message = validate_credentials("finance@acme.com", "pw", "org-1", "dev-key", "production", "v3")
+
+        assert is_valid is False
+        assert message == "BILL redirected the API request to www.bill.com; refusing to follow"

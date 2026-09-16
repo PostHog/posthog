@@ -3,8 +3,6 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import ExternalDataSourceType as SchemaExternalDataSourceType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pylon import PylonSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon import source as pylon_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.pylon import (
@@ -13,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.pylo
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.source import PylonSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_token: str = "token") -> PylonSourceConfig:
@@ -22,7 +21,7 @@ def _config(api_token: str = "token") -> PylonSourceConfig:
 class TestPylonSourceConfig:
     def test_get_source_config_basics(self) -> None:
         config = PylonSource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.PYLON
+        assert config.name == ExternalDataSourceType.PYLON
         assert config.label == "Pylon"
         # A finished-but-new source ships visible (no unreleasedSource) and labelled alpha.
         assert config.unreleasedSource is None

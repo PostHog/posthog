@@ -194,8 +194,6 @@ django.HttpRequest products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data
 django.HttpRequest products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane_status facade-accepts(request) 1
 django.HttpResponse products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane facade-returns 1
 django.HttpResponse products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane_status facade-returns 1
-django.HttpResponse products.tasks.backend.facade.webhooks.handle_pull_request_event facade-returns 1
-django.HttpResponse products.tasks.backend.facade.webhooks.handle_pull_request_review_event facade-returns 1
 django.HttpResponseBase products.exports.backend.facade.api.get_export_asset_content_response facade-returns 1
 django.JsonResponse products.notebooks.backend.facade.sql_v2.notebook_sql_v2_callback facade-returns 1
 django.JsonResponse products.tasks.backend.facade.agent_proxy.agent_proxy_callback facade-returns 1
@@ -698,7 +696,6 @@ rest_framework.Request products.data_catalog.backend.facade.api.upsert_metric fa
 rest_framework.Request products.endpoints.backend.facade.api.generate_openapi_spec facade-accepts(request) 1
 rest_framework.Request products.tasks.backend.facade.access.code_access_required_response facade-accepts(request) 1
 rest_framework.Request products.tasks.backend.facade.client_provenance.get_task_client_provenance facade-accepts(request) 1
-rest_framework.Request products.tasks.backend.facade.client_provenance.is_sandbox_oauth_request facade-accepts(request) 1
 rest_framework.Response products.tasks.backend.facade.access.code_access_required_response facade-returns 1
 rest_framework.Response products.tasks.backend.facade.access.compute_quota_limit_response facade-returns 1
 rest_framework.Response products.tasks.backend.facade.access.usage_limit_response facade-returns 1

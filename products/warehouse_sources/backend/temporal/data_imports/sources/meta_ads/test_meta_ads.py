@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
     MetaAdsSourceConfig,
 )
@@ -1343,6 +1344,8 @@ class TestNonRetryableErrors:
             'Meta API request failed: 400 - {"error":{"message":"(#200) Ad account owner has NOT granted ads_management or ads_read permission.","type":"OAuthException","code":200}}',
             # 400 when a specific endpoint cannot be accessed with the granted permissions.
             'Meta API request failed: 400 - {"error":{"message":"(#100) This endpoint cannot be loaded due to missing permissions."}}',
+            # 400 with the shorter, generic sibling message for the same missing-permission condition.
+            'Meta API request failed: 400 - {"error":{"message":"(#100) Missing perms","type":"OAuthException","code":100}}',
             # 400 when a business_management-gated field is requested without that scope.
             'Meta API request failed: 400 - {"error":{"message":"(#200) Requires business_management permission to manage the object.","type":"OAuthException","code":200}}',
             # 400 when the source's configured attribution windows include a value Meta's
@@ -1371,6 +1374,15 @@ class TestNonRetryableErrors:
         patterns = MetaAdsSource().get_non_retryable_errors()
         assert any(pattern in error_message for pattern in patterns), (
             f"Meta Ads error '{error_message}' does not match any non-retryable pattern"
+        )
+
+    def test_missing_perms_has_reconnect_guidance(self) -> None:
+        # `error_message` isn't surfaced to the user as-is — the friendly value here is, so a
+        # blank or wrong one would leak the raw Graph API JSON instead of actionable guidance.
+        assert MetaAdsSource().get_non_retryable_errors()["Missing perms"] == (
+            "Meta blocked this request because the connected account is missing a permission "
+            "required to read your ads data. Please reconnect the Meta Ads integration and grant "
+            "all requested permissions."
         )
 
     @pytest.mark.parametrize(
@@ -1780,8 +1792,22 @@ class TestEndpointCatalog:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_every_advertised_endpoint_has_a_resource_schema(self, endpoint: str) -> None:
         # `meta_ads_source` looks the endpoint up by name, so advertising one in `get_schemas`
-        # without a `RESOURCE_SCHEMAS` entry only fails at sync time with a KeyError.
+        # without a `RESOURCE_SCHEMAS` entry only fails at sync time, once a customer selects it.
         assert endpoint in get_meta_ads_schemas()
+
+    def test_resource_the_worker_does_not_know_raises_a_named_error(self) -> None:
+        # The web pods and the workers deploy separately, so a newly shipped table is selectable in
+        # the schema picker about an hour before every worker can resolve it. A bare KeyError there
+        # reports as a bug and reaches the customer as raw Python; the named error is classified
+        # retryable instead.
+        with pytest.raises(UnknownResourceError, match="ad_stats_by_a_future_breakdown"):
+            meta_ads_source(
+                resource_name="ad_stats_by_a_future_breakdown",
+                config=_source_config(),
+                team_id=1,
+                resumable_source_manager=_build_manager(),
+                api_version=META_ADS_API_VERSION_V26,
+            )
 
 
 class TestBreakdownStatsSchemas:
