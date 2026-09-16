@@ -1219,18 +1219,63 @@ describe('exec tool', () => {
 
     describe('batched commands', () => {
         it.each([
-            ['info mock-tool\ninfo other-tool', 2],
-            ['search flags\ncall mock-tool {}\ninfo mock-tool', 3],
-        ])('rejects %j and names each command', async (command, expected) => {
+            ['newline-separated', 'info mock-tool\ninfo other-tool'],
+            ['&&-chained', 'info mock-tool && info other-tool'],
+            [';-chained', 'info mock-tool; info other-tool'],
+            ['padded with blank lines', '\n info mock-tool \n\n info other-tool \n'],
+        ])('runs a %s read-only batch and labels each result', async (_label, command) => {
+            const exec = createExec([makeMockTool(), makeMockTool({ name: 'other-tool' })])
+            const result = (await exec.handler(mockContext, { command })) as string
+            expect(result).toContain('$ info mock-tool')
+            expect(result).toContain('$ info other-tool')
+            expect(result).toContain('name: mock-tool')
+            expect(result).toContain('name: other-tool')
+        })
+
+        it('returns the error in place so the rest of the batch still comes back', async () => {
+            const exec = createExec()
+            const result = (await exec.handler(mockContext, {
+                command: 'info mock-tool\ninfo nope-tool',
+            })) as string
+            expect(result).toContain('name: mock-tool')
+            expect(result).toContain('Error: [exec]: Unknown tool: "nope-tool"')
+        })
+
+        it.each([
+            ['call', 'search flags\ncall mock-tool {}'],
+            ['learn', 'info mock-tool\nlearn skills'],
+        ])('rejects a batch holding %s and names the offending command', async (verb, command) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command })).rejects.toThrow(
-                `exec runs one command per request, and this request held ${expected}.`
+                new RegExp(
+                    `exec batches read-only commands only \\(tools, search, info, schema\\), and this request held 1 that is not:\\n- ${verb}`
+                )
             )
+        })
+
+        it('rejects a batch longer than the cap', async () => {
+            const exec = createExec()
+            const command = Array.from({ length: 11 }, () => 'info mock-tool').join('\n')
+            await expect(exec.handler(mockContext, { command })).rejects.toThrow(
+                'exec batches at most 10 commands per request, and this request held 11.'
+            )
+        })
+
+        it('stops once the reply reaches its size limit and names what it did not run', async () => {
+            const bulky = (name: string): Tool<ZodObjectAny> => makeMockTool({ name, description: 'x'.repeat(60_000) })
+            const exec = createExec([bulky('one-tool'), bulky('two-tool'), makeMockTool({ name: 'three-tool' })])
+            const result = (await exec.handler(mockContext, {
+                command: 'info one-tool\ninfo two-tool\ninfo three-tool',
+            })) as string
+            expect(result).toContain('Stopped after 2 of 3 commands')
+            expect(result).toContain('- info three-tool')
+            expect(result).not.toContain('name: three-tool')
         })
 
         it.each([
             ['a JSON body split over lines', 'call mock-tool {\n  "query": "SELECT 1"\n}'],
             ['a JSON body with a key named after a verb', 'call mock-tool {\n  "search": "flags"\n}'],
+            ['a separator inside a JSON string', 'call mock-tool {"query": "SELECT 1; search x"}'],
         ])('runs a single call with %s', async (_label, command) => {
             const tool = makeMockTool({
                 schema: z.object({ query: z.string().optional(), search: z.string().optional() }),
@@ -1238,6 +1283,12 @@ describe('exec tool', () => {
             })
             const exec = createExec([tool])
             await expect(exec.handler(mockContext, { command })).resolves.toBeDefined()
+        })
+
+        it('keeps a separator inside a search pattern as one command', async () => {
+            const exec = createExec([makeMockTool(), makeMockTool({ name: 'other-tool' })])
+            const result = (await exec.handler(mockContext, { command: 'search mock-tool;x' })) as string
+            expect(JSON.parse(result).matches).toEqual([])
         })
     })
 
@@ -1885,6 +1936,19 @@ describe('exec tool', () => {
             expect(describeExecCommand(command, isKnownToolName)).toEqual({
                 verb: expectedVerb,
                 ...(expectedTarget !== undefined ? { targetTool: expectedTarget } : {}),
+            })
+        })
+
+        // Reading a batch as one command makes the trailing commands part of the
+        // first one's tool name, which files every batch under `unrecognized` and
+        // loses the verbs — the exact blind spot this pair exists to prevent.
+        it.each([
+            ['info execute-sql\ninfo query-trends', 'info', 'execute-sql+query-trends'],
+            ['search query- && schema query-trends series', 'schema+search', 'query-trends'],
+        ])('describes the batch "%s" as verb=%s target=%s', (command, expectedVerb, expectedTarget) => {
+            expect(describeExecCommand(command, isKnownToolName)).toEqual({
+                verb: expectedVerb,
+                targetTool: expectedTarget,
             })
         })
 
