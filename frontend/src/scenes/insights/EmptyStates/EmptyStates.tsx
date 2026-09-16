@@ -68,6 +68,9 @@ const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 const HedgehogStampDenied = pngHoggie(stampDeniedPng)
 const HedgehogTrafficController = pngHoggie(trafficControllerPng)
 
+/** Query seconds above which a load counts as slow, whether it is still running or already done. */
+const SLOW_LOADING_TIME = 15
+
 const MEMORY_LIMIT_AI_PROMPT = autoRunMaxPrompt(
     "This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it: a shorter date range, narrower filters, or materializing the data."
 )
@@ -78,6 +81,8 @@ export function InsightEmptyState({
     icon: iconProp,
     sampleDataVariant,
     insightProps,
+    queryElapsedMs,
+    onRetry,
 }: {
     heading?: string
     detail?: string | JSX.Element
@@ -89,8 +94,17 @@ export function InsightEmptyState({
      */
     sampleDataVariant?: SampleDataVariant | null
     insightProps?: Pick<InsightLogicProps, 'dashboardId' | 'dashboardItemId'>
+    /** Milliseconds the query that returned nothing ran for, when the caller knows. */
+    queryElapsedMs?: number | null
+    onRetry?: () => void
 }): JSX.Element {
     const { shouldShowSampleData } = useValues(sampleDataStateLogic)
+    const [retrying, setRetrying] = useState(false)
+
+    // A query that crawled and then came back empty reads exactly like one that found nothing at all,
+    // so people re-run the same query by hand to check. Say how long it ran and offer the re-run here.
+    const seconds = queryElapsedMs != null ? Math.round(queryElapsedMs / 1000) : null
+    const slowSeconds = seconds != null && seconds >= SLOW_LOADING_TIME ? seconds : null
 
     // Before a project has ingested any events, "no matching events" is misleading — every chart is
     // empty because nothing is flowing in yet. Show clearly-fake sample data instead, explaining on
@@ -108,6 +122,7 @@ export function InsightEmptyState({
         }
         posthog.capture('insight empty state shown', {
             has_custom_copy: hasCustomCopy,
+            query_seconds: seconds,
             dashboard_id: insightProps?.dashboardId ?? null,
             insight_short_id: typeof insightProps?.dashboardItemId === 'string' ? insightProps.dashboardItemId : null,
         })
@@ -135,6 +150,31 @@ export function InsightEmptyState({
             {icon}
             <h2 className="text-xl leading-tight">{heading}</h2>
             <p className="text-sm text-tertiary">{detail}</p>
+            {slowSeconds != null && (
+                <div className="flex flex-col items-center gap-2">
+                    <p className="text-sm text-tertiary m-0">
+                        The query took <span translate="no">{slowSeconds}</span> seconds to come back empty.
+                    </p>
+                    {onRetry && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconRefresh />}
+                            loading={retrying}
+                            onClick={() => {
+                                setRetrying(true)
+                                posthog.capture('insight empty state retried', {
+                                    query_seconds: slowSeconds,
+                                    dashboard_id: insightProps?.dashboardId ?? null,
+                                })
+                                onRetry()
+                            }}
+                        >
+                            Run again
+                        </LemonButton>
+                    )}
+                </div>
+            )}
         </div>
     )
 }
@@ -458,8 +498,6 @@ export function StatelessInsightLoadingState({
 const CodeWrapper = (props: { children: React.ReactNode }): JSX.Element => (
     <code className="border border-1 border-primary rounded-xs text-xs px-1 py-0.5">{props.children}</code>
 )
-
-const SLOW_LOADING_TIME = 15
 
 export function SlowQuerySuggestions({
     insightProps,

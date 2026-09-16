@@ -47,6 +47,8 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
 
 const context: QueryContext = {
     extraDataTableQueryFeatures: [QueryFeature.hideLoadNextButton],
+    emptyStateHeading: 'No errors for these filters',
+    emptyStateDetail: 'The date range and filters above apply here too. Try widening them.',
     showOpenEditorButton: false,
     showQueryEditor: false,
     columns: {
