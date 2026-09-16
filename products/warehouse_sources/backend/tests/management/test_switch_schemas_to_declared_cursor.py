@@ -25,6 +25,7 @@ def _create_full_refresh_schema(
     job_inputs=None,
     api_version=None,
     schema_name="tickets",
+    status=ExternalDataSchema.Status.COMPLETED,
 ):
     source = ExternalDataSource.objects.create(
         team=team,
@@ -51,6 +52,7 @@ def _create_full_refresh_schema(
         should_sync=True,
         sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         sync_type_config={},
+        status=status,
     )
 
 
@@ -75,6 +77,19 @@ class TestSwitchSchemasToDeclaredCursor:
         call_command("switch_schemas_to_declared_cursor", source_type="Zendesk", schema_name="tickets", live_run=True)
 
         schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    def test_leaves_a_schema_alone_when_its_last_sync_did_not_complete(self, team):
+        schema = _create_full_refresh_schema(team, status=ExternalDataSchema.Status.FAILED)
+
+        with patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=1758000000):
+            call_command(
+                "switch_schemas_to_declared_cursor", source_type="Zendesk", schema_name="tickets", live_run=True
+            )
+
+        schema.refresh_from_db()
+        # A run that stopped partway can leave only the newest rows, so a cursor seeded from them
+        # would sit above the older rows the run never wrote.
         assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
     def test_reads_the_cursor_from_the_version_the_schema_is_pinned_to(self, team):

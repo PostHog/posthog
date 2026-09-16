@@ -112,6 +112,19 @@ class Command(BaseCommand):
                     skipped += 1
                     continue
 
+                # A run that stopped partway leaves only the rows that landed before it stopped. On
+                # an endpoint that returns the newest rows first, those are the recent ones, so a
+                # cursor seeded from them sits above every older row the run never wrote, and no
+                # later run asks for those again. The pipeline holds the same line: it commits the
+                # cursor of a newest-first sync only once the whole run finishes.
+                if last_value is not None and schema.status != ExternalDataSchema.Status.COMPLETED:
+                    self.stdout.write(
+                        f"  skip schema={schema.id} team={schema.team_id}: last sync did not complete "
+                        f"(status={schema.status}), so the synced rows can be a partial table"
+                    )
+                    skipped += 1
+                    continue
+
                 self.stdout.write(
                     f"  schema={schema.id} team={schema.team_id} sync_type={sync_type} "
                     f"cursor={declared['field']} starting at {last_value}"
