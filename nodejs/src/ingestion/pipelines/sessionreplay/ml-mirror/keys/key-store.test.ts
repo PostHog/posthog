@@ -4,7 +4,7 @@ import {
     DynamoDBClient,
     PutItemCommand,
 } from '@aws-sdk/client-dynamodb'
-import { DecryptCommand, GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
+import { GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
 import { S3Client } from '@aws-sdk/client-s3'
 import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
@@ -19,11 +19,19 @@ import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/m
 import { createNoopBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 
 import { MlKeyBatchController } from './batch-controller'
-import { MlKeyEncryption } from './crypto'
+import { MlDataKey, MlKeyEncryption } from './crypto'
 import { DynamoItem, MlKeyDynamoDB, encodeKey } from './dynamodb'
 import { MlSessionKeyStore } from './key-store'
 import { MlKeyReader } from './reader'
-import { MlSessionIdentity, imageKeyId, monthKeyIndexId, sessionKeyId, tableKeyString, teamBlockId } from './schema'
+import {
+    MlSessionIdentity,
+    TableKey,
+    imageKeyId,
+    monthKeyIndexId,
+    sessionKeyId,
+    tableKeyString,
+    teamBlockId,
+} from './schema'
 import { MlKafkaTransport, mlKafkaRecord } from './transport'
 
 const session: MlSessionIdentity = {
@@ -82,12 +90,21 @@ describe('ML session key batches', () => {
     beforeEach(() => {
         boundary = new DynamoBoundary()
         generated = 0
+        // Like KMS, a wrapped key only unwraps under the exact encryption context it was wrapped with.
+        const wrappedUnder = new Map<string, string>()
+        const contextKey = (context?: Record<string, string>): string =>
+            JSON.stringify(Object.entries(context ?? {}).sort())
         kmsSend = jest.fn((command) => {
             if (command instanceof GenerateDataKeyCommand) {
                 const bytes = Buffer.alloc(32, ++generated)
+                wrappedUnder.set(bytes.toString('base64'), contextKey(command.input.EncryptionContext))
                 return Promise.resolve({ Plaintext: bytes, CiphertextBlob: bytes })
             }
-            return Promise.resolve({ Plaintext: command.input.CiphertextBlob })
+            const wrapped = Buffer.from(command.input.CiphertextBlob)
+            if (wrappedUnder.get(wrapped.toString('base64')) !== contextKey(command.input.EncryptionContext)) {
+                return Promise.reject(transientError('InvalidCiphertextException'))
+            }
+            return Promise.resolve({ Plaintext: wrapped })
         })
         encryption = new MlKeyEncryption(
             { send: kmsSend } as unknown as KMSClient,
@@ -305,22 +322,55 @@ describe('ML session key batches', () => {
     })
 
     it('unwraps a key stored under the organization it was wrapped with', async () => {
-        const first = await store.prepare([session])
-        await first.commit()
-        const location = tableKeyString(sessionKeyId(session.teamId, session.sessionId))
-        const legacy: DynamoItem = { ...boundary.items.get(location)!, organization_id: { S: 'organization-legacy' } }
-        boundary.items.set(location, legacy)
+        const legacyOrganization = 'organization-legacy'
+        const sessionKey = await encryption.generate({
+            teamId: session.teamId,
+            sessionId: session.sessionId,
+            organizationId: legacyOrganization,
+        })
+        const imageKey = await encryption.generate({
+            teamId: session.teamId,
+            sessionMonth: '2025-09',
+            organizationId: legacyOrganization,
+        })
+        const rows: Array<[TableKey, MlDataKey]> = [
+            [sessionKeyId(session.teamId, session.sessionId), sessionKey],
+            [imageKeyId(session.teamId, '2025-09'), imageKey],
+        ]
+        for (const [location, key] of rows) {
+            boundary.items.set(tableKeyString(location), {
+                ...encodeKey(location),
+                wrapped_key: { B: key.wrapped },
+                organization_id: { S: legacyOrganization },
+                team_id: { N: String(session.teamId) },
+                session_month: { S: '2025-09' },
+            })
+        }
         encryption.clear()
         const next = await store.prepare([session])
         const keys = next.get(session.teamId, session.sessionId)!
-        expect(keys.session.wrapped).toEqual(Buffer.from(legacy.wrapped_key!.B!))
-        expect(keys.session.identity.organizationId).toBe('organization-legacy')
-        const unwrap = kmsSend.mock.calls
-            .map(([command]) => command)
-            .find((command) => command instanceof DecryptCommand && command.input.EncryptionContext?.session_id)
-        expect(unwrap?.input.EncryptionContext?.organization_id).toBe('organization-legacy')
+        expect(keys.session.plaintext).toEqual(sessionKey.plaintext)
+        expect(keys.image.plaintext).toEqual(imageKey.plaintext)
+        expect(keys.session.identity.organizationId).toBe(legacyOrganization)
         await next.commit()
-        expect(boundary.items.get(location)).toEqual(legacy)
+        expect(boundary.writes).toBe(0)
+    })
+
+    it('cannot unwrap a stored key under a context it was not wrapped with', async () => {
+        const sessionKey = await encryption.generate({
+            teamId: session.teamId,
+            sessionId: session.sessionId,
+            organizationId: 'organization-legacy',
+        })
+        const location = sessionKeyId(session.teamId, session.sessionId)
+        boundary.items.set(tableKeyString(location), {
+            ...encodeKey(location),
+            wrapped_key: { B: sessionKey.wrapped },
+            team_id: { N: String(session.teamId) },
+            session_month: { S: '2025-09' },
+        })
+        encryption.clear()
+        await expect(store.prepare([session])).rejects.toThrow('InvalidCiphertextException')
     })
 
     it.each([
