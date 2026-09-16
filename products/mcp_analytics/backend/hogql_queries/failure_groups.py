@@ -33,15 +33,15 @@ DEFAULT_FAILURE_GROUPS_LIMIT = 5
 MAX_FAILURE_GROUPS_LIMIT = 50
 
 # Bounds the GROUP BY cardinality: a raw error message routinely carries a request id or a
-# row count that makes two otherwise-identical failures group separately. UUIDs and runs of 3+
-# digits collapse to a placeholder before grouping; the result is clipped to 200 characters,
+# row count that makes two otherwise-identical failures group separately. UUIDs and runs of 4+
+# digits collapse to a placeholder (3-digit runs stay, so an HTTP status still reads as itself) before grouping; the result is clipped to 200 characters,
 # same as base.RAW_ERROR_TYPE_SQL's cap on the adjacent bucket.
 _NORMALIZED_MESSAGE_SQL = (
     "substring("
     "replaceRegexpAll("
     "replaceRegexpAll(coalesce(toString(properties.$mcp_error_message), ''), "
     "'(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '{id}'), "
-    "'[0-9]{3,}', '{n}'"
+    "'[0-9]{4,}', '{n}'"
     "), 1, 200)"
 )
 
