@@ -239,13 +239,21 @@ jobs:
               run: |
                   echo "::add-matcher::.github/mypy-problem-matcher.json"
 
+            - name: Compute mypy cache prefix
+              id: mypy-cache-key
+              shell: bash
+              run: |
+                  python_version=$(python -c 'import platform; print(platform.python_version())')
+                  mypy_version=$(python -c 'from importlib.metadata import version; print(version("mypy"))')
+                  echo "prefix=mypy-v3-${{ runner.os }}-${{ runner.arch }}-${python_version}-${mypy_version}-${{ hashFiles('uv.lock', '**/pyproject.toml', '**/mypy.ini') }}" >> "$GITHUB_OUTPUT"
+
             - name: Restore mypy cache
+              id: mypy-cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .mypy_cache
-                  key: mypy-cache-${{ runner.os }}-3.12-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
-                  restore-keys: |
-                      mypy-cache-${{ runner.os }}-3.12-mypy2-
+                  key: ${{ steps.mypy-cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+                  restore-keys: ${{ steps.mypy-cache-key.outputs.prefix }}-
 
             - name: Check static typing
               shell: bash -e {0}
@@ -254,11 +262,11 @@ jobs:
               run: mypy --version && mypy --cache-fine-grained .
 
             - name: Save mypy cache
-              if: github.ref == 'refs/heads/master'
+              if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .mypy_cache
-                  key: mypy-cache-${{ runner.os }}-3.12-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
+                  key: ${{ steps.mypy-cache.outputs.cache-primary-key }}
 
             - name: Check if "schema.py" is up to date
               shell: bash

@@ -320,6 +320,15 @@ jobs:
                   cargo build "${crates[@]}" --locked --release
                   find target/release/ -maxdepth 1 -executable -type f -exec strip {} +
 
+            - name: Report sccache counters
+              if: always()
+              continue-on-error: true
+              run: |
+                  if command -v sccache >/dev/null; then
+                      # The full report includes the cache endpoint, so allow only numeric counters.
+                      sccache --show-stats 2>/dev/null | awk '/^(Compile requests|Cache hits|Cache misses|Non-cacheable calls)[[:space:]]+[0-9]+$/ { print }'
+                  fi
+
     test:
         name: Test Rust (${{ matrix.packages }})
         strategy:
@@ -570,6 +579,15 @@ jobs:
               shell: bash
               run: exit 1
 
+            - name: Report sccache counters
+              if: always()
+              continue-on-error: true
+              run: |
+                  if command -v sccache >/dev/null; then
+                      # The full report includes the cache endpoint, so allow only numeric counters.
+                      sccache --show-stats 2>/dev/null | awk '/^(Compile requests|Cache hits|Cache misses|Non-cacheable calls)[[:space:]]+[0-9]+$/ { print }'
+                  fi
+
     # Spawns a real personhog stack (replica, writer, leaders, leader-mode
     # routers) against dockerized Postgres/Kafka/etcd and asserts that every
     # write acked by the leader path is visible afterwards — in strong reads
@@ -813,6 +831,15 @@ jobs:
                   path: rust/target/debug/harness-logs/
                   if-no-files-found: ignore
 
+            - name: Report sccache counters
+              if: always()
+              continue-on-error: true
+              run: |
+                  if command -v sccache >/dev/null; then
+                      # The full report includes the cache endpoint, so allow only numeric counters.
+                      sccache --show-stats 2>/dev/null | awk '/^(Compile requests|Cache hits|Cache misses|Non-cacheable calls)[[:space:]]+[0-9]+$/ { print }'
+                  fi
+
     linting:
         name: Lint Rust services (depot-ubuntu-22.04-4)
         needs: changes
@@ -899,6 +926,15 @@ jobs:
 
             - name: Run cargo shear
               run: cargo shear
+
+            - name: Report sccache counters
+              if: always()
+              continue-on-error: true
+              run: |
+                  if command -v sccache >/dev/null; then
+                      # The full report includes the cache endpoint, so allow only numeric counters.
+                      sccache --show-stats 2>/dev/null | awk '/^(Compile requests|Cache hits|Cache misses|Non-cacheable calls)[[:space:]]+[0-9]+$/ { print }'
+                  fi
 
     # Collate job - single required status check for branch protection.
     # Individual jobs skip entirely when no Rust changes, saving runner time.

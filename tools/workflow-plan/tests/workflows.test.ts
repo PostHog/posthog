@@ -322,6 +322,44 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('.github/workflows run plans', () => {
+    it.each([
+        ['master schedule', schedule(), 'success', true],
+        ['same-repo PR', pullRequest(), 'success', false],
+        ['fork PR', pullRequest({ fork: true }), 'success', false],
+        ['failed master typecheck', schedule(), 'failure', false],
+    ] as const)('mypy cache writer on %s', (_name, github, outcome, runs) => {
+        const wf = workflow('ci-python.yml')
+        const plan = planWorkflow(wf, {
+            name: _name,
+            github,
+            steps: {
+                ...allFiltersChanged(wf),
+                'code-quality': { 'Check static typing': { outcome } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs['code-quality'].steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
+    })
+
+    it.each(['success', 'failure'] as const)('sccache counters survive a %s build without changing its verdict', (outcome) => {
+        const wf = workflow('ci-rust.yml')
+        const plan = planWorkflow(wf, {
+            name: outcome,
+            github: pullRequest(),
+            steps: {
+                ...allFiltersChanged(wf),
+                affected: { shards: { outputs: { matrix: '{"include":[{"packages":"common-types"}]}' } } },
+                build: {
+                    'Run cargo build': { outcome },
+                    'Report sccache counters': { outcome: 'failure' },
+                },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.build.steps.find((step) => step.name === 'Report sccache counters')?.runs).toBe(true)
+        expect(plan.jobs.build.result).toBe(outcome)
+    })
+
     it.each(PINNED_WORKFLOWS)('%s names every conditional job in an expectation row', (file) => {
         const unnamed = Object.entries(workflow(file).jobs)
             .filter(([id, job]) => job.if !== undefined && !namedJobs(file).has(id))
