@@ -1,5 +1,6 @@
 ---
 name: signals-scout-anomaly-detection
+scout-display-name: Anomaly detection
 description: >
   Signals scout that watches the project's most-viewed dashboards and insights for anomalies —
   bursts, drops, flat-lines, and trend breaks — against each insight's own seasonality-matched

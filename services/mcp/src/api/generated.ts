@@ -19662,6 +19662,7 @@ export namespace Schemas {
 
     /**
      * * `saml` - Saml
+     * * `oidc` - Oidc
      * * `scim` - Scim
      * * `xaa` - Xaa
      */
@@ -19670,6 +19671,7 @@ export namespace Schemas {
 
     export const ConfigScopeEnum = {
       Saml: 'saml',
+      Oidc: 'oidc',
       Scim: 'scim',
       Xaa: 'xaa',
     } as const;
@@ -23764,7 +23766,6 @@ export namespace Schemas {
     /**
      * * `tiered` - tiered
      * * `managed_viewset` - managed_viewset
-     * * `legacy` - legacy
      * * `no_node` - no_node
      */
     export type FrequencyModeEnum = typeof FrequencyModeEnum[keyof typeof FrequencyModeEnum];
@@ -23773,7 +23774,6 @@ export namespace Schemas {
     export const FrequencyModeEnum = {
       Tiered: 'tiered',
       ManagedViewset: 'managed_viewset',
-      Legacy: 'legacy',
       NoNode: 'no_node',
     } as const;
 
@@ -23854,11 +23854,10 @@ export namespace Schemas {
     }
 
     export interface SyncFrequencyBounds {
-      /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns the view, 'legacy' means the v1 backend, where any cadence is accepted and no bounds apply, and 'no_node' means the view has no data modeling node to store a cadence on.
+      /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns the view, and 'no_node' means the view has no data modeling node to store a cadence on.
        *
        * * `tiered` - tiered
        * * `managed_viewset` - managed_viewset
-       * * `legacy` - legacy
        * * `no_node` - no_node */
       frequency_mode: FrequencyModeEnum;
       /** Every cadence a picker may show, coarsest-last, each marked allowed or blocked with its cause. Empty outside 'tiered' mode. */
@@ -48627,6 +48626,7 @@ export namespace Schemas {
       /** Feature configured by this identity provider configuration.
        *
        * * `saml` - Saml
+       * * `oidc` - Oidc
        * * `scim` - Scim
        * * `xaa` - Xaa */
       config_scope?: ConfigScopeEnum | BlankEnum | null;
@@ -48636,6 +48636,22 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Whether SAML is fully configured on this config. */
       readonly has_saml: boolean;
+      /** Whether OIDC has an issuer, client ID, and client secret. */
+      readonly has_oidc: boolean;
+      /** Whether an encrypted OIDC client secret is saved. */
+      readonly has_oidc_client_secret: boolean;
+      /** HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document. */
+      oidc_issuer_url?: string;
+      /**
+         * Client ID of the organization's OIDC application.
+         * @maxLength 512
+         */
+      oidc_client_id?: string;
+      /**
+         * OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.
+         * @maxLength 4096
+         */
+      oidc_client_secret?: string;
       /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
       readonly saml_relay_state: string;
       /**
@@ -67578,6 +67594,7 @@ export namespace Schemas {
       /** Feature configured by this identity provider configuration.
        *
        * * `saml` - Saml
+       * * `oidc` - Oidc
        * * `scim` - Scim
        * * `xaa` - Xaa */
       config_scope?: ConfigScopeEnum | BlankEnum | null;
@@ -67587,6 +67604,22 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** Whether SAML is fully configured on this config. */
       readonly has_saml?: boolean;
+      /** Whether OIDC has an issuer, client ID, and client secret. */
+      readonly has_oidc?: boolean;
+      /** Whether an encrypted OIDC client secret is saved. */
+      readonly has_oidc_client_secret?: boolean;
+      /** HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document. */
+      oidc_issuer_url?: string;
+      /**
+         * Client ID of the organization's OIDC application.
+         * @maxLength 512
+         */
+      oidc_client_id?: string;
+      /**
+         * OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.
+         * @maxLength 4096
+         */
+      oidc_client_secret?: string;
       /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
       readonly saml_relay_state?: string;
       /**
@@ -70593,7 +70626,7 @@ export namespace Schemas {
      */
     export interface PatchedSignalScoutConfigUpdate {
       /**
-         * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+         * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
          * @maxLength 200
          */
       display_name?: string;
@@ -81198,10 +81231,15 @@ export namespace Schemas {
      */
     export interface ScannerScoutCreate {
       /**
-         * Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.
+         * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+         * @maxLength 200
+         */
+      display_name?: string;
+      /**
+         * Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.
          * @maxLength 64
          */
-      name: string;
+      name?: string;
       /**
          * Short description of the signal or behavior this scout investigates.
          * @maxLength 1024
@@ -82659,6 +82697,11 @@ export namespace Schemas {
          */
       run_cron_schedule?: string | null;
       /**
+         * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+         * @maxLength 200
+         */
+      display_name?: string;
+      /**
          * The skill to register a config for. Any valid skill name works — the config row is what makes a skill a scout. The skill must already exist on this project — author it via the skills store first.
          * @maxLength 200
          */
@@ -82670,10 +82713,15 @@ export namespace Schemas {
      */
     export interface SignalScoutCreate {
       /**
-         * Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.
+         * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+         * @maxLength 200
+         */
+      display_name?: string;
+      /**
+         * Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.
          * @maxLength 64
          */
-      name: string;
+      name?: string;
       /**
          * Short description of the signal or behavior this scout investigates.
          * @maxLength 1024
@@ -105751,6 +105799,11 @@ export namespace Schemas {
     };
 
     export type SignalsScoutConfigListParams = {
+    /**
+     * Case-insensitive substring filter over a scout's display name and its skill name. A scout matches on either, so a person who knows the label and a caller who knows the identifier both find it. Omit for the whole fleet.
+     * @minLength 1
+     */
+    search?: string;
     /**
      * Comma-separated tags, e.g. `revenue,on-call`. Returns the scouts carrying at least one of them. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. Omit for the whole fleet.
      * @minLength 1

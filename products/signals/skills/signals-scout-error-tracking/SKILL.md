@@ -1,5 +1,6 @@
 ---
 name: signals-scout-error-tracking
+scout-display-name: Error tracking
 description: >
   Signals scout for PostHog error tracking. Watches `$exception` bursts, stuck loops, multi-
   fingerprint clusters, and status regressions.

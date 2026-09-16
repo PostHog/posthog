@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf16"
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/completion"
@@ -108,6 +109,51 @@ func TestAutocompleteRequiresKnownTeamAndUser(t *testing.T) {
 		}
 		if response.Header().Get("X-Content-Type-Options") != "nosniff" {
 			t.Fatal("error response is missing X-Content-Type-Options: nosniff")
+		}
+	}
+}
+
+func TestValidateEncodesDiagnosticPositions(t *testing.T) {
+	s := newTestServer(t)
+	handler := s.handler()
+	putCatalogForTest(t, handler, 1, 10, "revision-one", "events")
+	query := "SELECT '😀', missing FROM events"
+	byteStart := strings.Index(query, "missing")
+	utf16Start := len(utf16.Encode([]rune(query[:byteStart])))
+
+	for _, test := range []struct {
+		encoding         string
+		responseEncoding string
+		start            int
+	}{
+		{encoding: "utf-8", responseEncoding: "utf-8", start: byteStart},
+		{encoding: "utf-16", responseEncoding: "utf-16", start: utf16Start},
+		{responseEncoding: "utf-16", start: utf16Start},
+	} {
+		body, err := json.Marshal(map[string]any{"query": query, "positionEncoding": test.encoding})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodPost, scopePath(1, 10)+"/validate", bytes.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("validate returned %d: %s", response.Code, response.Body.String())
+		}
+		var result validationResponse
+		if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+			t.Fatal(err)
+		}
+		if string(result.PositionEncoding) != test.responseEncoding {
+			t.Fatalf("position encoding = %q, want %q", result.PositionEncoding, test.responseEncoding)
+		}
+		if len(result.Diagnostics) != 1 {
+			t.Fatalf("diagnostics = %#v", result.Diagnostics)
+		}
+		diagnostic := result.Diagnostics[0]
+		if diagnostic.Start != test.start || diagnostic.End != test.start+len("missing") {
+			t.Fatalf("%s diagnostic span = [%d,%d), want [%d,%d)", test.responseEncoding, diagnostic.Start, diagnostic.End, test.start, test.start+len("missing"))
 		}
 	}
 }
