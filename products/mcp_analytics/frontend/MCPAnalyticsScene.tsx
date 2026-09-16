@@ -27,6 +27,7 @@ import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
 import { MCPAnalyticsMissingCapabilities } from './missingCapabilities/MCPAnalyticsMissingCapabilities'
 import { MCPAnalyticsNotifications } from './notifications/MCPAnalyticsNotifications'
 import { mcpAnalyticsNotificationsLogic } from './notifications/mcpAnalyticsNotificationsLogic'
+import { MCPAnalyticsOverview } from './overview/MCPAnalyticsOverview'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
 
 export const scene: SceneExport = {
@@ -64,6 +65,13 @@ function MCPAnalyticsSceneContent(): JSX.Element {
     const { landing: _landing, ...tabParams } = searchParams
     const { search: _search, ...sharedParams } = tabParams
 
+    const overviewTab: LemonTab<MCPAnalyticsTab> = {
+        key: 'overview',
+        label: 'Overview',
+        content: <MCPAnalyticsOverview />,
+        link: combineUrl(urls.mcpAnalyticsOverview(), sharedParams).url,
+        'data-attr': 'mcp-analytics-overview-tab',
+    }
     const activityTab: LemonTab<MCPAnalyticsTab> = {
         key: 'activity',
         label: 'Activity',
@@ -72,14 +80,16 @@ function MCPAnalyticsSceneContent(): JSX.Element {
         'data-attr': 'mcp-analytics-activity-tab',
     }
     const dashboardTab: LemonTab<MCPAnalyticsTab> = {
+        // Key and route stay `dashboard`: they are wired into links, stories and analytics.
         key: 'dashboard',
-        label: 'Dashboard',
+        label: 'Trends',
         content: <MCPAnalyticsDashboard />,
         link: combineUrl(urls.mcpAnalyticsDashboard(), sharedParams).url,
         'data-attr': 'mcp-analytics-dashboard-tab',
     }
 
     const tabs: LemonTab<MCPAnalyticsTab>[] = [
+        overviewTab,
         dashboardTab,
         activityTab,
         {

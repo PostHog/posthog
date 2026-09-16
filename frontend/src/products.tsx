@@ -199,6 +199,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/logs/retention-rules/:id': ['LogsRetentionDetail', 'logsRetentionDetail'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
+    '/mcp-analytics/overview': ['MCPAnalytics', 'mcpAnalyticsOverview'],
     '/mcp-analytics/activity': ['MCPAnalytics', 'mcpAnalyticsActivity'],
     '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
     '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
@@ -439,7 +440,7 @@ export const productRedirects: Record<
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
         combineUrl(`/logs/drop-rules/${params.id}`, searchParams, hashParams).url,
     '/mcp-analytics': (_params, searchParams, hashParams) =>
-        combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
+        combineUrl(urls.mcpAnalyticsOverview(), { ...searchParams, landing: 'auto' }, hashParams).url,
     '/replay-vision/templates': '/replay-vision/new/template',
     '/replay/vision': '/replay-vision',
     '/community-skills': (_params, searchParams, hashParams) =>
@@ -1403,6 +1404,7 @@ export const productUrls = {
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
     mcpAnalytics: (): string => '/mcp-analytics',
+    mcpAnalyticsOverview: (): string => '/mcp-analytics/overview',
     mcpAnalyticsActivity: (): string => '/mcp-analytics/activity',
     mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
     mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',

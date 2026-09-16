@@ -8,6 +8,7 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 import { type MCPDashboardStage, mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 
 export type MCPAnalyticsTab =
+    | 'overview'
     | 'activity'
     | 'dashboard'
     | 'sessions'
@@ -17,6 +18,7 @@ export type MCPAnalyticsTab =
     | 'notifications'
 
 export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
+    overview: 'How people use your MCP server, and what to fix next.',
     activity: 'Live feed of tool calls and what agents are trying to do with your MCP server.',
     dashboard: 'Tool call volume, error rates, and latency across your MCP server.',
     sessions: 'Sessions where users interacted with your MCP tools.',
@@ -29,6 +31,7 @@ export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
 }
 
 const SCENE_KEY_TO_TAB: Record<string, MCPAnalyticsTab> = {
+    mcpAnalyticsOverview: 'overview',
     mcpAnalyticsActivity: 'activity',
     mcpAnalyticsDashboard: 'dashboard',
     mcpAnalyticsSessions: 'sessions',
@@ -40,11 +43,11 @@ const SCENE_KEY_TO_TAB: Record<string, MCPAnalyticsTab> = {
 
 function resolveAutomaticLanding(activeTab: MCPAnalyticsTab, dashboardStage: MCPDashboardStage | null): void {
     const { landing, ...restParams } = router.values.searchParams
-    if (landing !== 'auto' || activeTab !== 'dashboard' || dashboardStage === null) {
+    if (landing !== 'auto' || activeTab !== 'overview' || dashboardStage === null) {
         return
     }
 
-    const target = dashboardStage === 'activity' ? urls.mcpAnalyticsActivity() : urls.mcpAnalyticsDashboard()
+    const target = dashboardStage === 'activity' ? urls.mcpAnalyticsActivity() : urls.mcpAnalyticsOverview()
     router.actions.replace(combineUrl(target, restParams).url)
 }
 
@@ -77,7 +80,7 @@ export const mcpAnalyticsSceneLogic = kea<mcpAnalyticsSceneLogicType>([
     selectors({
         activeTab: [
             (s) => [s.sceneKey],
-            (sceneKey: string): MCPAnalyticsTab => SCENE_KEY_TO_TAB[sceneKey] ?? 'dashboard',
+            (sceneKey: string): MCPAnalyticsTab => SCENE_KEY_TO_TAB[sceneKey] ?? 'overview',
         ],
     }),
     listeners(({ values }) => ({
@@ -87,7 +90,7 @@ export const mcpAnalyticsSceneLogic = kea<mcpAnalyticsSceneLogicType>([
         [mcpAnalyticsOnboardingLogic.actionTypes.loadSignalsSuccess]: () => {
             // Volume decides the default landing tab. Only resolves when the manifest's
             // bare-URL redirect tagged the navigation with `landing=auto` — a deep link
-            // to /dashboard never re-routes, and an explicit tab click is never overridden.
+            // to a named tab never re-routes, and an explicit tab click is never overridden.
             resolveAutomaticLanding(values.activeTab, values.dashboardStage)
         },
     })),
