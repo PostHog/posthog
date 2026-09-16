@@ -89,7 +89,7 @@ export const fsRouter = router({
     .query(({ ctx, input }) =>
       ctx.container
         .get<FsCapability>(FS_SERVICE)
-        .readWorkspaceFileAsBase64(input.workspaceRoot, input.filePath),
+        .readWorkspaceImageDataUrl(input.workspaceRoot, input.filePath),
     ),
 
   writeRepoFile: publicProcedure

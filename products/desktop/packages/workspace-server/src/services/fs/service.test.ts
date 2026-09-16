@@ -128,6 +128,15 @@ describe("FsService repo file IO", () => {
     await rm(external, { recursive: true, force: true });
   });
 
+  it("refuses workspace image reads larger than 5 MB", async () => {
+    const oversizedImage = path.join(repo, "oversized.png");
+    await writeFile(oversizedImage, Buffer.alloc(5 * 1024 * 1024 + 1));
+
+    await expect(
+      service.readWorkspaceFileAsBase64(repo, oversizedImage),
+    ).resolves.toBeNull();
+  });
+
   it("bounds reads by line count", async () => {
     await service.writeRepoFile(repo, "small.txt", "a\nb\nc");
     await service.writeRepoFile(repo, "big.txt", "a\nb\nc\nd\ne");

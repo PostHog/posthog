@@ -6,6 +6,7 @@ import type { BoundedReadResult, DirectoryEntry, FileEntry } from "./schemas";
 
 @injectable()
 export class FsService {
+  private static readonly MAX_WORKSPACE_IMAGE_BYTES = 5 * 1024 * 1024;
   private static readonly CACHE_TTL = 30000;
   private static readonly READ_REPO_FILES_CONCURRENCY = 24;
   private static readonly MAX_REPO_FILES = 50_000;
@@ -202,6 +203,8 @@ export class FsService {
       ) {
         return null;
       }
+      const stat = await fs.stat(canonicalFile);
+      if (stat.size > FsService.MAX_WORKSPACE_IMAGE_BYTES) return null;
       const buffer = await fs.readFile(canonicalFile);
       return buffer.toString("base64");
     } catch {

@@ -147,7 +147,7 @@ function LocalMarkdownImage({
   }
   return (
     <img
-      src={`data:${localImage.mimeType};base64,${image.data}`}
+      src={image.data}
       alt={alt ?? ""}
       className="max-h-[32rem] max-w-full rounded-md border border-border object-contain"
     />

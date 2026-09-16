@@ -41,6 +41,10 @@ import type { UpdatesService } from "@posthog/core/updates/updates";
 import { ENVIRONMENT_CLIENT } from "@posthog/host-router/ports/environment-client";
 import { FILE_WATCHER_CONTROL } from "@posthog/host-router/ports/file-watcher-control";
 import { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
+import {
+  type IImageProcessor,
+  IMAGE_PROCESSOR_SERVICE,
+} from "@posthog/platform/image-processor";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { DatabaseService } from "@posthog/workspace-server/db/service";
 import type { ExternalAppsService } from "@posthog/workspace-server/services/external-apps/external-apps";
@@ -407,6 +411,9 @@ async function boot(): Promise<void> {
   container.bind(FOCUS_SESSION_STORE).toConstantValue(focusSessionStore);
   container.bind(FOCUS_WORKTREE_PATHS).toConstantValue(focusWorktreePaths);
   container.load(focusHostModule);
+  const imageProcessor = container.get<IImageProcessor>(
+    IMAGE_PROCESSOR_SERVICE,
+  );
   const fsCapability: FsCapability = {
     listRepoFiles: (repoPath, query, limit) =>
       workspaceClient.fs.listRepoFiles.query({ repoPath, query, limit }),
@@ -430,11 +437,32 @@ async function boot(): Promise<void> {
       workspaceClient.fs.readAbsoluteFile.query({ filePath }),
     readFileAsBase64: (filePath) =>
       workspaceClient.fs.readFileAsBase64.query({ filePath }),
-    readWorkspaceFileAsBase64: (workspaceRoot, filePath) =>
-      workspaceClient.fs.readWorkspaceFileAsBase64.query({
+    readWorkspaceImageDataUrl: async (workspaceRoot, filePath) => {
+      const base64 = await workspaceClient.fs.readWorkspaceFileAsBase64.query({
         workspaceRoot,
         filePath,
-      }),
+      });
+      if (!base64) return null;
+      const extension = filePath.match(/\.([A-Za-z0-9]+)$/)?.[1]?.toLowerCase();
+      const mimeType = extension
+        ? {
+            avif: "image/avif",
+            gif: "image/gif",
+            jpeg: "image/jpeg",
+            jpg: "image/jpeg",
+            png: "image/png",
+            webp: "image/webp",
+          }[extension]
+        : undefined;
+      if (!mimeType) return null;
+      const image = imageProcessor.downscale(
+        Buffer.from(base64, "base64"),
+        mimeType,
+        { maxDimension: 1568, jpegQuality: 85 },
+      );
+      const resizedBase64 = Buffer.from(image.buffer).toString("base64");
+      return `data:${image.mimeType};base64,${resizedBase64}`;
+    },
     writeRepoFile: async (repoPath, filePath, content) => {
       await workspaceClient.fs.writeRepoFile.mutate({
         repoPath,

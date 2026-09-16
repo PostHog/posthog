@@ -25,7 +25,7 @@ export interface FsCapability {
   ): Promise<Record<string, BoundedReadResult>>;
   readAbsoluteFile(filePath: string): Promise<string | null>;
   readFileAsBase64(filePath: string): Promise<string | null>;
-  readWorkspaceFileAsBase64(
+  readWorkspaceImageDataUrl(
     workspaceRoot: string,
     filePath: string,
   ): Promise<string | null>;
