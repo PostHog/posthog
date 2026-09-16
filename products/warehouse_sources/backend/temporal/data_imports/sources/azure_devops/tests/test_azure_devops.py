@@ -671,6 +671,30 @@ class TestPipelineEndpoints:
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
     )
+    def test_pipeline_runs_follow_a_continuation_token_without_asking_for_a_page_size(self, mock_session):
+        # The listing documents no paging parameters. Reading one response would cap the table
+        # at whatever the vendor returns in it, and sending $top could shorten that response.
+        mock_session.return_value.get.side_effect = [
+            _response(self.PROJECTS),
+            _response({"value": [{"id": 3, "name": "deploy"}]}),
+            _response({"value": [{"id": 91}]}, continuation_header="tok1"),
+            _response({"value": [{"id": 92}]}),
+        ]
+
+        batches = list(
+            get_rows("myorg", "pat", "pipeline_runs", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2)
+        )
+
+        assert [row["id"] for batch in batches for row in batch] == [91, 92]
+        first, second = (
+            parse_qs(urlparse(call.args[0]).query) for call in mock_session.return_value.get.call_args_list[2:]
+        )
+        assert "$top" not in first
+        assert second["continuationToken"] == ["tok1"]
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
     def test_pipeline_runs_skip_a_pipeline_without_an_id(self, mock_session):
         # Requesting one anyway would build a path with a literal {pipelineId} placeholder.
         mock_session.return_value.get.side_effect = [

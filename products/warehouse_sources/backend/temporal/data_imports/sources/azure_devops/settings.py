@@ -105,8 +105,8 @@ AZURE_DEVOPS_ENDPOINTS: dict[str, AzureDevOpsEndpointConfig] = {
         # Run IDs restart per project.
         primary_keys=["project_id", "id"],
         partition_key="createdDate",
-        # The run listing takes no filter and no paging parameters — it answers with the
-        # pipeline's most recent runs — so there is no cursor to sync incrementally on.
+        # The run listing takes no time filter — it answers with the pipeline's most recent
+        # runs — so there is no cursor to sync incrementally on.
     ),
     "pull_requests": AzureDevOpsEndpointConfig(
         name="pull_requests",

@@ -378,11 +378,20 @@ def get_rows(
         return params
 
     def iterate_header_token(
-        path: str, extra: dict[str, Any], use_base_params: bool = True, base_url: str = AZURE_DEVOPS_BASE_URL
+        path: str,
+        extra: dict[str, Any],
+        use_base_params: bool = True,
+        base_url: str = AZURE_DEVOPS_BASE_URL,
+        # `None` leaves $top off, for an endpoint that documents no page size. Asking for one
+        # there risks a server that honours $top but sends no token back, which would cut the
+        # listing down to a single short page.
+        page_size: Optional[int] = PAGE_SIZE,
     ) -> Iterator[list[dict[str, Any]]]:
         token: Optional[str] = None
         while True:
-            params = {**(base_params() if use_base_params else {}), **extra, "$top": PAGE_SIZE}
+            params = {**(base_params() if use_base_params else {}), **extra}
+            if page_size is not None:
+                params["$top"] = page_size
             if token:
                 params["continuationToken"] = token
             response = fetch(path, params, base_url)
@@ -529,9 +538,10 @@ def get_rows(
                     path = config.path.replace("{project}", quote(str(project_row["id"]))).replace(
                         "{pipelineId}", quote(str(pipeline["id"]))
                     )
-                    runs = fetch(path, {}).json().get("value", []) or []
-                    if runs:
-                        yield [_with_pipeline_ref(item, project_row, pipeline) for item in runs]
+                    # The run listing documents no paging parameters, but Azure DevOps sends a
+                    # continuation token on listings that overflow, so follow one when it comes.
+                    for page in iterate_header_token(path, {}, use_base_params=False, page_size=None):
+                        yield [_with_pipeline_ref(item, project_row, pipeline) for item in page]
         return
 
     if endpoint in ("releases", "release_deployments"):
