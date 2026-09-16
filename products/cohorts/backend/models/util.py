@@ -104,9 +104,21 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
 }
 
 
-def get_friendly_error_message(error_code: str | None) -> str | None:
+# CAPACITY and INTERRUPTED promise a retry that only the dynamic recalculation scheduler makes
+# good on: the periodic queue excludes static cohorts, and the stuck-cohort sweeper only matches
+# one still marked is_calculating. A cohort nothing will re-run needs the same reason without the
+# promise.
+NO_RETRY_ERROR_CODE_MESSAGES: dict[str, str] = {
+    CohortErrorCode.CAPACITY: "The system was busy when this cohort was scheduled to calculate.",
+    CohortErrorCode.INTERRUPTED: "Calculation was interrupted before it finished.",
+}
+
+
+def get_friendly_error_message(error_code: str | None, *, will_retry: bool = True) -> str | None:
     if error_code is None:
         return None
+    if not will_retry and error_code in NO_RETRY_ERROR_CODE_MESSAGES:
+        return NO_RETRY_ERROR_CODE_MESSAGES[error_code]
     return ERROR_CODE_MESSAGES.get(error_code, ERROR_CODE_MESSAGES[CohortErrorCode.UNKNOWN])
 
 

@@ -48,6 +48,7 @@ from products.cohorts.backend.models.util import (
     get_all_cohort_dependencies,
     get_all_cohort_dependents,
     get_clickhouse_query_stats,
+    get_friendly_error_message,
     parse_error_code,
     save_recovery_bookkeeping,
     sort_cohorts_topologically,
@@ -715,6 +716,7 @@ def calculate_cohort_from_list(
         raise ValueError(f"Unsupported id_type: {id_type}")
 
     cohort: Cohort | None = None
+    history: CohortCalculationHistory | None = None
     processing_error: BaseException | None = None
     retry: Retry | None = None
     # Whole-list retries are safe because both stores ignore members already in the cohort.
@@ -725,6 +727,16 @@ def calculate_cohort_from_list(
             team_id = cohort.team_id
         if _static_population_obsolete(self, cohort):
             return
+
+        # An import that fails without a row of its own resolves `last_error_message` to whichever
+        # older population failed, because that lookup takes the newest errored row over the
+        # cohort's whole life. Recording the attempt also keeps imports in the calculation history
+        # beside the query and filter population paths.
+        history = CohortCalculationHistory.objects.create(
+            team_id=cohort.team_id,
+            cohort=cohort,
+            filters=cohort.properties.to_dict() if cohort.properties.values else {},
+        )
 
         if id_type == "distinct_id":
             batch_count = cohort.insert_users_by_list(
@@ -765,6 +777,10 @@ def calculate_cohort_from_list(
         processing_error = err
         raise
     finally:
+        # One history row records one attempt, so every exit closes it, including a scheduled
+        # retry. An open row left behind would read as an import still in flight.
+        if history is not None and cohort is not None:
+            _finalize_population_history(history, cohort=cohort, processing_error=processing_error)
         # The batching helper finalizes success itself and leaves failure to this task, which has
         # to record it on every exit but a scheduled retry. That includes a retry whose broker
         # publish failed, where Celery raises Reject in place of Retry.
@@ -785,12 +801,16 @@ def _finalize_population_history(
     if processing_error is None:
         history.count = cohort.count
     else:
-        history.error = str(processing_error)
         # parse_error_code classifies exceptions. A BaseException that stopped the worker
         # (shutdown, revoke) carries no cause worth showing, so it stays unknown.
         history.error_code = (
             parse_error_code(processing_error) if isinstance(processing_error, Exception) else CohortErrorCode.UNKNOWN
         )
+        # The calculation history API serves `error` to anyone with cohort read access, and the
+        # history tab renders it verbatim. Raw exception text names the responding ClickHouse host
+        # and quotes the failing SQL, so only the friendly message is stored; the exception itself
+        # stays in the logs and in error tracking.
+        history.error = get_friendly_error_message(history.error_code, will_retry=False)
     # A long population can outlive its Postgres connection, so record the outcome resiliently
     # instead of raising "connection is closed" over the error this row exists to report.
     save_recovery_bookkeeping(

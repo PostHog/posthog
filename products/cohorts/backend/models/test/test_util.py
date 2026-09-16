@@ -28,6 +28,7 @@ from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
+    ERROR_CODE_MESSAGES,
     CohortErrorCode,
     _recalculate_cohortpeople_for_team,
     _sanitize_query_for_cohort,
@@ -1302,6 +1303,23 @@ class TestGetFriendlyErrorMessage(BaseTest):
         message = get_friendly_error_message(error_code)
         assert message is not None
         self.assertIn(expected_substring, message.lower())
+
+    @parameterized.expand(
+        [
+            (CohortErrorCode.CAPACITY, "system was busy"),
+            (CohortErrorCode.INTERRUPTED, "interrupted"),
+        ]
+    )
+    def test_get_friendly_error_message_drops_the_retry_promise_when_nothing_will_retry(
+        self, error_code: str, expected_substring: str
+    ):
+        message = get_friendly_error_message(error_code, will_retry=False)
+        assert message is not None
+        self.assertIn(expected_substring, message.lower())
+        # Only the dynamic recalculation scheduler retries, so a cohort it never picks up must not
+        # be told to wait for one.
+        self.assertNotIn("automatically retry", message.lower())
+        self.assertIn("automatically retry", ERROR_CODE_MESSAGES[error_code].lower())
 
     def test_get_friendly_error_message_none(self):
         self.assertIsNone(get_friendly_error_message(None))

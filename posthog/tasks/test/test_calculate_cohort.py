@@ -50,6 +50,7 @@ from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
     count_cohort_members,
+    get_friendly_error_message,
     insert_static_cohort,
     list_cohort_member_ids,
 )
@@ -1524,10 +1525,13 @@ class TestCohortCalculationTasks(APIBaseTest):
         # The history row is what the cohort API reads `last_error_message` from, so without it the
         # failed population reads as a cohort that matched nobody.
         history = CohortCalculationHistory.objects.get(cohort=cohort)
-        assert history.error is not None
-        self.assertIn("personhog unavailable", history.error)
         self.assertEqual(history.error_code, CohortErrorCode.UNKNOWN)
         self.assertIsNotNone(history.finished_at)
+        # The history tab renders `error` verbatim to anyone with cohort read access, so the raw
+        # exception text stays out of it.
+        self.assertEqual(history.error, get_friendly_error_message(CohortErrorCode.UNKNOWN, will_retry=False))
+        assert history.error is not None
+        self.assertNotIn("personhog unavailable", history.error)
 
     @parameterized.expand(
         [
@@ -1628,7 +1632,42 @@ class TestCohortCalculationTasks(APIBaseTest):
         history = CohortCalculationHistory.objects.get(cohort=cohort)
         self.assertIsNotNone(history.finished_at)
         assert history.error is not None
-        self.assertIn("server closed the connection", history.error)
+        self.assertNotIn("server closed the connection", history.error)
+
+    def test_a_failed_import_records_its_own_reason_rather_than_an_older_one(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="static cohort", is_static=True)
+        person = create_person(team=self.team, distinct_ids=["import-failure"])
+        # An earlier query population failed and left the newest errored row. `last_error_message`
+        # takes that row over the cohort's whole life, so an import that records nothing of its own
+        # reports this stale reason in place of the one that just happened.
+        CohortCalculationHistory.objects.create(
+            team=self.team,
+            cohort=cohort,
+            filters={},
+            started_at=timezone.now() - relativedelta(hours=1),
+            finished_at=timezone.now() - relativedelta(hours=1),
+            error=get_friendly_error_message(CohortErrorCode.DATA_LIMIT, will_retry=False),
+            error_code=CohortErrorCode.DATA_LIMIT,
+        )
+
+        with (
+            patch(
+                "products.cohorts.backend.models.util.insert_cohort_members",
+                side_effect=ValueError("personhog unavailable"),
+            ),
+            self.assertRaises(ValueError),
+        ):
+            calculate_cohort_from_list(cohort.id, [str(person.uuid)], team_id=self.team.pk, id_type="person_id")
+
+        newest_failure = (
+            CohortCalculationHistory.objects.filter(cohort=cohort)
+            .exclude(error__isnull=True)
+            .order_by("-started_at")
+            .first()
+        )
+        assert newest_failure is not None
+        self.assertEqual(newest_failure.error_code, CohortErrorCode.UNKNOWN)
+        self.assertIsNotNone(newest_failure.finished_at)
 
     @parameterized.expand(
         [

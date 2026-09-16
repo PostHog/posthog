@@ -761,10 +761,14 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 self.fields.pop(field_name, None)
 
     def get_last_error_message(self, cohort: Cohort) -> Optional[str]:
+        # A static cohort is populated once, and nothing re-runs it afterwards, so the messages
+        # that promise an automatic retry must not reach one.
+        will_retry = not cohort.is_static
+
         # Prefer the annotated last_error_code when available
         if hasattr(cohort, "last_error_code"):
             if cohort.last_error_code:
-                return get_friendly_error_message(cohort.last_error_code)
+                return get_friendly_error_message(cohort.last_error_code, will_retry=will_retry)
             return None
 
         # Fall back to querying calculation history.
@@ -778,7 +782,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             .first()
         )
         if last_failed_calculation:
-            return get_friendly_error_message(last_failed_calculation.error_code)
+            return get_friendly_error_message(last_failed_calculation.error_code, will_retry=will_retry)
         return None
 
     def validate_cohort_type(self, value):
