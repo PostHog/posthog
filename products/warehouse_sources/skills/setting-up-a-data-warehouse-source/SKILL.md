@@ -263,6 +263,8 @@ Rules for the `schemas` array:
 - Every table returned by db-schema should be included, even ones the user doesn't want (set `should_sync: false`).
   Tables the user didn't mention default to `should_sync: false`.
 - `sync_type` is required only when `should_sync: true`.
+  Leave it out and PostHog uses the cursor the connector declares for that table, when it declares one.
+  SQL database sources declare none, so an enabled table you leave without a method imports nothing.
 - `incremental_field` / `incremental_field_type` must be present when `sync_type` is `incremental` or `append`.
 - `primary_key_columns` must be present when `sync_type` is `cdc`.
 

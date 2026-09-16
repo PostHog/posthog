@@ -1,4 +1,5 @@
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
+import { type SignalRecordKind, sourceNeedsFullRefresh } from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import { LINEAR_OAUTH_FLOW, type LinearOAuthFlow } from "./identifiers";
 
@@ -12,13 +13,25 @@ const REQUIRED_SCHEMAS: Record<DataSourceType, string[]> = {
   pganalyze: ["issues", "servers"],
 };
 
+const RECORD_KIND: Record<DataSourceType, SignalRecordKind> = {
+  github: "issue",
+  linear: "issue",
+  jira: "issue",
+  zendesk: "ticket",
+  pganalyze: "issue",
+};
+
 const FULL_TABLE_REPLICATION = "full_refresh" as const;
 
+/** Omitting the method leaves PostHog to pick the connector's declared cursor. */
 function schemasPayload(source: DataSourceType) {
+  const syncType = sourceNeedsFullRefresh(RECORD_KIND[source])
+    ? { sync_type: FULL_TABLE_REPLICATION }
+    : {};
   return REQUIRED_SCHEMAS[source].map((name) => ({
     name,
     should_sync: true,
-    sync_type: FULL_TABLE_REPLICATION,
+    ...syncType,
   }));
 }
 
