@@ -693,7 +693,7 @@ class TestEmitTraceEvaluationEventActivity:
         with (
             time_machine.travel(FROZEN_NOW, tick=False),
             patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token),
-            patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture,
+            patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal") as mock_capture,
         ):
             mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
