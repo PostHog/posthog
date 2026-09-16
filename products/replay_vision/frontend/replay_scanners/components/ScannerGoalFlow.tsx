@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -10,6 +10,7 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd } from '../../utils/credits'
 import { replayScannerLogic } from '../replayScannerLogic'
+import { ScannerTemplatePicker } from './ScannerTemplatePicker'
 
 // Credits, not recordings: the agent picks the model, so a fixed recording count no longer maps to
 // a fixed cost. The budget is what the user actually controls, and matches how we bill.
@@ -17,8 +18,9 @@ const MIN_SCAN_BUDGET = 1
 const MAX_SCAN_BUDGET = 100000000
 
 /** The goal-based creation flow's two questions (goal, monthly budget): drafts a full scanner
- * and lands the user on the overview step to review it. */
-export function ScannerGoalFlow({ onManual }: { onManual: () => void }): JSX.Element {
+ * and lands the user on the overview step to review it. The templates sit below, so someone who
+ * would rather start from a pre-built scanner than describe a goal can see that option up front. */
+export function ScannerGoalFlow(): JSX.Element {
     const logic = replayScannerLogic({ id: 'new' })
     const { goalDraftInput, goalBudgetInput, goalDraftLoading, experimentContext } = useValues(logic)
     const { draftScannerFromGoal, setGoalDraftInput, setGoalBudgetInput } = useActions(logic)
@@ -148,10 +150,9 @@ export function ScannerGoalFlow({ onManual }: { onManual: () => void }): JSX.Ele
                 <div className="flex-1 border-t border-border" />
             </div>
 
-            <div className="text-center">
-                <Link onClick={onManual} data-attr="vision-goal-flow-manual">
-                    Set it up manually
-                </Link>
+            <div className="flex flex-col gap-3">
+                <p className="text-center text-sm text-muted m-0">Start from a template</p>
+                <ScannerTemplatePicker />
             </div>
         </div>
     )

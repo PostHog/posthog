@@ -38,8 +38,6 @@ import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
-import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -74,6 +72,9 @@ import {
 } from '~/types'
 
 import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
+import type { MathDefinition } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import type { AlertType } from '../../../../products/alerts/frontend/types'
 import type { InsightFilterOverrideContextApi } from '../../../../products/product_analytics/frontend/generated/api.schemas'
@@ -81,9 +82,9 @@ import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
 import type { QueryStatus, ResolvedDateRangeResponse } from '../../queries/schema/schema-general'
+import type { QueryScanSummary } from '../../queries/schema/schema-general'
 import type { CohortType, DashboardTileBasicType, TeamPublicType, TeamType, UserBasicType, UserType } from '../../types'
 import { teamLogic } from '../teamLogic'
-import type { MathDefinition } from '../trends/mathsLogic'
 import { insightDataLogic, isInsightSceneInstance } from './insightDataLogic'
 import { getInsightId } from './utils'
 import { insightsApi } from './utils/api'
@@ -212,6 +213,7 @@ export interface insightLogicActions {
             next_allowed_client_refresh?: string | null | undefined
             order: number | null
             query: Node<Record<string, any>> | null
+            query_scan?: QueryScanSummary | undefined
             query_status?: QueryStatus | undefined
             resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
@@ -259,6 +261,7 @@ export interface insightLogicActions {
             next_allowed_client_refresh?: string | null | undefined
             order: number | null
             query: Node<Record<string, any>> | null
+            query_scan?: QueryScanSummary | undefined
             query_status?: QueryStatus | undefined
             resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
@@ -383,6 +386,7 @@ export interface insightLogicActions {
             next_allowed_client_refresh?: string | null | undefined
             order?: number | null | undefined
             query?: Node<Record<string, any>> | null | undefined
+            query_scan?: QueryScanSummary | undefined
             query_status?: QueryStatus | undefined
             resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result?: any
@@ -429,6 +433,7 @@ export interface insightLogicActions {
             next_allowed_client_refresh?: string | null | undefined
             order?: number | null | undefined
             query?: Node<Record<string, any>> | null | undefined
+            query_scan?: QueryScanSummary | undefined
             query_status?: QueryStatus | undefined
             resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result?: any
@@ -972,7 +977,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     deferToUserWording?: boolean
                 ) => import('~/models/groupsModel').Noun,
                 cohortsById: Partial<Record<number | string, import('~/types').CohortType>>,
-                mathDefinitions: Partial<Record<string, import('scenes/trends/mathsLogic').MathDefinition>>
+                mathDefinitions: Partial<
+                    Record<
+                        string,
+                        import('products/product_analytics/frontend/insights/trends/mathsLogic').MathDefinition
+                    >
+                >
             ) =>
                 summarizeInsight(query, {
                     aggregationLabel,

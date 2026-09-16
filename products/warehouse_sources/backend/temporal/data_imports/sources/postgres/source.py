@@ -10,19 +10,17 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
+
+from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSSHTunnelConfig,
 )
-
-from posthog.exceptions_capture import capture_exception
-from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
-
-from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FAST_RETURN_PROBE_TIMEOUT,
@@ -128,6 +126,13 @@ _HOST_RESOLUTION_RETRY_MESSAGE = (
 
 PostgresErrors = {
     "password authentication failed for user": _INVALID_CREDENTIALS_VALIDATION_ERROR,
+    # A proxy/pooler in front of some providers rejects bad credentials during its own
+    # database-identification step instead of libpq's "password authentication failed for user",
+    # wrapping the rejection in its own sentence ("Failed to identify your database: Your Postgres
+    # credentials are incorrect. Please check your username and password and try again."). None of
+    # the password keys here substring-match it, so without this key validation falls through to
+    # `capture_exception` and a generic fallback message. Match the stable, self-contained sentence.
+    "Your Postgres credentials are incorrect": _INVALID_CREDENTIALS_VALIDATION_ERROR,
     # The bounded lookup in front of the connect reports a stalled resolver and a "try again"
     # answer as psycopg errors. Neither is a verdict on the host, so validation asks for a retry
     # rather than capturing a self-recovering failure.
@@ -157,6 +162,18 @@ PostgresErrors = {
         "On the shared pooler host the username must include your project ref (for example "
         '"postgres.<project-ref>"). Update the username to the pooler username shown in your '
         "Supabase dashboard and try again."
+    ),
+    # Some multi-tenant Postgres providers route connections by TLS SNI and reject one that
+    # carries none, naming the hostname to use instead: "FATAL: this server requires connecting
+    # via <hostname>". SNI is only sent when the configured host is a hostname, so this fires
+    # when the host is set to a raw IP address. `get_non_retryable_errors` already handles this
+    # on the streaming path; map it here too so validation returns an actionable message instead
+    # of the generic fallback. The volatile hostname is excluded from the match.
+    "requires connecting via": (
+        "Your database provider requires connecting through a specific hostname for routing "
+        '("requires connecting via ..."). This usually happens when the host is configured as an '
+        "IP address instead of a hostname. Update the host to the hostname your database "
+        "provider gave you and try again."
     ),
     # Some poolers (for example Supabase's transaction pooler on port 6543) reject bad credentials
     # during the SASL/SCRAM exchange with "FATAL: SASL authentication failed" instead of libpq's
@@ -199,6 +216,17 @@ PostgresErrors = {
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
     "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
     "server does not support SSL, but SSL was required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
+    # The plaintext half of the SNI rejection mapped above: with sslmode=prefer libpq retries
+    # without SSL after a failed encrypted attempt, and a provider that requires TLS refuses that
+    # too with "FATAL: SSL/TLS connection required. Connect with sslmode=require or higher." The
+    # key above ("SSL/TLS connection is required") is our own `SSLRequiredError` copy and carries an
+    # extra word the server message lacks, so it never substring-matched this. Placed after the
+    # "requires connecting via" entry so the host guidance wins when a message carries both.
+    "SSL/TLS connection required": (
+        'Your database refused an unencrypted connection ("SSL/TLS connection required"). PostHog '
+        "only tries an unencrypted connection after an encrypted one fails, so check that the host "
+        "is the hostname your database provider gave you rather than an IP address, then try again."
+    ),
     # An invalid SSL-negotiation response means the host/port isn't a PostgreSQL server speaking SSL
     # (wrong port, an HTTP/proxy/edge endpoint, or a TCP proxy fronting a paused/deleted database).
     # Map it to an actionable message so validation stops surfacing this expected user/upstream
@@ -325,7 +353,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.POSTGRES,
+            name=ExternalDataSourceType.POSTGRES,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["postgresql", "sql", "rds", "aws rds", "amazon rds", "aurora"],
             caption="Enter your Postgres credentials to automatically pull your Postgres data into the PostHog Data warehouse",
@@ -459,6 +487,20 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '"postgres.<project-ref>"). Update the user for this source to the pooler username '
                 "shown in your Supabase dashboard, then re-enable the sync."
             ),
+            # Some multi-tenant Postgres providers route connections by TLS SNI and reject one
+            # that carries none, naming the hostname to use instead: "FATAL: this server requires
+            # connecting via <hostname>". SNI is only sent when the configured host is a hostname
+            # (see `pinned_host_kwargs`), so this fires when the host is set to a raw IP address —
+            # with sslmode=prefer, libpq then falls back to a second, unencrypted attempt the
+            # provider also rejects for requiring SSL/TLS. Deterministic until the customer
+            # switches the host to the hostname named in the message, so retrying just re-hits it.
+            # Match the stable fragment and exclude the volatile hostname.
+            "requires connecting via": (
+                "Your database provider requires connecting through a specific hostname for "
+                'routing ("requires connecting via ..."). This usually happens when the host is '
+                "configured as an IP address instead of a hostname. Update the host for this "
+                "source to the hostname your database provider gave you, then re-enable the sync."
+            ),
             "error received from server in SCRAM exchange: Wrong password": _INVALID_CREDENTIALS_ERROR,
             # The server (commonly Supabase's Supavisor transaction pooler on port 6543) rejects the
             # SASL/SCRAM credential exchange with "FATAL: SASL authentication failed" instead of
@@ -500,6 +542,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "through PAM (for example against the system password database or LDAP), and it "
                 "rejected the username or password. Check your credentials, then re-enable the sync."
             ),
+            # Postgres's host-based access control (pg_hba.conf) rejects the connecting host/user/
+            # database combination outright, before password auth is even attempted: "FATAL: no
+            # pg_hba.conf entry for host <host>, user <user>, database <database>, SSL encryption"
+            # (and its "no encryption" sibling, when sslmode=prefer retries without TLS after the
+            # SSL attempt is rejected the same way). This is the server administrator's own access
+            # rule, not a transient condition — every retry reaches the same rule until the customer
+            # adds a matching pg_hba.conf entry. Match the stable prefix and exclude the volatile
+            # host/user/database.
+            "no pg_hba.conf entry for host": (
+                "Your PostgreSQL server's pg_hba.conf doesn't have a rule allowing this connection "
+                '("no pg_hba.conf entry for host"). Add an entry that permits the connecting host, '
+                "user, and database (over SSL or otherwise), then re-enable the sync."
+            ),
             "could not translate host name": _DNS_RESOLUTION_ERROR,
             "timeout expired connection to server at": None,
             "password authentication failed for user": _INVALID_CREDENTIALS_ERROR,
@@ -510,6 +565,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # credential mismatch only the customer can fix. Match the stable, wording-independent
             # fragment shared by both forms.
             "password authentication failed": _INVALID_CREDENTIALS_ERROR,
+            # Twin of the `PostgresErrors` (validation-time) key above: a proxy/pooler in front of
+            # some providers rejects bad credentials during its own database-identification step
+            # instead of libpq's "password authentication failed for user" ("Failed to identify your
+            # database: Your Postgres credentials are incorrect. Please check your username and
+            # password and try again."). None of the password keys above substring-match it, so
+            # without this key Temporal keeps retrying a credential mismatch only the customer can fix.
+            "Your Postgres credentials are incorrect": _INVALID_CREDENTIALS_ERROR,
             # AWS RDS Proxy reports bad credentials with its own wording instead of PostgreSQL's
             # "password authentication failed for user" — it validates against Secrets Manager and
             # returns "The password that was provided for the role <role> is wrong." None of the
@@ -747,6 +809,20 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "wrong port, or a database that's paused or deleted behind a TCP proxy. Check your "
                 "host and port, then re-enable the sync."
             ),
+            # The plaintext half of the SNI rejection mapped above: with sslmode=prefer libpq
+            # retries without SSL after a failed encrypted attempt, and a provider that requires
+            # TLS refuses that too with "FATAL: SSL/TLS connection required. Connect with
+            # sslmode=require or higher." The "SSL/TLS connection is required" key below is our own
+            # `SSLRequiredError` copy and carries an extra word the server message lacks, so it
+            # never substring-matched this, and the failure kept being retried. Placed after the
+            # "requires connecting via" entry so the host guidance wins when both wordings arrive
+            # together.
+            "SSL/TLS connection required": (
+                'Your database refused an unencrypted connection ("SSL/TLS connection required"). '
+                "PostHog only tries an unencrypted connection after an encrypted one fails, so "
+                "check that the host for this source is the hostname your database provider gave "
+                "you rather than an IP address, then re-enable the sync."
+            ),
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             _SSH_GATEWAY_SESSION_ERROR: _SSH_GATEWAY_UNREACHABLE_MESSAGE,
@@ -786,6 +862,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "connect until the database is available again. Upgrade your provider's plan or wait "
                 "for the quota to reset, then re-enable the sync."
             ),
+            # The same provider family (observed on Neon) blocks the handshake when the project's
+            # data-transfer allowance is spent, wording it as a plain libpq ERROR rather than a
+            # connection failure. The block only lifts when the customer upgrades the plan or the
+            # billing period resets, so a whole-activity retry re-hits it exactly like the
+            # compute-time quota above. Match the stable quota phrase and exclude the volatile
+            # host/IP and port libpq prefixes it with.
+            "exceeded the data transfer quota": (
+                "Your database provider blocked the connection because your project exceeded its data "
+                "transfer quota. Upgrade your provider's plan or wait for the quota to reset, then "
+                "re-enable the sync."
+            ),
             # A database proxy (observed on Prisma Accelerate) refuses the connection because the
             # account hit a plan limit, reporting "Your account has restrictions: planLimitReached".
             # The restriction is account-level state only the customer can lift (upgrade the plan or
@@ -822,6 +909,20 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 'connections because hot standby is turned off ("Hot standby mode is disabled"). '
                 "Enable hot_standby on the replica and restart it, or point this source at the primary "
                 "database, then re-enable the sync."
+            ),
+            # Postgres refuses to scan a temporary or unlogged relation on a hot standby:
+            # SQLSTATE 0A000 "cannot access temporary or unlogged relations during recovery".
+            # Neither relation type is WAL-logged, so a physical replica never receives their
+            # data — this is permanent for as long as the relation stays temporary/unlogged and
+            # the connection stays pointed at a standby, unlike "the database system is starting
+            # up" above (kept retryable there because it comes from a server not yet accepting
+            # connections at all, a condition that clears on its own). Match the stable Postgres
+            # message verbatim; it names no volatile detail.
+            "cannot access temporary or unlogged relations during recovery": (
+                "This relation is temporary or unlogged, and PostgreSQL doesn't replicate temporary "
+                'or unlogged relations to read replicas ("cannot access temporary or unlogged '
+                'relations during recovery"). Point this source at the primary database. If this is '
+                "an unlogged table, change it to a regular (logged) table, then re-enable the sync."
             ),
             # SQLSTATE 57P03 with the message "database <name> is not currently accepting connections":
             # the server is up (it answered with a FATAL) but the target database has datallowconn
@@ -1000,6 +1101,23 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '(PostgreSQL reported "value too long for type character..."). Widen the local '
                 "column's declared length to match the remote server, or remove the foreign table "
                 "from the sync, then re-enable the sync."
+            ),
+            # A selected relation is a foreign table (postgres_fdw, or a wrapper such as Supabase's
+            # "Wrappers" extension) whose locally-declared column is a timestamp/date type, but the
+            # remote server returns a value that doesn't parse as one (SQLSTATE 22007). Postgres
+            # enforces type validity at write time on ordinary tables, so this can only surface via a
+            # foreign table's separately-declared type reading data the remote side never validated
+            # against it — for example a text "\N" NULL marker left over from a text-format export
+            # that the remote side or wrapper didn't translate to a real NULL. The mismatch lives on
+            # the customer's side and is deterministic, so retrying re-reads into the same row every
+            # time. Match the stable message and exclude the volatile offending value.
+            "invalid input syntax for type timestamp": (
+                "One of the tables you selected to sync is a foreign table whose locally-declared "
+                "column is a timestamp type, but the remote server returned a value that isn't a "
+                'valid timestamp (PostgreSQL reported "invalid input syntax for type timestamp"). '
+                'This can happen when a NULL marker from a text-format export (for example "\\N") '
+                "wasn't translated to a real NULL. Fix the remote data or the foreign table's column "
+                "type, or remove the foreign table from the sync, then re-enable the sync."
             ),
         }
 
@@ -1479,7 +1597,9 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 team_id=team_id,
             )
             try:
-                schema = config.schema.strip() if isinstance(config.schema, str) and config.schema.strip() else "public"
+                # A blank schema means discovery enumerated every schema and named each table
+                # `schema.table`, so the validator has to read the schema off each entry.
+                schema = config.schema.strip() if isinstance(config.schema, str) and config.schema.strip() else None
                 return validate_cdc_prerequisites(
                     conn=conn,
                     management_mode=management_mode,  # type: ignore[arg-type]

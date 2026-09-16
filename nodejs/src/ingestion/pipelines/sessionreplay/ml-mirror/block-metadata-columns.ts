@@ -1,6 +1,8 @@
 /** Single source of truth for the ML block-metadata columns: drives the Parquet schema, the row→record
  *  mapping (in parquet-writer.ts), and the poison-row validator below. Kept free of the Parquet dependency
  *  so the message-parsing path doesn't pull it in. */
+import { isRawTeamId } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
+
 import { MlBlockMetadataRow } from './block-metadata-row'
 
 export type ParquetType = 'UTF8' | 'INT32' | 'INT64' | 'TIMESTAMP_MILLIS'
@@ -20,7 +22,6 @@ export interface BlockMetadataColumn {
 export const COLUMNS: BlockMetadataColumn[] = [
     { row: 'session_id', parquet: 'session_id', type: 'UTF8' },
     { row: 'team_id', parquet: 'team_id', type: 'UTF8' },
-    { row: 'distinct_id', parquet: 'distinct_id', type: 'UTF8' },
     { row: 'block_url', parquet: 'block_url', type: 'UTF8' },
     { row: 'block_s3_key', parquet: 'block_s3_key', type: 'UTF8' },
     { row: 'block_byte_start', parquet: 'block_byte_start', type: 'INT64', optional: true },
@@ -51,6 +52,9 @@ export function isWellFormedRow(row: unknown): row is MlBlockMetadataRow {
         return false
     }
     const r = row as Record<string, unknown>
+    if (r.format_version !== undefined && (r.format_version !== 2 || !isRawTeamId(r.team_id))) {
+        return false
+    }
     for (const col of COLUMNS) {
         if (col.optional) {
             continue
@@ -69,4 +73,18 @@ export function isWellFormedRow(row: unknown): row is MlBlockMetadataRow {
         }
     }
     return true
+}
+
+export function selectBlockMetadataFields(row: MlBlockMetadataRow): MlBlockMetadataRow {
+    return Object.fromEntries(
+        [
+            ...COLUMNS.map(({ row: field }) => field),
+            'format_version',
+            'session_start_ts_ms',
+            'replay_index_entries',
+            'replay_index_truncated',
+        ]
+            .filter((field) => Object.hasOwn(row, field))
+            .map((field) => [field, row[field as keyof MlBlockMetadataRow]])
+    ) as unknown as MlBlockMetadataRow
 }

@@ -21,10 +21,12 @@ from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import get_llm_client
 
 from products.growth.backend.enrichment.labels import (
+    TransientToolError,
     ai_processing_approved,
     bound_inputs,
     classify_payload,
     extract_input_fields,
+    has_usable_payload,
     unknown_output,
 )
 from products.growth.backend.models import EnrichmentPromptConfig, OrganizationEnrichmentFetch
@@ -101,10 +103,7 @@ def classify_fetch_for_run(
     # (nested in output["inputs"]) on success, and re-deriving it here - cheap, pure extraction,
     # no LLM call - is simpler than threading a partial result out of a caught exception. Without
     # it, a row that fails the LLM call would show an empty "inputs sent" despite having built one.
-    # Mirrors classify_payload's own short-circuit for a missing/not-found archived payload
-    # (`{"companyFound": False}`, or no payload at all): it never extracts from one, so a row for
-    # one must not display inputs the classifier never touched.
-    if not fetch.payload or fetch.payload.get("companyFound") is False:
+    if not has_usable_payload(fetch.payload):
         inputs: dict[str, Any] = {}
     else:
         inputs = bound_inputs(extract_input_fields(fetch.payload, config.input_fields))
@@ -121,6 +120,8 @@ def classify_fetch_for_run(
             output = unknown_output(config, signup_domain, "AI processing consent was revoked mid-run")
             return company, signup_domain, output, None, {}
         output = classify_payload(config, fetch.payload, signup_domain, client)
+    except TransientToolError:
+        return company, signup_domain, None, "web search unavailable, retry later", inputs
     except Exception as e:
         return company, signup_domain, None, _run_error(config, e, "classify_fetch_for_run"), inputs
     finally:

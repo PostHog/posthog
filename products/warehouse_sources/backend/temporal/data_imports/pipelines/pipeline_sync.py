@@ -186,7 +186,6 @@ async def validate_schema_and_update_table(
     queryable_folder: str,
     table_schema_dict: Optional[dict[str, str]] = None,
     primary_keys: Optional[list[str]] = None,
-    published_file_count: Optional[int] = None,
 ) -> None:
     """
     Async version of validate_schema_and_update_table_sync.
@@ -201,7 +200,6 @@ async def validate_schema_and_update_table(
         row_count: The count of synced rows
         table_format: The format of the table
         table_schema_dict: The schema of the table
-        published_file_count: Files the publish step just made queryable, when the caller knows.
     """
     logger = LOGGER.bind(team_id=team_id)
 
@@ -263,7 +261,7 @@ async def validate_schema_and_update_table(
             # A reported row_count of 0 does not always mean the run wrote nothing: the v3 consumer
             # can read 0 on a redelivered final batch, and a resumed run counts only its own attempt.
             # A publish step with nothing to make queryable is what an empty first sync looks like.
-            if row_count == 0 and table_created is None and not published_file_count:
+            if row_count == 0 and table_created is None:
                 logger.warning("Skipping table creation: row_count is 0 and no table exists yet")
                 return
 

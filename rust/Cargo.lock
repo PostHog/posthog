@@ -3028,6 +3028,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-sqlx-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "common-temporal"
 version = "0.1.0"
 dependencies = [
@@ -8718,18 +8727,20 @@ dependencies = [
 name = "personhog-identity"
 version = "0.1.0"
 dependencies = [
+ "assignment-coordination",
  "async-trait",
  "axum 0.7.9",
  "chrono",
  "common-alloc",
  "common-database",
  "common-metrics",
+ "common-sqlx-macros",
  "envconfig",
  "futures",
  "lifecycle",
- "metrics",
  "metrics-exporter-prometheus",
  "personhog-common",
+ "personhog-coordination",
  "personhog-proto",
  "rand 0.8.5",
  "serde",
@@ -8759,6 +8770,7 @@ dependencies = [
  "dashmap 6.1.0",
  "envconfig",
  "foyer",
+ "futures",
  "health",
  "k8s-awareness",
  "kube",
@@ -9334,7 +9346,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.6.2"
+version = "0.7.1"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -9358,9 +9370,9 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.25.4"
+version = "0.25.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da98c41706b1666fe28e5d8bd783ac50d4fd67e576f96d34cdb10872b45e7165"
+checksum = "0804bdcffb6f2a51f889ddc035505c1a4334da3eb65a2ccbae561a320166d7f2"
 dependencies = [
  "backtrace",
  "brotli",
