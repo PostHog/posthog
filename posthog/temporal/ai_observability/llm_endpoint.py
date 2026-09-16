@@ -8,7 +8,7 @@ its ``resolve_ai_gateway_config`` validator and ``ai_gateway_headers`` helper.
 
 import os
 import time
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Iterator, Mapping
 from typing import Any, Literal
 
 from django.conf import settings
@@ -20,7 +20,7 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.callbacks.manager import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
 from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import BaseMessage
-from langchain_core.outputs import ChatResult
+from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from langchain_openai import ChatOpenAI
 from openai import APIError, RateLimitError
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
@@ -120,6 +120,20 @@ class FlexFirstChatOpenAI(ChatOpenAI):
         except APIError as error:
             self._latch_or_raise(error)
             return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+    # stream() and astream() reach the provider without going through _generate or
+    # _agenerate, so they have to choose the tier themselves. Without this they would
+    # inherit _flex_this_call=False and every streamed request would ask for standard.
+    # Neither retries on a failure: a stream has already handed tokens to the caller by
+    # the time one can arrive, so there is no call left to reissue.
+    def _stream(self, *args: Any, **kwargs: Any) -> Iterator[ChatGenerationChunk]:
+        self._flex_this_call = self._flex_available()
+        return super()._stream(*args, **kwargs)
+
+    async def _astream(self, *args: Any, **kwargs: Any) -> AsyncIterator[ChatGenerationChunk]:
+        self._flex_this_call = self._flex_available()
+        async for chunk in super()._astream(*args, **kwargs):
+            yield chunk
 
 
 def build_langchain_chat_client(

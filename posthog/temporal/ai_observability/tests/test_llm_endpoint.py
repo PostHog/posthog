@@ -279,6 +279,47 @@ def _mock_create(*results: object) -> MagicMock:
     return client
 
 
+def _mock_stream(is_async: bool = False) -> MagicMock:
+    """Mock client.create for a streamed completion: one content chunk, then a stop."""
+    chunks = [
+        {
+            "id": "1",
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": "gpt-5.4",
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": "labeled"}, "finish_reason": None}],
+        },
+        {
+            "id": "1",
+            "object": "chat.completion.chunk",
+            "created": 0,
+            "model": "gpt-5.4",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+        },
+    ]
+
+    class _Stream:
+        def __enter__(self):
+            return iter(chunks)
+
+        def __exit__(self, *_):
+            return False
+
+        async def __aenter__(self):
+            async def gen():
+                for chunk in chunks:
+                    yield chunk
+
+            return gen()
+
+        async def __aexit__(self, *_):
+            return False
+
+    client = MagicMock()
+    client.create = AsyncMock(return_value=_Stream()) if is_async else MagicMock(return_value=_Stream())
+    return client
+
+
 class TestFlexFirstChatOpenAI:
     @pytest.mark.parametrize(
         "error",
@@ -348,6 +389,25 @@ class TestFlexFirstChatOpenAI:
 
         third = llm.client.with_raw_response.create.call_args_list[2]
         assert third.kwargs["service_tier"] == tier_after_cooldown
+
+    @pytest.mark.parametrize("latched,expected", [(False, "flex"), (True, "default")])
+    def test_streaming_asks_for_the_same_tier_as_a_buffered_call(self, latched, expected):
+        llm = _flex_client()
+        llm._flex_latched = latched
+        llm.client = _mock_stream()
+
+        list(llm.stream("label the clusters"))
+
+        assert llm.client.create.call_args.kwargs["service_tier"] == expected
+
+    async def test_async_streaming_asks_for_flex_too(self):
+        llm = _flex_client()
+        llm.async_client = _mock_stream(is_async=True)
+
+        async for _ in llm.astream("label the clusters"):
+            pass
+
+        assert llm.async_client.create.call_args.kwargs["service_tier"] == "flex"
 
     def test_standard_client_never_falls_back(self):
         llm = _flex_client(service_tier=None)
