@@ -17,7 +17,8 @@ If a same-named Slack channel or a registry entry still exists, the digest keeps
 Renaming an audience in the ownership files does not move the rows already captured under the old key.
 A branch opened before the rename keeps producing that key until it rebases, so those rows route nowhere and expire after the seven-day claim window.
 A `PullRequestAudience` row per audience is what the daily run claims, so one channel failing to post never strands the merge for another.
-Files a generator wrote do not count toward a team's stake in a merge, and a team that owns nothing else is not an audience at all.
+Generated frontend API types under `products/<name>/frontend/generated/` do not count toward a team's stake in a merge, and a team that owns nothing else is not an audience at all.
+Generated files anywhere else still count, because only that one directory shape is rewritten by a change made elsewhere.
 `hogli build:openapi` rewrites a product's generated API types whenever any shared serializer changes anywhere in the repo, so owning one says nothing about whether that team was touched.
 
 Routing is config, and it lives in the repositories rather than in this database (`backend/logic/channel_resolution.py`).

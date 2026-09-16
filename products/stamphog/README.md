@@ -19,6 +19,10 @@ The engine returns one of five verdicts, and `post_verdict` puts it on the PR.
 | ESCALATE | A GitHub comment review by `stamphog[bot]` | Removed                     |
 | WAIT     | A GitHub comment review by `stamphog[bot]` | Kept, retries               |
 | ERROR    | A GitHub comment review by `stamphog[bot]` | Kept, retries               |
+| Gated    | A GitHub comment review by `stamphog[bot]` | Removed                     |
+
+Gated means a deterministic gate denied the PR before any review, such as the deny-list or the size ceiling.
+The engine reports it as `REFUSED`; the product stores the run as gated with the verdict `WAIT`, and still removes the trigger label because a human has to take it from here.
 
 The bot never posts request-changes.
 Approvals are posted as real reviews so they count toward branch protection, once, as the Stamphog app (`stamphog[bot]`), carrying the review body.

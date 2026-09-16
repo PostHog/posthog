@@ -38,7 +38,7 @@ For the hosted product see [`products/stamphog/README.md`](../../README.md#what-
 ## Local review
 
 ```bash
-# run from anywhere inside the posthog repo
+# run from the repository root
 uv run products/stamphog/packages/pr-approval-agent/review_pr.py 46594
 
 # dry run (gates only, no LLM calls)
