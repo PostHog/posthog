@@ -4,6 +4,7 @@ import pytest
 from unittest import mock
 
 from rest_framework.response import Response
+from structlog.testing import capture_logs
 
 from posthog.schema import HogQLQuery
 
@@ -63,32 +64,94 @@ class TestReadyTrinoCatalogName:
             "status": {
                 "org": "org-1",
                 "state": "ready",
-                catalog_key: "org_catalog",
+                catalog_key: " org_catalog ",
             },
         }
-        with mock.patch(
-            "products.managed_warehouse.backend.presentation.views._request",
-            return_value=Response(body, status=200),
-        ) as request:
+        with (
+            mock.patch(
+                "products.managed_warehouse.backend.presentation.views._request",
+                return_value=Response(body, status=200),
+            ) as request,
+            capture_logs() as logs,
+        ):
             assert get_ready_trino_catalog_name("org-1") == "org_catalog"
 
         request.assert_called_once_with("GET", "org-1", "/trino", require_enabled=False)
+        assert logs == []
 
     @pytest.mark.parametrize(
-        "body",
+        "body, status_code, expected_log",
         [
-            {"enabled": False},
-            {"enabled": True, "status": {"org": "org-1", "state": "pending", "trino_catalog_name": "cat"}},
-            {"enabled": True, "status": {"org": "another-org", "state": "ready", "trino_catalog_name": "cat"}},
-            {"enabled": True, "status": {"org": "org-1", "state": "ready", "trino_catalog_name": ""}},
+            ({"error": "example upstream failure"}, 503, {"reason": "http_error", "log_level": "warning"}),
+            ([], 200, {"reason": "invalid_response", "response_type": "list", "log_level": "warning"}),
+            (
+                {"enabled": False},
+                200,
+                {"reason": "not_enabled", "enabled": False, "enabled_type": "bool", "log_level": "info"},
+            ),
+            (
+                {},
+                200,
+                {"reason": "not_enabled", "enabled": None, "enabled_type": "NoneType", "log_level": "info"},
+            ),
+            (
+                {"enabled": True},
+                200,
+                {"reason": "invalid_status", "status_type": "NoneType", "log_level": "warning"},
+            ),
+            (
+                {"enabled": True, "status": []},
+                200,
+                {"reason": "invalid_status", "status_type": "list", "log_level": "warning"},
+            ),
+            (
+                {"enabled": True, "status": {"org": "org-1", "state": "pending", "trino_catalog_name": "cat"}},
+                200,
+                {"reason": "state_not_ready", "state": "pending", "state_type": "str", "log_level": "info"},
+            ),
+            (
+                {"enabled": True, "status": {}},
+                200,
+                {"reason": "state_not_ready", "state": None, "state_type": "NoneType", "log_level": "info"},
+            ),
+            (
+                {"enabled": True, "status": {"org": "another-org", "state": "ready", "trino_catalog_name": "cat"}},
+                200,
+                {"reason": "organization_mismatch", "response_organization_id": "another-org", "log_level": "warning"},
+            ),
+            (
+                {"enabled": True, "status": {"org": "org-1", "state": "ready", "trino_catalog_name": " "}},
+                200,
+                {"reason": "invalid_catalog", "catalog_type": "str", "log_level": "warning"},
+            ),
+            (
+                {"enabled": True, "status": {"org": "org-1", "state": "ready"}},
+                200,
+                {"reason": "invalid_catalog", "catalog_type": "NoneType", "log_level": "warning"},
+            ),
         ],
     )
-    def test_rejects_an_unusable_target(self, body: dict[str, object]) -> None:
-        with mock.patch(
-            "products.managed_warehouse.backend.presentation.views._request",
-            return_value=Response(body, status=200),
+    def test_rejects_an_unusable_target(self, body: object, status_code: int, expected_log: dict[str, object]) -> None:
+        if isinstance(body, dict):
+            body = {**body, "error": "example upstream failure", "token": "example-secret"}
+            if isinstance(body.get("status"), dict):
+                body["status"] = {**body["status"], "connection": {"password": "example-secret"}}
+        with (
+            mock.patch(
+                "products.managed_warehouse.backend.presentation.views._request",
+                return_value=Response(body, status=status_code),
+            ),
+            capture_logs() as logs,
         ):
             assert get_ready_trino_catalog_name("org-1") is None
+        assert logs == [
+            {
+                "event": "trino_target_not_ready",
+                "organization_id": "org-1",
+                "status_code": status_code,
+                **expected_log,
+            }
+        ]
 
 
 class TestCompileHogQLToTrinoSQL:
