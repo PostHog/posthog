@@ -16,6 +16,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
+from products.approvals.backend.services import ChangeRequestService
 from products.feature_flags.backend.api.feature_flag import FeatureFlagViewSet, FlagRolloutWriteRequest
 from products.feature_flags.backend.facade.api import update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -69,6 +70,24 @@ ROLLOUT_ACTIONS = [
     ("set_release_condition_rollout", {"condition_index": 0, "rollout_percentage": 25}),
     ("roll_out_to_everyone", {"variant_key": "test"}),
 ]
+
+
+def rolled_out(action: str, filters: dict[str, Any]) -> dict[str, Any]:
+    """What the ROLLOUT_ACTIONS body for `action` makes of `filters`."""
+    if action == "set_release_condition_rollout":
+        groups = list(filters["groups"])
+        groups[0] = {**groups[0], "rollout_percentage": 25}
+        return {**filters, "groups": groups}
+    return {
+        **filters,
+        "groups": [{"properties": [], "rollout_percentage": 100}, *filters["groups"]],
+        "multivariate": {
+            "variants": [
+                {"key": "control", "rollout_percentage": 0, "name": "Control"},
+                {"key": "test", "rollout_percentage": 100},
+            ]
+        },
+    }
 
 
 class TestFeatureFlagRolloutActions(APIBaseTest):
@@ -308,11 +327,34 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT, response.content
         change_request = ChangeRequest.objects.get(team=self.team)
         assert change_request.resource_id == str(flag.id)
-        # A fallback to the request body would open a change request carrying no filters, which
-        # approving would then apply as no change at all.
-        assert change_request.intent["full_request_data"]["filters"] != TARGETING
+        # Approving replays these filters verbatim, so anything short of the exact transform
+        # here — the wrong condition, a dropped `multivariate`, a fallback to the empty request
+        # body — ships a change request that applies something the caller never asked for.
+        assert change_request.intent["full_request_data"]["filters"] == persisted(rolled_out(action, TARGETING))
         flag.refresh_from_db()
         assert flag.filters == TARGETING
+
+    @parameterized.expand(ROLLOUT_ACTIONS)
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_approving_a_rollout_change_request_applies_the_same_change(self, action, body, _mock_enabled):
+        # The replay rebuilds the write from the intent rather than from the request, so the
+        # cleanup exemption has to travel in the intent. Without it the approved write drops
+        # `super_groups` and `holdout_groups`, and the direct-write tests above stay green.
+        self._gate_flag_updates_on_approval()
+        legacy = {
+            **TARGETING,
+            "holdout_groups": [{"properties": [], "rollout_percentage": 5, "variant": "holdout-1"}],
+            "super_groups": [{"properties": [], "rollout_percentage": 15}],
+        }
+        flag = self._flag(filters=legacy)
+
+        assert self._act(flag, action, {**body, "version": flag.version}).status_code == status.HTTP_409_CONFLICT
+        change_request = ChangeRequest.objects.get(team=self.team)
+
+        assert ChangeRequestService(change_request, self.user).approve().status == "applied"
+
+        flag.refresh_from_db()
+        assert flag.filters == persisted(rolled_out(action, legacy))
 
     @parameterized.expand(ROLLOUT_ACTIONS)
     @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)

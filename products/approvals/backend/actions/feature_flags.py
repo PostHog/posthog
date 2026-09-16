@@ -526,6 +526,11 @@ class UpdateFeatureFlagAction(BaseAction):
 
         triggered_paths = cls._get_triggered_paths(old_filters, new_filters)
 
+        # A caller exempt from the serializer's opportunistic filter cleanup stays exempt when
+        # the approved change replays, the way the lifecycle base records it. Without this an
+        # approved rollout writes the filters back without `super_groups` and `holdout_groups`.
+        skip_cleanup = bool(getattr(request, "skip_opportunistic_filter_cleanup", False))
+
         return {
             "flag_id": flag.id if flag is not None else None,
             "flag_key": flag.key if flag is not None else change.get("key"),
@@ -541,6 +546,7 @@ class UpdateFeatureFlagAction(BaseAction):
                 "version": flag.version if flag is not None else None,
                 "updated_at": (flag.updated_at.isoformat() if flag.updated_at else None) if flag is not None else None,
             },
+            "skip_opportunistic_filter_cleanup": skip_cleanup,
         }
 
     @classmethod
