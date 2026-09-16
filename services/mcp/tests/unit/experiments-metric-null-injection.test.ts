@@ -95,4 +95,13 @@ describe('experiment-update metric null injection', () => {
         const parsedMetric = (parsed.metrics as Record<string, unknown>[])[0]!
         expect(parsedMetric).toHaveProperty('conversion_window', null)
     })
+
+    it('requires the retention start source discriminator', () => {
+        const metric = {
+            ...CLEAN_METRICS[3]![1],
+            start_event: { event: '$pageview' },
+        }
+
+        expect(updateSchema().safeParse({ id: 123, metrics: [metric] }).success).toBe(false)
+    })
 })

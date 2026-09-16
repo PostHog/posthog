@@ -973,10 +973,46 @@ class TestExperimentService(APIBaseTest):
                     "start_handling": "first_seen",
                 },
             ),
+            (
+                "valid_exposure_retention",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "retention",
+                    "start_event": {"kind": "ExperimentExposureMetricSource"},
+                    "completion_event": {"kind": "EventsNode", "event": "purchase"},
+                    "retention_window_start": 0,
+                    "retention_window_end": 7,
+                    "retention_window_unit": "day",
+                    "start_handling": "first_seen",
+                },
+            ),
         ]
     )
     def test_validate_experiment_metrics_accepts_valid_payloads(self, _: str, metric: dict) -> None:
         ExperimentService.validate_experiment_metrics([metric])
+
+    @parameterized.expand(
+        [
+            ("last_exposure", "day", "last_seen", "requires first_seen"),
+            ("weekly_exposure", "week", "first_seen", "requires a day or hour retention window"),
+        ]
+    )
+    def test_validate_experiment_metrics_rejects_invalid_exposure_retention(
+        self, _: str, unit: str, start_handling: str, expected_error: str
+    ) -> None:
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "retention",
+            "start_event": {"kind": "ExperimentExposureMetricSource"},
+            "completion_event": {"kind": "EventsNode", "event": "purchase"},
+            "retention_window_start": 0,
+            "retention_window_end": 7,
+            "retention_window_unit": unit,
+            "start_handling": start_handling,
+        }
+
+        with self.assertRaisesRegex(ValidationError, expected_error):
+            ExperimentService.validate_experiment_metrics([metric])
 
     @parameterized.expand(
         [

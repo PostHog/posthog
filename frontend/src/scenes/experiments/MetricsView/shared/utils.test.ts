@@ -91,6 +91,21 @@ describe('getDefaultMetricTitle', () => {
         }
         expect(getDefaultMetricTitle(metric)).toBe('purchase_events')
     })
+
+    it('names an exposure-based retention metric', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.RETENTION,
+            start_event: { kind: NodeKind.ExperimentExposureMetricSource },
+            completion_event: { kind: NodeKind.EventsNode, event: 'returned' },
+            retention_window_start: 1,
+            retention_window_end: 7,
+            retention_window_unit: FunnelConversionWindowTimeUnit.Day,
+            start_handling: 'first_seen',
+        }
+
+        expect(getDefaultMetricTitle(metric)).toBe('Exposure event / returned')
+    })
 })
 
 describe('isWinning', () => {

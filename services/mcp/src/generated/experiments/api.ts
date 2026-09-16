@@ -4572,564 +4572,10 @@ export const ExperimentsCreateBody = () => zod
             .union([
                 zod
                     .array(
-                        zod.object({
-                            completion_event: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For retention metrics: completion event.'),
-                            conversion_window: zod
-                                .union([zod.number(), zod.null()])
-                                .optional()
-                                .describe('Conversion window duration.'),
-                            denominator: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For ratio metrics: denominator source.'),
-                            denominator_outlier_handling: zod
-                                .union([
-                                    zod.object({
-                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
-                                        lower_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
-                                            ),
-                                        upper_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
-                                            ),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
-                                ),
-                            goal: zod
-                                .union([zod.enum(['increase', 'decrease']), zod.null()])
-                                .optional()
-                                .describe('Whether higher or lower values indicate success.'),
-                            ignore_zeros: zod
-                                .union([zod.boolean(), zod.null()])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
-                                ),
-                            kind: zod
-                                .literal('ExperimentMetric')
-                                .default(experimentsCreateBodyMetricsOneItemKindDefault),
-                            lower_bound_percentile: zod
-                                .union([
-                                    zod
-                                        .number()
-                                        .min(experimentsCreateBodyMetricsOneItemLowerBoundPercentileOneMin)
-                                        .max(experimentsCreateBodyMetricsOneItemLowerBoundPercentileOneMax),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
-                                ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
-                            name: zod
-                                .union([zod.string(), zod.null()])
-                                .optional()
-                                .describe('Human-readable metric name.'),
-                            numerator: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For ratio metrics: numerator source.'),
-                            numerator_outlier_handling: zod
-                                .union([
-                                    zod.object({
-                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
-                                        lower_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
-                                            ),
-                                        upper_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
-                                            ),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
-                                ),
-                            retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
-                            retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
-                            retention_window_unit: zod
-                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
-                                .optional(),
-                            series: zod
-                                .union([
-                                    zod.array(
+                        zod
+                            .object({
+                                completion_event: zod
+                                    .union([
                                         zod.object({
                                             event: zod
                                                 .union([zod.string(), zod.null()])
@@ -5237,12 +4683,12 @@ export const ExperimentsCreateBody = () => zod
                                                                     zod.null(),
                                                                 ])
                                                                 .default(
-                                                                    experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault
+                                                                    experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault
                                                                 ),
                                                             type: zod
                                                                 .literal('event')
                                                                 .default(
-                                                                    experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault
+                                                                    experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault
                                                                 )
                                                                 .describe('Event properties'),
                                                             value: zod
@@ -5266,322 +4712,886 @@ export const ExperimentsCreateBody = () => zod
                                                 ])
                                                 .optional()
                                                 .describe('Event property filters to narrow which events are counted.'),
-                                        })
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For retention metrics: completion event.'),
+                                conversion_window: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe('Conversion window duration.'),
+                                denominator: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For ratio metrics: denominator source.'),
+                                denominator_outlier_handling: zod
+                                    .union([
+                                        zod.object({
+                                            ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
+                                            lower_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
+                                                ),
+                                            upper_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                     ),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
-                            source: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
+                                goal: zod
+                                    .union([zod.enum(['increase', 'decrease']), zod.null()])
+                                    .optional()
+                                    .describe('Whether higher or lower values indicate success.'),
+                                ignore_zeros: zod
+                                    .union([zod.boolean(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
+                                    ),
+                                kind: zod
+                                    .literal('ExperimentMetric')
+                                    .default(experimentsCreateBodyMetricsOneItemKindDefault),
+                                lower_bound_percentile: zod
+                                    .union([
+                                        zod
+                                            .number()
+                                            .min(experimentsCreateBodyMetricsOneItemLowerBoundPercentileOneMin)
+                                            .max(experimentsCreateBodyMetricsOneItemLowerBoundPercentileOneMax),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
+                                    ),
+                                metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                                name: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('Human-readable metric name.'),
+                                numerator: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For ratio metrics: numerator source.'),
+                                numerator_outlier_handling: zod
+                                    .union([
+                                        zod.object({
+                                            ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
+                                            lower_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
+                                                ),
+                                            upper_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                    ),
+                                retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
+                                retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
+                                retention_window_unit: zod
+                                    .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                    .optional(),
+                                series: zod
+                                    .union([
+                                        zod.array(
+                                            zod.object({
+                                                event: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                                id: zod
+                                                    .union([zod.number(), zod.null()])
+                                                    .optional()
+                                                    .describe('Action ID. Required for ActionsNode.'),
+                                                kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                    ),
+                                                math_group_type_index: zod
+                                                    .union([
+                                                        zod.union([
+                                                            zod.literal(0),
+                                                            zod.literal(1),
+                                                            zod.literal(2),
+                                                            zod.literal(3),
+                                                            zod.literal(4),
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                    ),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod
+                                                                    .union([
+                                                                        zod.enum([
+                                                                            'exact',
+                                                                            'is_not',
+                                                                            'icontains',
+                                                                            'not_icontains',
+                                                                            'starts_with',
+                                                                            'not_starts_with',
+                                                                            'ends_with',
+                                                                            'not_ends_with',
+                                                                            'regex',
+                                                                            'not_regex',
+                                                                            'gt',
+                                                                            'gte',
+                                                                            'lt',
+                                                                            'lte',
+                                                                            'is_set',
+                                                                            'is_not_set',
+                                                                            'is_date_exact',
+                                                                            'is_date_before',
+                                                                            'is_date_after',
+                                                                            'between',
+                                                                            'not_between',
+                                                                            'min',
+                                                                            'max',
+                                                                            'in',
+                                                                            'not_in',
+                                                                            'is_cleaned_path_exact',
+                                                                            'flag_evaluates_to',
+                                                                            'semver_eq',
+                                                                            'semver_neq',
+                                                                            'semver_gt',
+                                                                            'semver_gte',
+                                                                            'semver_lt',
+                                                                            'semver_lte',
+                                                                            'semver_tilde',
+                                                                            'semver_caret',
+                                                                            'semver_wildcard',
+                                                                            'icontains_multi',
+                                                                            'not_icontains_multi',
+                                                                        ]),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .default(
+                                                                        experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault
+                                                                    ),
+                                                                type: zod
+                                                                    .literal('event')
+                                                                    .default(
+                                                                        experimentsCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault
+                                                                    )
+                                                                    .describe('Event properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
                                                                         zod.string(),
                                                                         zod.number(),
                                                                         zod.boolean(),
+                                                                        zod.null(),
                                                                     ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        'Event property filters to narrow which events are counted.'
+                                                    ),
+                                            })
+                                        ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
+                                source: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                 ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For mean metrics: event source.'),
-                            start_event: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
                                                 ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For retention metrics: start event.'),
-                            start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
-                            threshold: zod
-                                .union([zod.number(), zod.null()])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
-                                ),
-                            upper_bound_percentile: zod
-                                .union([
-                                    zod
-                                        .number()
-                                        .min(experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMin)
-                                        .max(experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMax),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
-                                ),
-                            uuid: zod
-                                .union([zod.string(), zod.null()])
-                                .optional()
-                                .describe('Unique identifier. Auto-generated if omitted.'),
-                        })
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For mean metrics: event source.'),
+                                start_event: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod
+                                            .object({
+                                                kind: zod.literal('ExperimentExposureMetricSource'),
+                                            })
+                                            .describe('Write-side exposure source with a required discriminator.'),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                                start_handling: zod
+                                    .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
+                                    .optional(),
+                                threshold: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
+                                    ),
+                                upper_bound_percentile: zod
+                                    .union([
+                                        zod
+                                            .number()
+                                            .min(experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMin)
+                                            .max(experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMax),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
+                                    ),
+                                uuid: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('Unique identifier. Auto-generated if omitted.'),
+                            })
+                            .describe('Write-side metric schema used by OpenAPI and MCP clients.')
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),
                 zod.null(),
@@ -5594,564 +5604,10 @@ export const ExperimentsCreateBody = () => zod
             .union([
                 zod
                     .array(
-                        zod.object({
-                            completion_event: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For retention metrics: completion event.'),
-                            conversion_window: zod
-                                .union([zod.number(), zod.null()])
-                                .optional()
-                                .describe('Conversion window duration.'),
-                            denominator: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For ratio metrics: denominator source.'),
-                            denominator_outlier_handling: zod
-                                .union([
-                                    zod.object({
-                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
-                                        lower_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
-                                            ),
-                                        upper_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
-                                            ),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
-                                ),
-                            goal: zod
-                                .union([zod.enum(['increase', 'decrease']), zod.null()])
-                                .optional()
-                                .describe('Whether higher or lower values indicate success.'),
-                            ignore_zeros: zod
-                                .union([zod.boolean(), zod.null()])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
-                                ),
-                            kind: zod
-                                .literal('ExperimentMetric')
-                                .default(experimentsCreateBodyMetricsSecondaryOneItemKindDefault),
-                            lower_bound_percentile: zod
-                                .union([
-                                    zod
-                                        .number()
-                                        .min(experimentsCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMin)
-                                        .max(experimentsCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMax),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
-                                ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
-                            name: zod
-                                .union([zod.string(), zod.null()])
-                                .optional()
-                                .describe('Human-readable metric name.'),
-                            numerator: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For ratio metrics: numerator source.'),
-                            numerator_outlier_handling: zod
-                                .union([
-                                    zod.object({
-                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
-                                        lower_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
-                                            ),
-                                        upper_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
-                                            ),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
-                                ),
-                            retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
-                            retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
-                            retention_window_unit: zod
-                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
-                                .optional(),
-                            series: zod
-                                .union([
-                                    zod.array(
+                        zod
+                            .object({
+                                completion_event: zod
+                                    .union([
                                         zod.object({
                                             event: zod
                                                 .union([zod.string(), zod.null()])
@@ -6259,12 +5715,12 @@ export const ExperimentsCreateBody = () => zod
                                                                     zod.null(),
                                                                 ])
                                                                 .default(
-                                                                    experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault
                                                                 ),
                                                             type: zod
                                                                 .literal('event')
                                                                 .default(
-                                                                    experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault
                                                                 )
                                                                 .describe('Event properties'),
                                                             value: zod
@@ -6288,322 +5744,890 @@ export const ExperimentsCreateBody = () => zod
                                                 ])
                                                 .optional()
                                                 .describe('Event property filters to narrow which events are counted.'),
-                                        })
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For retention metrics: completion event.'),
+                                conversion_window: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe('Conversion window duration.'),
+                                denominator: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For ratio metrics: denominator source.'),
+                                denominator_outlier_handling: zod
+                                    .union([
+                                        zod.object({
+                                            ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
+                                            lower_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
+                                                ),
+                                            upper_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                     ),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
-                            source: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                goal: zod
+                                    .union([zod.enum(['increase', 'decrease']), zod.null()])
+                                    .optional()
+                                    .describe('Whether higher or lower values indicate success.'),
+                                ignore_zeros: zod
+                                    .union([zod.boolean(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
+                                    ),
+                                kind: zod
+                                    .literal('ExperimentMetric')
+                                    .default(experimentsCreateBodyMetricsSecondaryOneItemKindDefault),
+                                lower_bound_percentile: zod
+                                    .union([
+                                        zod
+                                            .number()
+                                            .min(experimentsCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMin)
+                                            .max(
+                                                experimentsCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMax
                                             ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
+                                    ),
+                                metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                                name: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('Human-readable metric name.'),
+                                numerator: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For ratio metrics: numerator source.'),
+                                numerator_outlier_handling: zod
+                                    .union([
+                                        zod.object({
+                                            ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
+                                            lower_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
+                                                ),
+                                            upper_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                    ),
+                                retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
+                                retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
+                                retention_window_unit: zod
+                                    .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                    .optional(),
+                                series: zod
+                                    .union([
+                                        zod.array(
+                                            zod.object({
+                                                event: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                                id: zod
+                                                    .union([zod.number(), zod.null()])
+                                                    .optional()
+                                                    .describe('Action ID. Required for ActionsNode.'),
+                                                kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                    ),
+                                                math_group_type_index: zod
+                                                    .union([
+                                                        zod.union([
+                                                            zod.literal(0),
+                                                            zod.literal(1),
+                                                            zod.literal(2),
+                                                            zod.literal(3),
+                                                            zod.literal(4),
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                    ),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod
+                                                                    .union([
+                                                                        zod.enum([
+                                                                            'exact',
+                                                                            'is_not',
+                                                                            'icontains',
+                                                                            'not_icontains',
+                                                                            'starts_with',
+                                                                            'not_starts_with',
+                                                                            'ends_with',
+                                                                            'not_ends_with',
+                                                                            'regex',
+                                                                            'not_regex',
+                                                                            'gt',
+                                                                            'gte',
+                                                                            'lt',
+                                                                            'lte',
+                                                                            'is_set',
+                                                                            'is_not_set',
+                                                                            'is_date_exact',
+                                                                            'is_date_before',
+                                                                            'is_date_after',
+                                                                            'between',
+                                                                            'not_between',
+                                                                            'min',
+                                                                            'max',
+                                                                            'in',
+                                                                            'not_in',
+                                                                            'is_cleaned_path_exact',
+                                                                            'flag_evaluates_to',
+                                                                            'semver_eq',
+                                                                            'semver_neq',
+                                                                            'semver_gt',
+                                                                            'semver_gte',
+                                                                            'semver_lt',
+                                                                            'semver_lte',
+                                                                            'semver_tilde',
+                                                                            'semver_caret',
+                                                                            'semver_wildcard',
+                                                                            'icontains_multi',
+                                                                            'not_icontains_multi',
+                                                                        ]),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .default(
+                                                                        experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault
+                                                                    ),
+                                                                type: zod
+                                                                    .literal('event')
+                                                                    .default(
+                                                                        experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault
+                                                                    )
+                                                                    .describe('Event properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
                                                                         zod.string(),
                                                                         zod.number(),
                                                                         zod.boolean(),
+                                                                        zod.null(),
                                                                     ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        'Event property filters to narrow which events are counted.'
+                                                    ),
+                                            })
+                                        ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
+                                source: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                 ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For mean metrics: event source.'),
-                            start_event: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
                                                 ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For retention metrics: start event.'),
-                            start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
-                            threshold: zod
-                                .union([zod.number(), zod.null()])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
-                                ),
-                            upper_bound_percentile: zod
-                                .union([
-                                    zod
-                                        .number()
-                                        .min(experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin)
-                                        .max(experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
-                                ),
-                            uuid: zod
-                                .union([zod.string(), zod.null()])
-                                .optional()
-                                .describe('Unique identifier. Auto-generated if omitted.'),
-                        })
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For mean metrics: event source.'),
+                                start_event: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod
+                                            .object({
+                                                kind: zod.literal('ExperimentExposureMetricSource'),
+                                            })
+                                            .describe('Write-side exposure source with a required discriminator.'),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                                start_handling: zod
+                                    .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
+                                    .optional(),
+                                threshold: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
+                                    ),
+                                upper_bound_percentile: zod
+                                    .union([
+                                        zod
+                                            .number()
+                                            .min(experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin)
+                                            .max(
+                                                experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
+                                    ),
+                                uuid: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('Unique identifier. Auto-generated if omitted.'),
+                            })
+                            .describe('Write-side metric schema used by OpenAPI and MCP clients.')
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),
                 zod.null(),
@@ -10486,564 +10510,10 @@ export const ExperimentsPartialUpdateBody = () => zod
             .union([
                 zod
                     .array(
-                        zod.object({
-                            completion_event: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For retention metrics: completion event.'),
-                            conversion_window: zod
-                                .union([zod.number(), zod.null()])
-                                .optional()
-                                .describe('Conversion window duration.'),
-                            denominator: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For ratio metrics: denominator source.'),
-                            denominator_outlier_handling: zod
-                                .union([
-                                    zod.object({
-                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
-                                        lower_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
-                                            ),
-                                        upper_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
-                                            ),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
-                                ),
-                            goal: zod
-                                .union([zod.enum(['increase', 'decrease']), zod.null()])
-                                .optional()
-                                .describe('Whether higher or lower values indicate success.'),
-                            ignore_zeros: zod
-                                .union([zod.boolean(), zod.null()])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
-                                ),
-                            kind: zod
-                                .literal('ExperimentMetric')
-                                .default(experimentsPartialUpdateBodyMetricsOneItemKindDefault),
-                            lower_bound_percentile: zod
-                                .union([
-                                    zod
-                                        .number()
-                                        .min(experimentsPartialUpdateBodyMetricsOneItemLowerBoundPercentileOneMin)
-                                        .max(experimentsPartialUpdateBodyMetricsOneItemLowerBoundPercentileOneMax),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
-                                ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
-                            name: zod
-                                .union([zod.string(), zod.null()])
-                                .optional()
-                                .describe('Human-readable metric name.'),
-                            numerator: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For ratio metrics: numerator source.'),
-                            numerator_outlier_handling: zod
-                                .union([
-                                    zod.object({
-                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
-                                        lower_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
-                                            ),
-                                        upper_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
-                                            ),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
-                                ),
-                            retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
-                            retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
-                            retention_window_unit: zod
-                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
-                                .optional(),
-                            series: zod
-                                .union([
-                                    zod.array(
+                        zod
+                            .object({
+                                completion_event: zod
+                                    .union([
                                         zod.object({
                                             event: zod
                                                 .union([zod.string(), zod.null()])
@@ -11151,12 +10621,12 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                     zod.null(),
                                                                 ])
                                                                 .default(
-                                                                    experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault
+                                                                    experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault
                                                                 ),
                                                             type: zod
                                                                 .literal('event')
                                                                 .default(
-                                                                    experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault
+                                                                    experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault
                                                                 )
                                                                 .describe('Event properties'),
                                                             value: zod
@@ -11180,322 +10650,886 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                 ])
                                                 .optional()
                                                 .describe('Event property filters to narrow which events are counted.'),
-                                        })
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For retention metrics: completion event.'),
+                                conversion_window: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe('Conversion window duration.'),
+                                denominator: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For ratio metrics: denominator source.'),
+                                denominator_outlier_handling: zod
+                                    .union([
+                                        zod.object({
+                                            ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
+                                            lower_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
+                                                ),
+                                            upper_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                     ),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
-                            source: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
+                                goal: zod
+                                    .union([zod.enum(['increase', 'decrease']), zod.null()])
+                                    .optional()
+                                    .describe('Whether higher or lower values indicate success.'),
+                                ignore_zeros: zod
+                                    .union([zod.boolean(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
+                                    ),
+                                kind: zod
+                                    .literal('ExperimentMetric')
+                                    .default(experimentsPartialUpdateBodyMetricsOneItemKindDefault),
+                                lower_bound_percentile: zod
+                                    .union([
+                                        zod
+                                            .number()
+                                            .min(experimentsPartialUpdateBodyMetricsOneItemLowerBoundPercentileOneMin)
+                                            .max(experimentsPartialUpdateBodyMetricsOneItemLowerBoundPercentileOneMax),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
+                                    ),
+                                metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                                name: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('Human-readable metric name.'),
+                                numerator: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For ratio metrics: numerator source.'),
+                                numerator_outlier_handling: zod
+                                    .union([
+                                        zod.object({
+                                            ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
+                                            lower_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
+                                                ),
+                                            upper_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                    ),
+                                retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
+                                retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
+                                retention_window_unit: zod
+                                    .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                    .optional(),
+                                series: zod
+                                    .union([
+                                        zod.array(
+                                            zod.object({
+                                                event: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                                id: zod
+                                                    .union([zod.number(), zod.null()])
+                                                    .optional()
+                                                    .describe('Action ID. Required for ActionsNode.'),
+                                                kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                    ),
+                                                math_group_type_index: zod
+                                                    .union([
+                                                        zod.union([
+                                                            zod.literal(0),
+                                                            zod.literal(1),
+                                                            zod.literal(2),
+                                                            zod.literal(3),
+                                                            zod.literal(4),
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                    ),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod
+                                                                    .union([
+                                                                        zod.enum([
+                                                                            'exact',
+                                                                            'is_not',
+                                                                            'icontains',
+                                                                            'not_icontains',
+                                                                            'starts_with',
+                                                                            'not_starts_with',
+                                                                            'ends_with',
+                                                                            'not_ends_with',
+                                                                            'regex',
+                                                                            'not_regex',
+                                                                            'gt',
+                                                                            'gte',
+                                                                            'lt',
+                                                                            'lte',
+                                                                            'is_set',
+                                                                            'is_not_set',
+                                                                            'is_date_exact',
+                                                                            'is_date_before',
+                                                                            'is_date_after',
+                                                                            'between',
+                                                                            'not_between',
+                                                                            'min',
+                                                                            'max',
+                                                                            'in',
+                                                                            'not_in',
+                                                                            'is_cleaned_path_exact',
+                                                                            'flag_evaluates_to',
+                                                                            'semver_eq',
+                                                                            'semver_neq',
+                                                                            'semver_gt',
+                                                                            'semver_gte',
+                                                                            'semver_lt',
+                                                                            'semver_lte',
+                                                                            'semver_tilde',
+                                                                            'semver_caret',
+                                                                            'semver_wildcard',
+                                                                            'icontains_multi',
+                                                                            'not_icontains_multi',
+                                                                        ]),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .default(
+                                                                        experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault
+                                                                    ),
+                                                                type: zod
+                                                                    .literal('event')
+                                                                    .default(
+                                                                        experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault
+                                                                    )
+                                                                    .describe('Event properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
                                                                         zod.string(),
                                                                         zod.number(),
                                                                         zod.boolean(),
+                                                                        zod.null(),
                                                                     ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        'Event property filters to narrow which events are counted.'
+                                                    ),
+                                            })
+                                        ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
+                                source: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                 ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For mean metrics: event source.'),
-                            start_event: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
                                                 ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For retention metrics: start event.'),
-                            start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
-                            threshold: zod
-                                .union([zod.number(), zod.null()])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
-                                ),
-                            upper_bound_percentile: zod
-                                .union([
-                                    zod
-                                        .number()
-                                        .min(experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMin)
-                                        .max(experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMax),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
-                                ),
-                            uuid: zod
-                                .union([zod.string(), zod.null()])
-                                .optional()
-                                .describe('Unique identifier. Auto-generated if omitted.'),
-                        })
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For mean metrics: event source.'),
+                                start_event: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod
+                                            .object({
+                                                kind: zod.literal('ExperimentExposureMetricSource'),
+                                            })
+                                            .describe('Write-side exposure source with a required discriminator.'),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                                start_handling: zod
+                                    .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
+                                    .optional(),
+                                threshold: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
+                                    ),
+                                upper_bound_percentile: zod
+                                    .union([
+                                        zod
+                                            .number()
+                                            .min(experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMin)
+                                            .max(experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMax),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
+                                    ),
+                                uuid: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('Unique identifier. Auto-generated if omitted.'),
+                            })
+                            .describe('Write-side metric schema used by OpenAPI and MCP clients.')
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),
                 zod.null(),
@@ -11508,568 +11542,10 @@ export const ExperimentsPartialUpdateBody = () => zod
             .union([
                 zod
                     .array(
-                        zod.object({
-                            completion_event: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For retention metrics: completion event.'),
-                            conversion_window: zod
-                                .union([zod.number(), zod.null()])
-                                .optional()
-                                .describe('Conversion window duration.'),
-                            denominator: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For ratio metrics: denominator source.'),
-                            denominator_outlier_handling: zod
-                                .union([
-                                    zod.object({
-                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
-                                        lower_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
-                                            ),
-                                        upper_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
-                                            ),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
-                                ),
-                            goal: zod
-                                .union([zod.enum(['increase', 'decrease']), zod.null()])
-                                .optional()
-                                .describe('Whether higher or lower values indicate success.'),
-                            ignore_zeros: zod
-                                .union([zod.boolean(), zod.null()])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
-                                ),
-                            kind: zod
-                                .literal('ExperimentMetric')
-                                .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemKindDefault),
-                            lower_bound_percentile: zod
-                                .union([
-                                    zod
-                                        .number()
-                                        .min(
-                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMin
-                                        )
-                                        .max(
-                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMax
-                                        ),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
-                                ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
-                            name: zod
-                                .union([zod.string(), zod.null()])
-                                .optional()
-                                .describe('Human-readable metric name.'),
-                            numerator: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For ratio metrics: numerator source.'),
-                            numerator_outlier_handling: zod
-                                .union([
-                                    zod.object({
-                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
-                                        lower_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
-                                            ),
-                                        upper_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
-                                            ),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
-                                ),
-                            retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
-                            retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
-                            retention_window_unit: zod
-                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
-                                .optional(),
-                            series: zod
-                                .union([
-                                    zod.array(
+                        zod
+                            .object({
+                                completion_event: zod
+                                    .union([
                                         zod.object({
                                             event: zod
                                                 .union([zod.string(), zod.null()])
@@ -12177,12 +11653,12 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                                     zod.null(),
                                                                 ])
                                                                 .default(
-                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault
                                                                 ),
                                                             type: zod
                                                                 .literal('event')
                                                                 .default(
-                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault
                                                                 )
                                                                 .describe('Event properties'),
                                                             value: zod
@@ -12206,326 +11682,894 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                 ])
                                                 .optional()
                                                 .describe('Event property filters to narrow which events are counted.'),
-                                        })
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For retention metrics: completion event.'),
+                                conversion_window: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe('Conversion window duration.'),
+                                denominator: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For ratio metrics: denominator source.'),
+                                denominator_outlier_handling: zod
+                                    .union([
+                                        zod.object({
+                                            ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
+                                            lower_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
+                                                ),
+                                            upper_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                     ),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
-                            source: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                goal: zod
+                                    .union([zod.enum(['increase', 'decrease']), zod.null()])
+                                    .optional()
+                                    .describe('Whether higher or lower values indicate success.'),
+                                ignore_zeros: zod
+                                    .union([zod.boolean(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
+                                    ),
+                                kind: zod
+                                    .literal('ExperimentMetric')
+                                    .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemKindDefault),
+                                lower_bound_percentile: zod
+                                    .union([
+                                        zod
+                                            .number()
+                                            .min(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMin
+                                            )
+                                            .max(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMax
                                             ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
+                                    ),
+                                metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                                name: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('Human-readable metric name.'),
+                                numerator: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For ratio metrics: numerator source.'),
+                                numerator_outlier_handling: zod
+                                    .union([
+                                        zod.object({
+                                            ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
+                                            lower_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
+                                                ),
+                                            upper_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                    ),
+                                retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
+                                retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
+                                retention_window_unit: zod
+                                    .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                    .optional(),
+                                series: zod
+                                    .union([
+                                        zod.array(
+                                            zod.object({
+                                                event: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                                id: zod
+                                                    .union([zod.number(), zod.null()])
+                                                    .optional()
+                                                    .describe('Action ID. Required for ActionsNode.'),
+                                                kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                    ),
+                                                math_group_type_index: zod
+                                                    .union([
+                                                        zod.union([
+                                                            zod.literal(0),
+                                                            zod.literal(1),
+                                                            zod.literal(2),
+                                                            zod.literal(3),
+                                                            zod.literal(4),
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                    ),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod
+                                                                    .union([
+                                                                        zod.enum([
+                                                                            'exact',
+                                                                            'is_not',
+                                                                            'icontains',
+                                                                            'not_icontains',
+                                                                            'starts_with',
+                                                                            'not_starts_with',
+                                                                            'ends_with',
+                                                                            'not_ends_with',
+                                                                            'regex',
+                                                                            'not_regex',
+                                                                            'gt',
+                                                                            'gte',
+                                                                            'lt',
+                                                                            'lte',
+                                                                            'is_set',
+                                                                            'is_not_set',
+                                                                            'is_date_exact',
+                                                                            'is_date_before',
+                                                                            'is_date_after',
+                                                                            'between',
+                                                                            'not_between',
+                                                                            'min',
+                                                                            'max',
+                                                                            'in',
+                                                                            'not_in',
+                                                                            'is_cleaned_path_exact',
+                                                                            'flag_evaluates_to',
+                                                                            'semver_eq',
+                                                                            'semver_neq',
+                                                                            'semver_gt',
+                                                                            'semver_gte',
+                                                                            'semver_lt',
+                                                                            'semver_lte',
+                                                                            'semver_tilde',
+                                                                            'semver_caret',
+                                                                            'semver_wildcard',
+                                                                            'icontains_multi',
+                                                                            'not_icontains_multi',
+                                                                        ]),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .default(
+                                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault
+                                                                    ),
+                                                                type: zod
+                                                                    .literal('event')
+                                                                    .default(
+                                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault
+                                                                    )
+                                                                    .describe('Event properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
                                                                         zod.string(),
                                                                         zod.number(),
                                                                         zod.boolean(),
+                                                                        zod.null(),
                                                                     ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For mean metrics: event source.'),
-                            start_event: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For retention metrics: start event.'),
-                            start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
-                            threshold: zod
-                                .union([zod.number(), zod.null()])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
-                                ),
-                            upper_bound_percentile: zod
-                                .union([
-                                    zod
-                                        .number()
-                                        .min(
-                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin
-                                        )
-                                        .max(
-                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        'Event property filters to narrow which events are counted.'
+                                                    ),
+                                            })
                                         ),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
-                                ),
-                            uuid: zod
-                                .union([zod.string(), zod.null()])
-                                .optional()
-                                .describe('Unique identifier. Auto-generated if omitted.'),
-                        })
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
+                                source: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For mean metrics: event source.'),
+                                start_event: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod
+                                            .object({
+                                                kind: zod.literal('ExperimentExposureMetricSource'),
+                                            })
+                                            .describe('Write-side exposure source with a required discriminator.'),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                                start_handling: zod
+                                    .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
+                                    .optional(),
+                                threshold: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
+                                    ),
+                                upper_bound_percentile: zod
+                                    .union([
+                                        zod
+                                            .number()
+                                            .min(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin
+                                            )
+                                            .max(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
+                                    ),
+                                uuid: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('Unique identifier. Auto-generated if omitted.'),
+                            })
+                            .describe('Write-side metric schema used by OpenAPI and MCP clients.')
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),
                 zod.null(),
@@ -16380,564 +16424,10 @@ export const ExperimentsDuplicateCreateBody = () => zod
             .union([
                 zod
                     .array(
-                        zod.object({
-                            completion_event: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For retention metrics: completion event.'),
-                            conversion_window: zod
-                                .union([zod.number(), zod.null()])
-                                .optional()
-                                .describe('Conversion window duration.'),
-                            denominator: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For ratio metrics: denominator source.'),
-                            denominator_outlier_handling: zod
-                                .union([
-                                    zod.object({
-                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
-                                        lower_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
-                                            ),
-                                        upper_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
-                                            ),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
-                                ),
-                            goal: zod
-                                .union([zod.enum(['increase', 'decrease']), zod.null()])
-                                .optional()
-                                .describe('Whether higher or lower values indicate success.'),
-                            ignore_zeros: zod
-                                .union([zod.boolean(), zod.null()])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
-                                ),
-                            kind: zod
-                                .literal('ExperimentMetric')
-                                .default(experimentsDuplicateCreateBodyMetricsOneItemKindDefault),
-                            lower_bound_percentile: zod
-                                .union([
-                                    zod
-                                        .number()
-                                        .min(experimentsDuplicateCreateBodyMetricsOneItemLowerBoundPercentileOneMin)
-                                        .max(experimentsDuplicateCreateBodyMetricsOneItemLowerBoundPercentileOneMax),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
-                                ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
-                            name: zod
-                                .union([zod.string(), zod.null()])
-                                .optional()
-                                .describe('Human-readable metric name.'),
-                            numerator: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For ratio metrics: numerator source.'),
-                            numerator_outlier_handling: zod
-                                .union([
-                                    zod.object({
-                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
-                                        lower_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
-                                            ),
-                                        upper_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
-                                            ),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
-                                ),
-                            retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
-                            retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
-                            retention_window_unit: zod
-                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
-                                .optional(),
-                            series: zod
-                                .union([
-                                    zod.array(
+                        zod
+                            .object({
+                                completion_event: zod
+                                    .union([
                                         zod.object({
                                             event: zod
                                                 .union([zod.string(), zod.null()])
@@ -17045,12 +16535,12 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                     zod.null(),
                                                                 ])
                                                                 .default(
-                                                                    experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault
                                                                 ),
                                                             type: zod
                                                                 .literal('event')
                                                                 .default(
-                                                                    experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault
                                                                 )
                                                                 .describe('Event properties'),
                                                             value: zod
@@ -17074,322 +16564,890 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                 ])
                                                 .optional()
                                                 .describe('Event property filters to narrow which events are counted.'),
-                                        })
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For retention metrics: completion event.'),
+                                conversion_window: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe('Conversion window duration.'),
+                                denominator: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For ratio metrics: denominator source.'),
+                                denominator_outlier_handling: zod
+                                    .union([
+                                        zod.object({
+                                            ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
+                                            lower_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
+                                                ),
+                                            upper_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                     ),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
-                            source: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                goal: zod
+                                    .union([zod.enum(['increase', 'decrease']), zod.null()])
+                                    .optional()
+                                    .describe('Whether higher or lower values indicate success.'),
+                                ignore_zeros: zod
+                                    .union([zod.boolean(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
+                                    ),
+                                kind: zod
+                                    .literal('ExperimentMetric')
+                                    .default(experimentsDuplicateCreateBodyMetricsOneItemKindDefault),
+                                lower_bound_percentile: zod
+                                    .union([
+                                        zod
+                                            .number()
+                                            .min(experimentsDuplicateCreateBodyMetricsOneItemLowerBoundPercentileOneMin)
+                                            .max(
+                                                experimentsDuplicateCreateBodyMetricsOneItemLowerBoundPercentileOneMax
                                             ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
+                                    ),
+                                metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                                name: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('Human-readable metric name.'),
+                                numerator: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For ratio metrics: numerator source.'),
+                                numerator_outlier_handling: zod
+                                    .union([
+                                        zod.object({
+                                            ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
+                                            lower_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
+                                                ),
+                                            upper_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                    ),
+                                retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
+                                retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
+                                retention_window_unit: zod
+                                    .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                    .optional(),
+                                series: zod
+                                    .union([
+                                        zod.array(
+                                            zod.object({
+                                                event: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                                id: zod
+                                                    .union([zod.number(), zod.null()])
+                                                    .optional()
+                                                    .describe('Action ID. Required for ActionsNode.'),
+                                                kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                    ),
+                                                math_group_type_index: zod
+                                                    .union([
+                                                        zod.union([
+                                                            zod.literal(0),
+                                                            zod.literal(1),
+                                                            zod.literal(2),
+                                                            zod.literal(3),
+                                                            zod.literal(4),
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                    ),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod
+                                                                    .union([
+                                                                        zod.enum([
+                                                                            'exact',
+                                                                            'is_not',
+                                                                            'icontains',
+                                                                            'not_icontains',
+                                                                            'starts_with',
+                                                                            'not_starts_with',
+                                                                            'ends_with',
+                                                                            'not_ends_with',
+                                                                            'regex',
+                                                                            'not_regex',
+                                                                            'gt',
+                                                                            'gte',
+                                                                            'lt',
+                                                                            'lte',
+                                                                            'is_set',
+                                                                            'is_not_set',
+                                                                            'is_date_exact',
+                                                                            'is_date_before',
+                                                                            'is_date_after',
+                                                                            'between',
+                                                                            'not_between',
+                                                                            'min',
+                                                                            'max',
+                                                                            'in',
+                                                                            'not_in',
+                                                                            'is_cleaned_path_exact',
+                                                                            'flag_evaluates_to',
+                                                                            'semver_eq',
+                                                                            'semver_neq',
+                                                                            'semver_gt',
+                                                                            'semver_gte',
+                                                                            'semver_lt',
+                                                                            'semver_lte',
+                                                                            'semver_tilde',
+                                                                            'semver_caret',
+                                                                            'semver_wildcard',
+                                                                            'icontains_multi',
+                                                                            'not_icontains_multi',
+                                                                        ]),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .default(
+                                                                        experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemOperatorDefault
+                                                                    ),
+                                                                type: zod
+                                                                    .literal('event')
+                                                                    .default(
+                                                                        experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemPropertiesOneItemTypeDefault
+                                                                    )
+                                                                    .describe('Event properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
                                                                         zod.string(),
                                                                         zod.number(),
                                                                         zod.boolean(),
+                                                                        zod.null(),
                                                                     ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        'Event property filters to narrow which events are counted.'
+                                                    ),
+                                            })
+                                        ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
+                                source: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
                                                 ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For mean metrics: event source.'),
-                            start_event: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
                                                 ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For retention metrics: start event.'),
-                            start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
-                            threshold: zod
-                                .union([zod.number(), zod.null()])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
-                                ),
-                            upper_bound_percentile: zod
-                                .union([
-                                    zod
-                                        .number()
-                                        .min(experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMin)
-                                        .max(experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMax),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
-                                ),
-                            uuid: zod
-                                .union([zod.string(), zod.null()])
-                                .optional()
-                                .describe('Unique identifier. Auto-generated if omitted.'),
-                        })
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For mean metrics: event source.'),
+                                start_event: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod
+                                            .object({
+                                                kind: zod.literal('ExperimentExposureMetricSource'),
+                                            })
+                                            .describe('Write-side exposure source with a required discriminator.'),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                                start_handling: zod
+                                    .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
+                                    .optional(),
+                                threshold: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
+                                    ),
+                                upper_bound_percentile: zod
+                                    .union([
+                                        zod
+                                            .number()
+                                            .min(experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMin)
+                                            .max(
+                                                experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMax
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
+                                    ),
+                                uuid: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('Unique identifier. Auto-generated if omitted.'),
+                            })
+                            .describe('Write-side metric schema used by OpenAPI and MCP clients.')
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),
                 zod.null(),
@@ -17402,568 +17460,10 @@ export const ExperimentsDuplicateCreateBody = () => zod
             .union([
                 zod
                     .array(
-                        zod.object({
-                            completion_event: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For retention metrics: completion event.'),
-                            conversion_window: zod
-                                .union([zod.number(), zod.null()])
-                                .optional()
-                                .describe('Conversion window duration.'),
-                            denominator: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For ratio metrics: denominator source.'),
-                            denominator_outlier_handling: zod
-                                .union([
-                                    zod.object({
-                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
-                                        lower_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
-                                            ),
-                                        upper_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
-                                            ),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
-                                ),
-                            goal: zod
-                                .union([zod.enum(['increase', 'decrease']), zod.null()])
-                                .optional()
-                                .describe('Whether higher or lower values indicate success.'),
-                            ignore_zeros: zod
-                                .union([zod.boolean(), zod.null()])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
-                                ),
-                            kind: zod
-                                .literal('ExperimentMetric')
-                                .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemKindDefault),
-                            lower_bound_percentile: zod
-                                .union([
-                                    zod
-                                        .number()
-                                        .min(
-                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMin
-                                        )
-                                        .max(
-                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMax
-                                        ),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
-                                ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
-                            name: zod
-                                .union([zod.string(), zod.null()])
-                                .optional()
-                                .describe('Human-readable metric name.'),
-                            numerator: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For ratio metrics: numerator source.'),
-                            numerator_outlier_handling: zod
-                                .union([
-                                    zod.object({
-                                        ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
-                                        lower_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
-                                            ),
-                                        upper_bound_percentile: zod
-                                            .union([
-                                                zod
-                                                    .number()
-                                                    .min(
-                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
-                                                    )
-                                                    .max(
-                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
-                                                    ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
-                                            ),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
-                                ),
-                            retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
-                            retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
-                            retention_window_unit: zod
-                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
-                                .optional(),
-                            series: zod
-                                .union([
-                                    zod.array(
+                        zod
+                            .object({
+                                completion_event: zod
+                                    .union([
                                         zod.object({
                                             event: zod
                                                 .union([zod.string(), zod.null()])
@@ -18071,12 +17571,12 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                                     zod.null(),
                                                                 ])
                                                                 .default(
-                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault
                                                                 ),
                                                             type: zod
                                                                 .literal('event')
                                                                 .default(
-                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault
                                                                 )
                                                                 .describe('Event properties'),
                                                             value: zod
@@ -18100,326 +17600,894 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                 ])
                                                 .optional()
                                                 .describe('Event property filters to narrow which events are counted.'),
-                                        })
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For retention metrics: completion event.'),
+                                conversion_window: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe('Conversion window duration.'),
+                                denominator: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For ratio metrics: denominator source.'),
+                                denominator_outlier_handling: zod
+                                    .union([
+                                        zod.object({
+                                            ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
+                                            lower_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
+                                                ),
+                                            upper_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
                                     ),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
-                            source: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                goal: zod
+                                    .union([zod.enum(['increase', 'decrease']), zod.null()])
+                                    .optional()
+                                    .describe('Whether higher or lower values indicate success.'),
+                                ignore_zeros: zod
+                                    .union([zod.boolean(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: exclude zero values when computing the winsorization percentile thresholds.'
+                                    ),
+                                kind: zod
+                                    .literal('ExperimentMetric')
+                                    .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemKindDefault),
+                                lower_bound_percentile: zod
+                                    .union([
+                                        zod
+                                            .number()
+                                            .min(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMin
+                                            )
+                                            .max(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOneMax
                                             ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
+                                    ),
+                                metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                                name: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('Human-readable metric name.'),
+                                numerator: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For ratio metrics: numerator source.'),
+                                numerator_outlier_handling: zod
+                                    .union([
+                                        zod.object({
+                                            ignore_zeros: zod.union([zod.boolean(), zod.null()]).optional(),
+                                            lower_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).'
+                                                ),
+                                            upper_bound_percentile: zod
+                                                .union([
+                                                    zod
+                                                        .number()
+                                                        .min(
+                                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMin
+                                                        )
+                                                        .max(
+                                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneUpperBoundPercentileOneMax
+                                                        ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.'
+                                    ),
+                                retention_window_end: zod.union([zod.number(), zod.null()]).optional(),
+                                retention_window_start: zod.union([zod.number(), zod.null()]).optional(),
+                                retention_window_unit: zod
+                                    .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                    .optional(),
+                                series: zod
+                                    .union([
+                                        zod.array(
+                                            zod.object({
+                                                event: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                                id: zod
+                                                    .union([zod.number(), zod.null()])
+                                                    .optional()
+                                                    .describe('Action ID. Required for ActionsNode.'),
+                                                kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                                math: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'total',
+                                                            'sum',
+                                                            'unique_session',
+                                                            'min',
+                                                            'max',
+                                                            'avg',
+                                                            'dau',
+                                                            'unique_group',
+                                                            'hogql',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                    ),
+                                                math_group_type_index: zod
+                                                    .union([
+                                                        zod.union([
+                                                            zod.literal(0),
+                                                            zod.literal(1),
+                                                            zod.literal(2),
+                                                            zod.literal(3),
+                                                            zod.literal(4),
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                    ),
+                                                math_hogql: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                    ),
+                                                math_property: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                    ),
+                                                properties: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.object({
+                                                                key: zod.string(),
+                                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                                operator: zod
+                                                                    .union([
+                                                                        zod.enum([
+                                                                            'exact',
+                                                                            'is_not',
+                                                                            'icontains',
+                                                                            'not_icontains',
+                                                                            'starts_with',
+                                                                            'not_starts_with',
+                                                                            'ends_with',
+                                                                            'not_ends_with',
+                                                                            'regex',
+                                                                            'not_regex',
+                                                                            'gt',
+                                                                            'gte',
+                                                                            'lt',
+                                                                            'lte',
+                                                                            'is_set',
+                                                                            'is_not_set',
+                                                                            'is_date_exact',
+                                                                            'is_date_before',
+                                                                            'is_date_after',
+                                                                            'between',
+                                                                            'not_between',
+                                                                            'min',
+                                                                            'max',
+                                                                            'in',
+                                                                            'not_in',
+                                                                            'is_cleaned_path_exact',
+                                                                            'flag_evaluates_to',
+                                                                            'semver_eq',
+                                                                            'semver_neq',
+                                                                            'semver_gt',
+                                                                            'semver_gte',
+                                                                            'semver_lt',
+                                                                            'semver_lte',
+                                                                            'semver_tilde',
+                                                                            'semver_caret',
+                                                                            'semver_wildcard',
+                                                                            'icontains_multi',
+                                                                            'not_icontains_multi',
+                                                                        ]),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .default(
+                                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemOperatorDefault
+                                                                    ),
+                                                                type: zod
+                                                                    .literal('event')
+                                                                    .default(
+                                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemPropertiesOneItemTypeDefault
+                                                                    )
+                                                                    .describe('Event properties'),
+                                                                value: zod
+                                                                    .union([
+                                                                        zod.array(
+                                                                            zod.union([
+                                                                                zod.string(),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        ),
                                                                         zod.string(),
                                                                         zod.number(),
                                                                         zod.boolean(),
+                                                                        zod.null(),
                                                                     ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For mean metrics: event source.'),
-                            start_event: zod
-                                .union([
-                                    zod.object({
-                                        event: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
-                                        id: zod
-                                            .union([zod.number(), zod.null()])
-                                            .optional()
-                                            .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
-                                        math: zod
-                                            .union([
-                                                zod.enum([
-                                                    'total',
-                                                    'sum',
-                                                    'unique_session',
-                                                    'min',
-                                                    'max',
-                                                    'avg',
-                                                    'dau',
-                                                    'unique_group',
-                                                    'hogql',
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
-                                            ),
-                                        math_group_type_index: zod
-                                            .union([
-                                                zod.union([
-                                                    zod.literal(0),
-                                                    zod.literal(1),
-                                                    zod.literal(2),
-                                                    zod.literal(3),
-                                                    zod.literal(4),
-                                                ]),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe(
-                                                "Group type index to aggregate over. Required when math is 'unique_group'."
-                                            ),
-                                        math_hogql: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
-                                            ),
-                                        math_property: zod
-                                            .union([zod.string(), zod.null()])
-                                            .optional()
-                                            .describe(
-                                                "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
-                                            ),
-                                        properties: zod
-                                            .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod
-                                                            .union([
-                                                                zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                zod.null(),
-                                                            ])
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault
-                                                            ),
-                                                        type: zod
-                                                            .literal('event')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault
-                                                            )
-                                                            .describe('Event properties'),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
-                                                zod.null(),
-                                            ])
-                                            .optional()
-                                            .describe('Event property filters to narrow which events are counted.'),
-                                    }),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe('For retention metrics: start event.'),
-                            start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
-                            threshold: zod
-                                .union([zod.number(), zod.null()])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
-                                ),
-                            upper_bound_percentile: zod
-                                .union([
-                                    zod
-                                        .number()
-                                        .min(
-                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin
-                                        )
-                                        .max(
-                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax
+                                                                    .optional(),
+                                                            })
+                                                        ),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional()
+                                                    .describe(
+                                                        'Event property filters to narrow which events are counted.'
+                                                    ),
+                                            })
                                         ),
-                                    zod.null(),
-                                ])
-                                .optional()
-                                .describe(
-                                    'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
-                                ),
-                            uuid: zod
-                                .union([zod.string(), zod.null()])
-                                .optional()
-                                .describe('Unique identifier. Auto-generated if omitted.'),
-                        })
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
+                                source: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe('For mean metrics: event source.'),
+                                start_event: zod
+                                    .union([
+                                        zod.object({
+                                            event: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe("Event name, e.g. '$pageview'. Required for EventsNode."),
+                                            id: zod
+                                                .union([zod.number(), zod.null()])
+                                                .optional()
+                                                .describe('Action ID. Required for ActionsNode.'),
+                                            kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                            math: zod
+                                                .union([
+                                                    zod.enum([
+                                                        'total',
+                                                        'sum',
+                                                        'unique_session',
+                                                        'min',
+                                                        'max',
+                                                        'avg',
+                                                        'dau',
+                                                        'unique_group',
+                                                        'hogql',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                                                ),
+                                            math_group_type_index: zod
+                                                .union([
+                                                    zod.union([
+                                                        zod.literal(0),
+                                                        zod.literal(1),
+                                                        zod.literal(2),
+                                                        zod.literal(3),
+                                                        zod.literal(4),
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe(
+                                                    "Group type index to aggregate over. Required when math is 'unique_group'."
+                                                ),
+                                            math_hogql: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
+                                                ),
+                                            math_property: zod
+                                                .union([zod.string(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue')."
+                                                ),
+                                            properties: zod
+                                                .union([
+                                                    zod.array(
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod
+                                                                .union([
+                                                                    zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    zod.null(),
+                                                                ])
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault
+                                                                ),
+                                                            type: zod
+                                                                .literal('event')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault
+                                                                )
+                                                                .describe('Event properties'),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    ),
+                                                    zod.null(),
+                                                ])
+                                                .optional()
+                                                .describe('Event property filters to narrow which events are counted.'),
+                                        }),
+                                        zod
+                                            .object({
+                                                kind: zod.literal('ExperimentExposureMetricSource'),
+                                            })
+                                            .describe('Write-side exposure source with a required discriminator.'),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                                start_handling: zod
+                                    .union([zod.enum(['first_seen', 'last_seen']), zod.null()])
+                                    .optional(),
+                                threshold: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
+                                    ),
+                                upper_bound_percentile: zod
+                                    .union([
+                                        zod
+                                            .number()
+                                            .min(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin
+                                            )
+                                            .max(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.'
+                                    ),
+                                uuid: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('Unique identifier. Auto-generated if omitted.'),
+                            })
+                            .describe('Write-side metric schema used by OpenAPI and MCP clients.')
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),
                 zod.null(),

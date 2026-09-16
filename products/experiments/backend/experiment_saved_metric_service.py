@@ -20,6 +20,7 @@ from posthog.schema import (
 
 from posthog.models.team.team import Team
 
+from products.experiments.backend.metric_utils import validate_exposure_retention_metric
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     ExperimentSavedMetric,
@@ -62,7 +63,11 @@ class ExperimentSavedMetricService:
                 elif query["metric_type"] == ExperimentMetricType.RATIO:
                     ExperimentRatioMetric(**query)
                 elif query["metric_type"] == ExperimentMetricType.RETENTION:
-                    ExperimentRetentionMetric(**query)
+                    retention_metric = ExperimentRetentionMetric(**query)
+                    try:
+                        validate_exposure_retention_metric(retention_metric)
+                    except ValueError as error:
+                        raise ValidationError(str(error)) from error
                 else:
                     raise ValidationError(
                         "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'"

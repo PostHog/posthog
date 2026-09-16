@@ -6,6 +6,14 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.schema import (
+    EventsNode,
+    ExperimentExposureMetricSource,
+    ExperimentRetentionMetric,
+    FunnelConversionWindowTimeUnit,
+    StartHandling,
+)
+
 from products.actions.backend.models.action import Action
 from products.experiments.backend.metric_utils import (
     apply_metric_date_range,
@@ -13,7 +21,32 @@ from products.experiments.backend.metric_utils import (
     collect_metric_warehouse_tables,
     refresh_action_names_in_metric,
     resolve_action_events,
+    validate_exposure_retention_metric,
 )
+
+
+class TestExposureRetentionValidation(SimpleTestCase):
+    @parameterized.expand([(unit.value, unit) for unit in FunnelConversionWindowTimeUnit])
+    def test_retention_window_units(self, _name: str, unit: FunnelConversionWindowTimeUnit) -> None:
+        metric = ExperimentRetentionMetric(
+            start_event=ExperimentExposureMetricSource(),
+            completion_event=EventsNode(event="returned"),
+            retention_window_start=0,
+            retention_window_end=1,
+            retention_window_unit=unit,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+
+        if unit in (FunnelConversionWindowTimeUnit.DAY, FunnelConversionWindowTimeUnit.HOUR):
+            validate_exposure_retention_metric(metric)
+        else:
+            with self.assertRaisesRegex(ValueError, "requires a day or hour retention window"):
+                validate_exposure_retention_metric(metric)
+
+        metric.start_event = EventsNode(event="signup")
+        validate_exposure_retention_metric(metric)
+        metric.start_handling = StartHandling.LAST_SEEN
+        validate_exposure_retention_metric(metric)
 
 
 class TestRefreshActionNamesInMetric(BaseTest):

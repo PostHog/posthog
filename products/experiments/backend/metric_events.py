@@ -25,6 +25,7 @@ from posthog.schema import (
     ActionsNode,
     EventsNode,
     ExperimentDataWarehouseNode,
+    ExperimentExposureMetricSource,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentRatioMetric,
@@ -172,7 +173,7 @@ class MetricScanResult:
     dropped_metric_uuids: set[str]
 
 
-def node_signature(node: MetricSourceNode | ExperimentDataWarehouseNode) -> str:
+def node_signature(node: MetricSourceNode | ExperimentDataWarehouseNode | ExperimentExposureMetricSource) -> str:
     """A stable identity for a source node. Two nodes with the same signature match the same events
     and share one aggregate in the scan, so they can only ever render identical hits."""
     return node.model_dump_json(exclude_none=True)
@@ -196,9 +197,9 @@ def _metric_sources(
     # the start's: a duplicate chip implying a return the scan can't distinguish from the entry. A
     # distinct completion event (or the same event narrowed by different properties) is a separate
     # signal worth showing, whichever window it opens in.
-    sources: list[tuple[MetricSourceRole, MetricSourceNode | ExperimentDataWarehouseNode]] = [
-        (MetricSourceRole.RETENTION_START, metric.start_event)
-    ]
+    sources: list[tuple[MetricSourceRole, MetricSourceNode | ExperimentDataWarehouseNode]] = []
+    if not isinstance(metric.start_event, ExperimentExposureMetricSource):
+        sources.append((MetricSourceRole.RETENTION_START, metric.start_event))
     if node_signature(metric.completion_event) != node_signature(metric.start_event):
         sources.append((MetricSourceRole.RETENTION_COMPLETION, metric.completion_event))
     return sources
@@ -227,7 +228,12 @@ def _default_metric_title(metric: ExperimentMetric) -> str:
             f"{_source_title(metric.numerator) or 'Numerator'} / {_source_title(metric.denominator) or 'Denominator'}"
         )
     if isinstance(metric, ExperimentRetentionMetric):
-        return f"{_source_title(metric.start_event) or 'Start event'} / {_source_title(metric.completion_event) or 'Completion event'}"
+        start_title = (
+            "Exposure event"
+            if isinstance(metric.start_event, ExperimentExposureMetricSource)
+            else _source_title(metric.start_event) or "Start event"
+        )
+        return f"{start_title} / {_source_title(metric.completion_event) or 'Completion event'}"
 
 
 def resolve_metric_events(experiment: Experiment) -> list[MetricEventSource]:

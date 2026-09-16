@@ -423,6 +423,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconFlask,
         inMenu: false,
     },
+    [NodeKind.ExperimentExposureMetricSource]: {
+        name: 'Experiment Exposure Metric Source',
+        description: 'Use experiment exposure as a metric source.',
+        icon: IconFlask,
+        inMenu: false,
+    },
     [NodeKind.ExperimentMetric]: {
         name: 'Experiment Metric',
         description: 'Experiment metric configuration.',

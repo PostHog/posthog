@@ -1,33 +1,69 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import cast
+from uuid import UUID, uuid4, uuid5
 
 import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
+from unittest.mock import patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    EventPropertyFilter,
     EventsNode,
+    ExperimentEventExposureConfig,
+    ExperimentExposureMetricSource,
     ExperimentMetricMathType,
     ExperimentQuery,
     ExperimentQueryResponse,
     ExperimentRetentionMetric,
     FunnelConversionWindowTimeUnit,
+    PrecomputationMode,
+    PropertyOperator,
     StartHandling,
 )
 
 from posthog.test.test_journeys import journeys_for
 
+from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from products.experiments.backend.models.experiment import ExperimentToSavedMetric
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
     snapshot_replace_all_numbers = True
+
+    @parameterized.expand(
+        [
+            ("last_exposure", FunnelConversionWindowTimeUnit.DAY, StartHandling.LAST_SEEN, "requires first_seen"),
+            (
+                "monthly_exposure",
+                FunnelConversionWindowTimeUnit.MONTH,
+                StartHandling.FIRST_SEEN,
+                "requires a day or hour retention window",
+            ),
+        ]
+    )
+    def test_query_rejects_invalid_exposure_retention(self, name, unit, start_handling, expected_error):
+        experiment = self.create_experiment(feature_flag=self.create_feature_flag())
+        metric = ExperimentRetentionMetric(
+            start_event=ExperimentExposureMetricSource(),
+            completion_event=EventsNode(event="returned"),
+            retention_window_start=0,
+            retention_window_end=1,
+            retention_window_unit=unit,
+            start_handling=start_handling,
+        )
+
+        with self.assertRaisesRegex(ValidationError, expected_error):
+            ExperimentQueryRunner(query=ExperimentQuery(experiment_id=experiment.id, metric=metric), team=self.team)
 
     @parameterized.expand(
         [
@@ -183,6 +219,336 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.denominator_sum, 8)  # 8 users started
         self.assertEqual(test_variant.denominator_sum_squares, 8)
         self.assertEqual(test_variant.numerator_denominator_sum_product, 6)  # 6 completed
+
+    @parameterized.expand([("direct", False), ("precomputed", True)])
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
+    def test_retention_can_start_at_custom_exposure(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        metric = ExperimentRetentionMetric(
+            start_event=ExperimentExposureMetricSource(),
+            completion_event=EventsNode(event="returned"),
+            retention_window_start=24,
+            retention_window_end=48,
+            retention_window_unit=FunnelConversionWindowTimeUnit.HOUR,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+        saved_metric = ExperimentSavedMetricService(team=self.team, user=self.user).create_saved_metric(
+            name="Shared exposure retention", query=metric.model_dump(mode="json")
+        )
+        metric = ExperimentRetentionMetric.model_validate(saved_metric.query)
+        experiments = []
+        for plan in ("paid", "free"):
+            experiment = self.create_experiment(name=f"Retention for {plan}", feature_flag=feature_flag)
+            experiment.stats_config = {"method": "frequentist"}
+            exposure_config = ExperimentEventExposureConfig(
+                event="experiment_entered",
+                properties=[EventPropertyFilter(key="plan", operator=PropertyOperator.EXACT, value=plan, type="event")],
+            )
+            experiment.exposure_criteria = {"exposure_config": exposure_config.model_dump(mode="json")}
+            self._save_experiment_with_precomputation(experiment, use_precomputation)
+            ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric)
+            experiments.append(experiment)
+
+        variant_property = f"$feature/{feature_flag.key}"
+        journeys_for(
+            {
+                "retained_control": [
+                    {
+                        "event": "experiment_entered",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {variant_property: "control", "plan": "paid"},
+                    },
+                    {"event": "returned", "timestamp": "2024-01-03T12:00:00"},
+                ],
+                "late_test": [
+                    {
+                        "event": "experiment_entered",
+                        "timestamp": "2024-01-02T14:00:00",
+                        "properties": {variant_property: "test", "plan": "paid"},
+                    },
+                    {"event": "returned", "timestamp": "2024-01-04T15:00:00"},
+                ],
+                "free_control": [
+                    {
+                        "event": "experiment_entered",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {variant_property: "control", "plan": "free"},
+                    },
+                    {"event": "returned", "timestamp": "2024-01-04T13:00:00"},
+                ],
+                "free_test": [
+                    {
+                        "event": "experiment_entered",
+                        "timestamp": "2024-01-02T12:00:00",
+                        "properties": {variant_property: "test", "plan": "free"},
+                    },
+                    {"event": "returned", "timestamp": "2024-01-03T12:00:00"},
+                ],
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        for experiment, expected_control, expected_test in zip(experiments, (1, 0), (0, 1)):
+            with self.subTest(experiment=experiment.name):
+                runner = ExperimentQueryRunner(
+                    query=ExperimentQuery(
+                        experiment_id=experiment.id,
+                        kind="ExperimentQuery",
+                        metric=metric,
+                        precomputation_mode=PrecomputationMode.PRECOMPUTED
+                        if use_precomputation
+                        else PrecomputationMode.DIRECT,
+                    ),
+                    team=self.team,
+                )
+                result = cast(ExperimentQueryResponse, runner.calculate())
+                assert runner._is_precomputed is use_precomputation
+                assert runner._metric_events_precomputed is use_precomputation
+                assert result.baseline is not None and result.variant_results is not None
+                assert (result.baseline.number_of_samples, result.baseline.sum) == (1, expected_control)
+                assert (result.variant_results[0].number_of_samples, result.variant_results[0].sum) == (
+                    1,
+                    expected_test,
+                )
+
+    @parameterized.expand(
+        [
+            ("legacy_direct", False, False, "$feature_flag_called"),
+            ("legacy_precomputed", True, False, "$feature_flag_called"),
+            ("rollout_direct", False, True, "$feature_flag_called"),
+            ("rollout_precomputed", True, True, "$feature_flag_called"),
+            ("copy_completion_direct", False, False, "$experiment_exposure"),
+            ("copy_completion_precomputed", True, False, "$experiment_exposure"),
+        ]
+    )
+    @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
+    def test_retention_can_start_at_default_exposure(self, name, use_precomputation, rollout_enabled, completion_event):
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        start_date = EXPERIMENT_EXPOSURE_EVENT_CUTOFF.replace(tzinfo=None) + timedelta(days=1)
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=start_date, end_date=start_date + timedelta(days=2)
+        )
+        experiment.stats_config = {"method": "frequentist"}
+        metric = ExperimentRetentionMetric(
+            start_event=ExperimentExposureMetricSource(),
+            completion_event=EventsNode(event=completion_event),
+            retention_window_start=0,
+            retention_window_end=0,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        variant_property = f"$feature/{feature_flag.key}"
+
+        def exposure(variant: str, timestamp: str) -> list[dict]:
+            original_uuid = uuid4()
+            original = {
+                "event": "$feature_flag_called",
+                "event_uuid": str(original_uuid),
+                "timestamp": timestamp,
+                "properties": {
+                    variant_property: variant,
+                    "$feature_flag_response": variant,
+                    "$feature_flag": feature_flag.key,
+                },
+            }
+            return [
+                original,
+                {
+                    **original,
+                    "event": "$experiment_exposure",
+                    "event_uuid": str(uuid5(UUID("1b7c9119-5953-4668-97b7-ab0ef8a6bb48"), str(original_uuid))),
+                },
+            ]
+
+        timestamp = (start_date + timedelta(hours=12)).isoformat()
+        journeys_for(
+            {
+                "control_once": exposure("control", timestamp),
+                "test_twice": exposure("test", timestamp) + exposure("test", timestamp),
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        with patch(
+            "products.experiments.backend.hogql_queries.exposure_query_logic.posthoganalytics.feature_enabled",
+            return_value=rollout_enabled,
+        ):
+            runner = ExperimentQueryRunner(
+                query=ExperimentQuery(
+                    experiment_id=experiment.id,
+                    kind="ExperimentQuery",
+                    metric=metric,
+                    precomputation_mode=PrecomputationMode.PRECOMPUTED
+                    if use_precomputation
+                    else PrecomputationMode.DIRECT,
+                ),
+                team=self.team,
+            )
+            result = cast(ExperimentQueryResponse, runner.calculate())
+
+        assert runner._is_precomputed is use_precomputation
+        assert runner._metric_events_precomputed is use_precomputation
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(result.baseline.number_of_samples, 1)
+        self.assertEqual(result.baseline.sum, 0)
+        self.assertEqual(result.variant_results[0].number_of_samples, 1)
+        self.assertEqual(result.variant_results[0].sum, 1)
+
+    @parameterized.expand(
+        [
+            ("day", FunnelConversionWindowTimeUnit.DAY, 1, timedelta(days=1, hours=5), timedelta(days=2)),
+            ("day_zero", FunnelConversionWindowTimeUnit.DAY, 0, timedelta(hours=5), timedelta(days=1)),
+            ("hour", FunnelConversionWindowTimeUnit.HOUR, 1, timedelta(hours=1, minutes=45), timedelta(hours=2)),
+            ("hour_zero", FunnelConversionWindowTimeUnit.HOUR, 0, timedelta(minutes=45), timedelta(hours=1)),
+            (
+                "day_zero_dst",
+                FunnelConversionWindowTimeUnit.DAY,
+                0,
+                timedelta(days=1, minutes=45),
+                timedelta(days=1, hours=1),
+                datetime(2024, 11, 3, 4),
+                "America/New_York",
+            ),
+        ]
+    )
+    @time_machine.travel("2024-11-10T12:00:00Z", tick=False)
+    def test_exposure_retention_includes_full_final_period(
+        self, name, unit, window_end, return_offset, excluded_offset, start_date=None, team_timezone="UTC"
+    ):
+        self._setup_precomputation_test(True)
+        self.team.timezone = team_timezone
+        self.team.save()
+        start_date = start_date or datetime(2024, 1, 2)
+        exposure_time = start_date + timedelta(minutes=10)
+        experiment = self.create_experiment(start_date=start_date, end_date=start_date + timedelta(minutes=30))
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.exposure_criteria = {
+            "exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "entered", "properties": []}
+        }
+        metric = ExperimentRetentionMetric(
+            start_event=ExperimentExposureMetricSource(),
+            completion_event=EventsNode(event="returned"),
+            retention_window_start=window_end,
+            retention_window_end=window_end,
+            retention_window_unit=unit,
+            start_handling=StartHandling.FIRST_SEEN,
+            conversion_window=3,
+            conversion_window_unit=FunnelConversionWindowTimeUnit.DAY,
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, True)
+        variant_property = f"$feature/{experiment.feature_flag.key}"
+        journeys_for(
+            {
+                "retained": [
+                    {
+                        "event": "entered",
+                        "timestamp": exposure_time.isoformat(),
+                        "properties": {variant_property: "control"},
+                    },
+                    {"event": "returned", "timestamp": (start_date + return_offset).isoformat()},
+                ],
+                "outside_window": [
+                    {
+                        "event": "entered",
+                        "timestamp": exposure_time.isoformat(),
+                        "properties": {variant_property: "test"},
+                    },
+                    {"event": "returned", "timestamp": (start_date + excluded_offset).isoformat()},
+                ],
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        for mode in (PrecomputationMode.DIRECT, PrecomputationMode.PRECOMPUTED):
+            with self.subTest(mode=mode):
+                runner = ExperimentQueryRunner(
+                    query=ExperimentQuery(experiment_id=experiment.id, metric=metric, precomputation_mode=mode),
+                    team=self.team,
+                )
+                result = cast(ExperimentQueryResponse, runner.calculate())
+                assert runner._is_precomputed is (mode == PrecomputationMode.PRECOMPUTED)
+                assert runner._metric_events_precomputed is (mode == PrecomputationMode.PRECOMPUTED)
+                assert result.baseline is not None and result.variant_results is not None
+                assert (result.baseline.number_of_samples, result.baseline.sum) == (1, 1)
+                assert (result.variant_results[0].number_of_samples, result.variant_results[0].sum) == (1, 0)
+
+    @time_machine.travel("2024-01-20T12:00:00Z", tick=False)
+    def test_exposure_retention_excludes_immature_users(self):
+        self._setup_precomputation_test(True)
+        start_date = datetime(2024, 1, 2)
+        experiment = self.create_experiment(start_date=start_date, end_date=datetime(2024, 1, 19))
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.only_count_matured_users = True
+        experiment.exposure_criteria = {
+            "exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "entered", "properties": []}
+        }
+        metric = ExperimentRetentionMetric(
+            start_event=ExperimentExposureMetricSource(),
+            completion_event=EventsNode(event="returned"),
+            retention_window_start=0,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, True)
+        variant_property = f"$feature/{experiment.feature_flag.key}"
+        journeys_for(
+            {
+                "matured_control": [
+                    {
+                        "event": "entered",
+                        "timestamp": "2024-01-02T12:10:00",
+                        "properties": {variant_property: "control"},
+                    },
+                    {"event": "returned", "timestamp": "2024-01-04T12:00:00"},
+                ],
+                "immature_control": [
+                    {
+                        "event": "entered",
+                        "timestamp": "2024-01-18T12:00:00",
+                        "properties": {variant_property: "control"},
+                    },
+                    {"event": "returned", "timestamp": "2024-01-19T00:00:00"},
+                ],
+                "matured_test": [
+                    {
+                        "event": "entered",
+                        "timestamp": "2024-01-02T12:10:00",
+                        "properties": {variant_property: "test"},
+                    },
+                    {"event": "returned", "timestamp": "2024-01-04T12:00:00"},
+                ],
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        for mode in (PrecomputationMode.DIRECT, PrecomputationMode.PRECOMPUTED):
+            with self.subTest(mode=mode):
+                runner = ExperimentQueryRunner(
+                    query=ExperimentQuery(experiment_id=experiment.id, metric=metric, precomputation_mode=mode),
+                    team=self.team,
+                )
+                result = cast(ExperimentQueryResponse, runner.calculate())
+                assert runner._is_precomputed is (mode == PrecomputationMode.PRECOMPUTED)
+                assert runner._metric_events_precomputed is (mode == PrecomputationMode.PRECOMPUTED)
+                assert result.baseline is not None and result.variant_results is not None
+                # The immature exposure is 2 days old, so it stays out of the denominator.
+                assert (result.baseline.number_of_samples, result.baseline.sum) == (1, 1)
+                assert (result.variant_results[0].number_of_samples, result.variant_results[0].sum) == (1, 1)
 
     @parameterized.expand(
         [

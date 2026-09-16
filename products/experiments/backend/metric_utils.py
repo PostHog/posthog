@@ -4,14 +4,35 @@ import copy
 import logging
 from typing import Any
 
+from posthog.schema import (
+    ExperimentExposureMetricSource,
+    ExperimentRetentionMetric,
+    FunnelConversionWindowTimeUnit,
+    StartHandling,
+)
+
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
 
 
+def validate_exposure_retention_metric(metric: ExperimentRetentionMetric) -> None:
+    if not isinstance(metric.start_event, ExperimentExposureMetricSource):
+        return
+    if metric.start_handling != StartHandling.FIRST_SEEN:
+        raise ValueError("An exposure start requires first_seen start handling")
+    if metric.retention_window_unit not in (
+        FunnelConversionWindowTimeUnit.DAY,
+        FunnelConversionWindowTimeUnit.HOUR,
+    ):
+        raise ValueError("An exposure start requires a day or hour retention window")
+
+
 def _get_source_name(source: dict) -> str:
     """Extract a display name from an event/action/data warehouse source dict."""
     kind = source.get("kind", "")
+    if kind == "ExperimentExposureMetricSource":
+        return "Exposure event"
     if kind == "ExperimentDataWarehouseNode":
         return source.get("table_name") or "Table"
     # EventsNode or ActionsNode

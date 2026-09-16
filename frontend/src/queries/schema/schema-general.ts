@@ -164,6 +164,7 @@ export enum NodeKind {
     ExperimentQuery = 'ExperimentQuery',
     ExperimentExposureQuery = 'ExperimentExposureQuery',
     ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
+    ExperimentExposureMetricSource = 'ExperimentExposureMetricSource',
     ExperimentActorsQuery = 'ExperimentActorsQuery',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
@@ -5418,6 +5419,11 @@ export interface ExperimentEventExposureConfig extends Node {
     properties: AnyPropertyFilter[]
 }
 
+/** Uses the experiment's resolved exposure event as the retention start event. */
+export interface ExperimentExposureMetricSource extends Node {
+    kind: NodeKind.ExperimentExposureMetricSource
+}
+
 // ── Slim API types for experiment create/update ──────────────────────
 // Simplified versions of the full query types: they drop the nested
 // metric/node machinery (EventsNode, ExperimentMeanMetric, …) the
@@ -5500,8 +5506,8 @@ export interface ExperimentApiMetric {
     /** For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a
      *  binomial-style denominator, which is never clamped. */
     denominator_outlier_handling?: ExperimentMetricOutlierHandling
-    /** For retention metrics: start event. */
-    start_event?: ExperimentApiEventSource
+    /** For retention metrics: start event or the experiment's resolved exposure event. */
+    start_event?: ExperimentApiEventSource | ExperimentExposureMetricSource
     /** For retention metrics: completion event. */
     completion_event?: ExperimentApiEventSource
     retention_window_start?: integer
@@ -5622,6 +5628,11 @@ export type ExperimentMetricSource = ExperimentMetricSourceUnion
 /**
  * @discriminator kind
  */
+export type ExperimentRetentionStartSource = ExperimentMetricSource | ExperimentExposureMetricSource
+
+/**
+ * @discriminator kind
+ */
 export type ExperimentFunnelMetricStepUnion = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
 export type ExperimentFunnelMetricStep = ExperimentFunnelMetricStepUnion
@@ -5668,7 +5679,7 @@ export const isExperimentRatioMetric = (metric: ExperimentMetric): metric is Exp
 export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.RETENTION
     // Event that defines the start of the retention window
-    start_event: ExperimentMetricSource
+    start_event: ExperimentRetentionStartSource
     // Event that defines the completion of the retention window
     completion_event: ExperimentMetricSource
 

@@ -125,6 +125,11 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
                 ),
                 ("$pageview", "$pageview"),
             ),
+            (
+                "retention_exposure_start_uses_completion_source",
+                _retention_metric({"kind": "ExperimentExposureMetricSource"}, _events_node("returned")),
+                ("returned",),
+            ),
         ]
     )
     def test_resolves_event_sources_per_metric_type(
@@ -159,6 +164,11 @@ class TestResolveMetricEvents(MetricEventsTestMixin):
                 "retention",
                 _retention_metric(_events_node("signed up"), _events_node("uploaded file")),
                 "signed up / uploaded file",
+            ),
+            (
+                "retention_exposure_start",
+                _retention_metric({"kind": "ExperimentExposureMetricSource"}, _events_node("returned")),
+                "Exposure event / returned",
             ),
         ]
     )

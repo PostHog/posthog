@@ -248,6 +248,7 @@ POSTGRESQL_TRIM_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 
 # Combined strings functions
 STRINGS_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
+    "SHA1": HogQLFunctionMeta("SHA1", 1, 1, signatures=[((StringType(),), StringType())]),
     **STRING_FUNCTIONS,
     **STRING_SEARCH_FUNCTIONS,
     **STRING_REPLACE_FUNCTIONS,

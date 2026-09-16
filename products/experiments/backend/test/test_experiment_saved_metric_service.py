@@ -41,6 +41,34 @@ class TestExperimentSavedMetricService(APIBaseTest):
         [
             ("missing_query", None, "Query is required to create a saved metric"),
             (
+                "last_exposure",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "retention",
+                    "start_event": {"kind": "ExperimentExposureMetricSource"},
+                    "completion_event": {"kind": "EventsNode", "event": "returned"},
+                    "retention_window_start": 1,
+                    "retention_window_end": 7,
+                    "retention_window_unit": "day",
+                    "start_handling": "last_seen",
+                },
+                "An exposure start requires first_seen start handling",
+            ),
+            (
+                "monthly_exposure",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "retention",
+                    "start_event": {"kind": "ExperimentExposureMetricSource"},
+                    "completion_event": {"kind": "EventsNode", "event": "returned"},
+                    "retention_window_start": 0,
+                    "retention_window_end": 1,
+                    "retention_window_unit": "month",
+                    "start_handling": "first_seen",
+                },
+                "An exposure start requires a day or hour retention window",
+            ),
+            (
                 "invalid_kind",
                 {"kind": "not-ExperimentMetric"},
                 "Metric query kind must be 'ExperimentMetric'",

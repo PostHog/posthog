@@ -1048,7 +1048,7 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
         }
     }
 
-    const source: ExperimentMetricSource | null = match(metric)
+    const source = match(metric)
         .when(isExperimentRatioMetric, (ratioMetric) => ratioMetric.numerator)
         .when(isExperimentRetentionMetric, (retentionMetric) => retentionMetric.start_event)
         .when(isExperimentMeanMetric, (meanMetric) => meanMetric.source)
@@ -1092,6 +1092,7 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
                     dataWarehouseNode.properties.length > 0 && { properties: dataWarehouseNode.properties }),
             },
         ])
+        .with({ kind: NodeKind.ExperimentExposureMetricSource }, () => [])
         .exhaustive()
 
     return series
