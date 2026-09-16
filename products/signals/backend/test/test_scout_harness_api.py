@@ -2450,6 +2450,38 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert body[0]["emit"] is True
         assert body[0]["run_interval_minutes"] == 1440
 
+    def test_list_orders_by_the_name_each_scout_displays_under(self) -> None:
+        # A renamed scout has to sort where the reader sees it, not where its slug puts it —
+        # ordering by the identifier files "Alpha" under S for `signals-scout-zeta`.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-zeta", display_name="Alpha watch")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta")
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["skill_name"] for c in response.json()] == ["signals-scout-zeta", "signals-scout-beta"]
+
+    @parameterized.expand(
+        [
+            ("by display name", "checkout", ["signals-scout-zeta"]),
+            ("by skill name", "beta", ["signals-scout-beta"]),
+            ("case-insensitively", "CHECKOUT", ["signals-scout-zeta"]),
+            ("matching neither", "nothing here", []),
+        ]
+    )
+    def test_list_search_matches_either_name(self, _name: str, search: str, expected: list[str]) -> None:
+        # The two audiences know a scout by different names: a person types the label, a stored
+        # client types the identifier. Matching only one leaves the other unable to find it.
+        SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-zeta", display_name="Checkout failures"
+        )
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta")
+
+        response = self.client.get(self._list_url(), data={"search": search})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["skill_name"] for c in response.json()] == expected
+
     def test_list_excludes_withheld_config(self) -> None:
         # A held-back scout that still has a row (previously seeded, then withheld) is not surfaced
         # in the config list — the read surface stays consistent with the seeding + dispatch gates.

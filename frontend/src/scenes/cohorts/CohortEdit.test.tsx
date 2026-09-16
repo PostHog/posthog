@@ -7,12 +7,13 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { NEW_COHORT } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { urls } from 'scenes/urls'
 
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
-import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
+import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator, InsightShortId } from '~/types'
 
 import { CohortEdit } from './CohortEdit'
 
@@ -575,6 +576,73 @@ describe('cohortEditLogic', () => {
             expect(heading).toBeInTheDocument()
             expect(heading.closest('[aria-live="polite"]')).toBeInTheDocument()
             expect(screen.getByText(/2 of 7 IDs weren't added to this cohort/)).toBeInTheDocument()
+        })
+    })
+
+    describe('used-in summary', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        const cohortId = 8
+        const cohortName = 'Referenced cohort'
+        // 42 insights behind a 2-item page, and a cohorts block nothing references.
+        const usedInMocks = {
+            get: {
+                [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                    ...mockCohort,
+                    id: cohortId,
+                    name: cohortName,
+                },
+                [`/api/projects/:team_id/cohorts/${cohortId}/used_in/`]: {
+                    feature_flags: {
+                        results: [{ id: 7, key: 'my-flag', name: 'My flag' }],
+                        total: 1,
+                        has_more: false,
+                    },
+                    insights: {
+                        results: [
+                            { id: 1, short_id: 'abc123', name: 'Weekly signups' },
+                            { id: 2, short_id: 'def456', name: 'Activation funnel' },
+                        ],
+                        total: 42,
+                        has_more: true,
+                    },
+                    cohorts: { results: [], total: 0, has_more: false },
+                },
+            },
+        }
+
+        it('counts every use from the total and leaves the list collapsed', async () => {
+            useMocks(usedInMocks)
+
+            render(<CohortEdit id={cohortId} />)
+
+            // Anchored: 42 rather than the 2 results the page carried, and no trailing mention of
+            // the cohorts block, which nothing references.
+            expect(await screen.findByTestId('cohort-used-in-toggle')).toHaveTextContent(
+                /^Used in 1 feature flag and 42 insights$/
+            )
+            expect(screen.queryByText('Weekly signups')).not.toBeInTheDocument()
+        })
+
+        it('reveals the grouped links and the truncation note once expanded', async () => {
+            useMocks(usedInMocks)
+
+            render(<CohortEdit id={cohortId} />)
+
+            await userEvent.click(await screen.findByTestId('cohort-used-in-toggle'))
+
+            // The rendered href carries the project prefix these helpers leave off.
+            expect(screen.getByText('My flag').closest('a')).toHaveAttribute(
+                'href',
+                expect.stringContaining(urls.featureFlag(7))
+            )
+            expect(screen.getByText('Weekly signups').closest('a')).toHaveAttribute(
+                'href',
+                expect.stringContaining(urls.insightView('abc123' as InsightShortId))
+            )
+            expect(screen.getByText(/2 of 42 shown/)).toBeInTheDocument()
         })
     })
 

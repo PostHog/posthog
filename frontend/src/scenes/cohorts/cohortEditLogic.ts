@@ -130,6 +130,7 @@ export interface cohortEditLogicValues {
     showCohortErrors: boolean
     staticCohortMode: StaticCohortMode
     usedIn: CohortUsedInResponseApi | null
+    usedInExpanded: boolean
     usedInLoading: boolean
 }
 
@@ -383,6 +384,9 @@ export interface cohortEditLogicActions {
     setStaticCohortMode: (mode: StaticCohortMode) => {
         mode: StaticCohortMode
     }
+    setUsedInExpanded: (expanded: boolean) => {
+        expanded: boolean
+    }
     submitCohort: () => {
         value: boolean
     }
@@ -538,6 +542,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         refreshPersonsData: true,
         setStaticCohortMode: (mode: StaticCohortMode) => ({ mode }),
         setActiveTab: (tab: CohortEditTab) => ({ tab }),
+        setUsedInExpanded: (expanded: boolean) => ({ expanded }),
     }),
 
     reducers(({ props }) => ({
@@ -742,6 +747,12 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             'overview' as CohortEditTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        usedInExpanded: [
+            false,
+            {
+                setUsedInExpanded: (_, { expanded }) => expanded,
             },
         ],
     })),
