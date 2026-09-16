@@ -2073,6 +2073,9 @@ export interface eventUsageLogicActions {
     reportPersonSplit: (merge_count: number) => {
         merge_count: number
     }
+    reportPersonSplitRejected: (stale_distinct_id_count: number | null) => {
+        stale_distinct_id_count: number | null
+    }
     reportPersonalIntegrationConnectClicked: (kind: string) => {
         kind: string
     }
@@ -2806,6 +2809,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportInsightDraftDiscarded: (draftAgeSeconds: number) => ({ draftAgeSeconds }),
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
+        reportPersonSplitRejected: (stale_distinct_id_count: number | null) => ({ stale_distinct_id_count }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportExperimentWizardStarted: (guideVisible: boolean) => ({ guideVisible }),
@@ -3918,6 +3922,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportPersonSplit: (props) => {
             posthog.capture('split person started', props)
+        },
+        reportPersonSplitRejected: (props) => {
+            posthog.capture('split person rejected', props)
         },
         reportHelpButtonViewed: () => {
             posthog.capture('help button viewed')

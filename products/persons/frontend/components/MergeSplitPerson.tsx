@@ -56,7 +56,7 @@ export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Elemen
 }
 
 function SplitPerson(): JSX.Element | null {
-    const { person, selectedPersonToAssignSplit, executedLoading, splitMode, distinctIdsToSplit } =
+    const { person, selectedPersonToAssignSplit, executedLoading, splitMode, distinctIdsToSplit, staleDistinctIds } =
         useValues(mergeSplitPersonLogic)
     const { setSelectedPersonToAssignSplit, setSplitMode, setDistinctIdsToSplit } = useActions(mergeSplitPersonLogic)
 
@@ -108,6 +108,17 @@ function SplitPerson(): JSX.Element | null {
                         Select the distinct IDs you want to extract from this person. Each one will become its own new
                         person. The original person keeps all other distinct IDs and its properties intact.
                     </p>
+                    {staleDistinctIds && (
+                        <LemonBanner type="error" className="mt-4">
+                            {staleDistinctIds.length > 0
+                                ? `${staleDistinctIds.join(', ')} ${
+                                      staleDistinctIds.length === 1 ? 'is' : 'are'
+                                  } no longer on this person, so we removed ${
+                                      staleDistinctIds.length === 1 ? 'it' : 'them'
+                                  } from your selection. Check the updated list and try again.`
+                                : 'Some of the distinct IDs you selected are no longer on this person. Reload the page to see the current list.'}
+                        </LemonBanner>
+                    )}
                     <LemonInputSelect
                         mode="multiple"
                         options={options}

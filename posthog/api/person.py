@@ -1114,6 +1114,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 raise ValidationError("main_distinct_id cannot be combined with distinct_ids_to_split")
             unknown = set(distinct_ids_to_split) - set(distinct_ids)
             if unknown:
+                # The split modal recovers from this in place by matching the rendered `attr`
+                # (mergeSplitPersonLogic.ts), so a rename here needs a rename there.
                 raise ValidationError({"distinct_ids_to_split": f"not on this person: {sorted(unknown)}"})
 
         split_person.delay(
