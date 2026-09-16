@@ -62,6 +62,27 @@ class TestWrapClickhouseQueryError:
 
     @parameterized.expand(
         [
+            ("base64Decode", "aGVsbG8%3D"),
+            ("base64URLDecode", "aGVsbG8%3D"),
+            ("base58Decode", "0OIl"),
+        ]
+    )
+    def test_invalid_base_encoded_value_wraps_as_exposed_error(self, function: str, value: str) -> None:
+        err = ServerException(
+            f"DB::Exception: Invalid {function} value ({value}), cannot be decoded: "
+            f"In scope SELECT {function}('{value}').",
+            code=117,
+        )
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert wrapped.code_name == "invalid_base_encoded_value"
+        assert "tryBase64Decode" in str(wrapped)
+        assert value not in str(wrapped)
+
+    @parameterized.expand(
+        [
             # NETWORK_ERROR (210) is a genuine server-side fault and must not be exposed.
             (210, "NETWORK_ERROR"),
             # SYNTAX_ERROR (62) stays internal: HogQL validates syntax first, so a raw CH syntax error
@@ -74,6 +95,10 @@ class TestWrapClickhouseQueryError:
             (675, "CANNOT_PARSE_IPV4"),
             (676, "CANNOT_PARSE_IPV6"),
             (691, "UNKNOWN_ELEMENT_OF_ENUM"),
+            # INCORRECT_DATA (117) is exposed only for the causes matched by name in
+            # wrap_clickhouse_query_error, such as a failed base64 decode. Every other cause,
+            # including a warehouse file that can't be read, stays internal.
+            (117, "INCORRECT_DATA"),
         ]
     )
     def test_codes_stay_internal(self, code: int, name: str) -> None:
