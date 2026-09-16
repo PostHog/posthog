@@ -5,6 +5,7 @@ import { Spinner } from '@posthog/lemon-ui'
 import { WorkflowAppliedOutcome } from './WorkflowAppliedOutcome'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
+import { WorkflowSuggestionsIntroduction } from './WorkflowSuggestionsIntroduction'
 import { WorkflowSuggestionsSwitch } from './WorkflowSuggestionsSwitch'
 
 export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
@@ -36,19 +37,11 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
     }
 
     if (!optimisationEnabled) {
-        return (
-            <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <h3 className="mb-0">Suggestions are off for this workflow</h3>
-                    <WorkflowSuggestionsSwitch id={id} />
-                </div>
-                <p className="mb-0 text-secondary">
-                    Turn on "Suggest improvements" to have PostHog read how this workflow performs and suggest changes.
-                    Only the workflows you turn on are read, and nothing changes until you approve a suggestion and
-                    publish it.
-                </p>
-            </div>
-        )
+        return <WorkflowSuggestionsIntroduction id={id} enabled={false} />
+    }
+
+    if (pendingProposals.length === 0 && measuredApplied.length === 0) {
+        return <WorkflowSuggestionsIntroduction id={id} enabled />
     }
 
     return (
