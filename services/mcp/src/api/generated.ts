@@ -21274,6 +21274,16 @@ export namespace Schemas {
       assets?: CreateVersionFromSourceInputAssets;
     }
 
+    /**
+     * Webhook credentials the vendor does not return on create, keyed by webhookFields name. Stored before the webhook is registered, so it never runs without them.
+     */
+    export type CreateWebhookRequestInputs = {[key: string]: string};
+
+    export interface CreateWebhookRequest {
+      /** Webhook credentials the vendor does not return on create, keyed by webhookFields name. Stored before the webhook is registered, so it never runs without them. */
+      inputs?: CreateWebhookRequestInputs;
+    }
+
     export interface CreateWebhookResponse {
       /** Whether the webhook was created and registered with the source. */
       success: boolean;

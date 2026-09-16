@@ -136,14 +136,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "Defaults to false for new sources; ignored for pure direct-query sources."
         ),
     )
-    webhook_inputs = serializers.DictField(
-        child=serializers.CharField(),
-        required=False,
-        help_text=(
-            "Webhook credentials the vendor does not return on create, keyed by webhookFields name "
-            "(e.g. Mailgun's 'signing_secret'). Stored before the webhook is registered, so it never runs without them."
-        ),
-    )
     auto_sync_new_schemas = serializers.BooleanField(
         required=False,
         help_text=(
@@ -824,6 +816,14 @@ class SourceSetupSerializer(serializers.Serializer):
         help_text=(
             "Whether a synced source should also be live-queryable via direct connection. "
             "Defaults to false; ignored for pure direct-query sources."
+        ),
+    )
+    webhook_inputs = serializers.DictField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Webhook credentials the vendor does not return on create, keyed by webhookFields name "
+            "(e.g. Mailgun's 'signing_secret'). Stored before the webhook is registered, so it never runs without them."
         ),
     )
 

@@ -546,9 +546,14 @@ export const ExternalDataSourcesCheckCdcPrerequisitesForSourceCreateBody = /* @_
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod.object({
+    inputs: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            'Webhook credentials the vendor does not return on create, keyed by webhookFields name. Stored before the webhook is registered, so it never runs without them.'
+        ),
+})
 
 /**
  * Create, Read, Update and Delete External data Sources.

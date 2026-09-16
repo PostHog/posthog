@@ -4968,6 +4968,16 @@ export interface CdcStatusApi {
     published_tables?: string[]
 }
 
+/**
+ * Webhook credentials the vendor does not return on create, keyed by webhookFields name. Stored before the webhook is registered, so it never runs without them.
+ */
+export type CreateWebhookRequestApiInputs = { [key: string]: string }
+
+export interface CreateWebhookRequestApi {
+    /** Webhook credentials the vendor does not return on create, keyed by webhookFields name. Stored before the webhook is registered, so it never runs without them. */
+    inputs?: CreateWebhookRequestApiInputs
+}
+
 export interface CreateWebhookResponseApi {
     /** Whether the webhook was created and registered with the source. */
     success: boolean

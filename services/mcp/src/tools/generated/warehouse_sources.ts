@@ -575,32 +575,8 @@ const externalDataSourcesCreateWebhookCreate = (): ToolBase<
     ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.created_via !== undefined) {
-            body['created_via'] = params.created_via
-        }
-        if (params.client_secret !== undefined) {
-            body['client_secret'] = params.client_secret
-        }
-        if (params.account_id !== undefined) {
-            body['account_id'] = params.account_id
-        }
-        if (params.prefix !== undefined) {
-            body['prefix'] = params.prefix
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.direct_query_enabled !== undefined) {
-            body['direct_query_enabled'] = params.direct_query_enabled
-        }
-        if (params.auto_sync_new_schemas !== undefined) {
-            body['auto_sync_new_schemas'] = params.auto_sync_new_schemas
-        }
-        if (params.auto_sync_schema_patterns !== undefined) {
-            body['auto_sync_schema_patterns'] = params.auto_sync_schema_patterns
-        }
-        if (params.job_inputs !== undefined) {
-            body['job_inputs'] = params.job_inputs
+        if (params.inputs !== undefined) {
+            body['inputs'] = params.inputs
         }
         const result = await context.api.request<Schemas.CreateWebhookResponse>({
             method: 'POST',

@@ -1949,60 +1949,14 @@ export const ExternalDataSourcesCreateWebhookCreateParams = () => zod.object({
         ),
 })
 
-export const externalDataSourcesCreateWebhookCreateBodyPrefixMax = 100
-
-export const externalDataSourcesCreateWebhookCreateBodyDescriptionMax = 400
-
-export const externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsItemMax = 250
-
-export const externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsMax = 100
-
-export const ExternalDataSourcesCreateWebhookCreateBody = () => zod
-    .object({
-        created_via: zod
-            .union([
-                zod
-                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
-                    .describe(
-                        '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving"
-            ),
-        client_secret: zod.string(),
-        account_id: zod.string(),
-        prefix: zod.string().max(externalDataSourcesCreateWebhookCreateBodyPrefixMax).nullish(),
-        description: zod.string().max(externalDataSourcesCreateWebhookCreateBodyDescriptionMax).nullish(),
-        direct_query_enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
-            ),
-        auto_sync_new_schemas: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
-            ),
-        auto_sync_schema_patterns: zod
-            .array(
-                zod
-                    .string()
-                    .max(externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsItemMax)
-                    .describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')
-            )
-            .max(externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsMax)
-            .nullish()
-            .describe(
-                'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
-            ),
-        job_inputs: zod.unknown().optional(),
-    })
-    .describe('Mixin for serializers to add user access control fields')
+export const ExternalDataSourcesCreateWebhookCreateBody = () => zod.object({
+    inputs: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            'Webhook credentials the vendor does not return on create, keyed by webhookFields name. Stored before the webhook is registered, so it never runs without them.'
+        ),
+})
 
 /**
  * Create, Read, Update and Delete External data Sources.

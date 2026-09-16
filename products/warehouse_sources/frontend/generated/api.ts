@@ -12,6 +12,7 @@ import type {
     CdcEnableResponseApi,
     CdcPrerequisitesResponseApi,
     CdcStatusApi,
+    CreateWebhookRequestApi,
     CreateWebhookResponseApi,
     DatabaseSchemaRequestApi,
     DeleteWebhookResponseApi,
@@ -691,14 +692,14 @@ export const getExternalDataSourcesCreateWebhookCreateUrl = (projectId: string, 
 export const externalDataSourcesCreateWebhookCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    createWebhookRequestApi?: CreateWebhookRequestApi,
     options?: RequestInit
 ): Promise<CreateWebhookResponseApi> => {
     return apiMutator<CreateWebhookResponseApi>(getExternalDataSourcesCreateWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
+        body: JSON.stringify(createWebhookRequestApi),
     })
 }
 
