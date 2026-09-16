@@ -77,7 +77,12 @@ tools:
         title: Read a context wiki page
         description: >
             Read one repo-relative Markdown page from the organization context wiki. Returns its content and head_sha;
-            pass that head_sha as base_head when updating the page.
+            pass that head_sha as base_head when updating the page. Reads are bounded. Follow next_offset with the same
+            head_sha and limit until complete is true. Join content chunks in order before editing. On 409, discard the
+            chunks and restart at offset zero.
+        param_overrides:
+            limit:
+                input_schema: WikiPageReadLimitSchema
         feature_flag: context-layer
     context-wiki-page-update:
         operation: context_layer_agent_pages_update
@@ -117,7 +122,13 @@ tools:
             destructive: false
             idempotent: true
         title: Read a loop context wiki page
-        description: Read a context wiki page and its head_sha for an unattended loop run.
+        description: >
+            Read a bounded context wiki page chunk and its head_sha for an unattended loop run. Follow next_offset with
+            the same head_sha and limit until complete is true. Join all content chunks before editing. On 409, discard
+            the chunks and restart at offset zero.
+        param_overrides:
+            limit:
+                input_schema: WikiPageReadLimitSchema
         feature_flag: context-layer
     loop-context-wiki-page-update:
         operation: context_layer_agent_pages_update
@@ -174,7 +185,13 @@ tools:
             destructive: false
             idempotent: true
         title: Read this task's context wiki page
-        description: Read a context wiki page and its head_sha for an unattended task run.
+        description: >
+            Read a bounded context wiki page chunk and its head_sha for an unattended task run. Follow next_offset with
+            the same head_sha and limit until complete is true. Join all content chunks before editing. On 409, discard
+            the chunks and restart at offset zero.
+        param_overrides:
+            limit:
+                input_schema: WikiPageReadLimitSchema
         feature_flag: context-layer
     task-context-wiki-page-update:
         operation: context_layer_agent_pages_update

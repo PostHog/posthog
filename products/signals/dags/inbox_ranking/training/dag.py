@@ -77,6 +77,7 @@ from products.signals.dags.inbox_ranking.training.examples import (
     PROVENANCE_STATE_COLUMNS,
     Snapshot,
     assemble_snapshot,
+    birth_day_positives,
     build_examples,
     example_columns,
     point_in_time_mask,
@@ -89,12 +90,20 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     candidate_events,
     capture_training_events,
     examples_events,
+    holdout_calibration_events,
     promotion_event,
+    unseen_calibration_events,
     unseen_head_graded_events,
     unseen_report_graded_events,
     unseen_score_events,
 )
-from products.signals.dags.inbox_ranking.training.train import XGB_PARAMS, TrainedHead, booster_holdout_auc, train_head
+from products.signals.dags.inbox_ranking.training.train import (
+    XGB_PARAMS,
+    TrainedHead,
+    booster_holdout_auc,
+    holdout_calibration_rows,
+    train_head,
+)
 from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
     CHAMPION_ROLE,
@@ -102,6 +111,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     HeadGrade,
     ModelFamily,
     UnseenModel,
+    calibration_rows,
     empty_scores_write_allowed,
     graded_rows,
     head_grades,
@@ -350,7 +360,11 @@ def _write_examples(
     key = examples_object_key(prefix, feature_set.name, partition_key)
     write_parquet(client, bucket, key, examples_table(examples, feature_set), snapshot_date=partition_key)
     counts = {
-        name: HeadExampleCounts(rows=len(frame), positives=int(frame["label"].sum()))
+        name: HeadExampleCounts(
+            rows=len(frame),
+            positives=int(frame["label"].sum()),
+            birth_day_positives=birth_day_positives(frame),
+        )
         for name, frame in per_head.items()
     }
     metadata: dict[str, dagster.MetadataValue] = {
@@ -361,6 +375,10 @@ def _write_examples(
         },
         **{
             f"{feature_set.name}_{name}_positives": dagster.MetadataValue.int(head_counts.positives)
+            for name, head_counts in counts.items()
+        },
+        **{
+            f"{feature_set.name}_{name}_birth_day_positives": dagster.MetadataValue.int(head_counts.birth_day_positives)
             for name, head_counts in counts.items()
         },
         f"{feature_set.name}_s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
@@ -533,7 +551,19 @@ def _train_candidate(
         context.log.warning(
             f"removed {len(stale)} stale {family.name} objects from a previous run of dt={partition_key}"
         )
-    capture_training_events(context, partition_key, candidate_events(metadata))
+    capture_training_events(
+        context,
+        partition_key,
+        [
+            *candidate_events(metadata),
+            *holdout_calibration_events(
+                partition_key=partition_key,
+                run_id=context.run.run_id,
+                model_name=family.name,
+                rows=holdout_calibration_rows(trained),
+            ),
+        ],
+    )
     return {
         f"{family.name}_stale_objects_removed": dagster.MetadataValue.int(len(stale)),
         f"{family.name}_heads_trained": dagster.MetadataValue.int(len(trained)),
@@ -907,7 +937,7 @@ def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
             if head_scores.empty:
                 skipped[head.name] = f"dt={scoring_partition} scored no {head.name} row"
                 continue
-            graded = graded_rows(head_scores, labels, head)
+            graded = graded_rows(head_scores, labels, head, pool=pool)
             graded_by_head[head.name] = graded
             grades.extend(head_grades(graded, head, pool=pool, scoring_partition=scoring_partition))
         report_rows.extend(
@@ -925,6 +955,7 @@ def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
         partition_key,
         [
             *unseen_head_graded_events(run_id=context.run.run_id, grades=grades),
+            *unseen_calibration_events(run_id=context.run.run_id, rows=calibration_rows(grades)),
             *unseen_report_graded_events(run_id=context.run.run_id, rows=report_rows),
         ],
     )

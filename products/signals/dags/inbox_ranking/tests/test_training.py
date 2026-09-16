@@ -33,6 +33,11 @@ from products.signals.backend.ranking.features import (
 )
 from products.signals.dags.inbox_ranking.common import partition_object_key
 from products.signals.dags.inbox_ranking.dataset.dag import LABELS_TABLE, STATE_TABLE
+from products.signals.dags.inbox_ranking.training.calibration import (
+    BUCKETS,
+    calibration_buckets,
+    expected_calibration_error,
+)
 from products.signals.dags.inbox_ranking.training.dag import (
     METADATA_FILE,
     _delete_other_objects,
@@ -53,6 +58,7 @@ from products.signals.dags.inbox_ranking.training.examples import (
     STATE_LAG_LIMIT,
     Snapshot,
     assemble_snapshot,
+    birth_day_positives,
     build_examples,
     cap_examples,
     example_columns,
@@ -68,7 +74,9 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     candidate_events,
     capture_training_events,
     examples_events,
+    holdout_calibration_events,
     promotion_event,
+    unseen_calibration_events,
     unseen_head_graded_events,
     unseen_report_graded_events,
     unseen_score_events,
@@ -85,6 +93,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     TABULAR_MODEL_NAME,
     ModelFamily,
     UnseenModel,
+    calibration_rows,
     chance_band,
     empty_scores_write_allowed,
     graded_rows,
@@ -465,6 +474,10 @@ def test_train_head_keeps_logloss_on_a_single_class_holdout():
     assert trained.metrics.holdout_average_precision is None
     assert trained.metrics.holdout_logloss is not None and trained.metrics.holdout_logloss > 0
     assert not trained.metrics.readable
+    # With no positive in the holdout, the decile error is the whole mean score.
+    assert len(trained.calibration) == BUCKETS
+    assert trained.metrics.holdout_mean_score is not None
+    assert trained.metrics.holdout_expected_calibration_error == pytest.approx(trained.metrics.holdout_mean_score)
 
 
 def test_train_head_returns_none_without_both_classes():
@@ -515,7 +528,8 @@ def _scores(report_ids: list[str], **overrides) -> pd.DataFrame:
     base = {
         "report_id": report_ids,
         "team_id": [2] * n,
-        "report_created_at": [pd.Timestamp("2026-08-09T12:00:00Z")] * n,
+        # The default pool is the newborn one, so the default row was born on the day it was scored.
+        "report_created_at": [pd.Timestamp("2026-08-10T09:00:00Z")] * n,
         "snapshot_date": [D0] * n,
         "pool": [POOL_NAME] * n,
         "model_name": [TABULAR_MODEL_NAME] * n,
@@ -565,6 +579,23 @@ def test_build_examples_never_covers_a_report_born_on_the_partition_day():
     assert set(build_examples(snapshots, head, TABULAR_FEATURE_SET)["report_id"]) == {"old"}
 
 
+def test_build_examples_keeps_an_outcome_that_landed_on_the_reports_birth_day():
+    # Most PRs land the day the report is born. Censoring on the labels of the birth day would
+    # drop those positives from the head that predicts them.
+    head = HEADS_BY_NAME["pr_created"]
+    later = D0 + datetime.timedelta(days=head.horizon_days)
+    ids = ["newborn", "old"]
+    created = [pd.Timestamp("2026-08-10T09:00:00Z"), pd.Timestamp("2026-07-01T00:00:00Z")]
+    snapshots = {
+        date: assemble_snapshot(date, _state(ids, report_created_at=created), _labels(ids, pr_created_count=[1, 1]))
+        for date in (D0, later)
+    }
+    examples = build_examples(snapshots, head, TABULAR_FEATURE_SET)
+    # The old report's PR predates D0, so it belongs to a moment before D0 and stays censored.
+    assert examples.set_index("report_id")["label"].to_dict() == {"newborn": 1}
+    assert birth_day_positives(examples) == 1
+
+
 def test_leaked_report_ids_flags_a_pool_report_an_example_already_covers():
     # The guard must fail the asset rather than publish an AUC measured on training data.
     pool = _state(["a", "b"])
@@ -574,41 +605,144 @@ def test_leaked_report_ids_flags_a_pool_report_an_example_already_covers():
 
 def test_grading_keeps_the_scoring_moment_rows_and_reads_the_outcome_later():
     # Same rule build_examples applies, so the unseen AUC is comparable to the holdout AUC: the
-    # outcome must not have happened at scoring time, and the cohort is read at the later snapshot.
+    # cohort is read at the later snapshot, and a newborn keeps the outcome that landed on its
+    # own birth day, which is where most outcomes land.
     head = HEADS_BY_NAME["open"]
     scores = _scores(["a", "b", "c", "d", "e"], label_at_scoring=[False, True, False, False, False])
     labels = _labels(["a", "b", "c", "e"], open_count=[1, 1, 1, 0], impression_unit_count=[1, 1, 0, 1])
-    graded = graded_rows(scores, labels, head).set_index("report_id")
-    # b was already opened when it was scored, c was never impressed, d has no labels row at all.
-    assert graded["in_cohort"].to_dict() == {"a": True, "b": False, "c": False, "d": False, "e": True}
-    assert (graded.loc["a", "outcome"], graded.loc["e", "outcome"]) == (True, False)
+    graded = graded_rows(scores, labels, head, pool=POOL_NAME).set_index("report_id")
+    # c was never impressed and d has no labels row at all; b was opened on its birth day, which
+    # the newborn pool grades rather than drops.
+    assert graded["in_cohort"].to_dict() == {"a": True, "b": True, "c": False, "d": False, "e": True}
+    assert (graded.loc["a", "outcome"], graded.loc["b", "outcome"], graded.loc["e", "outcome"]) == (True, True, False)
     # An excluded row keeps its score with no outcome, so a calibration read can filter on the flag.
-    assert graded.loc[["b", "c", "d"], "outcome"].isna().all()
+    assert graded.loc[["c", "d"], "outcome"].isna().all()
+
+
+def test_grading_an_older_pool_still_drops_an_outcome_that_predates_the_score():
+    # The legacy sampled pool held reports of any age, so an outcome already observed at scoring
+    # time belongs to an earlier moment there and must stay out of the grade.
+    head = HEADS_BY_NAME["open"]
+    scores = _scores(
+        ["a", "b"],
+        pool=[LEGACY_POOL_NAME] * 2,
+        report_created_at=[pd.Timestamp("2026-07-01T00:00:00Z")] * 2,
+        label_at_scoring=[False, True],
+    )
+    labels = _labels(["a", "b"], open_count=[1, 1], impression_unit_count=[1, 1])
+    graded = graded_rows(scores, labels, head, pool=LEGACY_POOL_NAME).set_index("report_id")
+    assert graded["in_cohort"].to_dict() == {"a": True, "b": False}
+
+
+def test_grading_a_status_label_head_drops_a_newborn_outcome_from_the_scoring_day():
+    # build_examples reads label_provenance_ok on the scoring snapshot too, and no scores column
+    # carries that verdict, so grading the row would accept a label the builder can still refuse.
+    head = HEADS_BY_NAME["dismiss_wrong"]
+    scores = _scores(["a", "b"], label_at_scoring=[False, True])
+    labels = _labels(
+        ["a", "b"],
+        wrong_dismissal_count=[1, 1],
+        impression_unit_count=[1, 1],
+        label_provenance_ok=[True, True],
+    )
+    graded = graded_rows(scores, labels, head, pool=POOL_NAME).set_index("report_id")
+    assert graded["in_cohort"].to_dict() == {"a": True, "b": False}
 
 
 def test_head_grades_report_counts_and_an_undefined_auc_on_a_single_class():
     head = HEADS_BY_NAME["open"]
     labels = _labels(["a", "e"], open_count=[1, 0])
-    two_classes = graded_rows(_scores(["a", "e"], score=[0.9, 0.1]), labels, head)
+    scores = _scores(["a", "e"], score=[0.9, 0.1], label_at_scoring=[True, False])
+    two_classes = graded_rows(scores, labels, head, pool=POOL_NAME)
     (grade,) = head_grades(two_classes, head, pool=POOL_NAME, scoring_partition="2026-08-10")
     assert (grade.rows, grade.positives, grade.auc, grade.base_rate) == (2, 1, 1.0, 0.5)
+    # a was opened on its birth day, so the grade says how much of its signal that day carries.
+    assert grade.birth_day_positives == 1
     assert grade.recency_auc == 0.5  # both reports are the same age, so newest-first cannot rank them
     assert grade.null_auc is not None
     # A head with rows but one outcome class still reports, so the daily series has no gap.
     (single_class,) = head_grades(
-        graded_rows(_scores(["e"]), _labels(["e"], open_count=[0]), head),
+        graded_rows(_scores(["e"]), _labels(["e"], open_count=[0]), head, pool=POOL_NAME),
         head,
         pool=POOL_NAME,
         scoring_partition="2026-08-10",
     )
     assert (single_class.rows, single_class.positives, single_class.auc) == (1, 0, None)
     assert (single_class.null_auc, single_class.null_auc_std) == (None, None)
+    # No AUC, and the score gap is still readable.
+    assert (single_class.mean_score, single_class.expected_calibration_error) == (0.5, 0.5)
     # Counts are ints and the undefined AUC is dropped: the graded asset writes these as Dagster
     # metadata. The family is in the key, so a second family cannot overwrite the first's entries.
     metadata = grade_metadata([grade])
     assert metadata["open_tabular_xgb_candidate_rows"] == dagster.MetadataValue.int(2)
     assert metadata["open_tabular_xgb_candidate_auc"] == dagster.MetadataValue.float(1.0)
     assert "open_tabular_xgb_candidate_auc" not in grade_metadata([single_class])
+
+
+def test_calibration_buckets_keep_a_run_of_tied_scores_in_one_bucket():
+    # Splitting a run of equal scores would give each half a realized rate that depends on the
+    # order the rows arrived in, and report a gap that is not there.
+    scores = np.array([0.1] * 8 + [1.0, 1.0])
+    outcomes = np.array([False] * 8 + [True, True])
+    buckets = calibration_buckets(outcomes, scores, buckets=5)
+    assert [(bucket.bucket, bucket.rows, bucket.realized_rate) for bucket in buckets] == [(1, 8, 0.0), (2, 2, 1.0)]
+    # Row-weighted, so the perfectly calibrated top bucket does not count for half of the error.
+    assert expected_calibration_error(buckets) == pytest.approx(0.08)
+
+
+def test_calibration_error_on_tied_scores_does_not_move_with_the_row_order():
+    # Ten of twenty reports on one score opened: that score is calibrated, however the frame is
+    # ordered. A split run would read 0.0 interleaved and 0.5 grouped.
+    tied = np.full(20, 0.5)
+    interleaved = calibration_buckets(np.array([True, False] * 10), tied)
+    grouped = calibration_buckets(np.array([True] * 10 + [False] * 10), tied)
+    assert expected_calibration_error(interleaved) == expected_calibration_error(grouped) == 0.0
+
+
+def test_calibration_buckets_fill_the_table_when_the_scores_are_distinct():
+    rng = np.random.default_rng(0)
+    scores = rng.random(100)
+    buckets = calibration_buckets(rng.random(100) < scores, scores)
+    assert len(buckets) == BUCKETS
+    assert sum(bucket.rows for bucket in buckets) == 100
+
+
+def test_calibration_reads_a_cohort_thinner_than_the_table_without_an_empty_bucket():
+    buckets = calibration_buckets(np.array([True, False]), np.array([0.7, 0.2]))
+    assert [(bucket.bucket, bucket.rows, bucket.mean_score, bucket.realized_rate) for bucket in buckets] == [
+        (1, 1, 0.2, 0.0),
+        (2, 1, 0.7, 1.0),
+    ]
+    assert expected_calibration_error(()) is None
+
+
+def test_head_grades_report_the_score_gap_a_perfect_auc_hides():
+    # Perfectly ranked and far too confident. AUC is 1.0 and says nothing about the gap, which is
+    # what a composite score over two heads runs on.
+    head = HEADS_BY_NAME["open"]
+    report_ids = [f"r{index}" for index in range(10)]
+    labels = _labels(report_ids, open_count=[1] + [0] * 9)
+    scores = _scores(report_ids, score=[0.95, *[0.5] * 9])
+    (grade,) = head_grades(
+        graded_rows(scores, labels, head, pool=POOL_NAME), head, pool=POOL_NAME, scoring_partition="2026-08-10"
+    )
+    assert grade.auc == 1.0
+    assert grade.base_rate == 0.1
+    assert grade.mean_score == pytest.approx(0.545)
+    assert grade.expected_calibration_error == pytest.approx(0.455)
+    rows = calibration_rows([grade])
+    assert [(row["bucket"], row["rows"]) for row in rows] == [(1, 9), (2, 1)]
+    assert sum(bucket.rows for bucket in grade.calibration) == grade.rows
+    assert {
+        "head": "open",
+        "model_name": TABULAR_MODEL_NAME,
+        "model_role": CANDIDATE_ROLE,
+        "pool": POOL_NAME,
+        "bucket": 2,
+        "positives": 1,
+        "mean_score": 0.95,
+        "realized_rate": 1.0,
+    }.items() <= rows[-1].items()
 
 
 @pytest.mark.parametrize(
@@ -644,7 +778,10 @@ def test_head_grades_keep_two_families_apart_on_the_same_rows():
     labels = _labels(["a", "e"], open_count=[1, 0])
     tabular = _scores(["a", "e"], score=[0.9, 0.1])
     embeddings = _scores(["a", "e"], score=[0.1, 0.9], model_name=[EMBEDDINGS_MODEL_NAME] * 2)
-    graded = pd.concat([graded_rows(tabular, labels, head), graded_rows(embeddings, labels, head)], ignore_index=True)
+    graded = pd.concat(
+        [graded_rows(tabular, labels, head, pool=POOL_NAME), graded_rows(embeddings, labels, head, pool=POOL_NAME)],
+        ignore_index=True,
+    )
     grades = head_grades(graded, head, pool=POOL_NAME, scoring_partition="2026-08-10")
     assert [(grade.model_name, grade.model_version, grade.auc) for grade in grades] == [
         (EMBEDDINGS_MODEL_NAME, "2026-08-10", 0.0),
@@ -785,8 +922,8 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         ],
         "skipped_heads": ["dismiss_wrong"],
     }
-    scores = _scores(["a"], model_version=["2026-08-25"], score=[0.8])
-    graded = graded_rows(scores, _labels(["a"], open_count=[1]), HEADS_BY_NAME["open"])
+    scores = _scores(["a"], model_version=["2026-08-25"], score=[0.8], label_at_scoring=[True])
+    graded = graded_rows(scores, _labels(["a"], open_count=[1]), HEADS_BY_NAME["open"], pool=POOL_NAME)
     grades = head_grades(graded, HEADS_BY_NAME["open"], pool=POOL_NAME, scoring_partition="2026-08-22")
     events = [
         *candidate_events(metadata),
@@ -796,7 +933,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
             feature_set=TABULAR_FEATURE_SET.name,
             snapshots=20,
             backfilled_rows=0,
-            per_head={"open": HeadExampleCounts(rows=10, positives=2)},
+            per_head={"open": HeadExampleCounts(rows=10, positives=2, birth_day_positives=1)},
         ),
         promotion_event(
             partition_key="2026-08-25",
@@ -810,6 +947,23 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         ),
         *unseen_score_events(run_id="run-1", rows=score_event_rows(scores, _state(["a"]))),
         *unseen_head_graded_events(run_id="run-1", grades=grades),
+        *unseen_calibration_events(run_id="run-1", rows=calibration_rows(grades)),
+        *holdout_calibration_events(
+            partition_key="2026-08-25",
+            run_id="run-1",
+            model_name=TABULAR_MODEL_NAME,
+            rows=[
+                {
+                    "head": "open",
+                    "calibration_buckets": BUCKETS,
+                    "bucket": 10,
+                    "rows": 4,
+                    "positives": 2,
+                    "mean_score": 0.6,
+                    "realized_rate": 0.5,
+                }
+            ],
+        ),
         *unseen_report_graded_events(
             run_id="run-1",
             rows=report_grade_rows({"open": graded}, pool=POOL_NAME, horizon_days=3, scoring_partition="2026-08-22"),
@@ -831,6 +985,8 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "inbox_ranking_promotion_decided",
         "inbox_ranking_unseen_report_scored",
         "inbox_ranking_unseen_head_graded",
+        "inbox_ranking_unseen_calibration",
+        "inbox_ranking_holdout_calibration",
         "inbox_ranking_unseen_report_graded",
     ):
         assert all(call["properties"]["model_name"] == TABULAR_MODEL_NAME for call in by_event[event_name])
@@ -839,6 +995,8 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
     assert candidates[0]["properties"]["holdout_auc"] == 0.67
     assert candidates[0]["properties"]["lookback_days"] == 60
     assert candidates[0]["properties"]["trained"] is True
+    # The unseen events carry both roles, so this side needs the role to survive the same filter.
+    assert all(c["properties"]["model_role"] == CANDIDATE_ROLE for c in candidates)
     assert "file" not in candidates[0]["properties"]
     # A head with nothing to fit still reports, so the readability alert sees a bad day, not a gap.
     assert {"trained": False, "readable": False}.items() <= candidates[2]["properties"].items()
@@ -848,6 +1006,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "head": "open",
         "rows": 10,
         "positives": 2,
+        "birth_day_positives": 1,
         "feature_set": TABULAR_FEATURE_SET.name,
     }.items() <= examples_props.items()
     promotion_props = by_event["inbox_ranking_promotion_decided"][0]["properties"]
@@ -877,8 +1036,28 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "horizon_days": 3,
         "rows": 1,
         "positives": 1,
+        "birth_day_positives": 1,
         "auc": None,
+        "mean_score": 0.8,
     }.items() <= head_graded_props.items()
+    assert head_graded_props["expected_calibration_error"] == pytest.approx(0.2)
+    calibration_props = by_event["inbox_ranking_unseen_calibration"][0]["properties"]
+    assert {
+        "head": "open",
+        "scoring_partition": "2026-08-22",
+        "pool": POOL_NAME,
+        "bucket": 1,
+        "rows": 1,
+        "positives": 1,
+        "mean_score": 0.8,
+        "realized_rate": 1.0,
+    }.items() <= calibration_props.items()
+    assert set(by_event["inbox_ranking_holdout_calibration"][0]["properties"]) >= set(calibration_props) - {
+        "horizon_days",
+        "scoring_partition",
+        "pool",
+    }
+    assert by_event["inbox_ranking_holdout_calibration"][0]["properties"]["model_role"] == CANDIDATE_ROLE
     report_graded_props = by_event["inbox_ranking_unseen_report_graded"][0]["properties"]
     assert {
         "report_id": "a",
