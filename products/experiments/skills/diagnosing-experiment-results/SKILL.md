@@ -30,10 +30,10 @@ Call `experiment-get` and pull these fields. They are inputs for almost every di
 - `exposure_criteria.filterTestAccounts` — defaults to `true`
 - `feature_flag.active`, status (`draft` / `running` / `paused` / `exposure_frozen` / `stopped`), `start_date`, `end_date`
 - `feature_flag.filters.groups[]` — for each group read `variant`, `properties`, and
-  `rollout_percentage` (that group's rollout, % of the users it matches that enter the experiment —
-  each group has its own, so there is no single overall rollout unless the flag has one
-  unconditional group). Any non-null
-  `variant` is a forced-variant override on the matched cohort
+  `rollout_percentage` (that group's rollout, % of the matched bucketing units — persons, or groups
+  when `feature_flag.filters.aggregation_group_type_index` is set — that enter the experiment; each
+  group has its own, so there is no single overall rollout unless the flag has one unconditional
+  group). Any non-null `variant` is a forced-variant override on the matched cohort
   (release-condition assignment, not randomized) — surfaces A7. Watch for the severe shape (A7b): a
   variant-pinned group with broad/empty `properties` at high rollout, or no group left randomized
   (`variant: null`) / no release path to one arm — that starves the other variant (one arm gets ~0

@@ -15,9 +15,10 @@ Pull these fields; they are inputs to almost every cause:
   the query below); absent means the default `$feature_flag_called`.
 - `exposure_criteria.filterTestAccounts` — defaults to true.
 - `feature_flag.filters.groups[]` — per group read `variant`, `properties`,
-  `rollout_percentage` (that group's **rollout**, % of the users it matches that enter the test —
-  each group has its own, so there is no single overall rollout unless the flag has one
-  unconditional group). Any non-null `variant` is a forced assignment (not randomized).
+  `rollout_percentage` (that group's **rollout**, % of the matched bucketing units — persons, or
+  groups when `aggregation_group_type_index` is set — that enter the test; each group has its own,
+  so there is no single overall rollout unless the flag has one unconditional group). Any non-null
+  `variant` is a forced assignment (not randomized).
 - `feature_flag.filters.multivariate.variants[]` — the variant keys, their `rollout_percentage`
   (the configured **split**), **and their stored order**; the offline hash-recomputation test walks
   them in this order, so read it from the _live_ flag.
