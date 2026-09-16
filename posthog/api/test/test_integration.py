@@ -2580,10 +2580,10 @@ class TestIntegrationAPIKeyAccess:
     def test_paginated_list_covers_every_integration_once(self, client: HttpClient):
         client.force_login(self.user)
         now = timezone.now()
-        # Make the newest integration the one Postgres reaches last without an ORDER BY, so a page
-        # that trusts the physical row order fails this.
-        Integration.objects.filter(pk=self.twilio_integration.pk).update(created_at=now - timedelta(minutes=1))
+        # Write the rows in the reverse of the order the endpoint must return, so a page that trusts
+        # the physical row order fails this.
         Integration.objects.filter(pk=self.github_integration.pk).update(created_at=now)
+        Integration.objects.filter(pk=self.twilio_integration.pk).update(created_at=now - timedelta(minutes=1))
 
         paged_ids = []
         for offset in [0, 1]:
@@ -2591,7 +2591,7 @@ class TestIntegrationAPIKeyAccess:
             assert response.status_code == status.HTTP_200_OK
             paged_ids += [result["id"] for result in response.json()["results"]]
 
-        assert paged_ids == [self.github_integration.id, self.twilio_integration.id]
+        assert paged_ids == [self.twilio_integration.id, self.github_integration.id]
 
 
 class TestGithubAccountTypeHelper:
