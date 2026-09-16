@@ -230,6 +230,21 @@ class TestFilterFlagsByActiveParam(BaseTest):
         assert "called-ten-days-ago" not in stale_keys()
         assert "called-ten-days-ago" in stale_keys(stale_threshold=timezone.now() - timedelta(days=5))
 
+    def test_stale_filter_survives_a_legacy_scalar_groups_value(self) -> None:
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="scalar-groups",
+            active=True,
+            created_at=timezone.now() - timedelta(days=60),
+            filters={"groups": "all"},
+            created_by=self.user,
+        )
+
+        # Without the guard `jsonb_array_elements` raises, and the error aborts the statement for
+        # every flag the query covers rather than skipping this row.
+        assert "scalar-groups" not in self._filter("STALE")
+        assert "stale" in self._filter("STALE")
+
     def test_stale_filter_query_count_does_not_grow_with_candidate_count(self) -> None:
         def evaluate() -> list[FeatureFlag]:
             return list(filter_stale_flags(FeatureFlag.objects.filter(team=self.team)))

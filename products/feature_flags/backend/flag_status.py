@@ -67,6 +67,23 @@ def exclude_archived_unless_requested(queryset: QuerySet, *, requested: bool) ->
     return queryset
 
 
+# `jsonb_array_elements` and `jsonb_array_length` raise on a value that is not an array, and the
+# error aborts the whole statement instead of skipping the row. A detection batch covers 250 teams,
+# so one legacy flag storing `groups` as a scalar would take the query down for every team in it.
+# These read a non-array as an empty array. `CASE` is the only construct that guarantees the type
+# test runs before the array function; the planner is free to reorder the arms of `AND` and `OR`.
+# Both predicates below interpolate these, so they are f-strings and every literal `{}` in their
+# SQL is written `{{}}`.
+_GROUPS_ARRAY = (
+    "CASE WHEN jsonb_typeof(posthog_featureflag.filters->'groups') = 'array' "
+    "THEN posthog_featureflag.filters->'groups' ELSE '[]'::jsonb END"
+)
+_VARIANTS_ARRAY = (
+    "CASE WHEN jsonb_typeof(posthog_featureflag.filters->'multivariate'->'variants') = 'array' "
+    "THEN posthog_featureflag.filters->'multivariate'->'variants' ELSE '[]'::jsonb END"
+)
+
+
 def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None = None) -> QuerySet:
     """
     Narrow a FeatureFlag queryset to the flags that count as stale.
@@ -119,26 +136,26 @@ def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None =
         created_at__lt=stale_threshold,
     ).extra(
         where=[
-            """
+            f"""
             (
                 (
                     EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
+                        SELECT 1 FROM jsonb_array_elements({_GROUPS_ARRAY}) AS elem
                         WHERE elem->>'rollout_percentage' = '100'
                         AND (elem->'properties')::text = '[]'::text
                     )
                     AND (posthog_featureflag.filters->>'multivariate' IS NULL
-                        OR posthog_featureflag.filters->'multivariate' = '{}'::jsonb
-                        OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
+                        OR posthog_featureflag.filters->'multivariate' = '{{}}'::jsonb
+                        OR jsonb_array_length({_VARIANTS_ARRAY}) = 0)
                 )
                 OR
                 (
                     EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'multivariate'->'variants') AS variant
+                        SELECT 1 FROM jsonb_array_elements({_VARIANTS_ARRAY}) AS variant
                         WHERE variant->>'rollout_percentage' = '100'
                     )
                     AND EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
+                        SELECT 1 FROM jsonb_array_elements({_GROUPS_ARRAY}) AS elem
                         WHERE elem->>'rollout_percentage' = '100'
                         AND (elem->'properties')::text = '[]'::text
                     )
@@ -146,15 +163,15 @@ def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None =
                 OR
                 (
                     EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
+                        SELECT 1 FROM jsonb_array_elements({_GROUPS_ARRAY}) AS elem
                         WHERE elem->>'rollout_percentage' = '100'
                         AND (elem->'properties')::text = '[]'::text
                         AND elem->'variant' IS NOT NULL
                         AND elem->>'variant' IS NOT NULL
                     )
-                    AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
+                    AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length({_VARIANTS_ARRAY}) > 0)
                 )
-                OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{}'::jsonb)
+                OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{{}}'::jsonb)
             )
             """
         ]
@@ -187,9 +204,8 @@ def filter_effectively_full_rollout_flags(queryset: QuerySet, *, stale_threshold
     `[]` and therefore misses both legacy rows; matching them here lets the confirmation step
     decide.
 
-    `jsonb_array_elements` raises on a value that is not an array, and the error aborts the whole
-    statement, so a single legacy row storing `groups` as a scalar would take down the batch for
-    every team in it. The `jsonb_typeof` test runs first and keeps that row out instead.
+    A legacy row storing `groups` as something other than an array reads as an empty array and
+    drops out, rather than aborting the batch. See `_GROUPS_ARRAY`.
 
     Flags with no release conditions at all (`filters` NULL, `{}`, or `{"groups": []}`) stay out,
     although the checker calls them fully rolled out. `{"groups": []}` is the model default, so
@@ -214,10 +230,9 @@ def filter_effectively_full_rollout_flags(queryset: QuerySet, *, stale_threshold
         created_at__lt=stale_threshold,
     ).extra(
         where=[
-            """
-            jsonb_typeof(posthog_featureflag.filters->'groups') = 'array'
-            AND EXISTS (
-                SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
+            f"""
+            EXISTS (
+                SELECT 1 FROM jsonb_array_elements({_GROUPS_ARRAY}) AS elem
                 WHERE elem->>'rollout_percentage' = '100'
                 AND (
                     (elem->'properties')::text = '[]'::text
