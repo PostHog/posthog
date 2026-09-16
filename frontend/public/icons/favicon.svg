@@ -1,0 +1,24 @@
+<!--
+  The browser tab icon: the PostHog logomark on a transparent square, with no plate.
+
+  Generated from @posthog/brand@0.11.0, Logo.Logomark, and vendored here because
+  frontend/public/icons holds committed assets rather than build output. Do not hand-edit;
+  render it again from the package if the mark changes.
+
+  Both color treatments are in this one file, and the prefers-color-scheme rule below picks
+  between them. Chrome ignores the media attribute on a link rel=icon, so two separate files
+  would leave it showing whichever one it loaded first, in either scheme. Light mode gets the
+  gradient variant; dark mode gets the flat print variant, whose head the package draws
+  near-black and which would disappear against a dark tab strip.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52" fill="none" role="img" aria-label="PostHog">
+<style>
+  .dark { display: none }
+  @media (prefers-color-scheme: dark) {
+    .light { display: none }
+    .dark { display: inline }
+  }
+</style>
+<defs><linearGradient id="logo-jump-p0" x1="21.96" x2="33.28" y1="9.62" y2="9.62" gradientUnits="userSpaceOnUse"><stop stop-color="#ffd849"/><stop offset=".96" stop-color="#fbae01"/></linearGradient><linearGradient id="logo-jump-p1" x1="21.96" x2="33.28" y1="17.81" y2="17.81" gradientUnits="userSpaceOnUse"><stop stop-color="#ffb700"/><stop offset="1" stop-color="#f9aa01"/></linearGradient><linearGradient id="logo-jump-p2" x1="21.96" x2="31.03" y1="23.34" y2="23.34" gradientUnits="userSpaceOnUse"><stop stop-color="#ff9500"/><stop offset="1" stop-color="#f8aa00"/></linearGradient><linearGradient id="logo-jump-p3" x1="10.74" x2="21.96" y1="9.34" y2="9.34" gradientUnits="userSpaceOnUse"><stop stop-color="#ff651e"/><stop offset="1" stop-color="#e4400a"/></linearGradient><linearGradient id="logo-jump-p4" x1="10.74" x2="19.7" y1="23.34" y2="23.34" gradientUnits="userSpaceOnUse"><stop stop-color="#c42c00"/><stop offset="1" stop-color="#d63600"/></linearGradient><linearGradient id="logo-jump-p5" x1="10.74" x2="21.96" y1="17.58" y2="17.58" gradientUnits="userSpaceOnUse"><stop stop-color="#ef3c00"/><stop offset="1" stop-color="#d63601"/></linearGradient><linearGradient id="logo-jump-p6" x1="0" x2="10.74" y1="9.34" y2="9.34" gradientUnits="userSpaceOnUse"><stop stop-color="#3f80ff"/><stop offset="1" stop-color="#084fe0"/></linearGradient><linearGradient id="logo-jump-p7" x1="0" x2="10.74" y1="17.75" y2="17.75" gradientUnits="userSpaceOnUse"><stop stop-color="#0255ff"/><stop offset="1" stop-color="#0145d2"/></linearGradient><linearGradient id="logo-jump-p8" x1="0" x2="9.19" y1="23.11" y2="23.11" gradientUnits="userSpaceOnUse"><stop stop-color="#0041c6"/><stop offset="1" stop-color="#0045d0"/></linearGradient></defs>
+<g transform="translate(0 12)"><g class="light"><g data-logo-part="blue"><path fill="url(#logo-jump-p6)" d="M10.74 7.16 4.54.8A2.66 2.66 0 0 0 0 2.66V7.5l10.74 11.18z"/><path fill="url(#logo-jump-p7)" d="M9.19 28h1.55v-9.32L0 7.5v10.73z"/><path fill="url(#logo-jump-p8)" d="M0 25.41A2.6 2.6 0 0 0 2.58 28H9.2L0 18.23z"/></g><g data-logo-part="red"><path fill="url(#logo-jump-p3)" d="M10.74 2.66v4.5l11.22 11.52V7.63L15.3.8a2.66 2.66 0 0 0-4.56 1.86"/><path fill="url(#logo-jump-p4)" d="M10.74 28h8.96l-8.96-9.32z"/><path fill="url(#logo-jump-p5)" d="M10.74 7.16v11.52L19.7 28h2.26v-9.32z"/></g><g data-logo-part="yellow"><path fill="url(#logo-jump-p0)" d="M21.96 2.67v4.96l11.3 11.6h.02V7.75L26.63.85a2.8 2.8 0 0 0-2-.85 2.67 2.67 0 0 0-2.67 2.67"/><path fill="url(#logo-jump-p1)" d="M21.96 7.63v11.05L31.03 28h2.25v-8.75z"/><path fill="url(#logo-jump-p2)" d="M21.96 28h9.07l-9.07-9.32z"/></g><g data-logo-part="head"><path fill="#111" d="M51.66 25.22A1.9 1.9 0 0 0 50 23.33l-.34-.04c-1-.13-1.94-.6-2.65-1.33L33.28 7.75V28H49a2.66 2.66 0 0 0 2.67-2.67zM39.2 23.54h-.09a1.78 1.78 0 1 1 .1 0"/></g></g><g class="dark"><g data-logo-part="blue"><path fill="#0054ff" d="M.87 19.13a.5.5 0 0 0-.87.34v5.94a2.6 2.6 0 0 0 2.59 2.58H7.8a.5.5 0 0 0 .37-.84zM.86 8.4c-.3-.32-.86-.1-.86.36v6.73q0 .2.13.34l8.81 9.68 1.8 2.06v-8.82zM4.59.82A2.67 2.67 0 0 0 0 2.68v1.93q0 .4.27.69l10.47 10.95v-9.1z"/></g><g data-logo-part="red"><path fill="#ff5506" d="M11.36 28h7.08a.5.5 0 0 0 .36-.85l-8.05-8.4v8.8l.23.28q.16.17.38.17m-.61-11.76 8.84 9.25 2.1 2.33q.1.11.27.14V18.7L10.75 7.15zm0-13.7v1.41a2 2 0 0 0 .55 1.28L21.96 16.2V7.65L15.32.8a2.67 2.67 0 0 0-4.57 1.71z"/></g><g data-logo-part="yellow"><path fill="#ffb70f" d="M22.06 28h7.76a.5.5 0 0 0 .36-.86l-8.22-8.45v9.27l.09.02zM31 25.49l1.13 1.14c.32.31.85.09.85-.35v-7.3l-.49-.51L21.96 7.64v8.55zM22.52 5.73l9.62 9.89c.3.32.86.1.86-.35V7.46L26.56.82a2.67 2.67 0 0 0-4.59 1.84v1.7c0 .51.2 1 .57 1.37z"/></g><g data-logo-part="head"><path fill="#fff" d="m50 23.34-.35-.05A4.5 4.5 0 0 1 47 21.97L35.56 10.1c-.3-.33-.86-.1-.86.35V27.5c0 .27.22.5.5.5h13.78c1.48 0 2.67-1.2 2.67-2.67v-.1a1.9 1.9 0 0 0-1.67-1.89zm-10.81.2a1.8 1.8 0 1 1 0-3.58 1.8 1.8 0 0 1 0 3.58"/></g></g></g>
+</svg>
