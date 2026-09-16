@@ -5,6 +5,7 @@ from posthog.errors import (
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
+    classify_query_error,
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
@@ -80,6 +81,9 @@ class TestWrapClickhouseQueryError:
         assert wrapped.code_name == "invalid_base_encoded_value"
         assert "tryBase64Decode" in str(wrapped)
         assert value not in str(wrapped)
+        # The query runner captures whatever classifies as ERROR, so this keeps the failure out of
+        # error tracking. INCORRECT_DATA itself stays ERROR, as test_codes_stay_internal covers.
+        assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
 
     def test_unrelated_incorrect_data_stays_internal_when_query_scope_holds_a_decoder(self) -> None:
         # ClickHouse echoes the query scope into the message, so a query with a working decode call

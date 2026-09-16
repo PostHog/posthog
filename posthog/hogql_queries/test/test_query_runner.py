@@ -1127,6 +1127,21 @@ class TestQueryRunner(BaseTest):
                 "error",
                 False,
             ),
+            (
+                # An invalid base64 or base58 decode (code 117) is a value in the person's own
+                # query, rendered as a 400, so it must not reach error tracking either.
+                "invalid_base_encoded_value",
+                lambda: wrap_clickhouse_query_error(
+                    ServerException(
+                        "DB::Exception: Invalid base64Decode value (aGVsbG8%3D), cannot be decoded: "
+                        "In scope SELECT base64Decode('aGVsbG8%3D').",
+                        code=117,
+                    )
+                ),
+                SloOutcome.SUCCESS,
+                "user_error",
+                False,
+            ),
             ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error", True),
         ]
     )

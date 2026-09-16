@@ -236,6 +236,11 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
+    # A failed base64 or base58 decode is the person's own query value, but INCORRECT_DATA covers
+    # causes that are not, so this one classifies by class before the shared code below.
+    if isinstance(e, CHQueryErrorInvalidBaseEncodedValue):
+        return QueryErrorCategory.USER_ERROR
+
     if isinstance(e, ServerException):
         return look_up_clickhouse_error_code_meta(e).get_category()
 
