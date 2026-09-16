@@ -23,7 +23,13 @@ export async function capturePlayback(
 ): Promise<
     Pick<
         RecordingResult,
-        'capture_duration_s' | 'frame_count' | 'truncated' | 'inactivity_periods' | 'frame_session_ms' | 'timings'
+        | 'capture_duration_s'
+        | 'frame_count'
+        | 'truncated'
+        | 'inactivity_periods'
+        | 'frame_session_ms'
+        | 'pre_roll_frames'
+        | 'timings'
     >
 > {
     const captureStart = process.hrtime()
@@ -122,6 +128,7 @@ export async function capturePlayback(
 
     let virtualElapsed = 0
     let truncated = false
+    let preRollFrames = 0
     try {
         await recorder.start(outputPath)
         const vp = page.viewport()
@@ -133,7 +140,10 @@ export async function capturePlayback(
         await player.installCallbackErrorGuards()
 
         await player.startPlayback()
-        log.info('playback started')
+        // Frames captured before the player's loop exists have no sample, so the timeline starts here
+        // rather than at video second zero.
+        preRollFrames = frameCount
+        log.info({ pre_roll_frames: preRollFrames }, 'playback started')
 
         const checkIntervalMs = 250
 
@@ -219,7 +229,8 @@ export async function capturePlayback(
         frame_count: frameCount,
         truncated,
         inactivity_periods: inactivityPeriods,
-        frame_session_ms: player.getFrameSessionMs(),
+        frame_session_ms: await player.readFrameTimeline(),
+        pre_roll_frames: preRollFrames,
         timings: { setup_s: 0, capture_s: elapsed(captureStart) },
     }
 }

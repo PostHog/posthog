@@ -57,6 +57,7 @@ export type PlayerMessage =
 
 export const PLAYER_EMIT_FN = '__posthog_player_emit__'
 export const PLAYER_CONFIG_KEY = '__posthog_player_config__'
+export const PLAYER_FRAME_TIMELINE_KEY = '__posthog_frame_timeline__'
 
 // --- Event names (rasterizer → player) ---
 

@@ -11,12 +11,15 @@ import { InactivityPeriod } from './types'
 export function videoTimestampsFromFrames(
     periods: InactivityPeriod[],
     frameSessionMs: number[],
-    fps: number
+    fps: number,
+    preRollFrames = 0
 ): InactivityPeriod[] {
     if (frameSessionMs.length === 0 || fps <= 0) {
         return computeVideoTimestamps(periods)
     }
-    const videoTimeOf = (frame: number): number => frame / fps
+    // Sample `i` is the frame `preRollFrames + i` of the file: capture runs while the player is still
+    // starting, and those frames carry no sample.
+    const videoTimeOf = (sample: number): number => (preRollFrames + sample) / fps
     const lastPeriod = periods.length - 1
     return periods.map((period, index) => {
         const fromMs = period.ts_from_s * 1000
@@ -37,8 +40,9 @@ export function videoTimestampsFromFrames(
             }
         }
         if (first === -1) {
-            // Never on screen: sit at the first frame past it, which is where playback resumed.
-            const resumed = frameSessionMs.findIndex((t) => t > toMs)
+            // Never on screen: sit at the frame where playback resumed. The predicate matches ownership
+            // above, so the frame landing exactly on the period's end is found rather than stepped over.
+            const resumed = frameSessionMs.findIndex((t) => t >= toMs)
             const at = videoTimeOf(resumed === -1 ? frameSessionMs.length : resumed)
             return { ...period, recording_ts_from_s: at, recording_ts_to_s: at }
         }

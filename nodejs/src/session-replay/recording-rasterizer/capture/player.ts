@@ -1,6 +1,11 @@
 import type { Page } from 'puppeteer'
 
-import { PLAYER_CONFIG_KEY, PLAYER_EMIT_FN, PLAYER_START_EVENT } from '@posthog/replay-headless/protocol'
+import {
+    PLAYER_CONFIG_KEY,
+    PLAYER_EMIT_FN,
+    PLAYER_FRAME_TIMELINE_KEY,
+    PLAYER_START_EVENT,
+} from '@posthog/replay-headless/protocol'
 import type { InactivityPeriod, PlayerConfig, PlayerMessage } from '@posthog/replay-headless/protocol'
 
 import { RasterizationError, toRasterizationErrorCode } from '~/session-replay/recording-rasterizer/errors'
@@ -244,6 +249,23 @@ export class PlayerController {
     }
 
     getFrameSessionMs(): number[] {
+        return this.state.frameSessionMs
+    }
+
+    /** Read the frame timeline off the page. Works for a capture that was trimmed or timed out, where
+     * the replayer never finished and so never pushed it. Falls back to whatever was pushed. */
+    async readFrameTimeline(): Promise<number[]> {
+        try {
+            const samples = await this.capturePage.page.evaluate(
+                (key: string) => (window as unknown as Record<string, number[]>)[key] ?? [],
+                PLAYER_FRAME_TIMELINE_KEY
+            )
+            if (samples.length > 0) {
+                return samples
+            }
+        } catch {
+            // Page already gone: use whatever the player managed to push before teardown.
+        }
         return this.state.frameSessionMs
     }
 

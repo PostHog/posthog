@@ -127,6 +127,31 @@ describe('videoTimestampsFromFrames', () => {
         )
     })
 
+    it('offsets by the frames captured before playback started', () => {
+        // Capture runs while the player is still starting, and those frames carry no sample. Without the
+        // offset every period is reported early by that many frames.
+        const result = videoTimestampsFromFrames(periods, frameSessionMs, 3, 6)
+
+        expect(result[0].recording_ts_from_s).toBeCloseTo(2)
+        expect(result[2].recording_ts_to_s).toBeCloseTo(13 / 3)
+    })
+
+    it('anchors a stretch with no frames of its own at the frame playback resumed on', () => {
+        // A gap shorter than one frame interval is stepped over without any frame landing inside it.
+        // The resume frame sits exactly on the gap's end, so the search has to include it.
+        const shortGap: InactivityPeriod[] = [
+            { ts_from_s: 0, ts_to_s: 1, active: true },
+            { ts_from_s: 1, ts_to_s: 1.1, active: false },
+            { ts_from_s: 1.1, ts_to_s: 2, active: true },
+        ]
+        const frames = [0, 333, 666, 1100, 1433]
+
+        const result = videoTimestampsFromFrames(shortGap, frames, 3)
+
+        expect(result[1].recording_ts_from_s).toBeCloseTo(1)
+        expect(result[1].recording_ts_from_s).toBeLessThanOrEqual(result[2].recording_ts_from_s!)
+    })
+
     it('falls back to the predicted mapping when capture reported no timeline', () => {
         expect(videoTimestampsFromFrames(periods, [], 3)).toEqual(computeVideoTimestamps(periods))
     })

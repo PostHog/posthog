@@ -4,6 +4,7 @@ import type { eventWithTime } from 'posthog-js/rrweb-types'
 import type { RecordingSegment } from '@posthog/replay-shared'
 
 import type { HostBridge } from './host-bridge'
+import { PLAYER_FRAME_TIMELINE_KEY } from './protocol'
 
 /**
  * Controls playback lifecycle: starts the replayer, skips inactive
@@ -66,6 +67,10 @@ export class PlaybackController {
      * positions from segment durations alone does.
      */
     private startFrameLoop(): void {
+        // Published by reference so the host can read it whenever capture ends. Trimmed and timed-out
+        // captures tear the page down without the replayer ever finishing, so waiting for stop() to
+        // push the timeline would leave exactly the long sessions this exists for without one.
+        ;(window as unknown as Record<string, number[]>)[PLAYER_FRAME_TIMELINE_KEY] = this.frameSessionMs
         const onFrame = (): void => {
             if (this.stopped) {
                 return
