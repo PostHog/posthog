@@ -586,13 +586,20 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
             deleted_count=1, rows_deleted=1
         )
 
-    def test_deleting_removes_distinct_id_mappings_and_is_idempotent(self):
+    def test_deleting_removes_distinct_id_mappings_and_cohort_rows_and_is_idempotent(self):
+        self.client.add_cohort_membership(person_id=1, cohort_id=9)
+
         assert self._delete("tombstoned").deleted_count == 1
 
         by_did = self.client.get_person_by_distinct_id(
             person_pb2.GetPersonByDistinctIdRequest(team_id=self.TEAM_ID, distinct_id="t-1")
         )
         assert not by_did.HasField("person")
+        membership = self.client.check_cohort_membership(
+            cohort_pb2.CheckCohortMembershipRequest(person_id=1, cohort_ids=[9])
+        )
+        assert list(membership.memberships) == []
+        assert self.client.count_cohort_members(cohort_pb2.CountCohortMembersRequest(cohort_ids=[9])).count == 0
         assert self._delete("tombstoned") == person_pb2.DeleteTombstonedPersonsResponse()
 
     def test_wrong_team_touches_nothing(self):

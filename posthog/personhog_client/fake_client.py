@@ -594,6 +594,9 @@ class FakePersonHogClient:
         for did in self._distinct_ids.pop((team_id, person.id), []):
             self._persons_by_distinct_id.pop((team_id, did.distinct_id), None)
             self._tombstoned_distinct_ids.discard((team_id, did.distinct_id))
+        self._cohort_memberships.pop(person.id, None)
+        for key in [key for key in self._cohort_members if key[1] == person.id]:
+            del self._cohort_members[key]
 
     def delete_persons(
         self, request: person_pb2.DeletePersonsRequest, timeout: float | None = None
@@ -669,12 +672,8 @@ class FakePersonHogClient:
                 to_delete.append((team_id, uuid, person))
                 if len(to_delete) >= request.batch_size:
                     break
-        for team_id, uuid, person in to_delete:
-            self._persons_by_uuid.pop((team_id, uuid), None)
-            self._persons_by_id.pop((team_id, person.id), None)
-            dids = self._distinct_ids.pop((team_id, person.id), [])
-            for did in dids:
-                self._persons_by_distinct_id.pop((team_id, did.distinct_id), None)
+        for team_id, _uuid, person in to_delete:
+            self._remove_person(team_id, person)
             deleted_count += 1
         response = person_pb2.DeletePersonsBatchForTeamResponse(deleted_count=deleted_count)
         self.calls.append(_Call("delete_persons_batch_for_team", request, response))
