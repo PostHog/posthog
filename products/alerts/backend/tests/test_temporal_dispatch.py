@@ -14,7 +14,7 @@ per run and reports the rest, which the real dispatcher cannot do until an adapt
 import uuid
 import asyncio
 import datetime as dt
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -24,7 +24,8 @@ from django.conf import settings
 import pytest_asyncio
 from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType, ParentClosePolicy
-from temporalio.client import Client, WorkflowExecutionStatus, WorkflowFailureError
+from temporalio.api.history.v1 import HistoryEvent
+from temporalio.client import Client, WorkflowExecutionStatus, WorkflowFailureError, WorkflowHistory
 from temporalio.exceptions import ChildWorkflowError, TimeoutError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
@@ -101,7 +102,11 @@ def postgres_cursor() -> Iterator[MagicMock]:
         yield execute.return_value.__enter__.return_value
 
 
-def demand_activity(demand: dict[SourceKind, list[str]]):
+DiscoverActivity = Callable[[DemandDiscoveryInputs], Awaitable[AlertDemand]]
+GateActivity = Callable[[list[str]], Awaitable[None]]
+
+
+def demand_activity(demand: dict[SourceKind, list[str]]) -> DiscoverActivity:
     @activity.defn(name="alerts_product_discover_demand_activity")
     async def discover(inputs: DemandDiscoveryInputs) -> AlertDemand:
         return AlertDemand(configuration_ids_by_source=demand)
@@ -114,9 +119,13 @@ async def open_gate(configuration_ids: list[str]) -> None:
     pass
 
 
-def workers(client: Client, discover, *, paging: bool, gate=open_gate):
+def workers(
+    client: Client, discover: DiscoverActivity, *, paging: bool, gate: GateActivity = open_gate
+) -> tuple[Worker, Worker]:
     runner = UnsandboxedWorkflowRunner()
-    evaluation_workflows = [AlertsProductCheckDueWorkflow, PagingDispatcher] if paging else EVALUATION_WORKFLOWS
+    evaluation_workflows: list[type] = (
+        [AlertsProductCheckDueWorkflow, PagingDispatcher] if paging else list(EVALUATION_WORKFLOWS)
+    )
     return (
         Worker(
             client,
@@ -135,17 +144,17 @@ def workers(client: Client, discover, *, paging: bool, gate=open_gate):
     )
 
 
-def events_of(history, event_type: int) -> list:
+def events_of(history: WorkflowHistory, event_type: int) -> list[HistoryEvent]:
     return [event for event in history.events if event.event_type == event_type]
 
 
-async def run_tick(client: Client, tick_id: str, **kwargs) -> OrchestrateResult:
+async def run_tick(client: Client, tick_id: str) -> OrchestrateResult:
     return await client.execute_workflow(
         AlertsProductOrchestrateWorkflow.run,
         OrchestrateInputs(),
         id=tick_id,
         task_queue=ORCHESTRATION_QUEUE,
-        execution_timeout=kwargs.pop("execution_timeout", dt.timedelta(seconds=50)),
+        execution_timeout=dt.timedelta(seconds=50),
     )
 
 

@@ -2,7 +2,6 @@ import asyncio
 import datetime as dt
 from collections.abc import Callable
 from dataclasses import replace
-from typing import Any
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, SearchAttributeKey
@@ -240,9 +239,9 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
         return OrchestrateResult(pages=pages, remaining=0, deadline_reached=False)
 
 
-SHARED_ORCHESTRATION_WORKFLOWS: list[type] = [AlertsProductOrchestrateWorkflow]
-SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., Any]] = [alerts_product_discover_demand_activity]
-EVALUATION_WORKFLOWS: list[type] = [AlertsProductCheckDueWorkflow, AlertsProductSourceDispatchWorkflow]
-EVALUATION_ACTIVITIES: list[Callable[..., Any]] = [alerts_product_check_due_activity]
-DELIVERY_WORKFLOWS: list[type] = [AlertsProductDeliverWorkflow]
-DELIVERY_ACTIVITIES: list[Callable[..., Any]] = [alerts_product_deliver_activity]
+SHARED_ORCHESTRATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductOrchestrateWorkflow]
+SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., object]] = [alerts_product_discover_demand_activity]
+EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductCheckDueWorkflow, AlertsProductSourceDispatchWorkflow]
+EVALUATION_ACTIVITIES: list[Callable[..., object]] = [alerts_product_check_due_activity]
+DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductDeliverWorkflow]
+DELIVERY_ACTIVITIES: list[Callable[..., object]] = [alerts_product_deliver_activity]
