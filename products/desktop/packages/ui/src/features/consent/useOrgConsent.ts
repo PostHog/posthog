@@ -1,5 +1,6 @@
 import { isNotAuthenticatedError } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
   AUTH_SCOPED_QUERY_META,
   useCurrentUser,
@@ -31,16 +32,17 @@ export const desktopBetaTermsKeys = {
 
 function useDesktopBetaTerms(
   organizationId: string | undefined,
+  projectId: number | null,
   enabled = true,
 ) {
   const client = useOptionalAuthenticatedClient();
   return useQuery({
     queryKey: desktopBetaTermsKeys.acceptance(organizationId ?? "unknown"),
     queryFn: async () => {
-      if (!client || !organizationId) throw new Error("Not authenticated");
-      return await client.areDesktopBetaTermsAccepted(organizationId);
+      if (!client || projectId === null) throw new Error("Not authenticated");
+      return await client.areDesktopBetaTermsAccepted(projectId);
     },
-    enabled: enabled && !!client && !!organizationId,
+    enabled: enabled && !!client && !!organizationId && projectId !== null,
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: "always",
     meta: AUTH_SCOPED_QUERY_META,
@@ -55,7 +57,12 @@ export function useOrgConsent(enabled = true): OrgConsent {
     refetchOnWindowFocus: "always",
   });
   const organization = currentUserQuery.data?.organization;
-  const betaTermsQuery = useDesktopBetaTerms(organization?.id, enabled);
+  const projectId = useAuthStateValue((state) => state.currentProjectId);
+  const betaTermsQuery = useDesktopBetaTerms(
+    organization?.id,
+    projectId,
+    enabled,
+  );
   const queryClient = useQueryClient();
   const retry = useCallback(async (): Promise<void> => {
     await queryClient.invalidateQueries({ queryKey: ["auth"] });

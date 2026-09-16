@@ -24,6 +24,7 @@ export default function ConsentScreen() {
   const consent = useOrgConsent();
   const { data: user } = useUserQuery();
   const logout = useAuthStore((s) => s.logout);
+  const projectId = useAuthStore((s) => s.projectId);
   const posthog = usePostHog();
   const queryClient = useQueryClient();
 
@@ -39,8 +40,8 @@ export default function ConsentScreen() {
   };
 
   const acceptBeta = async (): Promise<void> => {
-    if (!organization) return;
-    await getPostHogApiClient().acceptDesktopBetaTerms(organization.id);
+    if (!organization || projectId === null) return;
+    await getPostHogApiClient().acceptDesktopBetaTerms(projectId);
     posthog?.capture(ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED_INAPP);
     await queryClient.invalidateQueries({
       queryKey: desktopBetaTermsKeys.all(),

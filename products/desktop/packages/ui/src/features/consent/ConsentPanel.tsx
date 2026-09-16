@@ -12,6 +12,7 @@ import {
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
   authKeys,
   useCurrentUser,
@@ -64,6 +65,7 @@ export function ConsentPanel({
   onSubmittingChange,
 }: ConsentPanelProps) {
   const client = useAuthenticatedClient();
+  const projectId = useAuthStateValue((state) => state.currentProjectId);
   const queryClient = useQueryClient();
   const { data: currentUser } = useCurrentUser({
     client,
@@ -90,7 +92,8 @@ export function ConsentPanel({
           queryKey: authKeys.currentUsers(),
         });
       } else {
-        await client.acceptDesktopBetaTerms(organization.id);
+        if (projectId === null) throw new Error("No project selected");
+        await client.acceptDesktopBetaTerms(projectId);
         track(ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED_INAPP);
         await queryClient.invalidateQueries({
           queryKey: desktopBetaTermsKeys.all(),
@@ -208,7 +211,9 @@ export function ConsentPanel({
           accepted={!consent.needsBetaTerms}
           isAdmin={isAdmin}
           isLoading={submitting === "beta"}
-          isDisabled={submitting !== null || !organization}
+          isDisabled={
+            submitting !== null || !organization || projectId === null
+          }
           settingsUrl={BETA_TERMS_SETTINGS_URL}
           consentType="desktop_beta_terms"
           copyLinkDataAttr="copy-desktop-beta-terms-admin-link"

@@ -3,13 +3,19 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { acceptBetaTerms, approveAiDataProcessing, track, writeText } =
-  vi.hoisted(() => ({
-    acceptBetaTerms: vi.fn(),
-    approveAiDataProcessing: vi.fn(),
-    track: vi.fn(),
-    writeText: vi.fn(),
-  }));
+const {
+  acceptBetaTerms,
+  approveAiDataProcessing,
+  authState,
+  track,
+  writeText,
+} = vi.hoisted(() => ({
+  acceptBetaTerms: vi.fn(),
+  approveAiDataProcessing: vi.fn(),
+  authState: { currentProjectId: 4242 as number | null },
+  track: vi.fn(),
+  writeText: vi.fn(),
+}));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useAuthenticatedClient: () => ({
@@ -23,6 +29,11 @@ vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   useCurrentUser: () => ({
     data: { organization: { id: "org-id", name: "Example Org" } },
   }),
+}));
+
+vi.mock("@posthog/ui/features/auth/store", () => ({
+  useAuthStateValue: (selector: (state: typeof authState) => unknown) =>
+    selector(authState),
 }));
 
 vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
@@ -65,6 +76,7 @@ describe("ConsentPanel", () => {
   beforeEach(() => {
     acceptBetaTerms.mockReset();
     approveAiDataProcessing.mockReset();
+    authState.currentProjectId = 4242;
     track.mockReset();
     writeText.mockReset();
     writeText.mockResolvedValue(undefined);
@@ -82,7 +94,7 @@ describe("ConsentPanel", () => {
     await user.click(screen.getByRole("button", { name: "Accept beta terms" }));
 
     await waitFor(() =>
-      expect(acceptBetaTerms).toHaveBeenCalledExactlyOnceWith("org-id"),
+      expect(acceptBetaTerms).toHaveBeenCalledExactlyOnceWith(4242),
     );
     expect(approveAiDataProcessing).not.toHaveBeenCalled();
   });
@@ -125,7 +137,21 @@ describe("ConsentPanel", () => {
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(approveAiDataProcessing).toHaveBeenCalledExactlyOnceWith("org-id");
-    expect(acceptBetaTerms).toHaveBeenCalledExactlyOnceWith("org-id");
+    expect(acceptBetaTerms).toHaveBeenCalledExactlyOnceWith(4242);
+  });
+
+  it("blocks beta terms acceptance until a project is selected", async () => {
+    authState.currentProjectId = null;
+    const user = userEvent.setup();
+    renderPanel(false, true);
+
+    const acceptButton = screen.getByRole("button", {
+      name: "Accept beta terms",
+    });
+    expect(acceptButton).toHaveAttribute("aria-disabled", "true");
+    await user.click(acceptButton);
+
+    expect(acceptBetaTerms).not.toHaveBeenCalled();
   });
 
   it("gives members admin links and a refresh action", async () => {

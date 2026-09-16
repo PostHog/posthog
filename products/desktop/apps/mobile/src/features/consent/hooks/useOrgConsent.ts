@@ -15,13 +15,14 @@ export const desktopBetaTermsKeys = {
 
 export function useDesktopBetaTerms(organizationId: string | undefined) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const projectId = useAuthStore((s) => s.projectId);
   return useQuery({
     queryKey: desktopBetaTermsKeys.acceptance(organizationId ?? "unknown"),
     queryFn: () => {
-      if (!organizationId) throw new Error("No organization");
-      return getPostHogApiClient().areDesktopBetaTermsAccepted(organizationId);
+      if (projectId === null) throw new Error("No project");
+      return getPostHogApiClient().areDesktopBetaTermsAccepted(projectId);
     },
-    enabled: isAuthenticated && !!organizationId,
+    enabled: isAuthenticated && !!organizationId && projectId !== null,
     staleTime: 5 * 60 * 1000,
   });
 }
