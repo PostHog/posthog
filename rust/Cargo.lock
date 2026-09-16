@@ -3487,6 +3487,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "shimforge",
  "sourcemap",
  "sqlx",
  "subtle",
@@ -11650,6 +11651,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32824fab5e16e6c4d86dc1ba84489390419a39f97699852b66480bb87d297ed8"
 dependencies = [
  "dirs",
+]
+
+[[package]]
+name = "shimforge"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d10159f5e73be4d2a9c60ff2939f0a99edb6eb3333013aa8c49368122b1625d"
+dependencies = [
+ "libc",
+ "shimforge-macros",
+]
+
+[[package]]
+name = "shimforge-macros"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d31ef33430d1111175e33c1d1724d5a583dded412b323b541ee3a5edf8e20a1b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
