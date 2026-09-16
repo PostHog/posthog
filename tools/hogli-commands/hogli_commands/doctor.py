@@ -110,6 +110,7 @@ class CleanupCategory:
     default_confirm: bool = True
     include_in_total: bool = True
     skip_if_empty: bool = True
+    opt_in: bool = False
     dry_run_message: str | None = None
     post_cleanup_message: str | None = None
 
@@ -133,10 +134,27 @@ class CleanupResult:
     "--area",
     multiple=True,
     type=click.Choice(
-        ["flox-logs", "docker", "python", "dagster", "node-artifacts", "rust", "pnpm-store", "git"],
+        [
+            "flox-logs",
+            "docker",
+            "docker-volumes",
+            "python",
+            "staticfiles",
+            "dagster",
+            "node-artifacts",
+            "rust",
+            "sccache",
+            "uv-cache",
+            "pnpm-store",
+            "nix-store",
+            "git",
+        ],
         case_sensitive=False,
     ),
-    help="Specific cleanup area(s) to run. Can be specified multiple times. Without this, all areas run.",
+    help=(
+        "Specific cleanup area(s) to run. Can be specified multiple times. "
+        "Without this, every area except docker-volumes runs."
+    ),
 )
 def doctor_disk(
     dry_run: bool,
@@ -146,17 +164,21 @@ def doctor_disk(
     """Clean up disk space by pruning caches, build outputs, and containers.
 
     This command is tailored to the technologies used in the repository:
-    - Flox environments (Python dependencies)
+    - Flox environments (Python dependencies) and the Nix store behind them
     - Docker Compose services
-    - Django + pytest + mypy/ruff caches
+    - Django + pytest + mypy/ruff caches, and collectstatic output
     - Dagster background job storage
     - pnpm/Vite/Tailwind/Storybook/Playwright build artifacts
-    - Rust workspaces built with Cargo
-    - pnpm-managed node_modules across the workspace
+    - Rust workspaces built with Cargo, plus the sccache compilation cache
+    - The uv and pnpm package caches shared across every worktree
 
-    By default, runs all cleanup categories interactively. Use flags to target
-    specific categories. Use --dry-run to preview what would be removed and
-    --yes to skip prompts.
+    Several of these caches live outside the repository because the Flox env
+    points the tools at them, so the biggest wins are not under the repo root.
+
+    By default, runs every cleanup category except docker-volumes, which only
+    runs when named with --area because pruning volumes drops local database
+    data. Use --dry-run to preview what would be removed and --yes to skip
+    prompts.
     """
 
     click.echo("🔍 PostHog Disk Space Cleanup\n")
@@ -183,17 +205,33 @@ def doctor_disk(
         ),
         CleanupCategory(
             id="docker",
-            title="🐳 Docker system (images, containers, volumes)",
+            title="🐳 Docker images, containers and build cache",
             description=[
-                "Runs 'docker system prune -a --volumes' to reclaim unused Docker resources.",
-                "PostHog's docker-compose stacks rely on Docker heavily during development.",
+                "Runs 'docker system prune -a' to drop every image no container uses.",
+                "Stale images from old branches are usually the largest reclaim on the machine.",
+                "Volumes are left alone here, so local database data survives.",
             ],
             estimate=_estimate_docker_usage,
             cleanup=_cleanup_docker,
-            confirmation_prompt="Clean up Docker system (prune unused resources)?",
-            include_in_total=False,
+            confirmation_prompt="Prune unused Docker images, containers and build cache?",
             skip_if_empty=False,
-            dry_run_message="Would run: docker system prune -a --volumes -f",
+            dry_run_message="Would run: docker system prune -a -f",
+        ),
+        CleanupCategory(
+            id="docker_volumes",
+            title="🐳 Docker volumes (destructive)",
+            description=[
+                "Runs 'docker volume prune -a' to remove volumes no container uses.",
+                "This drops your local ClickHouse, Postgres and Kafka data once the",
+                "stack's containers are gone. You re-run migrations and reseed afterwards.",
+            ],
+            estimate=_estimate_docker_volumes,
+            cleanup=_cleanup_docker_volumes,
+            confirmation_prompt="Delete unused Docker volumes (local database data is lost)?",
+            default_confirm=False,
+            skip_if_empty=False,
+            opt_in=True,
+            dry_run_message="Would run: docker volume prune -a -f",
         ),
         CleanupCategory(
             id="python",
@@ -204,6 +242,18 @@ def doctor_disk(
             estimate=_estimate_python_caches,
             cleanup=_cleanup_items,
             confirmation_prompt="Clean up Python caches?",
+        ),
+        CleanupCategory(
+            id="staticfiles",
+            title="🗂️  Django collectstatic output (staticfiles/)",
+            description=[
+                "Removes the STATIC_ROOT tree that 'manage.py collectstatic' writes.",
+                "Each collect adds hashed copies of every asset, so it only grows.",
+                "Regenerate with: python manage.py collectstatic",
+            ],
+            estimate=_estimate_staticfiles,
+            cleanup=_cleanup_items,
+            confirmation_prompt="Remove collectstatic output?",
         ),
         CleanupCategory(
             id="dagster",
@@ -230,7 +280,8 @@ def doctor_disk(
             title="🦀 Rust Cargo targets",
             description=[
                 "Runs 'cargo clean' in all Rust workspaces to remove build artifacts.",
-                "Feature flag debug builds can accumulate ~400MB each.",
+                "The Flox env sets CARGO_TARGET_DIR, so the artifacts sit outside the repo",
+                "and every worktree shares one target directory.",
             ],
             estimate=_estimate_rust_targets,
             cleanup=_cleanup_rust,
@@ -238,6 +289,32 @@ def doctor_disk(
             include_in_total=False,
             skip_if_empty=False,
             dry_run_message="Would run: cargo clean in all Rust workspaces",
+        ),
+        CleanupCategory(
+            id="sccache",
+            title="⚡ sccache compilation cache",
+            description=[
+                "The Flox env sets RUSTC_WRAPPER=sccache, so every Rust build fills this cache.",
+                "It is bounded by its own max size, so clear it only when you need the space back.",
+                "The next Rust build is a cold one after this.",
+            ],
+            estimate=_estimate_sccache,
+            cleanup=_cleanup_sccache,
+            confirmation_prompt="Clear the sccache compilation cache?",
+            default_confirm=False,
+        ),
+        CleanupCategory(
+            id="uv_cache",
+            title="🐍 uv package cache",
+            description=[
+                "Runs 'uv cache prune' to drop cache entries no environment links to.",
+                "Wheels your venvs still use are kept, so no reinstall follows.",
+            ],
+            estimate=_estimate_uv_cache,
+            cleanup=_cleanup_uv_cache,
+            confirmation_prompt="Prune unused entries from the uv cache?",
+            skip_if_empty=False,
+            dry_run_message="Would run: uv cache prune",
         ),
         CleanupCategory(
             id="pnpm_store",
@@ -252,6 +329,20 @@ def doctor_disk(
             include_in_total=False,
             skip_if_empty=False,
             dry_run_message="Would run: pnpm store prune",
+        ),
+        CleanupCategory(
+            id="nix_store",
+            title="❄️  Nix store (Flox dependencies)",
+            description=[
+                "Runs 'nix-store --gc' to delete store paths no live Flox generation references.",
+                "Every env rebuild leaves the old generation behind, so most of /nix goes stale.",
+                "Rolling back to an older generation re-downloads it afterwards.",
+            ],
+            estimate=_estimate_nix_store,
+            cleanup=_cleanup_nix_store,
+            confirmation_prompt="Collect garbage in the Nix store?",
+            default_confirm=False,
+            dry_run_message="Would run: nix-store --gc",
         ),
         CleanupCategory(
             id="git",
@@ -276,7 +367,7 @@ def doctor_disk(
         enabled_ids = {area_name.replace("-", "_") for area_name in area}
         categories = [cat for cat in all_categories if cat.id in enabled_ids]
     else:
-        categories = all_categories
+        categories = [cat for cat in all_categories if not cat.opt_in]
 
     results: list[CleanupResult] = []
     for category in categories:
@@ -543,6 +634,10 @@ def _estimate_rust_targets(repo_root: Path) -> CleanupEstimate:
         f"   Found {len(workspace_roots)} Cargo workspace(s) to clean.",
     ]
 
+    external = _cargo_target_dir()
+    if external is not None:
+        details.append(f"   CARGO_TARGET_DIR is {external}, shared by every worktree.")
+
     if items:
         details.append(f"   Total target directory size: {_format_size(total)}")
         details.extend(_describe_items(items, repo_root, "   Target directories:"))
@@ -649,30 +744,426 @@ def _estimate_git(repo_root: Path) -> CleanupEstimate:
     return CleanupEstimate(total_size=0.0, items=[], details=details)
 
 
+_DOCKER_SIZE_UNITS = {"b": 1, "kb": 10**3, "mb": 10**6, "gb": 10**9, "tb": 10**12, "pb": 10**15}
+_DOCKER_SIZE_PATTERN = re.compile(r"([0-9]*\.?[0-9]+)\s*([kmgtp]?b)", re.IGNORECASE)
+
+# `docker system prune -a --volumes` deletes the stopped stack containers first, which
+# leaves the ClickHouse and Postgres volumes unreferenced, and then deletes those too.
+# Images and build cache are the bulk of the reclaim anyway, so volumes get their own
+# opt-in category rather than riding along with the routine cleanup.
+_DOCKER_PRUNABLE_TYPES = ("Images", "Containers", "Build Cache")
+_DOCKER_VOLUME_TYPE = "Local Volumes"
+
+# A wedged daemon answers neither `info` nor `df`, and both run before we print anything,
+# so without a bound the whole command looks hung. The prunes themselves stay unbounded.
+_DOCKER_PROBE_TIMEOUT = 10
+
+
+def _parse_docker_size(value: str) -> float:
+    """Convert a `docker system df` size such as `26.5GB` to bytes (decimal units)."""
+
+    match = _DOCKER_SIZE_PATTERN.search(value or "")
+    if not match:
+        return 0.0
+    amount, unit = match.groups()
+    try:
+        return float(amount) * _DOCKER_SIZE_UNITS.get(unit.lower(), 1)
+    except ValueError:
+        return 0.0
+
+
+def _docker_df_rows() -> list[dict[str, str]]:
+    """Return one dict per `docker system df` row, or an empty list when unavailable."""
+
+    try:
+        result = subprocess.run(
+            ["docker", "system", "df", "--format", "{{json .}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_DOCKER_PROBE_TIMEOUT,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+    if result.returncode != 0:
+        return []
+
+    rows: list[dict[str, str]] = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            rows.append({str(key): str(value) for key, value in parsed.items()})
+    return rows
+
+
+def _docker_reclaimable(rows: Sequence[dict[str, str]], types: Sequence[str]) -> float:
+    return sum(_parse_docker_size(row.get("Reclaimable", "")) for row in rows if row.get("Type") in types)
+
+
+def _docker_total_size(rows: Sequence[dict[str, str]]) -> float:
+    return sum(_parse_docker_size(row.get("Size", "")) for row in rows)
+
+
+def _docker_running() -> bool:
+    try:
+        subprocess.run(["docker", "info"], capture_output=True, check=True, timeout=_DOCKER_PROBE_TIMEOUT)
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
+    return True
+
+
+def _docker_unavailable() -> CleanupEstimate:
+    return CleanupEstimate(
+        total_size=0.0,
+        items=[],
+        details=["   Docker not available or not running; skipping."],
+        available=False,
+    )
+
+
 def _estimate_docker_usage(repo_root: Path) -> CleanupEstimate:
     """Summarise Docker disk usage via `docker system df`. Repo root unused (compat)."""
 
-    try:
-        subprocess.run(["docker", "info"], capture_output=True, check=True)
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        return CleanupEstimate(
-            total_size=0.0,
-            items=[],
-            details=["   Docker not available or not running; skipping."],
-            available=False,
-        )
+    if not _docker_running():
+        return _docker_unavailable()
 
-    df_result = subprocess.run(["docker", "system", "df"], capture_output=True, text=True, check=False)
+    rows = _docker_df_rows()
 
     details = ["   Current Docker disk usage:"]
-    if df_result.returncode == 0 and df_result.stdout.strip():
-        details.extend([f"     {line}" for line in df_result.stdout.strip().splitlines()])
+    if rows:
+        for row in rows:
+            details.append(
+                f"     {row.get('Type', '?'):<14} {row.get('Size', '?'):>10} total, "
+                f"{row.get('Reclaimable', '0B')} reclaimable"
+            )
     else:
         details.append("     (Unable to retrieve docker system df output)")
 
-    details.append("   Command to run: docker system prune -a --volumes -f")
+    details.append("   Command to run: docker system prune -a -f")
+    details.append("   Volumes are left alone; add --area docker-volumes to prune those as well.")
+
+    return CleanupEstimate(
+        total_size=_docker_reclaimable(rows, _DOCKER_PRUNABLE_TYPES),
+        items=[],
+        details=details,
+    )
+
+
+def _estimate_docker_volumes(repo_root: Path) -> CleanupEstimate:
+    """Report how much unreferenced Docker volume data exists. Repo root unused (compat)."""
+
+    if not _docker_running():
+        return _docker_unavailable()
+
+    reclaimable = _docker_reclaimable(_docker_df_rows(), (_DOCKER_VOLUME_TYPE,))
+
+    details = [
+        f"   Unreferenced volume data: {_format_size(reclaimable)}",
+        "   Command to run: docker volume prune -a -f",
+        "   Afterwards: 'hogli up' recreates the volumes, then re-run migrations and reseed.",
+    ]
+
+    return CleanupEstimate(total_size=reclaimable, items=[], details=details)
+
+
+def _estimate_staticfiles(repo_root: Path) -> CleanupEstimate:
+    """Measure the Django STATIC_ROOT tree that collectstatic writes."""
+
+    static_root = repo_root / "staticfiles"
+    if not static_root.is_dir():
+        return CleanupEstimate(total_size=0.0, items=[], details=["   No staticfiles directory found."])
+
+    size, _ = _get_dir_size(static_root)
+    if size <= 0:
+        return CleanupEstimate(total_size=0.0, items=[], details=["   staticfiles directory is empty."])
+
+    details = [
+        f"   staticfiles/ holds {_format_size(size)} of collected assets.",
+        "   Regenerate with: python manage.py collectstatic",
+    ]
+    return CleanupEstimate(
+        total_size=size,
+        items=[CleanupItem(static_root, size, is_dir=True)],
+        details=details,
+    )
+
+
+def _sccache_cache_dir() -> Path | None:
+    """Locate the sccache cache directory without starting the sccache server."""
+
+    configured = os.environ.get("SCCACHE_DIR")
+    if configured:
+        return Path(configured).expanduser()
+
+    for candidate in (
+        Path.home() / "Library" / "Caches" / "Mozilla.sccache",
+        Path.home() / ".cache" / "sccache",
+    ):
+        if candidate.is_dir():
+            return candidate
+
+    return None
+
+
+def _holds_more_than_a_cache(path: Path) -> bool:
+    """True when deleting *path* would take the home directory or the checkout with it.
+
+    `SCCACHE_DIR` is the one directory this command deletes that an environment variable
+    names outright, so a value one level too high turns a cache clear into `rm -rf` over
+    unrelated work.
+    """
+
+    try:
+        resolved = path.resolve()
+    except (OSError, RuntimeError):
+        return True
+
+    if resolved == Path(resolved.anchor):
+        return True
+
+    for protected in (Path.home().resolve(), REPO_ROOT.resolve()):
+        if resolved == protected or resolved in protected.parents:
+            return True
+
+    return False
+
+
+def _estimate_sccache(repo_root: Path) -> CleanupEstimate:
+    """Measure the sccache cache that the Flox env wires into every Rust build."""
+
+    cache_dir = _sccache_cache_dir()
+    if cache_dir is None or not cache_dir.is_dir():
+        return CleanupEstimate(total_size=0.0, items=[], details=["   No sccache cache directory found."])
+
+    if _holds_more_than_a_cache(cache_dir):
+        return CleanupEstimate(
+            total_size=0.0,
+            items=[],
+            details=[
+                f"   SCCACHE_DIR points at {cache_dir}, which holds more than a cache.",
+                "   Refusing to delete it. Point SCCACHE_DIR at a directory of its own.",
+            ],
+            available=False,
+        )
+
+    size, _ = _get_dir_size(cache_dir)
+    if size <= 0:
+        return CleanupEstimate(total_size=0.0, items=[], details=[f"   {cache_dir} is empty."])
+
+    details = [
+        f"   Cache location: {cache_dir}",
+        f"   Current size: {_format_size(size)}",
+        "   Lower SCCACHE_CACHE_SIZE instead if you want it to stay smaller by itself.",
+    ]
+    return CleanupEstimate(
+        total_size=size,
+        items=[CleanupItem(cache_dir, size, is_dir=True)],
+        details=details,
+    )
+
+
+def _cleanup_sccache(estimate: CleanupEstimate, _: Path) -> CleanupStats:
+    """Stop the sccache server, then delete its cache directory."""
+
+    # The cache directory outlives the binary, so the estimate can find one to delete on a
+    # machine where sccache is no longer installed.
+    if shutil.which("sccache") is not None:
+        subprocess.run(["sccache", "--stop-server"], capture_output=True, check=False)
+
+    freed = _delete_items(estimate.items)
+    return CleanupStats(freed=freed, deleted_anything=freed > 0)
+
+
+def _uv_cache_dir() -> Path | None:
+    result = subprocess.run(["uv", "cache", "dir"], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        return None
+    location = result.stdout.strip()
+    return Path(location) if location else None
+
+
+def _estimate_uv_cache(repo_root: Path) -> CleanupEstimate:
+    """Report the uv cache size. The prune itself decides what is removable."""
+
+    try:
+        subprocess.run(["uv", "--version"], capture_output=True, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return CleanupEstimate(total_size=0.0, items=[], details=["   uv not available; skipping."], available=False)
+
+    details: list[str] = []
+    cache_dir = _uv_cache_dir()
+    if cache_dir is not None and cache_dir.is_dir():
+        size, _ = _get_dir_size(cache_dir)
+        details.append(f"   Cache location: {cache_dir} ({_format_size(size)})")
+
+    details.append("   Runs: uv cache prune")
+    details.append("   Every worktree shares this cache, so each lockfile change adds to it.")
 
     return CleanupEstimate(total_size=0.0, items=[], details=details)
+
+
+def _cleanup_uv_cache(_: CleanupEstimate, __: Path) -> CleanupStats:
+    """Run `uv cache prune` and report the measured difference in cache size."""
+
+    click.echo()
+    cache_dir = _uv_cache_dir()
+    before = _get_dir_size(cache_dir)[0] if cache_dir is not None else 0.0
+
+    result = subprocess.run(["uv", "cache", "prune"], check=False)
+    if result.returncode != 0:
+        click.echo("   ⚠️  uv cache prune failed")
+        return CleanupStats(deleted_anything=False)
+
+    after = _get_dir_size(cache_dir)[0] if cache_dir is not None else 0.0
+    click.echo("   ✓ uv cache pruned")
+    return CleanupStats(freed=max(before - after, 0.0), deleted_anything=True)
+
+
+# Flox writes a new environment generation on every rebuild and leaves the previous one in
+# the store, held by a gcroot under the per-process cache directory. Those roots dangle
+# once the process directory is gone, so most of the store sits unreachable but on disk.
+_NIX_QUERY_CHUNK = 500
+_NIX_INVALID_PATH_ERROR = "is not valid"
+
+# Both probes run before the command prints anything, and either waits behind another
+# process holding the store lock. The collection itself stays unbounded; it earns its time.
+_NIX_PROBE_TIMEOUT = 120
+_NIX_FREED_PATTERN = re.compile(r"([0-9]*\.?[0-9]+)\s*(B|KiB|MiB|GiB|TiB)\s+freed", re.IGNORECASE)
+_NIX_FREED_UNITS = {"b": 1, "kib": 1024, "mib": 1024**2, "gib": 1024**3, "tib": 1024**4}
+
+
+@dataclass(frozen=True)
+class NixStoreSize:
+    """Bytes held by a set of store paths, and whether nix sized all of them."""
+
+    total: float
+    complete: bool
+
+
+def _nix_dead_paths() -> list[str] | None:
+    """List the store paths no live generation references, or None when nix could not answer."""
+
+    try:
+        result = subprocess.run(
+            ["nix-store", "--gc", "--print-dead"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_NIX_PROBE_TIMEOUT,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return [line.strip() for line in result.stdout.splitlines() if line.startswith("/nix/store/")]
+
+
+def _nix_paths_size(paths: Sequence[str]) -> NixStoreSize:
+    total = 0.0
+    complete = True
+    for start in range(0, len(paths), _NIX_QUERY_CHUNK):
+        chunk = _nix_chunk_size(paths[start : start + _NIX_QUERY_CHUNK])
+        total += chunk.total
+        complete = complete and chunk.complete
+    return NixStoreSize(total=total, complete=complete)
+
+
+def _nix_chunk_size(chunk: Sequence[str]) -> NixStoreSize:
+    """Sum the store sizes of one batch, stepping over paths nix no longer considers valid.
+
+    `nix-store -q --size` answers in argument order and then aborts on the first invalid
+    path, so a single stale entry would otherwise cost us the whole batch. The sizes it
+    already printed stay good, and the path after them is the one to skip. Any other
+    failure ends the batch, because retrying it per path only repeats it.
+    """
+
+    total = 0.0
+    remaining = list(chunk)
+
+    while remaining:
+        try:
+            result = subprocess.run(
+                ["nix-store", "-q", "--size", *remaining],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=_NIX_PROBE_TIMEOUT,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return NixStoreSize(total=total, complete=False)
+        answered = result.stdout.split()
+        for token in answered:
+            try:
+                total += float(token)
+            except ValueError:
+                continue
+        if result.returncode == 0:
+            break
+        if _NIX_INVALID_PATH_ERROR not in result.stderr:
+            return NixStoreSize(total=total, complete=False)
+        remaining = remaining[len(answered) + 1 :]
+
+    return NixStoreSize(total=total, complete=True)
+
+
+def _parse_nix_freed(text: str) -> float:
+    match = _NIX_FREED_PATTERN.search(text or "")
+    if not match:
+        return 0.0
+    amount, unit = match.groups()
+    try:
+        return float(amount) * _NIX_FREED_UNITS.get(unit.lower(), 1)
+    except ValueError:
+        return 0.0
+
+
+def _estimate_nix_store(repo_root: Path) -> CleanupEstimate:
+    """Size the store paths no live Flox generation references. Repo root unused (compat)."""
+
+    if shutil.which("nix-store") is None:
+        return CleanupEstimate(total_size=0.0, items=[], details=["   Nix not available; skipping."], available=False)
+
+    click.echo("   Scanning the Nix store for unreachable paths...")
+    dead = _nix_dead_paths()
+    if dead is None:
+        return CleanupEstimate(
+            total_size=0.0,
+            items=[],
+            details=["   Could not read the Nix store. Retry when no other process holds the store lock."],
+            available=False,
+        )
+    if not dead:
+        return CleanupEstimate(total_size=0.0, items=[], details=["   No unreachable store paths."])
+
+    size = _nix_paths_size(dead)
+    measured = "about" if size.complete else "at least"
+    details = [f"   {len(dead)} unreachable store path(s), {measured} {_format_size(size.total)}."]
+    if not size.complete:
+        details.append("   Some paths could not be measured, so the collection frees more than that.")
+    details.append("   Command to run: nix-store --gc")
+    return CleanupEstimate(total_size=size.total, items=[], details=details)
+
+
+def _cleanup_nix_store(estimate: CleanupEstimate, _: Path) -> CleanupStats:
+    """Run the Nix garbage collector and report what it freed."""
+
+    click.echo()
+    click.echo("   Running nix-store --gc (may take a few minutes)...")
+    result = subprocess.run(["nix-store", "--gc"], capture_output=True, text=True, check=False)
+
+    if result.returncode != 0:
+        click.echo("   ⚠️  Nix garbage collection failed")
+        return CleanupStats(deleted_anything=False)
+
+    freed = _parse_nix_freed(result.stderr) or _parse_nix_freed(result.stdout) or estimate.total_size
+    click.echo("   ✓ Nix store collected")
+    return CleanupStats(freed=freed, deleted_anything=True)
 
 
 def _cleanup_items(estimate: CleanupEstimate, _: Path) -> CleanupStats:
@@ -735,16 +1226,31 @@ def _cleanup_pnpm_store(_: CleanupEstimate, __: Path) -> CleanupStats:
 
 
 def _cleanup_docker(_: CleanupEstimate, __: Path) -> CleanupStats:
-    """Execute docker system prune command."""
+    """Prune unused images, containers and build cache, leaving volumes in place."""
+
+    return _run_docker_prune(["docker", "system", "prune", "-a", "-f"], "Docker cleanup")
+
+
+def _cleanup_docker_volumes(_: CleanupEstimate, __: Path) -> CleanupStats:
+    """Delete every Docker volume no container references."""
+
+    return _run_docker_prune(["docker", "volume", "prune", "-a", "-f"], "Docker volume cleanup")
+
+
+def _run_docker_prune(command: Sequence[str], label: str) -> CleanupStats:
+    """Run a docker prune, measuring freed space from `docker system df` either side."""
 
     click.echo()
-    result = subprocess.run(["docker", "system", "prune", "-a", "--volumes", "-f"], check=False)
-    if result.returncode == 0:
-        click.echo("   ✓ Docker cleanup completed")
-        return CleanupStats(deleted_anything=True)
+    before = _docker_total_size(_docker_df_rows())
+    result = subprocess.run(list(command), check=False)
 
-    click.echo("   ⚠️  Docker cleanup failed")
-    return CleanupStats(deleted_anything=False)
+    if result.returncode != 0:
+        click.echo(f"   ⚠️  {label} failed")
+        return CleanupStats(deleted_anything=False)
+
+    after = _docker_total_size(_docker_df_rows())
+    click.echo(f"   ✓ {label} completed")
+    return CleanupStats(freed=max(before - after, 0.0), deleted_anything=True)
 
 
 def _cleanup_rust(_: CleanupEstimate, repo_root: Path) -> CleanupStats:
@@ -853,11 +1359,30 @@ def _collect_paths_from_patterns(repo_root: Path, patterns: Sequence[str]) -> li
     return items
 
 
+def _cargo_target_dir() -> Path | None:
+    """The shared target directory `.flox/env/on-activate.sh` points Cargo at, if set."""
+
+    configured = os.environ.get("CARGO_TARGET_DIR")
+    return Path(configured).expanduser() if configured else None
+
+
 def _collect_rust_target_dirs(repo_root: Path) -> list[CleanupItem]:
-    """Collect Cargo target directories anywhere in the repository."""
+    """Collect Cargo target directories in the repository and at CARGO_TARGET_DIR."""
 
     items: list[CleanupItem] = []
     seen: set[Path] = set()
+
+    external = _cargo_target_dir()
+    if external is not None and external.is_dir():
+        try:
+            resolved = external.resolve()
+        except (FileNotFoundError, PermissionError, RuntimeError):
+            resolved = None
+        if resolved is not None:
+            size, _ = _get_dir_size(external)
+            if size > 0:
+                seen.add(resolved)
+                items.append(CleanupItem(external, size, is_dir=True))
 
     for target_dir in repo_root.glob("**/target"):
         if any(part in {".git", "node_modules"} for part in target_dir.parts):
@@ -2218,6 +2743,17 @@ def _check_disk(repo_root: Path) -> CheckResult:
     # Flox logs — already cheap (single-directory glob)
     flox_est = _estimate_flox_logs(repo_root)
     total += flox_est.total_size
+
+    # collectstatic output — one known directory, capped so a huge tree exits early
+    static_size, static_exceeded = _get_dir_size(repo_root / "staticfiles", cap=budget - total)
+    total += static_size
+    if static_exceeded:
+        return CheckResult(
+            name="Disk usage",
+            status=CheckStatus.WARNING,
+            summary=f">{_format_size(budget)} reclaimable",
+            remediation="run `hogli doctor:disk`",
+        )
 
     # Python caches — depth-limited instead of repo_root.glob("**/{pattern}")
     _SKIP_PARTS = {".git", "node_modules", ".venv", "venv"}

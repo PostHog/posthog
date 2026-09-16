@@ -2457,6 +2457,18 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
                     "sub-folders are not included."
                 ),
             ),
+            OpenApiParameter(
+                "pinned",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Return only pinned dashboards.",
+            ),
+            OpenApiParameter(
+                "exclude_generated",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Exclude dashboards that PostHog generated.",
+            ),
         ],
     ),
     # Dashboards nest insight payloads via `tiles[].insight`, so the deprecated-`dashboards`-field
@@ -2658,6 +2670,9 @@ class DashboardsViewSet(
         # Filter out generated dashboards if requested (for list action only)
         if self.action == "list" and self.request.query_params.get("exclude_generated") == "true":
             queryset = queryset.exclude(name__startswith=GENERATED_DASHBOARD_PREFIX)
+
+        if self.action == "list" and self.request.query_params.get("pinned") == "true":
+            queryset = queryset.filter(pinned=True).order_by(F("last_viewed_at").desc(nulls_last=True), "name")
 
         # Allow filtering by creation_mode query param
         creation_mode = self.request.query_params.get("creation_mode")

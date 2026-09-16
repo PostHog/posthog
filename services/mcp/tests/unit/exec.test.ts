@@ -1217,6 +1217,30 @@ describe('exec tool', () => {
         })
     })
 
+    describe('batched commands', () => {
+        it.each([
+            ['info mock-tool\ninfo other-tool', 2],
+            ['search flags\ncall mock-tool {}\ninfo mock-tool', 3],
+        ])('rejects %j and names each command', async (command, expected) => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command })).rejects.toThrow(
+                `exec runs one command per request, and this request held ${expected}.`
+            )
+        })
+
+        it.each([
+            ['a JSON body split over lines', 'call mock-tool {\n  "query": "SELECT 1"\n}'],
+            ['a JSON body with a key named after a verb', 'call mock-tool {\n  "search": "flags"\n}'],
+        ])('runs a single call with %s', async (_label, command) => {
+            const tool = makeMockTool({
+                schema: z.object({ query: z.string().optional(), search: z.string().optional() }),
+                handler: async () => ({ ok: true }),
+            })
+            const exec = createExec([tool])
+            await expect(exec.handler(mockContext, { command })).resolves.toBeDefined()
+        })
+    })
+
     describe('info command', () => {
         it('returns YAML for the top shape with the input schema embedded as JSON', async () => {
             const tool = makeMockTool({ schema: z.object({ name: z.string().describe('Person name') }) })
