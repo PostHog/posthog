@@ -3,9 +3,9 @@ import pLimit from 'p-limit'
 
 import { logger } from '~/common/utils/logger'
 import {
-    MlKafkaEncryption,
+    MlKafkaTransport,
     ingestionVersion,
-    validateImageOwner,
+    validateImageRefVersion,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
 
 import { fetchCandidateHistoryKey } from './collected-urls-record'
@@ -56,7 +56,7 @@ export class UrlFetchConsumer {
         private readonly runner?: FetchPass,
         private readonly deadLetters: FrontierDeadLetterSink | null = null,
         private readonly topHogMetrics?: ImageFetchTopHogMetrics,
-        private readonly keyManager?: MlKafkaEncryption
+        private readonly keyManager?: MlKafkaTransport
     ) {
         if (!Number.isInteger(options.seenTtlSeconds) || options.seenTtlSeconds < 60 * 60) {
             throw new Error('AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS must be at least 3600')
@@ -69,26 +69,26 @@ export class UrlFetchConsumer {
 
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
         const decoded = this.keyManager
-            ? await this.keyManager.read(messages, 'image-frontier')
+            ? await this.keyManager.read(messages)
             : messages.map((message) => {
                   let version: 1 | 2
                   try {
                       version = ingestionVersion(message)
                   } catch (error) {
                       if (error instanceof Error && error.message === 'Unsupported ML ingestion version') {
-                          return { message, original: message, key: undefined, invalid: true }
+                          return { message, original: message, version: undefined, invalid: true }
                       }
                       throw error
                   }
                   if (version === 2) {
                       throw new Error('ML v2 frontier requires key manager configuration')
                   }
-                  return { message, original: message, key: undefined, invalid: undefined }
+                  return { message, original: message, version, invalid: undefined }
               })
         const decodedValid = decoded.filter((entry) => !entry.invalid)
-        const encrypted = decodedValid.filter((entry) => entry.key).length
-        ImageFetchConsumerMetrics.incrementVersion('2', encrypted)
-        ImageFetchConsumerMetrics.incrementVersion('1', decodedValid.length - encrypted)
+        const v2 = decodedValid.filter((entry) => entry.version === 2).length
+        ImageFetchConsumerMetrics.incrementVersion('2', v2)
+        ImageFetchConsumerMetrics.incrementVersion('1', decodedValid.length - v2)
         const startedAt = process.hrtime.bigint()
         const republishDeadlineAtMonotonicMs = performance.now() + REPUBLISH_DEADLINE_FROM_BATCH_START_MS
         const drops = new Map<UrlDropReason, number>()
@@ -104,7 +104,7 @@ export class UrlFetchConsumer {
         const stage = ImageFetchProcessingMetrics.start('batch_parse')
 
         try {
-            for (const { message, original, key, invalid } of decoded) {
+            for (const { message, original, version, invalid } of decoded) {
                 if (invalid) {
                     rejectedRecords.push({ message: original, reasons: ['malformed'] })
                     continue
@@ -131,14 +131,17 @@ export class UrlFetchConsumer {
                 }
                 try {
                     for (const candidate of parsed.candidates) {
-                        validateImageOwner(candidate.originalRef, key)
+                        validateImageRefVersion(candidate.originalRef, version ?? 1)
+                        if (version === 2 && !candidate.sessionId) {
+                            throw new Error('A v2 fetch job needs its session ID')
+                        }
                     }
                 } catch {
                     rejectedRecords.push({ message: original, reasons: ['bad_ref'] })
                     continue
                 }
                 for (const candidate of parsed.candidates) {
-                    const partitionCandidate = { ...candidate, dataKey: key, sourcePartitions: [message.partition] }
+                    const partitionCandidate = { ...candidate, sourcePartitions: [message.partition] }
                     const existing = candidatesByRef.get(fetchCandidateHistoryKey(partitionCandidate))
                     if (existing) {
                         dedupedInBatch += 1

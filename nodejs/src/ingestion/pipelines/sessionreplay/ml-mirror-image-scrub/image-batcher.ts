@@ -222,20 +222,21 @@ export class ImageBatcher {
             ImageScrubConsumerMetrics.observeBatchMessages(messages.length)
         }
         const decoded = this.keyManager
-            ? await this.keyManager.kafka.read(messages, 'image-source', true)
+            ? await this.keyManager.kafka.read(messages, { bindKafkaKey: true })
             : messages.map((message) => {
-                  if (ingestionVersion(message) === 2) {
+                  const version = ingestionVersion(message)
+                  if (version === 2) {
                       throw new Error('ML v2 images require key manager configuration')
                   }
-                  return { message, original: message, key: undefined, invalid: undefined }
+                  return { message, original: message, version, invalid: undefined }
               })
         const decodedValid = decoded.filter((entry) => !entry.invalid)
-        const encrypted = decodedValid.filter((entry) => entry.key).length
-        ImageScrubConsumerMetrics.incrementVersion('2', encrypted)
-        ImageScrubConsumerMetrics.incrementVersion('1', decodedValid.length - encrypted)
+        const v2 = decodedValid.filter((entry) => entry.version === 2).length
+        ImageScrubConsumerMetrics.incrementVersion('2', v2)
+        ImageScrubConsumerMetrics.incrementVersion('1', decodedValid.length - v2)
         for (const entry of decoded.filter((entry) => entry.invalid)) {
             if (!this.deadLetters) {
-                throw new Error('Invalid encrypted ML image requires a dead-letter destination')
+                throw new Error('An invalid ML image record requires a dead-letter destination')
             }
             await this.parkImageUntilAccepted(
                 {
@@ -243,7 +244,7 @@ export class ImageBatcher {
                     bytes: entry.original.value ?? Buffer.alloc(0),
                     headers: parseKafkaHeaders(entry.original.headers),
                     detail: {
-                        reason: 'invalid_encryption',
+                        reason: 'invalid_record',
                         sourceTopic: entry.original.topic,
                         sourcePartition: entry.original.partition,
                         sourceOffset: entry.original.offset,

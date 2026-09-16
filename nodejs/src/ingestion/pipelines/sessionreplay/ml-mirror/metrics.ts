@@ -310,7 +310,7 @@ export class MlParquetSinkMetrics {
         this.rowsParsed.inc(count)
     }
     public static incRowsRejected(
-        reason: 'parse_failed' | 'invalid' | 'invalid_envelope' | 'key_missing',
+        reason: 'parse_failed' | 'invalid' | 'invalid_record' | 'key_missing',
         count = 1
     ): void {
         this.rowsRejected.labels(reason).inc(count)

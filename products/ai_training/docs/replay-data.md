@@ -160,7 +160,7 @@ Resolve image references before training because they contain team IDs.
 
 V2 references are `image:v2:<team>:<month>:<hash>` and `imageurl:v2:<team>:<month>:<hash>`.
 Images do not deduplicate across teams or session months.
-Source messages use session keys; stored scrubbed images use team image keys.
+Kafka records between the ML lanes travel in cleartext; only objects in S3 are sealed, and stored scrubbed images use team image keys.
 Consumers reject malformed UUIDv7 session identifiers before reading DynamoDB.
 Oversized identifiers cannot fail a whole bulk key lookup.
 Inline images have an encrypted lookup for each reference, published after the shard and its index.
@@ -173,9 +173,10 @@ Robots.txt and TDM reservation caches keep their shared origin keys and existing
 It does not inherit v1 seen flags or successful fetch results.
 
 ML Kafka producers write `ai_research_ingestion_version: 1` or `2`.
-Retries and dead-letter replay preserve this header and the encrypted bytes.
+Retries and dead-letter replay preserve this header and the record bytes.
 Headerless queued messages mean v1.
-Unknown versions and conflicting v2 ownership are rejected; a failed v2 decode never falls back to v1.
+Unknown versions are rejected, and so is an image reference whose version does not match the header.
+The metadata sink resolves each row's session key from the row's own team and session identifiers before it seals the row for Parquet; a row whose key is deleted or blocked is dropped.
 
 Legacy image references and paths remain available for v1 sessions.
 Their HMAC key must remain stable while that data is in use.

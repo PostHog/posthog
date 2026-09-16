@@ -9,7 +9,7 @@ import { parseBlockMetadataMessages } from './block-metadata-message'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataRow } from './block-metadata-row'
 import { MlEncryptedEnvelope, encryptEnvelope } from './keys/crypto'
-import { MlKafkaEncryption, ingestionVersion } from './keys/transport'
+import { MlKafkaTransport, ingestionVersion } from './keys/transport'
 import { MlParquetSinkMetrics } from './metrics'
 import { EncryptedReplayIndex, encryptReplayIndex } from './replay-index'
 
@@ -37,7 +37,7 @@ export class BlockMetadataBatcher {
         private readonly offsetStore: OffsetStore,
         private readonly options: BlockMetadataBatcherOptions,
         nowMs: number,
-        private readonly keyManager?: MlKafkaEncryption
+        private readonly keyManager?: MlKafkaTransport
     ) {
         this.lastFlushMs = nowMs
     }
@@ -48,7 +48,7 @@ export class BlockMetadataBatcher {
             this.bufferedBytes += message.value?.length ?? 0
         }
         const decoded = this.keyManager
-            ? await this.keyManager.read(messages, 'metadata')
+            ? await this.keyManager.read(messages, { sessionIdentity: rowSessionIdentity })
             : messages.map((message) => {
                   if (ingestionVersion(message) === 2) {
                       throw new Error('ML v2 metadata requires key manager configuration')
@@ -59,7 +59,7 @@ export class BlockMetadataBatcher {
         let encryptedRows = 0
         for (const { message, key, invalid } of decoded) {
             if (invalid) {
-                MlParquetSinkMetrics.incRowsRejected('invalid_envelope')
+                MlParquetSinkMetrics.incRowsRejected('invalid_record')
             }
             if (key) {
                 let row: unknown
@@ -144,4 +144,21 @@ export class BlockMetadataBatcher {
             MlParquetSinkMetrics.incFlush(wroteObject ? 'written' : 'empty')
         }
     }
+}
+
+function rowSessionIdentity(message: Message): { teamId: number; sessionId: string } | null {
+    let row: unknown
+    try {
+        row = parseJSON(message.value?.toString() ?? '')
+    } catch {
+        return null
+    }
+    if (!row || typeof row !== 'object' || !('session_id' in row) || !('team_id' in row)) {
+        return null
+    }
+    const { session_id, team_id } = row as { session_id: unknown; team_id: unknown }
+    if (typeof session_id !== 'string' || typeof team_id !== 'string' || !/^[0-9]+$/.test(team_id)) {
+        return null
+    }
+    return { teamId: Number(team_id), sessionId: session_id }
 }
