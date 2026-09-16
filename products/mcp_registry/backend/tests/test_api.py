@@ -163,6 +163,19 @@ class TestMCPRegistryAPI(APIBaseTest):
 
         assert payload["candidates"][0]["id"] == str(on_topic.id)
 
+    def test_discover_exposes_relevance_and_combined_score(self) -> None:
+        self._seed_index()
+        compute_ranking_run("v2_measured_trust")
+
+        payload = self.client.get(self._url("discover/"), {"intent": "query my product analytics"}).json()
+
+        candidate = payload["candidates"][0]
+        assert 0.0 <= candidate["relevance"] <= 1.0
+        assert candidate["combined_score"] is not None
+        # The list is ordered by combined_score, so it is non-increasing down the ranks.
+        combined = [c["combined_score"] for c in payload["candidates"]]
+        assert combined == sorted(combined, reverse=True)
+
     def test_discover_returns_one_row_per_server(self) -> None:
         # Several tools matching one intent used to duplicate the server in the results.
         servers = self._seed_index()
