@@ -517,7 +517,7 @@ _Also asked as:_ auto-sync deps, keep the venv current automatically, uv sync in
 Python 3.12.12 needs uv 0.9.2 or later. Flox pinned uv 0.8.23, and that version can get Python 3.12.10 at the maximum.
 Thus a person without Python 3.12.12 on the local machine could not build the environment.
 
-Remember the constraint, not the versions. The repository now uses Python 3.13.13, and this pin is obsolete.
+Remember the constraint, not the versions. The repository now uses Python 3.14.7, and this pin is obsolete.
 Before you increase the Python version, examine which versions the pinned flox uv can get.
 
 _Also asked as:_ bump Python, upgrade the interpreter, why is Python pinned to an exact version

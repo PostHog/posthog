@@ -71,7 +71,7 @@ The Python test suite (needs `deltalake`, `pyarrow`, `duckdb`, `pytest` —
 versions matching the repo's `pyproject.toml` pins):
 
 ```bash
-uv venv /tmp/deltalite-venv --python 3.13
+uv venv /tmp/deltalite-venv --python 3.14
 VIRTUAL_ENV=/tmp/deltalite-venv uv pip install maturin pytest \
     'deltalake==1.6.1' 'pyarrow==23.0.1' 'duckdb~=1.5.2'
 VIRTUAL_ENV=/tmp/deltalite-venv /tmp/deltalite-venv/bin/python -m maturin develop \
