@@ -176,11 +176,13 @@ def render_context_target_block(context_target: dict | None) -> str:
             "a composition storage tool is available. Missing tools, denied access, missing values, and incomplete "
             "reads are different conditions. Report the actual condition instead of requesting broader permissions."
         )
+    # A context-only target has no canvas, and the run holds no canvas scopes for one.
+    destination = "canvas" if outputs["canvas_id"] else "context page"
     lines.append(
         f"- Read failures with `tasks-list`, channel={channel_id}, status=failed, internal=all, and archived=all. "
         "Use hog_flow_id for workflow-backed loops and `tasks-runs-list` for earlier runs of a task. "
         "When available, `loops-runs-retrieve` also accepts status=failed and next_cursor. Show task/run links "
-        "and stored errors in the canvas, not a saved Enabled label. If state cannot be read, report the failure "
+        f"and stored errors in the {destination}, not a saved Enabled label. If a read fails, report the failure "
         "in the task response; do not mark the work complete."
     )
     return "\n".join(lines)
