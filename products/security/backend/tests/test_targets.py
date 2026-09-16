@@ -36,6 +36,7 @@ class TestNormalize:
             (TargetType.IP, "not-an-ip"),
             (TargetType.USER_UUID, "123"),
             (TargetType.TEAM_ID, "0"),
+            (TargetType.TEAM_ID, "\u00b2"),
         ],
     )
     def test_refuses_a_value_that_could_never_match(self, target_type, raw):
@@ -56,6 +57,7 @@ class TestMatches:
             (TargetType.EMAIL_DOMAIN, "example.com", Subject(domain="example.com"), True),
             (TargetType.IP, "203.0.113.0/24", Subject(ip="203.0.113.200"), True),
             (TargetType.IP, "203.0.113.0/24", Subject(ip="203.0.114.1"), False),
+            (TargetType.IP, "203.0.113.0/24", Subject(ip="::ffff:203.0.113.200"), True),
             (TargetType.IP, "203.0.113.0/24", Subject(ip="2001:db8::1"), False),
             (TargetType.IP, "203.0.113.0/24", Subject(ip="unknown"), False),
             (TargetType.ORGANIZATION_ID, ORG_ID, Subject(organization_ids=frozenset({ORG_ID})), True),

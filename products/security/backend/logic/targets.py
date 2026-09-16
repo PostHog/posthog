@@ -101,7 +101,8 @@ def _normalize_uuid(value: str) -> str:
 
 def _normalize_team_id(value: str) -> str:
     stripped = value.strip()
-    if not stripped.isdigit() or int(stripped) < 1:
+    # str.isdigit() also accepts characters such as "²", which int() refuses.
+    if not (stripped.isascii() and stripped.isdigit()) or int(stripped) < 1:
         raise InvalidTarget("Enter a numeric project ID.")
     return str(int(stripped))
 
@@ -146,12 +147,21 @@ def _match_team_id(value: str, subject: Subject) -> bool:
     return int(value) in subject.team_ids
 
 
+def canonical_address(address: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+    """Parse an address. An IPv4-mapped IPv6 address such as ::ffff:93.184.216.34 comes
+    back as its IPv4 address, so an IPv4 range still covers a client seen in that form."""
+    parsed = ipaddress.ip_address(address)
+    if isinstance(parsed, ipaddress.IPv6Address) and parsed.ipv4_mapped is not None:
+        return parsed.ipv4_mapped
+    return parsed
+
+
 def _match_ip(value: str, subject: Subject) -> bool:
     if subject.ip is None:
         return False
     try:
         # Containment across IP versions is False rather than an error.
-        return ipaddress.ip_address(subject.ip) in ipaddress.ip_network(value)
+        return canonical_address(subject.ip) in ipaddress.ip_network(value)
     except ValueError:
         return False
 

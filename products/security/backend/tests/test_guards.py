@@ -26,10 +26,15 @@ class TestCheckRule:
             (_draft(TargetType.IP, "93.0.0.0/8"), None, "wider than /16"),
             (_draft(TargetType.IP, "2606:2800::/32"), None, "wider than /48"),
             (_draft(TargetType.IP, PUBLIC_RANGE), ADDRESS_IN_PUBLIC_RANGE, "lock you out"),
+            (_draft(TargetType.IP, PUBLIC_RANGE), f"::ffff:{ADDRESS_IN_PUBLIC_RANGE}", "lock you out"),
             # A signup block can't shut the admin out of the admin, so it may cover them.
             (_draft(TargetType.IP, PUBLIC_RANGE, scope=Scope.SIGNUP), ADDRESS_IN_PUBLIC_RANGE, None),
             (_draft(TargetType.IP, PUBLIC_RANGE), None, None),
-            (_draft(TargetType.ORGANIZATION_ID, str(uuid.uuid4())), None, "can only apply to the AI gateway"),
+            (
+                _draft(TargetType.ORGANIZATION_ID, str(uuid.uuid4())),
+                None,
+                "An organization rule can only apply to the AI gateway",
+            ),
             (_draft(TargetType.USER_UUID, str(uuid.uuid4()), scope=Scope.SIGNUP), None, "can only apply to"),
             (_draft(TargetType.EMAIL, "a@example.com", effect=Effect.EXEMPT), None, "Only block rules"),
         ],
