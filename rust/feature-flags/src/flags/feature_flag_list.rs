@@ -173,10 +173,17 @@ impl FeatureFlagList {
               LEFT JOIN posthog_evaluationcontext AS ctx ON (ec.evaluation_context_id = ctx.id)
             WHERE t.id = $1
               AND f.deleted = false
-              -- Exclude encrypted remote config flags - they can only be accessed via
-              -- the dedicated /remote_config endpoint which handles decryption.
-              -- Use IS TRUE to handle NULL values (NULL IS TRUE evaluates to FALSE, not NULL)
-              AND NOT (f.is_remote_configuration IS TRUE AND f.has_encrypted_payloads IS TRUE)
+              -- Exclude every flag with encrypted payloads. Only /remote_config can serve one,
+              -- because only that endpoint decrypts.
+              -- Mirror .exclude(has_encrypted_payloads=True) on the three Django paths that load
+              -- the same flags: products/feature_flags/backend/flags_cache.py,
+              -- products/feature_flags/backend/local_evaluation.py, and
+              -- products/feature_flags/backend/models/feature_flag.py. Keep all four in lockstep.
+              -- Do not narrow this to a conjunction of both booleans. See "Remote configuration
+              -- and encrypted payloads" in docs/internal/feature-flags/django-api-endpoints.md:
+              -- a conjunction admits a pre-constraint row and serves its ciphertext as a plain
+              -- payload.
+              AND f.has_encrypted_payloads IS NOT TRUE
             GROUP BY f.id, f.team_id, f.name, f.key, f.filters, f.deleted, f.active,
                      f.ensure_experience_continuity, f.version, f.evaluation_runtime
         "#;
@@ -271,6 +278,9 @@ mod tests {
             setup_redis_client, TestContext,
         },
     };
+    use sqlx::Acquire;
+
+    const ENCRYPTED_PAYLOADS_CONSTRAINT: &str = "encrypted_payloads_require_remote_config";
 
     #[tokio::test]
     async fn test_fetch_flags_from_redis() {
@@ -695,10 +705,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_null_values_included_in_pg_query() {
-        // Verify that flags with NULL values for is_remote_configuration and/or
-        // has_encrypted_payloads are correctly included (not excluded by the filter).
-        // This tests the IS TRUE logic: NULL IS TRUE evaluates to FALSE, so
-        // NOT (NULL IS TRUE AND ...) evaluates to TRUE, including the row.
+        // Legacy flags with NULL fields remain readable when their payloads are unencrypted.
         let context = TestContext::new(None).await;
         let team = context
             .insert_new_team(None)
@@ -756,28 +763,11 @@ mod tests {
         .await
         .expect("Failed to insert legacy flag");
 
-        // Insert flag with is_remote_configuration = NULL, has_encrypted_payloads = true
-        // This should still be included because is_remote_configuration is not TRUE
-        sqlx::query(
-            r#"INSERT INTO posthog_featureflag
-            (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
-             is_remote_configuration, has_encrypted_payloads, created_at)
-            VALUES ($1, $2, $3, $4, false, true, false, NULL, true, '2024-06-17')"#,
-        )
-        .bind(team.id)
-        .bind("Null Remote Encrypted True Flag")
-        .bind("null_remote_encrypted_true")
-        .bind(serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}))
-        .execute(&mut *conn)
-        .await
-        .expect("Failed to insert null remote encrypted true flag");
-
         let flags_from_pg = FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.id)
             .await
             .expect("Failed to fetch flags from pg");
 
-        // All flags with NULL values should be included
-        assert_eq!(flags_from_pg.len(), 4);
+        assert_eq!(flags_from_pg.len(), 3);
 
         let flag_keys: Vec<&str> = flags_from_pg.iter().map(|f| f.key.as_str()).collect();
         assert!(
@@ -792,9 +782,93 @@ mod tests {
             flag_keys.contains(&"legacy_flag"),
             "Legacy flag with both NULL should be included"
         );
+    }
+
+    #[tokio::test]
+    async fn test_pre_constraint_encrypted_flags_excluded_from_pg_query() {
+        // Narrowing to a conjunction of both booleans would serve this ciphertext as a payload.
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        let mut conn = context
+            .non_persons_writer
+            .get_connection()
+            .await
+            .expect("Failed to get connection");
+
+        // One transaction holds ACCESS EXCLUSIVE on the table throughout, so a concurrent test
+        // never observes it without the constraint.
+        let mut tx = conn.begin().await.expect("Failed to begin transaction");
+
+        let definition: String = sqlx::query_scalar(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = $1",
+        )
+        .bind(ENCRYPTED_PAYLOADS_CONSTRAINT)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("Failed to read constraint definition");
+
+        sqlx::query(&format!(
+            "ALTER TABLE posthog_featureflag DROP CONSTRAINT {ENCRYPTED_PAYLOADS_CONSTRAINT}"
+        ))
+        .execute(&mut *tx)
+        .await
+        .expect("Failed to drop constraint");
+
+        for (key, name, is_remote_configuration) in [
+            (
+                "false_remote_encrypted",
+                "False Remote Encrypted Flag",
+                Some(false),
+            ),
+            ("null_remote_encrypted", "Null Remote Encrypted Flag", None),
+        ] {
+            sqlx::query(
+                r#"INSERT INTO posthog_featureflag
+                (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
+                 is_remote_configuration, has_encrypted_payloads, created_at)
+                VALUES ($1, $2, $3, $4, false, true, false, $5, true, '2024-06-17')"#,
+            )
+            .bind(team.id)
+            .bind(name)
+            .bind(key)
+            .bind(serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}))
+            .bind(is_remote_configuration)
+            .execute(&mut *tx)
+            .await
+            .expect("Failed to insert pre-constraint encrypted flag");
+        }
+
+        // Postgres refuses to alter a table with the pending trigger events the inserts queued.
+        sqlx::query("SET CONSTRAINTS ALL IMMEDIATE")
+            .execute(&mut *tx)
+            .await
+            .expect("Failed to flush deferred constraint triggers");
+
+        sqlx::query(&format!(
+            "ALTER TABLE posthog_featureflag ADD CONSTRAINT {ENCRYPTED_PAYLOADS_CONSTRAINT} {definition} NOT VALID"
+        ))
+        .execute(&mut *tx)
+        .await
+        .expect("Failed to restore constraint");
+
+        tx.commit().await.expect("Failed to commit transaction");
+
+        let flags_from_pg = FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.id)
+            .await
+            .expect("Failed to fetch flags from pg");
+
+        let flag_keys: Vec<&str> = flags_from_pg.iter().map(|f| f.key.as_str()).collect();
         assert!(
-            flag_keys.contains(&"null_remote_encrypted_true"),
-            "Flag with NULL is_remote_configuration and TRUE has_encrypted_payloads should be included"
+            !flag_keys.contains(&"false_remote_encrypted"),
+            "Encrypted flag with is_remote_configuration false should be excluded"
+        );
+        assert!(
+            !flag_keys.contains(&"null_remote_encrypted"),
+            "Encrypted flag with NULL is_remote_configuration should be excluded"
         );
     }
 

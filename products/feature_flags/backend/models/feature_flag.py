@@ -105,6 +105,8 @@ def build_scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[st
 EXPERIMENT_MIN_VARIANTS = 2
 EXPERIMENT_MAX_VARIANTS = 20
 
+ENCRYPTED_PAYLOADS_CONSTRAINT = "encrypted_payloads_require_remote_config"
+
 
 def experiment_eligibility_error(variants: list[dict[str, Any]] | None) -> str | None:
     """Why these flag variants can't back an experiment, or None when they can."""
@@ -185,8 +187,18 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     # whether a feature is sending us rich analytics, like views & interactions.
     has_enriched_analytics = models.BooleanField(default=False, null=True, blank=True)
 
-    is_remote_configuration = models.BooleanField(default=False, null=True, blank=True)
-    has_encrypted_payloads = models.BooleanField(default=False, null=True, blank=True)
+    is_remote_configuration = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="Whether this flag delivers a remote configuration payload. This must be true when has_encrypted_payloads is true.",
+    )
+    has_encrypted_payloads = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="Whether to encrypt the remote configuration payload. This can be true only when is_remote_configuration is true.",
+    )
 
     EVALUATION_RUNTIME_CHOICES = [
         ("server", "Server"),
@@ -238,6 +250,14 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             # An archived flag must be disabled — keeps an archived flag from ever serving traffic,
             # regardless of which code path wrote it.
             models.CheckConstraint(condition=~Q(archived=True, active=True), name="archived_flag_must_be_disabled"),
+            models.CheckConstraint(
+                # Keep the isnull term. Django guards the negated term against NULL but not the
+                # positive one, so without it an is_remote_configuration of NULL makes the OR
+                # evaluate to NULL, which a CHECK accepts.
+                condition=~Q(has_encrypted_payloads=True)
+                | Q(is_remote_configuration=True, is_remote_configuration__isnull=False),
+                name=ENCRYPTED_PAYLOADS_CONSTRAINT,
+            ),
         ]
         db_table = "posthog_featureflag"
 
@@ -270,7 +290,8 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
         Django does not invoke clean() from save(), so this fires only from
         admin and explicit full_clean() callers. The HTTP path is gated by
-        FeatureFlagSerializer._validate_encrypted_payloads_require_remote_config.
+        FeatureFlagSerializer._validate_encrypted_payloads_require_remote_config,
+        and the encrypted_payloads_require_remote_config constraint backstops both.
         """
         super().clean()
         if self.has_encrypted_payloads and not self.is_remote_configuration:
@@ -562,11 +583,11 @@ def get_feature_flags(
 
     Args:
         team: Team to get flags for
-        exclude_encrypted_payloads: If True, exclude flags with
-            has_encrypted_payloads=True. These flags can only be accessed
-            via the /remote_config endpoint, which handles decryption.
-            The model invariant guarantees has_encrypted_payloads implies
-            is_remote_configuration, so this filter covers all encrypted flags.
+        exclude_encrypted_payloads: If True, exclude every flag with
+            has_encrypted_payloads=True, whatever its is_remote_configuration.
+            Only the /remote_config endpoint can serve one, because only that
+            endpoint decrypts. See "Remote configuration and encrypted payloads"
+            in docs/internal/feature-flags/django-api-endpoints.md.
 
     Returns:
         List of FeatureFlag model instances with evaluation tags pre-loaded

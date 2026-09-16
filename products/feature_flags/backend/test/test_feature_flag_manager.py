@@ -1,6 +1,10 @@
 from posthog.test.base import BaseTest
 
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from django.db import IntegrityError, transaction
+
+from parameterized import parameterized
+
+from products.feature_flags.backend.models.feature_flag import ENCRYPTED_PAYLOADS_CONSTRAINT, FeatureFlag
 
 
 def _variants(*keys: str) -> list[dict]:
@@ -33,6 +37,59 @@ class TestExperimentEligibility(BaseTest):
         for key, _, eligible in self.CASES:
             flag = FeatureFlag.objects.get(team=self.team, key=key)
             assert flag.is_eligible_for_experiment is eligible, key
+
+
+class TestEncryptedPayloadsConstraint(BaseTest):
+    @parameterized.expand([(False,), (None,)])
+    def test_database_rejects_encrypted_payloads_without_remote_configuration(
+        self, is_remote_configuration: bool | None
+    ) -> None:
+        with self.assertRaisesRegex(IntegrityError, ENCRYPTED_PAYLOADS_CONSTRAINT), transaction.atomic():
+            FeatureFlag.objects.create(
+                team=self.team,
+                key="invalid-encrypted-flag",
+                is_remote_configuration=is_remote_configuration,
+                has_encrypted_payloads=True,
+            )
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="encrypted-remote-config",
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+        )
+
+        with self.assertRaisesRegex(IntegrityError, ENCRYPTED_PAYLOADS_CONSTRAINT), transaction.atomic():
+            FeatureFlag.objects.filter(pk=flag.pk).update(is_remote_configuration=is_remote_configuration)
+
+        flag.refresh_from_db()
+        assert flag.is_remote_configuration is True
+        assert flag.has_encrypted_payloads is True
+
+    @parameterized.expand(
+        [
+            (False, False),
+            (True, False),
+            (True, True),
+            (None, False),
+            (False, None),
+            (True, None),
+            (None, None),
+        ]
+    )
+    def test_database_accepts_every_other_payload_encryption_shape(
+        self, is_remote_configuration: bool | None, has_encrypted_payloads: bool | None
+    ) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="valid-payload-encryption",
+            is_remote_configuration=is_remote_configuration,
+            has_encrypted_payloads=has_encrypted_payloads,
+        )
+
+        flag.refresh_from_db()
+        assert flag.is_remote_configuration is is_remote_configuration
+        assert flag.has_encrypted_payloads is has_encrypted_payloads
 
 
 class TestFeatureFlagManager(BaseTest):

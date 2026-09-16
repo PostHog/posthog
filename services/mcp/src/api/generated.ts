@@ -41356,9 +41356,15 @@ export namespace Schemas {
        * * `web_experiments` - web_experiments
        * * `product_tours` - product_tours */
       creation_context?: FeatureFlagCreationContextEnum;
-      /** @nullable */
+      /**
+         * Whether this flag delivers a remote configuration payload. This must be true when has_encrypted_payloads is true.
+         * @nullable
+         */
       is_remote_configuration?: boolean | null;
-      /** @nullable */
+      /**
+         * Whether to encrypt the remote configuration payload. This can be true only when is_remote_configuration is true.
+         * @nullable
+         */
       has_encrypted_payloads?: boolean | null;
       readonly status: string;
       /** Specifies where this feature flag should be evaluated
@@ -41479,10 +41485,15 @@ export namespace Schemas {
       /** Evaluation contexts that control where this flag evaluates at runtime. */
       evaluation_contexts?: string[];
       /**
-         * Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.
+         * Whether this flag delivers a remote configuration payload. This must be true when has_encrypted_payloads is true.
          * @nullable
          */
       is_remote_configuration?: boolean | null;
+      /**
+         * Whether to encrypt the remote configuration payload. This can be true only when is_remote_configuration is true.
+         * @nullable
+         */
+      has_encrypted_payloads?: boolean | null;
       /**
          * Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing.
          * @nullable
@@ -41643,9 +41654,15 @@ export namespace Schemas {
       ensure_experience_continuity?: boolean | null;
       /** @nullable */
       has_enriched_analytics?: boolean | null;
-      /** @nullable */
+      /**
+         * Whether this flag delivers a remote configuration payload. This must be true when has_encrypted_payloads is true.
+         * @nullable
+         */
       is_remote_configuration?: boolean | null;
-      /** @nullable */
+      /**
+         * Whether to encrypt the remote configuration payload. This can be true only when is_remote_configuration is true.
+         * @nullable
+         */
       has_encrypted_payloads?: boolean | null;
       /** Specifies where this feature flag should be evaluated
        *
@@ -66748,10 +66765,15 @@ export namespace Schemas {
       /** Evaluation contexts that control where this flag evaluates at runtime. */
       evaluation_contexts?: string[];
       /**
-         * Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.
+         * Whether this flag delivers a remote configuration payload. This must be true when has_encrypted_payloads is true.
          * @nullable
          */
       is_remote_configuration?: boolean | null;
+      /**
+         * Whether to encrypt the remote configuration payload. This can be true only when is_remote_configuration is true.
+         * @nullable
+         */
+      has_encrypted_payloads?: boolean | null;
       /**
          * Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing.
          * @nullable
