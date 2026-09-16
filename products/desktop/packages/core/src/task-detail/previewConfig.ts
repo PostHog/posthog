@@ -132,11 +132,20 @@ export function deriveInitialConfig(
   });
 }
 
-/** The subset of the tasks backend's resolved AI run defaults the composer acts on. */
+/**
+ * The subset of the tasks backend's resolved AI run defaults the composer acts on.
+ *
+ * `runtime` is optional: a server that predates the Pi harness preference sends no such
+ * field, and its defaults are all ACP.
+ */
 export type PreferredRunDefaults = Pick<
   TaskRunDefaults,
   "runtime_adapter" | "model" | "reasoning_effort"
->;
+> &
+  Partial<Pick<TaskRunDefaults, "runtime">>;
+
+/** The harness value the tasks backend uses for the Pi harness. */
+export const PI_RUNTIME = "pi";
 
 export interface PreferredRunSelection {
   model: string;
@@ -153,6 +162,8 @@ export interface PreferredRunSelection {
  *   or effort someone chose.
  * - no default is stored.
  * - the preference names a different harness, so its model is meaningless here.
+ *   That covers a Pi default, whose model id the ACP adapters must never adopt even
+ *   when the gateway lists the same id for one of them.
  * - this adapter no longer offers the model (a de-listed id would fail the run
  *   at the gateway rather than launching on something usable).
  */
@@ -164,6 +175,7 @@ export function pickPreferredRunSelection(
   lastUsedReasoningEffort: string | null | undefined,
 ): PreferredRunSelection | null {
   if (lastUsedModel || lastUsedReasoningEffort) return null;
+  if (defaults?.runtime === PI_RUNTIME) return null;
   const model = defaults?.model;
   if (!model) return null;
   if (defaults?.runtime_adapter && defaults.runtime_adapter !== adapter) {
@@ -192,6 +204,17 @@ export function preferredRunAdapter(
     defaults.runtime_adapter === "codex"
     ? defaults.runtime_adapter
     : null;
+}
+
+/**
+ * Whether the configured default runs on the Pi harness, which is a separate axis from
+ * the adapter: a Pi default carries a model and no adapter at all, so
+ * `preferredRunAdapter` answers null for one and cannot tell it from "nothing stored".
+ */
+export function preferredRunsOnPi(
+  defaults: PreferredRunDefaults | null | undefined,
+): boolean {
+  return Boolean(defaults?.model) && defaults?.runtime === PI_RUNTIME;
 }
 
 /**

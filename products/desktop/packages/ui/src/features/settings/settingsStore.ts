@@ -173,7 +173,7 @@ export interface SettingsStore {
   setLastUsedAgentRuntime: (runtime: AgentRuntime) => void;
   setLastUsedAdapter: (adapter: AgentAdapter) => void;
   setLastUsedModel: (model: string | null) => void;
-  setLastUsedPiModel: (model: string) => void;
+  setLastUsedPiModel: (model: string | null) => void;
   setLastUsedReasoningEffort: (effort: string | null) => void;
   setLastUsedContextWindow: (value: "200k" | "1m") => void;
   setLastUsedFastMode: (enabled: boolean) => void;

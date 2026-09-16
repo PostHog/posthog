@@ -1,4 +1,5 @@
 import {
+  type AgentRuntime,
   TASKS_PREWARM_SANDBOX_FLAG,
   type WorkspaceMode,
 } from "@posthog/shared";
@@ -25,6 +26,11 @@ interface UseWarmTaskOptions {
   allowNoRepo?: boolean;
   branch?: string | null;
   editorIsEmpty: boolean;
+  /**
+   * The harness the composer sits on. A warm run is provisioned on an ACP adapter and the
+   * server refuses to hand one to a Pi task, so warming while on Pi only leaks a sandbox.
+   */
+  agentRuntime?: AgentRuntime;
   runtimeAdapter?: string | null;
   model?: string | null;
   reasoningEffort?: string | null;
@@ -41,6 +47,7 @@ export function useWarmTask({
   allowNoRepo = false,
   branch,
   editorIsEmpty,
+  agentRuntime,
   runtimeAdapter,
   model,
   reasoningEffort,
@@ -79,6 +86,7 @@ export function useWarmTask({
     : null;
   const eligible =
     enabled &&
+    agentRuntime !== "pi" &&
     claudeModelAccess !== "own-subscription" &&
     isCloud &&
     !!client &&

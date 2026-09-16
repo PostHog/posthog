@@ -5,7 +5,10 @@ import {
   type TaskRunDefaults,
   type TaskRunPreferences,
 } from "@posthog/api-client/posthog-client";
-import { preferredRunAdapter } from "@posthog/core/task-detail/previewConfig";
+import {
+  preferredRunAdapter,
+  preferredRunsOnPi,
+} from "@posthog/core/task-detail/previewConfig";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -104,10 +107,14 @@ export function useTaskAgentDefaults(): TaskAgentDefaultsResult {
       const settings = useSettingsStore.getState();
       settings.setLastUsedModel(null);
       settings.setLastUsedReasoningEffort(null);
-      // The harness has to move with it. The composer opens on whichever adapter it last
+      settings.setLastUsedPiModel(null);
+      // The harness has to move with it. The composer opens on whichever harness it last
       // used and ignores a default belonging to a different one, so a Claude default set
       // from a composer left on Codex would be skipped outright — clearing the model
-      // alone doesn't help, because the two never meet.
+      // alone doesn't help, because the two never meet. Pi is the same story one level up:
+      // the composer resolves acp or pi before it looks at an adapter at all.
+      const runsOnPi = preferredRunsOnPi(next.resolved);
+      settings.setLastUsedAgentRuntime(runsOnPi ? "pi" : "acp");
       const adapter = preferredRunAdapter(next.resolved);
       if (adapter) {
         settings.setLastUsedAdapter(adapter);
