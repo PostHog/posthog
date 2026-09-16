@@ -181,7 +181,7 @@ All reads route to the offline cluster replicas on Cloud (`etl_workload()`), car
 
 - Backfill any day range from the Dagster UI; partitions start 2026-04-01 (the label epoch). Every asset sits in the `inbox_ranking_etl` pool so concurrent partitions don't each start their own fleet-wide embeddings scan — the pool's limit is a Dagster deployment setting, provisioned with the bucket.
 - Failures alert `#alerts-self-driving` (owner `team-self-driving`); assets retry twice with a 60s delay before failing a run. A UI-launched materialization runs under Dagster's implicit `__ASSET_JOB`, which carries no owner tag, so alert routing falls back to matching the `inbox_report_`, `inbox_signal_`, and `inbox_ranking_` asset-name prefixes.
-- The job is capped at 3h via `dagster/max_runtime` — the seven label streams run sequentially, each allowed up to 600s, and the join and S3 writes come after them.
+- Runtime budgets are per job (`dagster/max_runtime`): 3h for the dataset and training jobs, 1h for the shadow job. The 3h figure is what the dataset needs — its seven label streams run sequentially, each allowed up to 600s, and the join and S3 writes come after them. The shadow read is one day of two event families plus the scores objects in its lookback, so it gets an hour.
 
 ## Deletion and retention
 
