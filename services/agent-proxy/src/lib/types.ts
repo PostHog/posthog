@@ -163,7 +163,7 @@ export type IngestLine = IngestEventLine | IngestCompleteLine
 // Side-effect callback kind (matches Python callback contract in docs/DESIGN.md)
 // ---------------------------------------------------------------------------
 
-export type SideEffectKind = 'heartbeat' | 'awaiting_input' | 'command_dispatched' | 'agent_activity'
+export type SideEffectKind = 'heartbeat' | 'awaiting_input' | 'turn_failed' | 'command_dispatched' | 'agent_activity'
 
 // ---------------------------------------------------------------------------
 // TaskRunRedisStream method interface

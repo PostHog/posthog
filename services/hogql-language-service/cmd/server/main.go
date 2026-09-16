@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +26,23 @@ type server struct {
 	auth             *serviceauth.Authenticator
 	preAuthLimiter   *ratelimit.Limiter
 	principalLimiter *ratelimit.Limiter
+	logger           *slog.Logger
+}
+
+type requestLogDetails struct {
+	operation         string
+	authorization     *serviceauth.Authorization
+	result            string
+	catalogTables     int
+	catalogProperties int
+}
+
+type requestLogDetailsKey struct{}
+
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	statusCode    int
+	responseBytes int
 }
 
 type completionRequest struct {
@@ -56,6 +74,8 @@ type catalogUpdate struct {
 }
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
 	listenAddress := env("LISTEN_ADDR", "127.0.0.1:8091")
 	maxCatalogs, err := positiveIntEnv("MAX_CATALOGS", 1024)
 	if err != nil {
@@ -94,6 +114,7 @@ func main() {
 		auth:             serviceauth.New(keys, allowInsecure),
 		preAuthLimiter:   configuredLimiter("PRE_AUTH_RATE_LIMIT", 300, 100, maxRateLimitKeys, rateLimitIdleTTL),
 		principalLimiter: configuredLimiter("PRINCIPAL_RATE_LIMIT", 120, 60, maxRateLimitKeys, rateLimitIdleTTL),
+		logger:           logger,
 	}
 	httpServer := &http.Server{
 		Addr:              listenAddress,
@@ -113,12 +134,104 @@ func main() {
 
 func (s *server) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", s.health)
-	mux.Handle("PUT /teams/{teamID}/users/{userID}/catalog", s.authorized(serviceauth.OperationPublish, s.putCatalog))
-	mux.Handle("DELETE /teams/{teamID}/users/{userID}/catalog", s.authorized(serviceauth.OperationDelete, s.deleteCatalog))
-	mux.Handle("POST /teams/{teamID}/users/{userID}/autocomplete", s.authorized(serviceauth.OperationComplete, s.autocomplete))
-	mux.Handle("POST /teams/{teamID}/users/{userID}/validate", s.authorized(serviceauth.OperationValidate, s.validate))
-	return securityHeaders(mux)
+	mux.Handle("GET /health", requestOperation("health", http.HandlerFunc(s.health)))
+	mux.Handle("PUT /teams/{teamID}/users/{userID}/catalog", requestOperation("publish", s.authorized(serviceauth.OperationPublish, s.putCatalog)))
+	mux.Handle("DELETE /teams/{teamID}/users/{userID}/catalog", requestOperation("delete", s.authorized(serviceauth.OperationDelete, s.deleteCatalog)))
+	mux.Handle("POST /teams/{teamID}/users/{userID}/autocomplete", requestOperation("complete", s.authorized(serviceauth.OperationComplete, s.autocomplete)))
+	mux.Handle("POST /teams/{teamID}/users/{userID}/validate", requestOperation("validate", s.authorized(serviceauth.OperationValidate, s.validate)))
+	return securityHeaders(s.logRequests(mux))
+}
+
+func (s *server) logRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		details := &requestLogDetails{operation: "unmatched"}
+		response := &loggingResponseWriter{ResponseWriter: w}
+		next.ServeHTTP(response, r.WithContext(context.WithValue(r.Context(), requestLogDetailsKey{}, details)))
+
+		statusCode := response.statusCode
+		if statusCode == 0 {
+			statusCode = http.StatusOK
+		}
+		result := details.result
+		if result == "" {
+			if statusCode < http.StatusBadRequest {
+				result = "success"
+			} else {
+				result = "error"
+			}
+		}
+		attributes := []any{
+			"operation", details.operation,
+			"method", r.Method,
+			"status_code", statusCode,
+			"duration_ms", float64(time.Since(started).Microseconds()) / 1000,
+			"response_bytes", response.responseBytes,
+			"result", result,
+		}
+		if details.authorization != nil {
+			attributes = append(attributes, "team_id", details.authorization.TeamID, "user_id", details.authorization.UserID)
+		}
+		if details.result == "catalog_published" {
+			attributes = append(attributes, "catalog_tables", details.catalogTables, "catalog_properties", details.catalogProperties)
+		}
+
+		logger := s.logger
+		if logger == nil {
+			logger = slog.Default()
+		}
+		switch {
+		case details.operation == "health" && statusCode < http.StatusBadRequest:
+			logger.Debug("http_request", attributes...)
+		case statusCode >= http.StatusInternalServerError:
+			logger.Error("http_request", attributes...)
+		case statusCode >= http.StatusBadRequest && details.result != "catalog_miss":
+			logger.Warn("http_request", attributes...)
+		default:
+			logger.Info("http_request", attributes...)
+		}
+	})
+}
+
+func requestOperation(operation string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if details := requestDetails(r); details != nil {
+			details.operation = operation
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (w *loggingResponseWriter) WriteHeader(statusCode int) {
+	if w.statusCode != 0 {
+		return
+	}
+	w.statusCode = statusCode
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (w *loggingResponseWriter) Write(body []byte) (int, error) {
+	if w.statusCode == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	written, err := w.ResponseWriter.Write(body)
+	w.responseBytes += written
+	return written, err
+}
+
+func (w *loggingResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+func requestDetails(r *http.Request) *requestLogDetails {
+	details, _ := r.Context().Value(requestLogDetailsKey{}).(*requestLogDetails)
+	return details
+}
+
+func setRequestResult(r *http.Request, result string) {
+	if details := requestDetails(r); details != nil {
+		details.result = result
+	}
 }
 
 func securityHeaders(next http.Handler) http.Handler {
@@ -136,21 +249,29 @@ func (s *server) authorized(operation serviceauth.Operation, next authorizedHand
 		authorization, err := authorizationFromPath(r)
 		if err != nil {
 			if !preAuthAllowed {
+				setRequestResult(r, "rate_limited")
 				writeRateLimitResponse(w, retryAfter)
 			} else {
+				setRequestResult(r, "invalid_scope")
 				http.Error(w, err.Error(), http.StatusBadRequest)
 			}
 			return
 		}
 		if err := s.auth.Verify(r.Header.Get("Authorization"), authorization, operation); err != nil {
 			if !preAuthAllowed {
+				setRequestResult(r, "rate_limited")
 				writeRateLimitResponse(w, retryAfter)
 			} else {
+				setRequestResult(r, "unauthorized")
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 			}
 			return
 		}
+		if details := requestDetails(r); details != nil {
+			details.authorization = &authorization
+		}
 		if allowed, retryAfter := s.principalLimiter.Allow(authorizationKey(authorization)); !allowed {
+			setRequestResult(r, "rate_limited")
 			writeRateLimitResponse(w, retryAfter)
 			return
 		}
@@ -163,18 +284,38 @@ func (s *server) putCatalog(w http.ResponseWriter, r *http.Request, authorizatio
 	if !decodeJSON(w, r, 64<<20, &input) {
 		return
 	}
-	if err := s.catalogs.Put(authorization, input.Revision, &input.Catalog); err != nil {
+	if err := catalog.ValidateRevision(input.Revision); err != nil {
+		setRequestResult(r, "catalog_rejected")
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if err := catalog.ValidateCatalog(&input.Catalog); err != nil {
+		setRequestResult(r, "catalog_rejected")
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.catalogs.Put(authorization, input.Revision, catalog.Prepare(&input.Catalog)); err != nil {
+		setRequestResult(r, "catalog_rejected")
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if details := requestDetails(r); details != nil {
+		details.result = "catalog_published"
+		details.catalogTables = len(input.Catalog.Tables)
+		for _, properties := range input.Catalog.Properties {
+			details.catalogProperties += len(properties)
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"teamId": authorization.TeamID, "userId": authorization.UserID, "revision": input.Revision})
 }
 
-func (s *server) deleteCatalog(w http.ResponseWriter, _ *http.Request, authorization serviceauth.Authorization) {
+func (s *server) deleteCatalog(w http.ResponseWriter, r *http.Request, authorization serviceauth.Authorization) {
 	if !s.catalogs.Delete(authorization) {
+		setRequestResult(r, "catalog_miss")
 		http.Error(w, "catalog not found", http.StatusNotFound)
 		return
 	}
+	setRequestResult(r, "catalog_deleted")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -185,9 +326,11 @@ func (s *server) autocomplete(w http.ResponseWriter, r *http.Request, authorizat
 	}
 	current, revision, ok := s.catalogs.Get(authorization)
 	if !ok {
+		setRequestResult(r, "catalog_miss")
 		http.Error(w, "catalog not found", http.StatusNotFound)
 		return
 	}
+	setRequestResult(r, "catalog_hit")
 	position := -1
 	if input.Position != nil {
 		position = *input.Position
@@ -199,6 +342,7 @@ func (s *server) autocomplete(w http.ResponseWriter, r *http.Request, authorizat
 	started := time.Now()
 	result, err := completion.Complete(current, input.Query, position, positionEncoding, input.Cursor)
 	if err != nil {
+		setRequestResult(r, "invalid_query")
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -217,9 +361,11 @@ func (s *server) validate(w http.ResponseWriter, r *http.Request, authorization 
 	}
 	current, revision, ok := s.catalogs.Get(authorization)
 	if !ok {
+		setRequestResult(r, "catalog_miss")
 		http.Error(w, "catalog not found", http.StatusNotFound)
 		return
 	}
+	setRequestResult(r, "catalog_hit")
 	writeJSON(w, http.StatusOK, validationResponse{Result: validation.Validate(current, input.Query), CatalogRevision: revision})
 }
 
@@ -231,6 +377,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, maxBytes int64, target a
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBytes))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
+		setRequestResult(r, "invalid_json")
 		http.Error(w, "invalid request: "+err.Error(), http.StatusBadRequest)
 		return false
 	}

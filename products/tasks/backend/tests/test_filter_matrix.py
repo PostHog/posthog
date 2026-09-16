@@ -207,6 +207,20 @@ class TestTaskListFilterMatrix(TestCase):
         assert self._list(origin_product="signals_scout") == self._ids("scout_in_channel")
         assert self._list(origin_product="slack") == self._ids("peter_slack_mention_me")
 
+    def test_client_provenance(self) -> None:
+        desktop_task = self.tasks["peter_plain"]
+        desktop_task.client_provenance = "posthog_desktop"
+        desktop_task.save(update_fields=["client_provenance"])
+
+        assert self._list(client_provenance="posthog_desktop") == self._ids("peter_plain")
+        assert self._list(client_provenance="posthog_desktop", created_by=self.me.id) == set()
+        assert self._list(client_provenance="posthog_desktop", search="billing") == self._ids("peter_plain")
+        assert self._list(client_provenance="posthog_desktop", search="missing") == set()
+
+    def test_client_provenance_rejects_unknown_values(self) -> None:
+        response = self.client.get("/api/projects/@current/tasks/", {"client_provenance": "unknown"})
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+
     def test_exclude_origin_product(self):
         assert self._list(exclude_origin_product="signals_scout") == self.all_except("scout_in_channel")
         assert self._list(created_by=self.peter.id, exclude_origin_product="slack") == self._ids(

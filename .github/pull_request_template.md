@@ -45,6 +45,10 @@
 
 **Autonomy:** Human-driven (agent-assisted) - or - Fully autonomous
 
+<!-- Name the tool and the exact model, e.g. "Claude Code, Opus 5". List each model if more than one wrote code. -->
+
+**Agent:** tool, model
+
 <!-- Definition of done (agents): not done until each gate below holds. Verify against the named artifact or skill — don't assume. Add gates as the PR touches more areas.
      - No duplicate: when this PR fixes something believed to be live on master, no open PR already fixes it. A broken master attracts parallel agents, so search before opening — `gh pr list --state open --search "<keywords>" --limit 20`, which lists drafts too, and most agent PRs start as drafts. Say here which PR you found and why this one is still needed, or that the search found nothing.
      - Patch coverage: the lines this PR changed are covered, or the uncovered ones are justified under "How did you test this code?". Don't pad untouched code to lift the number. Check the "🧪 Backend test coverage" PR comment (and its patch-coverage artifact).
@@ -52,7 +56,7 @@
 -->
 
 <!-- Keep this short: 1-3 short paragraphs or a handful of bullets — not an exhaustive log. Include:
-     - tools/agent used and link to session. List the agent and tool names used, but do not include tool call results.
+     - link to session and the tool names used, but do not include tool call results.
      - skills invoked: always explicitly call out any repo-provided or public skills (e.g. /django-migrations, /improving-drf-endpoints) that were invoked while producing this PR. This helps reviewers judge where and how the code was shaped by an agent.
      - CodeRabbit CLI pass: each finding and its disposition (fixed, or rejected with the reason), or that the CLI was unavailable and the PR opened without a local pass. The findings only appeared in the terminal, so this is their only record.
      - decisions made along the way: what changed across the session. The reason the shipped design beats the obvious alternative goes in Changes instead, where a reviewer will actually see it.

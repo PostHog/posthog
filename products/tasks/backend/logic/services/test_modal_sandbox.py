@@ -23,6 +23,7 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     _prepare_local_modal_build_context,
 )
 from products.tasks.backend.logic.services.sandbox import (
+    FULL_HISTORY_ORIGIN_PRODUCTS,
     SELF_DRIVING_ORIGIN_PRODUCTS,
     ExecutionResult,
     SandboxConfig,
@@ -30,6 +31,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxTemplate,
     SandboxWorkload,
     get_sandbox_class_for_backend,
+    needs_full_history,
     workload_for_origin_product,
 )
 from products.tasks.backend.models import Task
@@ -354,6 +356,27 @@ class TestSelfDrivingWorkloadMapping:
         # The set is held as strings to keep the sandbox layer model-free, so a renamed or
         # removed OriginProduct would otherwise silently drop that product out of the fleet.
         assert SELF_DRIVING_ORIGIN_PRODUCTS <= {choice.value for choice in Task.OriginProduct}
+
+
+class TestFullHistoryOriginProducts:
+    @pytest.mark.parametrize(
+        "origin_product, expected",
+        [
+            (Task.OriginProduct.SIGNAL_REPORT, True),
+            (Task.OriginProduct.SIGNALS_SCOUT, True),
+            (Task.OriginProduct.REVIEW_HOG, False),
+            (Task.OriginProduct.ERROR_TRACKING, False),
+            (Task.OriginProduct.USER_CREATED, False),
+            (None, False),
+        ],
+    )
+    def test_needs_full_history(self, origin_product, expected):
+        value = origin_product.value if origin_product is not None else None
+
+        assert needs_full_history(value) is expected
+
+    def test_every_full_history_origin_is_a_real_origin_product(self):
+        assert FULL_HISTORY_ORIGIN_PRODUCTS <= {choice.value for choice in Task.OriginProduct}
 
 
 class TestLocalModalBuildContext:

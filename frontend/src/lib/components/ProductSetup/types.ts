@@ -84,3 +84,11 @@ export interface ProductSetupConfig {
      */
     tasks: SetupTask[]
 }
+
+/** A pending attention highlight, bound to the route that asked for it */
+export interface SetupHighlight {
+    /** CSS selector for the element to highlight */
+    selector: string
+    /** Route the highlight belongs to - the highlight drops when the user leaves it */
+    pathname: string
+}

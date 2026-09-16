@@ -1,6 +1,8 @@
 # HogQL language service prototype
 
 This prototype keeps multiple immutable, permission-filtered catalogs in memory and provides local SQL completion.
+Completion uses the cursor context to suggest fields, functions, comparison operators, and predicate continuations such as `AND` and `OR`.
+The service embeds the global HogQL function list, while Django supplies permission-filtered tables and properties.
 It uses `github.com/orian/clickhouse-sql-parser` to recover table and alias context from the query. Django remains the
 authority for deciding which schema and properties belong in each catalog.
 
@@ -27,6 +29,11 @@ curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
   -H 'Content-Type: application/json' \
   -d '{"query":"SELECT amuont FROM warehouse_0420"}'
 ```
+
+Validation resolves table CTEs in the language service, validates their projected fields, and reports only the
+underlying catalog tables in `tableNames`.
+Each validation request can expand up to 16,384 projected CTE fields. Larger projections return a `query_limit`
+diagnostic and ask the user to select fewer fields.
 
 Diagnostics contain byte offsets and up to five visible typo suggestions ranked by case-insensitive Levenshtein
 distance. Dynamic properties use the same cached namespaces as autocomplete.

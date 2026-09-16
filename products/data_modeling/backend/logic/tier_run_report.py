@@ -328,9 +328,7 @@ def _suspension_detail(node: Node) -> str:
 
     Only the serving engine's marker blocks a run (`execute_dag` reads one engine's list), and the
     managed warehouse shadow suspends independently and often. Reporting its marker would turn healthy
-    nodes and their whole subtree into false `suspended` / `blocked` rows. Note a marker is written
-    whether or not `data-modeling-suspend-failing-nodes` is on for the team, so on a team without
-    that flag a marker here is decorative and the node still runs.
+    nodes and their whole subtree into false `suspended` / `blocked` rows.
     """
     suspended = ((node.properties or {}).get("system") or {}).get("suspended") or {}
     entry = suspended.get(DataModelingJobEngine.CLICKHOUSE.value)
