@@ -1,3 +1,4 @@
+import math
 import time
 import dataclasses
 from collections.abc import Iterator
@@ -27,6 +28,11 @@ DECAGON_PAGE_SIZE = 100
 # automatically IP-bans gross violators, so requests are spaced client-side rather
 # than relying on 429 backoff alone.
 MIN_SECONDS_BETWEEN_REQUESTS = 1.0
+
+# Hard bound on the pages a "page" walk requests when the response gives no total to
+# derive one from. It stops a server that ignores the page param and returns a full page
+# on every request; a real export of this size would still end on its short last page.
+MAX_PAGES_WITHOUT_TOTAL = 10_000
 
 # Maps a conversation row column to the `timestamp_filter` enum value that makes the
 # export's min_timestamp/max_timestamp params bound that column. The filter for the
@@ -491,6 +497,9 @@ class _RowWalk:
         # reach the total a page early and drop the final page. This also stays exact if the
         # server caps the requested page size.
         rows_walked = self._resume.rows_walked or 0
+        # The largest raw page the server returned: its effective page size, which can be
+        # smaller than the one requested.
+        page_rows = 0
 
         while True:
             params = {"page": str(page)}
@@ -500,15 +509,8 @@ class _RowWalk:
             batch = self._read(params)
             total = self._record_total(batch)
             rows_walked += len(batch.fresh)
-
-            # A page that contributes nothing new cannot make progress against the total, so
-            # it ends the walk rather than spinning on a server that ignores the page param.
-            # A missing or malformed total falls back to short-page termination, the only end
-            # signal left besides an empty page.
-            if isinstance(total, int | float):
-                exhausted = not batch.fresh or rows_walked >= total
-            else:
-                exhausted = self._short_page(batch)
+            page_rows = max(page_rows, len(batch.items))
+            exhausted = self._page_walk_exhausted(page, rows_walked, page_rows, total, batch)
 
             if batch.fresh:
                 yield batch.fresh
@@ -518,6 +520,42 @@ class _RowWalk:
                 return
 
             page += 1
+
+    def _page_walk_exhausted(self, page: int, rows_walked: int, page_rows: int, total: Any, batch: _Batch) -> bool:
+        # A page of only already-seen rows does not end the walk: the catalog can shift rows
+        # between pages mid-walk, so a later page can still hold rows this walk has not kept.
+        # The page bound is what stops a server that ignores the page param instead.
+        if not batch.items:
+            return True
+        if isinstance(total, int | float) and rows_walked >= total:
+            return True
+
+        max_pages = self._max_pages(total, page_rows)
+        if max_pages is None:
+            # A missing or malformed total falls back to short-page termination and a
+            # constant bound.
+            if self._short_page(batch):
+                return True
+            max_pages = MAX_PAGES_WITHOUT_TOTAL
+
+        if page < max_pages:
+            return False
+        self._logger.warning(
+            f"Decagon: {self._endpoint} walk stopped at its page bound of {max_pages} after keeping "
+            f"{rows_walked} rows against a reported total of {total!r}. If the synced row count looks "
+            f"truncated, check that the endpoint honors the page param."
+        )
+        return True
+
+    @staticmethod
+    def _max_pages(total: Any, page_rows: int) -> Optional[int]:
+        # One page more than the total needs at the server's page size, so rows that shift
+        # pages mid-walk (arriving twice, kept once) do not push the last unique rows past
+        # the bound. Sized from the pages received, not the size requested, because the
+        # server can cap the requested size and a bound from the larger size would truncate.
+        if not isinstance(total, int | float) or page_rows <= 0:
+            return None
+        return math.ceil(total / page_rows) + 1
 
     def _walk_offset(self) -> Iterator[list[dict[str, Any]]]:
         config = self._config

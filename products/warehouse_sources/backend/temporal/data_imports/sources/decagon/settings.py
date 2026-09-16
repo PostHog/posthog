@@ -43,7 +43,8 @@ class DecagonEndpointConfig:
     # ends the walk.
     has_more_key: Optional[str] = None
     # "page"/"offset" modes: rows requested per page. None sends no size param and leaves
-    # the server default, in which case only an empty page ends the walk.
+    # the server default, in which case only an empty page, the reported total, or the
+    # constant page cap ends the walk.
     page_size: Optional[int] = None
     # "page"/"offset" modes: response field carrying the total row count.
     total_key: Optional[str] = None

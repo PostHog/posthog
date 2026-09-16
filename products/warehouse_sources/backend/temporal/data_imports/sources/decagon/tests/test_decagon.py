@@ -1,4 +1,7 @@
 import json
+import math
+import dataclasses
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -49,12 +52,28 @@ def _drive_rows(
     logger: Optional[MagicMock] = None,
     **incremental_kwargs: Any,
 ) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
-    sent_params: list[dict[str, Any]] = []
     response_iter = iter(responses)
+    return _drive_server(
+        manager, lambda _params: next(response_iter), len(responses), endpoint, logger, **incremental_kwargs
+    )
+
+
+def _drive_server(
+    manager: MagicMock,
+    respond: Callable[[dict[str, Any]], Response],
+    max_requests: int,
+    endpoint: str = "conversations",
+    logger: Optional[MagicMock] = None,
+    **incremental_kwargs: Any,
+) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
+    """Drives a walk against a fake server; fails when the walk requests past `max_requests`."""
+    sent_params: list[dict[str, Any]] = []
 
     def fake_get(_url: str, *, params: dict[str, Any], **_kwargs: Any) -> Response:
         sent_params.append(dict(params or {}))
-        return next(response_iter)
+        if len(sent_params) > max_requests:
+            raise AssertionError(f"walk did not stop within {max_requests} requests")
+        return respond(sent_params[-1])
 
     with (
         patch(f"{DECAGON_MODULE}.make_tracked_session") as mock_session,
@@ -590,18 +609,65 @@ class TestArticleTables:
         assert len(sent_params) == 3
         assert [[r["id"] for r in b] for b in batches] == [[1, 2], [3], [4]]
 
-    def test_page_contributing_nothing_new_ends_the_walk(self) -> None:
-        # A server that ignores the page param would otherwise repeat the same page
-        # forever without the kept-row count ever reaching the total.
-        manager = _fresh_manager()
-        responses = [
-            _make_response({"articles": [{"id": 1}, {"id": 2}], "total": 10}),
-            _make_response({"articles": [{"id": 1}, {"id": 2}], "total": 10}),
-        ]
-        sent_params, batches = _drive_rows(manager, responses, endpoint="articles")
+    def test_duplicate_only_page_does_not_end_the_walk_before_the_total(self) -> None:
+        # A page of only already-seen rows used to end the walk, which silently dropped
+        # every later page. The page bound derived from the total ends the walk instead.
+        cfg = dataclasses.replace(DECAGON_ENDPOINTS["articles"], page_size=2)
+        with patch.dict(DECAGON_ENDPOINTS, {"articles": cfg}):
+            manager = _fresh_manager()
+            responses = [
+                _make_response({"articles": [{"id": 1}, {"id": 2}], "total": 4}),
+                _make_response({"articles": [{"id": 1}, {"id": 2}], "total": 4}),
+                _make_response({"articles": [{"id": 3}, {"id": 4}], "total": 4}),
+            ]
+            sent_params, batches = _drive_rows(manager, responses, endpoint="articles")
 
-        assert len(sent_params) == 2
+        assert [p["page"] for p in sent_params] == ["1", "2", "3"]
+        assert [[r["id"] for r in b] for b in batches] == [[1, 2], [3, 4]]
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [DecagonResumeConfig(page=2, rows_walked=2)]
+
+    def test_server_that_ignores_the_page_param_stops_at_the_page_bound(self) -> None:
+        # The same two rows come back on every request in a flipping order, so neither an
+        # empty page nor the total nor a "same page as before" check would end the walk.
+        cfg = dataclasses.replace(DECAGON_ENDPOINTS["articles"], page_size=2)
+        rows = [{"id": 1}, {"id": 2}]
+        max_pages = math.ceil(10 / 2) + 1
+
+        def respond(_params: dict[str, Any]) -> Response:
+            rows.reverse()
+            return _make_response({"articles": list(rows), "total": 10})
+
+        logger = MagicMock()
+        with patch.dict(DECAGON_ENDPOINTS, {"articles": cfg}):
+            manager = _fresh_manager()
+            sent_params, batches = _drive_server(manager, respond, max_pages, endpoint="articles", logger=logger)
+
+        assert len(sent_params) == max_pages
+        assert [[r["id"] for r in b] for b in batches] == [[2, 1]]
+        logger.warning.assert_called_once()
+        assert "page bound" in logger.warning.call_args.args[0]
+
+    def test_page_walk_without_a_total_stops_at_the_constant_page_cap(self) -> None:
+        # With no total there is no bound to derive, so a server that repeats a full page
+        # forever is stopped by the constant cap instead.
+        cfg = dataclasses.replace(DECAGON_ENDPOINTS["articles"], page_size=2)
+        cap = 7
+
+        def respond(_params: dict[str, Any]) -> Response:
+            return _make_response({"articles": [{"id": 1}, {"id": 2}]})
+
+        logger = MagicMock()
+        with (
+            patch.dict(DECAGON_ENDPOINTS, {"articles": cfg}),
+            patch(f"{DECAGON_MODULE}.MAX_PAGES_WITHOUT_TOTAL", cap),
+        ):
+            manager = _fresh_manager()
+            sent_params, batches = _drive_server(manager, respond, cap, endpoint="articles", logger=logger)
+
+        assert len(sent_params) == cap
         assert [[r["id"] for r in b] for b in batches] == [[1, 2]]
+        logger.warning.assert_called_once()
 
     def test_rows_are_read_from_the_response_only_list_when_the_configured_key_is_absent(self) -> None:
         # A renamed envelope key otherwise reads as an empty page: the walk ends on the
