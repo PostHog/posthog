@@ -49,6 +49,8 @@ func startBackend(ctx context.Context) (string, func(), error) {
 	address := reservation.Addr().String()
 	_ = reservation.Close()
 	backendCtx, cancel := context.WithCancel(ctx)
+	// The executable is built from this checkout in a private temporary directory, with no request-controlled path.
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	child := exec.CommandContext(backendCtx, binary)
 	child.Env = []string{
 		"LISTEN_ADDR=" + address,
@@ -125,6 +127,8 @@ func demoHandler(baseURL, host string, payload []byte) http.Handler {
 	mux.Handle("GET /", http.FileServer(http.FS(static)))
 	mux.HandleFunc("GET /api/catalog", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		// The payload is the JSON-encoded synthetic catalog; application/json and nosniff prevent HTML interpretation.
+		// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter
 		_, _ = w.Write(payload)
 	})
 	client := &http.Client{Timeout: 5 * time.Second}
