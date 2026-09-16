@@ -21,6 +21,8 @@ export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
 
 const VIEWPORT_BUFFER_PX = 200
+const INSPECT_RESCAN_DEBOUNCE_MS = 500
+const INSPECT_RESCAN_MAX_WAIT_MS = 2000
 
 function getElementMetaWithSelectorQuality(
     element: HTMLElement | null,
@@ -879,6 +881,14 @@ export const elementsLogic = kea<elementsLogicType>([
 
             cache.disposables.add(() => {
                 let debounceTimer: ReturnType<typeof setTimeout> | undefined
+                let maxWaitTimer: ReturnType<typeof setTimeout> | undefined
+
+                const rescan = (): void => {
+                    clearTimeout(debounceTimer)
+                    clearTimeout(maxWaitTimer)
+                    maxWaitTimer = undefined
+                    actions.rescanInspectElements()
+                }
 
                 // the element list is a snapshot taken when the picker starts, so anything the
                 // page reveals later (a menu, a dropdown, a modal) needs a rescan to get an overlay
@@ -887,7 +897,12 @@ export const elementsLogic = kea<elementsLogicType>([
                         return
                     }
                     clearTimeout(debounceTimer)
-                    debounceTimer = setTimeout(() => actions.rescanInspectElements(), 500)
+                    debounceTimer = setTimeout(rescan, INSPECT_RESCAN_DEBOUNCE_MS)
+                    // a page that changes without pausing keeps restarting the debounce, so cap
+                    // how long the picker can go without a rescan while the changes continue
+                    if (maxWaitTimer === undefined) {
+                        maxWaitTimer = setTimeout(rescan, INSPECT_RESCAN_MAX_WAIT_MS)
+                    }
                 })
 
                 mutationObserver.observe(document.body, {
@@ -900,6 +915,7 @@ export const elementsLogic = kea<elementsLogicType>([
 
                 return () => {
                     clearTimeout(debounceTimer)
+                    clearTimeout(maxWaitTimer)
                     mutationObserver.disconnect()
                 }
             }, 'inspectMutationObserver')

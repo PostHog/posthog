@@ -59,4 +59,24 @@ describe('elementsLogic', () => {
 
         expect(logic.values.inspectElements.map(({ element }) => element.id)).toEqual(['open-menu', 'inside-menu'])
     })
+
+    // a separate test because the setup is a page that never goes quiet, not a single reveal
+    it('rescans a page that keeps changing faster than the debounce window', async () => {
+        document.body.innerHTML = '<button id="open-menu">Menu</button>'
+        logic = elementsLogic()
+        logic.mount()
+
+        logic.actions.enableInspect()
+        expect(logic.values.inspectElements.map(({ element }) => element.id)).toEqual(['open-menu'])
+
+        document.body.insertAdjacentHTML('beforeend', '<button id="inside-menu">Inside the menu</button>')
+        // a ticker on the page restarts the debounce before it can settle
+        for (let tick = 0; tick < 10; tick++) {
+            document.body.appendChild(document.createElement('span'))
+            await Promise.resolve()
+            jest.advanceTimersByTime(400)
+        }
+
+        expect(logic.values.inspectElements.map(({ element }) => element.id)).toEqual(['open-menu', 'inside-menu'])
+    })
 })
