@@ -1488,7 +1488,7 @@
         }
     },
     "canvas-state-value-retrieve": {
-        "description": "Read one exact scope and key as bounded JSON text chunks. Start at offset zero, then pass next_offset and revision until complete is true. Join value_json chunks in order before parsing the JSON. If the value changes, the read returns 409; discard earlier chunks and restart at zero. A 404 means no readable value for that scope and key, not a need for broader permissions.",
+        "description": "Read one exact scope and key as bounded JSON text chunks. Start at offset zero, then pass next_offset and revision until complete is true. Join value_json chunks in order before parsing the JSON. If the value changes, the read returns 409; discard earlier chunks and restart at zero. On a 404, read the error detail: \"No readable value for this scope and key\" means the entry is absent and broader permissions would not help, while any other 404 means the canvas is not available to this caller.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "Read a canvas state value",
