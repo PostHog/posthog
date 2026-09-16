@@ -1472,10 +1472,19 @@ export const QueryScanFindingReasonApi = {
     Negated: 'negated',
     Dynamic: 'dynamic',
     NotPruned: 'not_pruned',
+    PropertyFilter: 'property_filter',
+    HelperRead: 'helper_read',
+    AllEvents: 'all_events',
     Filters: 'filters',
+    BoundNotUsed: 'bound_not_used',
+    AllTime: 'all_time',
+    DashboardAllTime: 'dashboard_all_time',
+    AllHistory: 'all_history',
 } as const
 
 export interface QueryScanWarningApi {
+    /** Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and "Fix with AI" only when a finding is actionable. */
+    actionable: boolean
     /** The one fact the finding rests on. */
     evidence?: string | null
     /** What "Fix with AI" and the assistant are told to do. */
