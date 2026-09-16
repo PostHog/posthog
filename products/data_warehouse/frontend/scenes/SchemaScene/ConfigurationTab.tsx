@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonDialog,
     LemonInput,
@@ -18,9 +19,7 @@ import {
 
 import api from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -42,6 +41,7 @@ import {
     useSchemaEditorAccess,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import {
+    IncrementalSyncBlockedMessageMap,
     StatusTagSetting,
     SyncFrequencyLabelMap,
     SyncTypeLabelMap,
@@ -100,7 +100,6 @@ export function ConfigurationTab({
     const { isProjectTime, refreshingSchemas, resyncingSchema, supportsRowFilters } = useValues(logic)
     const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, refreshSchemas } =
         useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     switch (section) {
         case 'details':
@@ -145,12 +144,7 @@ export function ConfigurationTab({
                 />
             )
         case 'descriptions':
-            // Deep-link guard: the section nav already hides this when the flag is off.
-            return featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SEMANTIC_ENRICHMENT] ? (
-                <DescriptionsSection schema={schema} />
-            ) : (
-                <></>
-            )
+            return <DescriptionsSection schema={schema} />
         case 'danger-zone':
             return (
                 <DangerZoneSection
@@ -197,6 +191,14 @@ function DetailsSection({
                 description="Enable or disable syncing for this schema, see its current state, and trigger a sync on demand."
             />
             <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
+                {schema.incremental_sync_blocked && (
+                    <LemonBanner
+                        type="warning"
+                        action={{ children: 'Change sync method', onClick: onConfigureSyncMethod }}
+                    >
+                        {IncrementalSyncBlockedMessageMap[schema.incremental_sync_blocked]}
+                    </LemonBanner>
+                )}
                 <div className="flex items-start justify-between gap-4">
                     <div className="flex flex-col">
                         <span>Enabled</span>
@@ -211,6 +213,9 @@ function DetailsSection({
                             checked={schema.should_sync}
                             label={schema.should_sync ? 'Syncing' : 'Disabled'}
                             onChange={(active) => {
+                                // A blocked table is not routed away here on purpose. An operator who fixed
+                                // the duplicates or added the key at the source has to be able to turn the
+                                // table back on themselves; the banner above says what the last run found.
                                 if (active && !schema.sync_type) {
                                     // No sync method saved yet — open the sync method section to set one up.
                                     onConfigureSyncMethod()

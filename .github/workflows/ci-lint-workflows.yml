@@ -3,6 +3,7 @@ name: Lint workflows
 on:
     pull_request:
         paths:
+            - .depot/workflows/ci-backend.yml
             - .github/workflows/**
             - .github/actions/**
             - services/**
@@ -47,6 +48,7 @@ jobs:
               with:
                   persist-credentials: false
                   sparse-checkout: |
+                      .depot/workflows/ci-backend.yml
                       .github
                       tools/workflow-plan
                       patches

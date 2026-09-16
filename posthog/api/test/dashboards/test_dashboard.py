@@ -458,6 +458,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert isoparse(results_by_id[dashboard_recent_id]["last_viewed_at"]) == isoparse("2024-01-01T12:00:00+00:00")
         assert results_by_id[dashboard_unseen_id]["last_viewed_at"] is None
 
+    def test_list_pinned_dashboards_orders_by_last_viewed_at(self):
+        recently_viewed_id, _ = self.dashboard_api.create_dashboard({"name": "Recently viewed", "pinned": True})
+        earlier_viewed_id, _ = self.dashboard_api.create_dashboard({"name": "Earlier viewed", "pinned": True})
+        unseen_id, _ = self.dashboard_api.create_dashboard({"name": "Never viewed", "pinned": True})
+        self.dashboard_api.create_dashboard({"name": "Unpinned"})
+
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
+            FileSystemViewLog.objects.create(
+                team=self.team, user=self.user, type="dashboard", ref=str(earlier_viewed_id)
+            )
+        with time_machine.travel("2024-02-01T12:00:00Z", tick=False):
+            FileSystemViewLog.objects.create(
+                team=self.team, user=self.user, type="dashboard", ref=str(recently_viewed_id)
+            )
+
+        response = self.dashboard_api.list_dashboards(
+            parent="environment", query_params={"pinned": "true", "exclude_generated": "true"}
+        )
+
+        assert [dashboard["id"] for dashboard in response["results"]] == [
+            recently_viewed_id,
+            earlier_viewed_id,
+            unseen_id,
+        ]
+
     def test_list_includes_folder_from_filesystem(self):
         filed_id, _ = self.dashboard_api.create_dashboard(
             {"name": "Filed dashboard", "_create_in_folder": "Marketing/Website"}
@@ -3044,6 +3069,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     },
                     "resolved_date_range": ANY,
                     "query_status": None,
+                    "query_scan": None,
                     "result": None,
                     "saved": True,
                     "short_id": ANY,

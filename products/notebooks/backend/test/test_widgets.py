@@ -387,11 +387,11 @@ class TestWidgetGeneration(SimpleTestCase):
         assert "public_df" in request["messages"][0]["content"]
         stream.close.assert_called_once()
 
-    def test_generate_request_defaults_to_the_balanced_model(self) -> None:
+    def test_generate_request_defaults_to_sonnet_5(self) -> None:
         serializer = WidgetGenerateRequestSerializer(data={"prompt": "Render a globe", "generation_id": str(uuid4())})
 
         assert serializer.is_valid(), serializer.errors
-        assert serializer.validated_data["model"] == DEFAULT_WIDGET_MODEL
+        assert serializer.validated_data["model"] == "claude-sonnet-5"
 
     def test_generate_request_rejects_an_unlisted_model(self) -> None:
         serializer = WidgetGenerateRequestSerializer(
@@ -481,13 +481,19 @@ class TestWidgetGeneration(SimpleTestCase):
                     '<PythonV2 nodeId="source" returnVariable="locations_df" />\n\n'
                     '<SQLV2 nodeId="summary" returnVariable="summary_df" />\n\n'
                     '<Query nodeId="saved" returnVariable="saved_df" />\n\n'
+                    '<Insight nodeId="insight" dataframeQuery="SELECT 1" />\n\n'
                     '<Widget nodeId="globe" prompt="Render a globe" />\n\n'
                     '<PythonV2 nodeId="later" returnVariable="future_df" />'
                 )
             ),
         )
 
-        assert infer_widget_inputs(notebook, "globe") == ["locations_df", "summary_df", "future_df"]
+        assert infer_widget_inputs(notebook, "globe") == [
+            "locations_df",
+            "summary_df",
+            "insight_df",
+            "future_df",
+        ]
 
     @parameterized.expand([("generated_widget", "GeneratedWidget"), ("genui", "GenUI")])
     def test_rejects_removed_widget_tags(self, _name: str, tag_name: str) -> None:

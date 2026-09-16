@@ -810,6 +810,18 @@ export interface PullRequestChecksResponseApi {
 }
 
 /**
+ * Response when the GitHub App cannot read pull request checks.
+ */
+export interface PullRequestChecksPermissionErrorApi {
+    /** Stable code for a missing GitHub Checks permission. */
+    readonly code: string
+    /** What the GitHub App permission prevents. */
+    readonly error: string
+    /** Project integrations settings where a project admin can reconnect GitHub. */
+    readonly remediation_url: string
+}
+
+/**
  * * `conversation` - conversation
  * * `review` - review
  */
@@ -2725,10 +2737,15 @@ export interface SignalScoutConfigOptionsApi {
  */
 export interface SignalScoutCreateApi {
     /**
-     * Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.
+     * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+     * @maxLength 200
+     */
+    display_name?: string
+    /**
+     * Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.
      * @maxLength 64
      */
-    name: string
+    name?: string
     /**
      * Short description of the signal or behavior this scout investigates.
      * @maxLength 1024
@@ -3090,6 +3107,11 @@ export interface SignalScoutConfigCreateApi {
      */
     run_cron_schedule?: string | null
     /**
+     * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+     * @maxLength 200
+     */
+    display_name?: string
+    /**
      * The skill to register a config for. Any valid skill name works — the config row is what makes a skill a scout. The skill must already exist on this project — author it via the skills store first.
      * @maxLength 200
      */
@@ -3139,7 +3161,7 @@ export interface SignalScoutOutputDestinationsUpdateApi {
  */
 export interface PatchedSignalScoutConfigUpdateApi {
     /**
-     * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+     * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
      * @maxLength 200
      */
     display_name?: string
@@ -5544,6 +5566,11 @@ export type SignalsReportsPrCiStatusesParams = {
 }
 
 export type SignalsScoutConfigListParams = {
+    /**
+     * Case-insensitive substring filter over a scout's display name and its skill name. A scout matches on either, so a person who knows the label and a caller who knows the identifier both find it. Omit for the whole fleet.
+     * @minLength 1
+     */
+    search?: string
     /**
      * Comma-separated tags, e.g. `revenue,on-call`. Returns the scouts carrying at least one of them. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. Omit for the whole fleet.
      * @minLength 1
