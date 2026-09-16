@@ -72884,6 +72884,7 @@ export namespace Schemas {
     export interface PgAnalyzeIssueSignalExtra {
       severity: string | null;
       references: PgAnalyzeIssueReference[];
+      cited_queries?: string[];
       database_id: string | null;
       server_human_id: string | null;
       server_name: string | null;
