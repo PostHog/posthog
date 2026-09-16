@@ -86,7 +86,9 @@ export class MlPrivacyBatchController implements KeyStore, RecordingEncryptor {
                 return
             }
             if (scheduler) {
-                void scheduler.schedule(...promises)
+                for (const promise of promises) {
+                    void scheduler.schedule(promise)
+                }
             } else {
                 await Promise.all(promises)
             }

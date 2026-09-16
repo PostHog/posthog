@@ -36,10 +36,6 @@ export class MlPrivacyDynamoDB {
     ) {}
 
     public async read(keys: TableKey[], deadline?: AbortSignal): Promise<Map<string, DynamoItem>> {
-        return this.timed('dynamodb_read', () => this.readUntimed(keys, deadline))
-    }
-
-    private async readUntimed(keys: TableKey[], deadline?: AbortSignal): Promise<Map<string, DynamoItem>> {
         const unique = [...new Map(keys.map((key) => [tableKeyString(key), key])).values()]
         const result = new Map<string, DynamoItem>()
         const chunks: TableKey[][] = []
@@ -51,11 +47,13 @@ export class MlPrivacyDynamoDB {
                 this.concurrency(async () => {
                     let pending = chunk.map(encodeKey)
                     for (let attempt = 0; pending.length && attempt < this.attempts; attempt++) {
-                        const response = await this.client.send(
-                            new BatchGetItemCommand({
-                                RequestItems: { [this.tableName]: { Keys: pending, ConsistentRead: true } },
-                            }),
-                            { abortSignal: this.requestSignal(deadline) }
+                        const response = await this.timed('dynamodb_read', () =>
+                            this.client.send(
+                                new BatchGetItemCommand({
+                                    RequestItems: { [this.tableName]: { Keys: pending, ConsistentRead: true } },
+                                }),
+                                { abortSignal: this.requestSignal(deadline) }
+                            )
                         )
                         for (const item of response.Responses?.[this.tableName] ?? []) {
                             result.set(tableKeyString(decodeKey(item)), item)

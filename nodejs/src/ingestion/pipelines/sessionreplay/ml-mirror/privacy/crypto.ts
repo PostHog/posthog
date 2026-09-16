@@ -53,8 +53,8 @@ export class MlKeyEncryption {
     }
 
     private async request<T>(kind: MlPrivacyRequest, operation: () => Promise<T>): Promise<T> {
-        const queuedAt = performance.now()
         return this.concurrency(async () => {
+            const queuedAt = performance.now()
             const now = Date.now()
             const scheduledAt = Math.max(now, this.nextRequestAt)
             this.nextRequestAt = scheduledAt + 1000 / this.requestsPerSecond
