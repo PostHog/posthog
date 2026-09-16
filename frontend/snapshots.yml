@@ -8429,9 +8429,9 @@ snapshots:
     scenes-app-inbox-selfdrivingsection--git-hub-assignment-on--light:
         hash: v1.k794b7964.57af56f19994255413673d8fc12ec148ff9b033eb123e66e240635a23718cb46.LLSxjyWoQftRO_OMQoiI8Ks0T6S8ZuLWK6b9pWALJ7E
     scenes-app-inbox-selfdrivingsection--issue-tracker-configured--dark:
-        hash: v1.k794b7964.cdb607392cef07d57877777e0a656dcb4c7c2af1affb432a86453f75b78280db.bgGTmrW_z9X9qLvFkOGha7UcAeyl3GCZsl7VI-qQQYw
+        hash: v1.k794b7964.0956d0f012b6da9877448cd1afd59bffec92f23fe568c76bbbb63ccd7f778da0.j1RolAIx5vnIu-hTCBxc-_sNok53fyvTFakq1kqWeOk
     scenes-app-inbox-selfdrivingsection--issue-tracker-configured--light:
-        hash: v1.k794b7964.7e34b8ec3744b26fa629a9757592204a6ed1d5a8afbf82b9b99dae7e44b664b9.QrlN_bkg8V7OgApCzJbXi0XkN_o13QYM4T98KOS51jQ
+        hash: v1.k794b7964.1a9038f9d2377dc4ceb76e7d132156e808d5af750bc8d9df1ec714bd6eb76ac0.oo-Os2qSOshYrCqT1P6KaM__RMUU4JNfQGj8tV96qaI
     scenes-app-inbox-selfdrivingsection--issue-tracker-unavailable--dark:
         hash: v1.k794b7964.6bfc4c4bf6e0dd7990584e903704b5f44f073a62e5c9ac8328a7cbef659f894b.X4le-xk7srup5exu5Pc5_Si2qfegExY70NvNhunda5Q
     scenes-app-inbox-selfdrivingsection--issue-tracker-unavailable--light:
@@ -8468,6 +8468,10 @@ snapshots:
         hash: v1.k794b7964.1ecf216757ce2db57fe852a49aac8e3285eddcffc533bb6d4d4bd64a893bf03a.BNXn4jfro34u7tfGlpvKw_BDJB3CWldR9ccgZ1ieFK4
     scenes-app-inbox-selfdrivingsection--settings-tab-disabled--light:
         hash: v1.k794b7964.965985d456fd402f5d56535a2c7b648c4fe489781520325dbb3a7fbad377d1ee.1zFknWFsS9hOaZV9CHfeK2FSWwXIcXaR18SdKn_suXc
+    scenes-app-inbox-selfdrivingsection--settings-tab-issue-tracker-jira--dark:
+        hash: v1.k794b7964.08bda87bf4c2a3a1bf6232f395b74d879fe3a025174a60e058e693cc25b085fe.SX7eUSB6gow5Oar38Pn-8EfIk4aTja9XvS937Zn54t8
+    scenes-app-inbox-selfdrivingsection--settings-tab-issue-tracker-jira--light:
+        hash: v1.k794b7964.799b981717d3ccd8c33a7b6dfdc15e8bfddf18f8fa957ab2702e6b440bac5c34.BcVp6QtB-QWj_Sp2fdEUlHxokd0SPlCU_d_oyq4S9Ss
     scenes-app-inbox-selfdrivingsection--settings-tab-narrow--dark:
         hash: v1.k794b7964.9aca38b1236ed16a464f94102f9474904f14937adcd17d419ccd6c6748498025.KorTthkm-gqbl1oile51fljznkrj4jr-Bc0D9neiQOg
     scenes-app-inbox-selfdrivingsection--settings-tab-narrow--light:
