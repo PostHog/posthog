@@ -35,6 +35,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.database.schema.spans import TraceSpansTable
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -148,6 +149,31 @@ def _normalise_status_code_values(values: list) -> list[str]:
         elif str(v) in _STATUS_CODE_LABEL_TO_INTS:
             normalised.extend(str(code) for code in _STATUS_CODE_LABEL_TO_INTS[str(v)])
     return normalised
+
+
+class UnknownSpanFilterKeyError(ValueError):
+    """A `type: "span"` filter names a key that is not a span column."""
+
+
+# Keys a `type: "span"` filter may use: every top-level span column, plus the `duration` alias that
+# `translate_span_filter` rewrites to `duration_nano`. The attribute maps are excluded — their keys
+# belong on a `span_attribute` or `span_resource_attribute` filter, which read the typed maps — and
+# `team_id` is always set by the query itself. An unlisted key reaches the HogQL resolver as an
+# unknown field and fails the whole query, so callers get a 400 naming this set instead of a 500.
+SPAN_FILTER_COLUMNS: frozenset[str] = (
+    frozenset(TraceSpansTable().fields) - {"attributes", "resource_attributes", "team_id"}
+) | {"duration"}
+
+
+def validate_span_filter_key(span_filter: SpanPropertyFilter) -> None:
+    """Reject a span filter whose key is not a span column, before it reaches the resolver."""
+    if span_filter.key in SPAN_FILTER_COLUMNS:
+        return
+    raise UnknownSpanFilterKeyError(
+        f"`{span_filter.key}` is not a span field. A filter of type `span` must use one of: "
+        f"{', '.join(sorted(SPAN_FILTER_COLUMNS))}. "
+        "To filter an OpenTelemetry attribute, use type `span_attribute` or `span_resource_attribute`."
+    )
 
 
 def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
@@ -268,6 +294,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                     if prop_type == SpanPropertyFilterType.SPAN_RESOURCE_ATTRIBUTE:
                         self.resource_attribute_filters.append(prop)
                     if prop_type == SpanPropertyFilterType.SPAN:
+                        validate_span_filter_key(prop)
                         self.span_filters.append(prop)
                     elif prop_type == SpanPropertyFilterType.SPAN_ATTRIBUTE:
                         if isinstance(prop, SpanPropertyFilter):

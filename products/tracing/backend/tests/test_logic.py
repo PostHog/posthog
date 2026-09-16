@@ -4,7 +4,7 @@ from parameterized import parameterized
 
 from posthog.schema import PropertyOperator, SpanPropertyFilter, SpanPropertyFilterType
 
-from products.tracing.backend.logic import translate_span_filter
+from products.tracing.backend.logic import UnknownSpanFilterKeyError, translate_span_filter, validate_span_filter_key
 
 
 def _span_filter(key: str, value: object) -> SpanPropertyFilter:
@@ -74,3 +74,32 @@ class TestTranslateSpanFilter(SimpleTestCase):
         translate_span_filter(span_filter)
         translate_span_filter(span_filter)
         self.assertEqual(span_filter.value, expected)
+
+
+class TestValidateSpanFilterKey(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("column", "service_name"),
+            ("duration_alias", "duration"),
+            ("translated_duration", "duration_nano"),
+        ]
+    )
+    def test_accepts_span_columns(self, _name, key):
+        validate_span_filter_key(_span_filter(key, "x"))
+
+    @parameterized.expand(
+        [
+            # OTel attribute keys sent with the wrong filter type. Before the check they reached the
+            # HogQL resolver as unknown fields and failed the whole query with a 500.
+            ("camel_case_attribute", "sessionId"),
+            ("dotted_attribute", "http.method"),
+            ("attribute_map", "attributes"),
+        ]
+    )
+    def test_rejects_keys_that_are_not_span_columns(self, _name, key):
+        with self.assertRaises(UnknownSpanFilterKeyError) as caught:
+            validate_span_filter_key(_span_filter(key, "x"))
+        message = str(caught.exception)
+        self.assertIn(key, message)
+        self.assertIn("span_attribute", message)
+        self.assertIn("service_name", message)
