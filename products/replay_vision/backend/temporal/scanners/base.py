@@ -64,8 +64,8 @@ class SignalFinding(BaseModel, frozen=True):
     description: str = Field(
         description=(
             "Actionable prose a reader with no session context can act on. Lead with what you saw on screen that "
-            "reveals the issue — the visual detail the events don't capture (e.g. a spinner overlapping a button, an "
-            "error toast that flashed off-screen, a layout shift, visible hesitation). Then say what happened, where "
+            "reveals the issue — the visual detail the events don't capture (e.g. a spinner overlapping a button, a "
+            "control that does nothing when clicked, a layout shift, visible hesitation). Then say what happened, where "
             "in the product, and the user impact. Quote exact on-screen labels and button text when visible. Plain "
             "prose with no timestamp references — no `(t …)` markers, no timestamps, no 'at N seconds', no event IDs; "
             "the timing lives in `start_time`/`end_time`."

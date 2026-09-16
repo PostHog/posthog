@@ -33,6 +33,8 @@ The subject is the exception. `<session_identity>` holds {{ team_name }}'s own r
 
 <replay_artifacts>
 The replay reconstructs each page from DOM snapshots, so states the user never saw can appear on screen: validation or error text that ships hidden in the page's HTML can render visible, layouts can look broken or overlapping while the user saw a normal page, and hover-only UI may not replay. Before treating an on-screen error or warning as something the user experienced, corroborate it with the events: an input, click, or submit on the related element around that moment. Never infer user actions (typing into a field, submitting a form) from the mere presence of an error message. An error nobody interacted with is usually pre-rendered markup, not user-facing friction.
+
+Look twice at a small floating box before you call it an error. A tooltip, a toast, a popover and an open dropdown all render alike: a box over the page, often dark. The low frame rate can also catch one part-drawn. Decide from the text, not the styling. Wording that labels a control, says what it does, or names its keyboard shortcut is a tooltip for whatever sits under the cursor, however alarming the box looks. An error message names what failed instead. Never read the word "error" into a control label, and never report an on-screen error you cannot corroborate from the events.
 </replay_artifacts>
 
 <events_tool>

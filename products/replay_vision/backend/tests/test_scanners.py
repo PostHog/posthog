@@ -126,6 +126,10 @@ class TestPreamble:
         rendered = scanner_from_db(_build_replay_scanner()).preamble(team_name="Acme")
         assert "<replay_artifacts>" in rendered
         assert "Never infer user actions" in rendered
+        # Without the tooltip/toast disqualifier, scanners read a hovered control's label as a red error toast and
+        # file a defect against a player that never showed one.
+        assert "names its keyboard shortcut" in rendered
+        assert "cannot corroborate from the events" in rendered
 
     def test_preamble_explains_gestures_without_click_events(self) -> None:
         # Back-swipes and scroll flicks emit no clicks; misreading them produced false "stuck user" verdicts.
