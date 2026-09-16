@@ -13,7 +13,10 @@ from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
-from pydantic import RootModel as PydanticRootModel
+from pydantic import (
+    RootModel as PydanticRootModel,
+    ValidationError as PydanticValidationError,
+)
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
@@ -36,7 +39,10 @@ from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    get_exposure_event_and_property,
+    resolve_default_exposure_event,
+)
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
@@ -399,11 +405,21 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     )
     resolved_exposure_event = serializers.SerializerMethodField(
         help_text=(
-            "The event exposures are actually counted on when the experiment doesn't configure a "
-            "custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the "
-            "rollout and the experiment started at or after the cutoff. Resolved server-side so "
-            "clients display the same event the results queries read. For a draft, this is what the "
-            "experiment would resolve to if launched now."
+            "What this experiment's default exposure resolves to — `$feature_flag_called`, or "
+            "`$experiment_exposure` once the team is in the rollout and the experiment started at "
+            "or after the cutoff. Resolved server-side so clients display the same event the "
+            "results queries read. For a draft, this is what the experiment would resolve to if "
+            "launched now. A custom `exposure_criteria.exposure_config` overrides this, so read "
+            "`effective_exposure_event` for the event the results are counted on."
+        ),
+    )
+    effective_exposure_event = serializers.SerializerMethodField(
+        help_text=(
+            "The event this experiment's results are counted on, after any custom "
+            "`exposure_criteria.exposure_config` is applied. Equal to `resolved_exposure_event` "
+            "when the experiment uses the default exposure. Null when no single event applies: "
+            "the exposure config is an action, which can match more than one event, or the "
+            "stored config cannot be read."
         ),
     )
     version = serializers.IntegerField(
@@ -502,6 +518,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "is_legacy",
             "can_freeze_exposure",
             "resolved_exposure_event",
+            "effective_exposure_event",
             "user_access_level",
             "tags",
         ]
@@ -517,6 +534,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "status",
             "can_freeze_exposure",
             "resolved_exposure_event",
+            "effective_exposure_event",
             "user_access_level",
         ]
 
@@ -538,6 +556,20 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         # A draft has no start_date yet, so resolve against now: that's the event it would get if
         # launched today, which is what the setup UI needs to show.
         return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_effective_exposure_event(self, obj: Experiment) -> str | None:
+        try:
+            event, _ = get_exposure_event_and_property(
+                obj.feature_flag.key if obj.feature_flag else "",
+                obj.exposure_criteria,
+                default_exposure_event=self.get_resolved_exposure_event(obj),
+            )
+        except PydanticValidationError:
+            # Criteria written before the shape validation landed can still fail the strict parse.
+            # Those experiments already break in the results queries; reading them must not 500.
+            return None
+        return event
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):

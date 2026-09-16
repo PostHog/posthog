@@ -670,6 +670,51 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         self.assertEqual(serialized["resolved_exposure_event"], expected_event)
 
+    @parameterized.expand(
+        [
+            ("no_config", None, "$experiment_exposure"),
+            (
+                "default_config",
+                {"kind": "ExperimentEventExposureConfig", "event": "$feature_flag_called", "properties": []},
+                "$experiment_exposure",
+            ),
+            (
+                "custom_event",
+                {"kind": "ExperimentEventExposureConfig", "event": "listing_view", "properties": []},
+                "listing_view",
+            ),
+            ("action_config", "action", None),
+        ]
+    )
+    def test_detail_reports_effective_exposure_event(
+        self, _name: str, exposure_config: Any, expected_event: str | None
+    ) -> None:
+        # resolved_exposure_event only describes the default path, so a client that reads it alone
+        # filters on the default event for an experiment whose results come from a custom one.
+        if exposure_config == "action":
+            action = Action.objects.create(team=self.team, name="Viewed listing", created_by=self.user)
+            exposure_config = {"kind": "ActionsNode", "id": action.pk}
+
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name=f"effective-exposure-{_name}",
+            feature_flag=FeatureFlag.objects.create(
+                team=self.team, key=f"effective-exposure-{_name}", created_by=self.user
+            ),
+            start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=7),
+            exposure_criteria={"exposure_config": exposure_config} if exposure_config else None,
+        )
+
+        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
+            return flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG
+
+        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["resolved_exposure_event"], "$experiment_exposure")
+        self.assertEqual(response.json()["effective_exposure_event"], expected_event)
+
     def test_retrieving_experiment_refreshes_action_names(self) -> None:
         # Action-name refresh lives on the detail response — the list endpoint no longer
         # returns metrics (see ExperimentBasicSerializer).
