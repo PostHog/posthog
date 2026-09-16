@@ -1,6 +1,5 @@
 import { LibrdKafkaError } from 'node-rdkafka'
 
-import { initializePrometheusLabels } from '~/common/api/router'
 import {
     KAFKA_SESSION_REPLAY_IMAGE_FETCH,
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
@@ -15,11 +14,8 @@ import { RetryDelayConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirro
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 
-import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
-import {
-    IngestionSessionReplayMlMirrorServerConfig,
-    buildMlMirrorServerConfig,
-} from './ingestion-session-replay-ml-mirror-server'
+import { CleanupResources } from './base-server'
+import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'
 
 /**
  * Headroom on top of the sleeping a batch can do, for the publishing between the sleeps.
@@ -38,30 +34,10 @@ const DELAY_TOPICS = [
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
 ]
 
-export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer {
-    readonly lifecycle: ServerLifecycle
-    private config: IngestionSessionReplayMlMirrorServerConfig
+export class IngestionSessionReplayMlImageFetchRetryServer extends MlMirrorConsumerServer {
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
 
-    constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
-        this.config = buildMlMirrorServerConfig(config)
-        this.lifecycle = new ServerLifecycle(this.config)
-    }
-
-    async start(): Promise<void> {
-        return this.lifecycle.start(
-            () => this.startServices(),
-            () => this.getCleanupResources()
-        )
-    }
-
-    async stop(error?: Error): Promise<void> {
-        return this.lifecycle.stop(() => this.getCleanupResources(), error)
-    }
-
-    private async startServices(): Promise<void> {
-        initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
-
+    protected async startServices(): Promise<void> {
         const topic = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_TOPIC
         const delayMs = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_DELAY_MS
         const batchSize = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE
@@ -145,7 +121,7 @@ export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer
         })
     }
 
-    private getCleanupResources(): CleanupResources {
+    protected getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
             redisPools: [],

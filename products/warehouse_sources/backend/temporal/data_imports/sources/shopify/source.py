@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.sh
     SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR,
     SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR,
     SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR,
+    SHOPIFY_GRAPHQL_NOT_FOUND_ERROR_MATCH,
     SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH,
     SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
     SHOPIFY_MISSING_CREDENTIALS_ERROR,
@@ -118,6 +119,10 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             # time but Shopify now rejects it. Retrying cannot recover; the user must
             # reconnect their integration.
             SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH: SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
+            # 404 from the Admin API GraphQL endpoint — no live store answers at the configured
+            # address. Retrying cannot recover; the user must correct the store id, the same fix
+            # as the token endpoint's 404 above.
+            SHOPIFY_GRAPHQL_NOT_FOUND_ERROR_MATCH: SHOPIFY_STORE_NOT_FOUND_ERROR,
         }
 
     def get_retryable_errors(self) -> set[str]:

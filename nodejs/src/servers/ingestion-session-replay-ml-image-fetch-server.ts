@@ -1,7 +1,6 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
 
-import { initializePrometheusLabels } from '~/common/api/router'
 import {
     KAFKA_SESSION_REPLAY_IMAGE_FETCH,
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
@@ -33,17 +32,17 @@ import { OriginRequestScheduler } from '~/ingestion/pipelines/sessionreplay/ml-m
 import { assertUrlPolicyLoaded } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/politeness-key'
 import { ImageFetchTopHogMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/tophog-metrics'
 import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
+import { VersionedCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/versioned-crawl-history'
 import { createWebBotAuthRequestSigner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/web-bot-auth'
+import { MlPrivacyRuntime } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/runtime'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/registry'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 import { HealthCheckResultOk } from '~/types'
 
-import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
-import {
-    IngestionSessionReplayMlMirrorServerConfig,
-    buildMlMirrorServerConfig,
-} from './ingestion-session-replay-ml-mirror-server'
+import { CleanupResources } from './base-server'
+import { IngestionSessionReplayMlMirrorServerConfig } from './ingestion-session-replay-ml-mirror-server'
+import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'
 
 /**
  * How long the store may spend on one batch, well inside Kafka's max.poll.interval.ms of 300s.
@@ -173,12 +172,13 @@ export function buildImageFetchConsumerOverrides(
     consumerCount: number
 ): RdKafkaConsumerOverrides {
     assertImageFetchBatchTarget(consumerCount)
-    const maximumRecordBytes = config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES + 64 * 1024
+    const maximumRecordBytes = config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES * 2 + 64 * 1024
     return {
         'fetch.message.max.bytes': maximumRecordBytes,
         'max.partition.fetch.bytes': maximumRecordBytes,
         'queued.max.messages.kbytes': Math.max(
             IMAGE_FETCH_MIN_CONSUMER_QUEUE_KBYTES,
+            Math.ceil(maximumRecordBytes / 1024),
             Math.floor(IMAGE_FETCH_KAFKA_QUEUE_BUDGET_KBYTES / consumerCount)
         ),
     }
@@ -198,31 +198,13 @@ export async function shutdownImageFetchConsumers(
  *
  * It scales separately because fetching waits on network IO while scrubbing needs CPU and ML models.
  */
-export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
-    readonly lifecycle: ServerLifecycle
-    private config: IngestionSessionReplayMlMirrorServerConfig
+export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerServer {
+    private privacy?: MlPrivacyRuntime
     private crawlHistoryClient?: DynamoDBClient
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
     private topHog?: TopHog
 
-    constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
-        this.config = buildMlMirrorServerConfig(config)
-        this.lifecycle = new ServerLifecycle(this.config)
-    }
-
-    async start(): Promise<void> {
-        return this.lifecycle.start(
-            () => this.startServices(),
-            () => this.getCleanupResources()
-        )
-    }
-
-    async stop(error?: Error): Promise<void> {
-        return this.lifecycle.stop(() => this.getCleanupResources(), error)
-    }
-
-    private async startServices(): Promise<void> {
-        initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
+    protected async startServices(): Promise<void> {
         // Here rather than on the first record. The parser calls into this addon for every URL, and
         // it must answer with a reason rather than raise, so a build that shipped without the addon
         // has to stop the pod at startup instead.
@@ -246,13 +228,33 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
             maxAttempts: 5,
             requestHandler: new NodeHttpHandler(),
         })
-        const crawlHistory = new DynamoDBCrawlHistory(
+        const legacyCrawlHistory = new DynamoDBCrawlHistory(
             this.crawlHistoryClient,
             tableName,
             dynamoDBTimeoutMs,
             STORE_BATCH_BUDGET_MS
         )
-        await crawlHistory.validateAccess(Date.now())
+        await legacyCrawlHistory.validateAccess(Date.now())
+        let crawlHistory =
+            legacyCrawlHistory as import('~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history').CrawlHistoryStore
+        if (this.config.AI_RESEARCH_REPLAY_KEY_TABLE) {
+            if (
+                !this.config.AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE ||
+                this.config.AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE === tableName
+            ) {
+                throw new Error('ML v2 requires a separate image fetch history table')
+            }
+            this.privacy = new MlPrivacyRuntime(this.config)
+            await this.privacy.start()
+            const v2 = new DynamoDBCrawlHistory(
+                this.crawlHistoryClient,
+                this.config.AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE,
+                dynamoDBTimeoutMs,
+                STORE_BATCH_BUDGET_MS
+            )
+            await v2.validateAccess(Date.now())
+            crawlHistory = new VersionedCrawlHistory(legacyCrawlHistory, v2)
+        }
 
         // Built even in dry run, so the wiring is exercised by every start rather than only by the
         // one that clears the flag.
@@ -284,7 +286,8 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
             },
             buildFetchRunner(this.config, publisher, topHogMetrics),
             deadLetters,
-            topHogMetrics
+            topHogMetrics,
+            this.privacy?.kafka
         )
         logger.info('🌐', 'ml_image_fetch_started', { dryRun })
 
@@ -315,11 +318,12 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         )
     }
 
-    private getCleanupResources(): CleanupResources {
+    protected getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
             redisPools: [],
             additionalCleanup: async () => {
+                this.privacy?.stop()
                 this.crawlHistoryClient?.destroy()
                 try {
                     await this.topHog?.stop()

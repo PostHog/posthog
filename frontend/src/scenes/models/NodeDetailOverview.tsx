@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
+import type { ReactNode } from 'react'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 import { CADENCE_LABELS, modeDisabledReason } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 import { urls } from 'scenes/urls'
@@ -10,11 +9,12 @@ import { urls } from 'scenes/urls'
 import { DataModelingSyncInterval } from '~/types'
 
 import { ModelHealthSummary } from 'products/data_modeling/frontend/nodeDetail/ModelHealthSummary'
+import { ModelViewSummary } from 'products/data_modeling/frontend/nodeDetail/ModelViewSummary'
 import { SERVING_ENGINE } from 'products/data_modeling/frontend/suspension'
 
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
-export function NodeDetailOverview({ id }: { id: string }): JSX.Element | null {
+export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: ReactNode }): JSX.Element | null {
     const {
         node,
         savedQuery: sceneSavedQuery,
@@ -37,7 +37,6 @@ export function NodeDetailOverview({ id }: { id: string }): JSX.Element | null {
         lastSuccessfulSyncAt,
     } = useValues(materializationLogic)
     const { refreshMaterialization } = useActions(materializationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const savedQuery = polledSavedQuery ?? sceneSavedQuery
 
     if (!node) {
@@ -45,21 +44,26 @@ export function NodeDetailOverview({ id }: { id: string }): JSX.Element | null {
     }
     if (!(savedQuery?.is_materialized ?? isMaterialized)) {
         return node.type === 'table' ? (
-            effectiveLastRunAt ? (
-                <p className="text-sm text-secondary mb-0">
-                    Last synced <TZLabel time={effectiveLastRunAt} />
-                </p>
-            ) : null
+            <div className="flex flex-wrap items-start gap-x-8 gap-y-3">
+                {effectiveLastRunAt && (
+                    <p className="text-sm text-secondary mb-0">
+                        Last synced <TZLabel time={effectiveLastRunAt} />
+                    </p>
+                )}
+                {metadata}
+            </div>
         ) : (
-            <p className="text-sm text-secondary mb-0">
-                This view runs its query when used. Materialize it to store results and refresh them on a schedule.
-            </p>
+            <ModelViewSummary
+                downstreamCount={node.downstream_count}
+                lineageUrl={urls.nodeDetail(id, 'lineage')}
+                metadata={metadata}
+            />
         )
     }
     // Only ClickHouse serves queries, so a marker on a shadow engine means the comparison
     // run stopped, not that this model stopped refreshing.
-    const suspension = savedQuery?.suspended?.[SERVING_ENGINE]
-    const suspended = !!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES] && !!suspension
+    const suspension = (savedQuery?.suspended ?? node.suspended)?.[SERVING_ENGINE]
+    const suspended = !!suspension
     const cadence = savedQuery?.sync_frequency
     const schedule = suspended
         ? 'Suspended after repeated failures'
@@ -78,6 +82,7 @@ export function NodeDetailOverview({ id }: { id: string }): JSX.Element | null {
 
     return (
         <ModelHealthSummary
+            metadata={metadata}
             status={latestJob?.status ?? savedQuery?.status ?? effectiveLastRunStatus}
             suspended={suspended}
             error={suspension?.reason ?? latestJob?.error ?? savedQuery?.latest_error ?? node.last_run_error}

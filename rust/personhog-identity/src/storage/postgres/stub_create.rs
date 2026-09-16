@@ -26,13 +26,13 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
-use sqlx::postgres::PgPool;
 use sqlx::Row;
 use uuid::Uuid;
 
 use personhog_common::persons::person_uuid;
 
 use crate::config::IdentityTables;
+use crate::pools::{IdentityPools, Lane};
 use crate::storage::error::StorageResult;
 use crate::storage::postgres::{person_columns, person_from_row};
 use crate::storage::types::{Person, PersonStub, StubOutcome};
@@ -67,7 +67,7 @@ struct MappingOutcome {
 }
 
 pub(super) async fn create_person_stubs(
-    pool: &PgPool,
+    pools: &IdentityPools,
     tables: &IdentityTables,
     stubs: &[PersonStub],
 ) -> StorageResult<Vec<StubOutcome>> {
@@ -83,10 +83,9 @@ pub(super) async fn create_person_stubs(
         .collect();
     let team_ids: Vec<i32> = stubs.iter().map(|s| s.team_id as i32).collect();
 
-    let mut tx = super::begin_timed(pool).await?;
+    let mut tx = pools.begin(Lane::Heavy).await?;
 
-    let mut persons =
-        insert_or_revive_persons(&mut tx, &tables.person, stubs, &team_ids, &uuids).await?;
+    let mut persons = insert_or_revive_persons(&mut tx, tables, stubs, &team_ids, &uuids).await?;
     fetch_conflict_winners(
         &mut tx,
         &tables.person,
@@ -121,11 +120,12 @@ pub(super) async fn create_person_stubs(
 /// (xmax can't be read back from a partitioned table).
 async fn insert_or_revive_persons(
     tx: &mut Tx<'_>,
-    person_table: &str,
+    tables: &IdentityTables,
     stubs: &[PersonStub],
     team_ids: &[i32],
     uuids: &[Uuid],
 ) -> StorageResult<PersonsByKey> {
+    let person_table = &tables.person;
     // Sorted and deduped by the (team_id, uuid) conflict key — see the
     // module invariants.
     let mut order: Vec<usize> = (0..stubs.len()).collect();
@@ -157,14 +157,15 @@ async fn insert_or_revive_persons(
             last_seen_at = EXCLUDED.last_seen_at
             WHERE {person_table}.is_deleted = true
               AND NOT EXISTS (
-                  SELECT 1 FROM lifecycle_op_person lop
+                  SELECT 1 FROM {lop_table} lop
                   WHERE lop.team_id = {person_table}.team_id
                     AND lop.person_id = {person_table}.id
-                    AND lop.status IN ('marked', 'sealed')
+                    AND lop.mark_active
               )
         RETURNING {person_cols}
         "#,
         person_cols = person_columns(person_table),
+        lop_table = tables.lifecycle_op_person,
     );
     let inserted = sqlx::query(&sql)
         .bind(&sorted_created_ats)

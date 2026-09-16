@@ -6,7 +6,7 @@ rules:
           Use `posthog.egress.slack.client.SlackWebClient` (or `SlackAsyncWebClient`) for
           Slack SDK calls and `posthog.egress.slack.transport.slack_request` for direct HTTP.
           Incoming webhooks and interactivity response URLs are outside this rule because their
-          secret URL, not a workspace ID, owns the budget. See `posthog/egress/README.md`.
+          secret URL, not a workspace ID, owns the budget. See `posthog/egress/slack/README.md`.
 
           The direct-HTTP half only catches literal/f-string URLs on the `requests` module, so
           keep URLs inline at the call site. Any `WebClient` / `AsyncWebClient` construction is
