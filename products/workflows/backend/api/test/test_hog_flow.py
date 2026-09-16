@@ -3547,6 +3547,31 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["no_op"] is False
         batch_job.refresh_from_db()
         assert batch_job.status == "completed"
+        # No counts sent, so they stay null rather than reading as "reached nobody".
+        assert batch_job.audience_enqueued is None
+        assert batch_job.audience_truncated is False
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_internal_update_batch_job_status_records_audience_truncation(self, _mock_dispatch):
+        hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
+            {"status": "completed", "audience_enqueued": 1000, "audience_limit": 1000, "audience_truncated": True},
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 200, response.json()
+        batch_job.refresh_from_db()
+        # Without these a capped run reports a clean completion.
+        assert batch_job.audience_enqueued == 1000
+        assert batch_job.audience_limit == 1000
+        assert batch_job.audience_truncated is True
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     @patch(

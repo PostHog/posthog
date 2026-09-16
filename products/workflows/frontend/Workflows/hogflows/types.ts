@@ -85,6 +85,10 @@ export const HogFlowBatchJobSchema = z.object({
     filters: z.any(),
     created_at: z.string(),
     updated_at: z.string(),
+    // Null on runs still in flight, and on runs that finished before these were recorded.
+    audience_enqueued: z.number().nullish(),
+    audience_limit: z.number().nullish(),
+    audience_truncated: z.boolean().optional(),
 })
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen

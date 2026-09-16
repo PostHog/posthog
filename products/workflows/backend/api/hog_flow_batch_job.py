@@ -22,6 +22,9 @@ class HogFlowBatchJobSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "audience_enqueued",
+            "audience_limit",
+            "audience_truncated",
         ]
         read_only_fields = [
             "id",
@@ -29,6 +32,9 @@ class HogFlowBatchJobSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "audience_enqueued",
+            "audience_limit",
+            "audience_truncated",
         ]
         extra_kwargs = {
             "status": {
@@ -42,6 +48,14 @@ class HogFlowBatchJobSerializer(serializers.ModelSerializer):
                 "help_text": "Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters."
             },
             "variables": {"help_text": "Variable value overrides applied to this run."},
+            "audience_enqueued": {"help_text": "How many people this run reached. Null on runs still in flight."},
+            "audience_limit": {"help_text": "The batch audience limit that applied to this run."},
+            "audience_truncated": {
+                "help_text": (
+                    "True when the audience was larger than the limit, so some of it did not receive the "
+                    "workflow. The size of the remainder is not recorded."
+                )
+            },
         }
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlowBatchJob:

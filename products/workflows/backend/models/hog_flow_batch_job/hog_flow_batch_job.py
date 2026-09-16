@@ -36,6 +36,12 @@ class HogFlowBatchJob(RootTeamMixin, UUIDTModel):
     filters = models.JSONField(default=dict)
     status = models.CharField(max_length=20, choices=State, default=State.QUEUED)
 
+    # No total audience size: the resolver stops paging at the limit and never counts the rest.
+    # A scheduled send skips the trigger button's audience check, so without this the cap is silent.
+    audience_enqueued = models.IntegerField(null=True, blank=True)
+    audience_limit = models.IntegerField(null=True, blank=True)
+    audience_truncated = models.BooleanField(default=False, db_default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.DO_NOTHING, null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)

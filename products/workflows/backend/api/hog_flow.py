@@ -6175,8 +6175,19 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             )
 
         try:
+            update_fields = ["status", "updated_at"]
+            # Absent from older resolvers: leave null rather than write a zero meaning "nobody".
+            for field in ("audience_enqueued", "audience_limit"):
+                value = request.data.get(field)
+                if isinstance(value, int) and value >= 0:
+                    setattr(batch_job, field, value)
+                    update_fields.append(field)
+            if isinstance(request.data.get("audience_truncated"), bool):
+                batch_job.audience_truncated = request.data["audience_truncated"]
+                update_fields.append("audience_truncated")
+
             batch_job.status = new_status
-            batch_job.save(update_fields=["status", "updated_at"])
+            batch_job.save(update_fields=update_fields)
             return Response(
                 {
                     "id": str(batch_job.id),

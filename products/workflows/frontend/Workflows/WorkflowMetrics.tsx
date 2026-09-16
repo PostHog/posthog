@@ -4,7 +4,16 @@ import { useMemo } from 'react'
 
 import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { IconLetter } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonSelect, LemonSelectOptions, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCollapse,
+    LemonSelect,
+    LemonSelectOptions,
+    LemonTag,
+    ProfilePicture,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { getColorVar } from 'lib/colors'
@@ -13,6 +22,7 @@ import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
@@ -217,7 +227,10 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
 function BatchJobMetricsHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
     return (
         <div className="flex gap-2 w-full justify-between">
-            <strong>{job.id}</strong>
+            <div className="flex items-center gap-2">
+                <strong>{job.id}</strong>
+                <BatchJobAudienceTag job={job} />
+            </div>
             <div className="flex items-center gap-2">
                 <TZLabel title="Created at" time={job.created_at} />
                 {job.created_by ? (
@@ -227,6 +240,28 @@ function BatchJobMetricsHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
                 )}
             </div>
         </div>
+    )
+}
+
+/**
+ * A run that hit the batch audience limit reached fewer people than its trigger matched, and the
+ * only other record of that is a log line no view reads. A scheduled run never passes the trigger
+ * button's audience check either, so without this the shortfall is invisible.
+ */
+function BatchJobAudienceTag({ job }: { job: HogFlowBatchJob }): JSX.Element | null {
+    if (!job.audience_truncated || job.audience_enqueued == null) {
+        return null
+    }
+    return (
+        <Tooltip
+            title={
+                job.audience_limit != null
+                    ? `This run reached ${humanFriendlyNumber(job.audience_enqueued)} people, the most your project's batch limit of ${humanFriendlyNumber(job.audience_limit)} allows. The rest of the audience did not receive this workflow. The limit rises as the project builds a clean sending history.`
+                    : `This run reached ${humanFriendlyNumber(job.audience_enqueued)} people, the most your project's batch limit allows. The rest of the audience did not receive this workflow.`
+            }
+        >
+            <LemonTag type="warning">Reached {humanFriendlyNumber(job.audience_enqueued)}, limit hit</LemonTag>
+        </Tooltip>
     )
 }
 
