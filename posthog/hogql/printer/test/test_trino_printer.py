@@ -1332,6 +1332,10 @@ def test_lowers_unpivot_to_single_scan(include_nulls: bool) -> None:
             "SELECT users.id FROM users LEFT ASOF JOIN users other ON users.id = other.id AND users.created_at >= other.created_at AND users.id > other.id",
             "TRINO_ASOF_CONSTRAINT_UNSUPPORTED",
         ),
+        (
+            "SELECT users.id FROM users LEFT ASOF JOIN users other ON users.id = other.id AND users.created_at != other.created_at",
+            "TRINO_ASOF_CONSTRAINT_UNSUPPORTED",
+        ),
         ("SELECT * FROM users PIVOT(sum(id) FOR user_id IN ('a', 'a'))", "TRINO_PIVOT_OUTPUT_COLLISION"),
         ("SELECT * FROM users UNPIVOT(value FOR key IN (id, user_id))", "TRINO_UNPIVOT_TYPE_UNSUPPORTED"),
         (
