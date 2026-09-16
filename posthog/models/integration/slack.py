@@ -49,9 +49,11 @@ SLACK_INTEGRATION_KINDS: tuple[str, ...] = ("slack",)
 SLACK_CHANNELS_PAGE_SIZE = 1000
 
 # Slack returns fewer items than the requested limit whenever it likes, so a page count is not an
-# item count. The stated limit on a listing is the item count; the request count only stops a
-# runaway loop, and is set high enough that the item cap decides the outcome at any realistic page
-# size. When either one stops a listing, _record_truncation says which.
+# item count. A listing stops on whichever cap it reaches first. On short pages that is the request
+# count, well short of the item cap, and the request count stays low because the listing runs
+# inside a request a person waits on, where a few hundred sequential calls to a rate-limited Slack
+# endpoint fail on latency before they finish. _record_truncation logs the items collected and the
+# requests made, so the log says which cap stopped the listing.
 SLACK_LISTING_MAX_ITEMS = 50000
 
 SLACK_LISTING_MAX_REQUESTS = 100
