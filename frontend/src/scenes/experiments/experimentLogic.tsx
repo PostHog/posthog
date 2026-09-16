@@ -3827,11 +3827,20 @@ export const experimentLogic = kea<experimentLogicType>([
             null as any,
             {
                 loadExposures: async (refresh: boolean = false) => {
-                    const { experiment, usesNewQueryRunner } = values
+                    const { experiment, usesNewQueryRunner, isExperimentDraft } = values
 
                     if (!usesNewQueryRunner) {
                         // A bare `return` would make kea error ("Reducer returned undefined")
                         return values.exposures
+                    }
+
+                    // A draft has never exposed anyone, so the query can only come back empty.
+                    // Config changes still refresh results, and without this they would run that
+                    // empty query and show the chart's slow-load warning while it ran. A reset
+                    // sends a running experiment back to draft still holding the previous run's
+                    // rows, so clear them rather than keep showing them.
+                    if (isExperimentDraft) {
+                        return null
                     }
 
                     const query = setLatestVersionsOnQuery({

@@ -13,6 +13,7 @@ or an enqueue on `stale=True`), otherwise they serve stale until the grace runs 
 """
 
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value
+from posthog.hogql_queries.query_runner import ExecutionMode
 
 # Refreshers every product inherits. The generic insight cache warmer's CACHE_WARMUP feature tag does not
 # always survive to the ensure call (lazy modules re-stamp feature=QUERY before ensuring), but its trigger
@@ -30,6 +31,22 @@ def is_background_warming_request(extra_triggers: frozenset[str] = frozenset()) 
     if get_query_tag_value("feature") == Feature.CACHE_WARMUP:
         return True
     return get_query_tag_value("trigger") in (SHARED_BACKGROUND_WARMING_TRIGGERS | extra_triggers)
+
+
+# Execution modes that mean "recompute, disregard the cache". Both force_* modes count, so an
+# async-dispatched forced refresh is covered alongside the blocking one.
+FORCED_REFRESH_EXECUTION_MODES = frozenset(
+    {ExecutionMode.CALCULATE_BLOCKING_ALWAYS.value, ExecutionMode.CALCULATE_ASYNC_ALWAYS.value}
+)
+
+
+def is_forced_refresh_request() -> bool:
+    """True when the user explicitly asked to recompute.
+
+    Read off the `execution_mode` tag the query runner stamps before `_calculate`. A forced refresh must
+    bypass the grace: the stale row it would be handed is the one the user is trying to replace.
+    """
+    return get_query_tag_value("execution_mode") in FORCED_REFRESH_EXECUTION_MODES
 
 
 def resolve_stale_while_revalidate_seconds(

@@ -262,12 +262,23 @@ def ensure_exposures_precomputed(
     builder: ExperimentQueryBuilder,
     time_range_start: datetime,
     time_range_end: datetime,
+    *,
+    wait_timeout_seconds: float | None = None,
+    stale_while_revalidate_seconds: float | None = None,
 ) -> LazyComputationResult:
-    """Ensure lazy-computed exposure data exists for the window, and return its job_ids."""
+    """Ensure lazy-computed exposure data exists for the window, and return its job_ids.
+
+    `wait_timeout_seconds` and `stale_while_revalidate_seconds` default to the framework
+    behaviour (the 180s budget, no serve-stale grace). Callers that a person waits on pass
+    a shorter budget and a grace, so a cold or expired window falls back to their own
+    cheaper path instead of building on the request thread.
+    """
     query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
     return ensure_precomputed(
         team=team,
+        wait_timeout_seconds=wait_timeout_seconds,
+        stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         insert_query=query_string,
         time_range_start=time_range_start,
         time_range_end=time_range_end,

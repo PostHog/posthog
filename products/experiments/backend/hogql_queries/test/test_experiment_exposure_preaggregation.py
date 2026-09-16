@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -24,6 +25,8 @@ from posthog.schema import (
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, get_default_hogql_global_settings
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tags_context
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -33,7 +36,11 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.analytics_platform.backend.models import PreaggregationJob
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window
-from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
+from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import (
+    EXPOSURES_STALE_WHILE_REVALIDATE_SECONDS,
+    EXPOSURES_USER_ENSURE_WAIT_SECONDS,
+    ExperimentExposuresQueryRunner,
+)
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
@@ -864,6 +871,62 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         assert direct_result.baseline.number_of_samples == 2
         assert direct_result.variant_results is not None
         assert direct_result.variant_results[0].number_of_samples == 1
+
+    @parameterized.expand(
+        [
+            ("user_facing", {}, EXPOSURES_USER_ENSURE_WAIT_SECONDS, EXPOSURES_STALE_WHILE_REVALIDATE_SECONDS),
+            ("background_warming", {"feature": Feature.CACHE_WARMUP}, None, None),
+            (
+                "force_blocking",
+                {"execution_mode": ExecutionMode.CALCULATE_BLOCKING_ALWAYS.value},
+                EXPOSURES_USER_ENSURE_WAIT_SECONDS,
+                None,
+            ),
+            (
+                "force_async",
+                {"execution_mode": ExecutionMode.CALCULATE_ASYNC_ALWAYS.value},
+                EXPOSURES_USER_ENSURE_WAIT_SECONDS,
+                None,
+            ),
+        ]
+    )
+    def test_exposures_read_bounds_its_precompute_wait(self, _name, request_tags, expected_wait, expected_grace):
+        # The chart has a cheap direct-scan fallback, so a person must never wait out the
+        # executor's 180s default budget for it. A warmer keeps the default and takes no
+        # serve-stale grace, or it would serve itself the rows it is there to rebuild. A
+        # forced refresh keeps the short budget but drops the grace, or Retry would return
+        # the rows it is clearing.
+        feature_flag = self.create_feature_flag(key="exposure-wait-budget")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 5),
+        )
+        self._enable_precomputation()
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag=model_to_dict(feature_flag),
+            holdout=None,
+            start_date=experiment.start_date.isoformat(),
+            end_date=experiment.end_date.isoformat(),
+            exposure_criteria=experiment.exposure_criteria,
+        )
+
+        request_context = tags_context(**request_tags) if request_tags else nullcontext()
+        with (
+            patch(
+                "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.ensure_exposures_precomputed",
+                return_value=MagicMock(ready=False),
+            ) as mock_ensure,
+            request_context,
+        ):
+            ExperimentExposuresQueryRunner(team=self.team, query=query)._get_exposure_query()
+
+        assert mock_ensure.call_args.kwargs["wait_timeout_seconds"] == expected_wait
+        assert mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"] == expected_grace
 
     @parameterized.expand(
         [
