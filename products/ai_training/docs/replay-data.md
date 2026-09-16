@@ -71,14 +71,14 @@ Restoring a deleted wrapped key would defeat deletion.
 
 ## Deletion
 
-Existing recording, person, team, and organization deletion flows enqueue ML privacy work.
+Existing recording, person, team, and organization deletion flows enqueue ML deletion work.
 Person deletion resolves the combined supplied and profile distinct IDs through the replay ClickHouse index.
 This lookup also runs when the user does not select replay deletion and includes IDs with no remaining person profile.
-Only the resulting session IDs enter the ML privacy outbox.
+Only the resulting session IDs enter the ML deletion outbox.
 A lookup failure stops the request before profile deletion so it can retry.
-Team deletion and its privacy outbox request commit in the same database transaction.
+Team deletion and its deletion outbox request commit in the same database transaction.
 If the outbox write fails, team deletion fails and can retry.
-Consent changes do not enqueue privacy requests.
+Consent changes do not enqueue deletion requests.
 The outbox survives removal of the source team or organization.
 Its team IDs refer to the original environment, without resolving a child environment to its parent.
 
@@ -225,14 +225,14 @@ The exclusion must cover every training month, not only the eval partition's mon
 Use the encrypted reader for index entries, then fetch selected recording blocks to inspect their JSON-LD payloads.
 Legacy v1 indexes retain their pseudonymized identifiers and daily partitions.
 
-### Privacy worker isolation
+### Deletion worker isolation
 
-The privacy task uses the `ai_research_privacy` Celery queue.
+The deletion task uses the `ai_research_privacy` Celery queue.
 In prod-us, only the dedicated `ai-research-privacy-worker` deployment consumes this queue.
 Its service account has a dedicated IAM role and cloud-database user.
 The database user needs SELECT and UPDATE only on `posthog_aitrainingdeletionrequest`.
 The worker starts with `bin/docker-worker-ai-training-privacy` and does not use shared Django signing secrets.
 Its process-local signing key is not used for application requests.
 The worker skips general migration checks; the outbox table must exist before deployment.
-All processes that enqueue privacy work, including the general-purpose Temporal worker, need the key table setting.
+All processes that enqueue deletion work, including the general-purpose Temporal worker, need the key table setting.
 Shared Django and Temporal workers cannot delete keys from the key table.
