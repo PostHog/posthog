@@ -48,6 +48,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         onRecordingDeleted,
         playNextRecording,
         skipToFirstMatchingEvent,
+        startPaused,
         exposureSkipExperimentId,
     } = props
 
@@ -70,6 +71,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         onRecordingDeleted,
         playNextRecording,
         skipToFirstMatchingEvent,
+        startPaused,
         exposureSkipExperimentId,
     }
 

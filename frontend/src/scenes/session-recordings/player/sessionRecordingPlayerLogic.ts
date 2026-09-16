@@ -174,6 +174,12 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     setPinned?: (pinned: boolean) => void
     playNextRecording?: (automatic: boolean) => void
     skipToFirstMatchingEvent?: boolean
+    // Holds the playhead where it lands, so a surface that captures a single moment (the heatmap
+    // background picker) shows a frame that does not move under the user. Separate from `autoPlay`,
+    // which only decides whether playback starts itself: every other `autoPlay: false` surface
+    // still plays once a seek reaches the replayer, and this prop is the intent those surfaces
+    // should eventually adopt.
+    startPaused?: boolean
     // The experiment whose recordings list the player was opened from. Its first in-session exposure
     // becomes a target for the initial skip, alongside any filtered events.
     exposureSkipExperimentId?: number
@@ -1497,7 +1503,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         playingState: [
-            SessionPlayerState.PLAY as SessionPlayerState.PLAY | SessionPlayerState.PAUSE,
+            (props.startPaused ? SessionPlayerState.PAUSE : SessionPlayerState.PLAY) as
+                | SessionPlayerState.PLAY
+                | SessionPlayerState.PAUSE,
             {
                 setPlay: () => SessionPlayerState.PLAY,
                 setPause: () => SessionPlayerState.PAUSE,
@@ -2202,9 +2210,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 const windowId = currentSegment?.windowId
                 const snapshots = windowId !== undefined ? (sessionPlayerData.snapshotsByWindowId[windowId] ?? []) : []
 
+                // Inclusive: rrweb applies a snapshot that sits exactly on the playhead, so the
+                // resolution it renders at is already on screen. A seek that lands on a window's
+                // first meta snapshot (a clamped seek, or the initial position) would otherwise
+                // report no resolution for a frame that has painted.
                 const currIndex = findLastIndex(
                     snapshots,
-                    (s: eventWithTime) => s.timestamp < currentTimestamp && isMetaSnapshotWithResolution(s)
+                    (s: eventWithTime) => s.timestamp <= currentTimestamp && isMetaSnapshotWithResolution(s)
                 )
 
                 if (currIndex === -1) {
