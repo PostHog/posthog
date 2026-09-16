@@ -1333,6 +1333,9 @@ export interface eventUsageLogicActions {
         existingCohort: CohortType
         newCohort: CohortType
     }
+    reportExperimentExposureCoverageWarningShown: (experiment: Experiment) => {
+        experiment: Experiment
+    }
     reportExperimentFeatureFlagModalOpened: () => {}
     reportExperimentFeatureFlagSelected: (featureFlagKey: string) => {
         featureFlagKey: string
@@ -2809,6 +2812,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             warningKey,
         }),
         reportExperimentBiasWarningShown: (experiment: Experiment) => ({ experiment }),
+        reportExperimentExposureCoverageWarningShown: (experiment: Experiment) => ({ experiment }),
         reportExperimentMetricsRefreshed: (
             experiment: Experiment,
             forceRefresh: boolean,
@@ -3966,6 +3970,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentBiasWarningShown: ({ experiment }) => {
             posthog.capture('experiment bias warning shown', {
+                ...getEventPropertiesForExperiment(experiment),
+            })
+        },
+        reportExperimentExposureCoverageWarningShown: ({ experiment }) => {
+            posthog.capture('experiment exposure coverage warning shown', {
                 ...getEventPropertiesForExperiment(experiment),
             })
         },
