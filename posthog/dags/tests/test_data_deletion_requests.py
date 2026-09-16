@@ -278,6 +278,39 @@ def test_load_hogql_event_removal_request_snapshots_query_and_creator(user):
 
 
 @pytest.mark.django_db
+def test_creatorless_hogql_request_fails_and_does_not_block_pickup(user):
+    creatorless = DataDeletionRequest.objects.create(
+        team_id=user.current_team_id,
+        request_type=RequestType.HOGQL_EVENT_REMOVAL,
+        execution_mode=ExecutionMode.DEFERRED,
+        hogql_query="SELECT uuid FROM events",
+        status=RequestStatus.APPROVED,
+        approved_at=datetime.now() - timedelta(minutes=1),
+    )
+    next_request = DataDeletionRequest.objects.create(
+        team_id=user.current_team_id,
+        request_type=RequestType.HOGQL_EVENT_REMOVAL,
+        execution_mode=ExecutionMode.DEFERRED,
+        hogql_query="SELECT uuid FROM events",
+        created_by=user,
+        status=RequestStatus.APPROVED,
+        approved_at=datetime.now(),
+    )
+
+    with pytest.raises(dagster.Failure, match="has no creator"):
+        load_hogql_event_removal_request(build_op_context(), DataDeletionRequestConfig(request_id=str(creatorless.pk)))
+
+    creatorless.refresh_from_db()
+    assert creatorless.status == RequestStatus.FAILED
+    assert creatorless.attempt_count == 0
+    result = data_deletion_request_pickup_sensor(
+        dagster.build_sensor_context(instance=dagster.DagsterInstance.ephemeral())
+    )
+    assert isinstance(result, dagster.RunRequest)
+    assert result.run_key == f"{next_request.pk}:{next_request.attempt_count}"
+
+
+@pytest.mark.django_db
 def test_hogql_event_deletion_executor_wraps_compiled_select_and_uses_dedicated_user(team, user):
     request_id = str(uuid4())
     deletion_request = HogQLEventRemovalContext(

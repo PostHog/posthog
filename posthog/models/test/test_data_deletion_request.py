@@ -651,6 +651,29 @@ def test_cached_compile_hogql_predicate_blank_predicate_skips_compile():
         assert cached_compile_hogql_predicate(request) == ("", {})
 
 
+@pytest.mark.django_db
+def test_verify_queued_query_backed_request_counts_pending_queue_rows(team):
+    request = DataDeletionRequest.objects.create(
+        team=team,
+        request_type=RequestType.HOGQL_EVENT_REMOVAL,
+        hogql_query="SELECT uuid FROM events",
+        execution_mode="deferred",
+        status=RequestStatus.QUEUED,
+    )
+
+    with patch("posthog.clickhouse.client.sync_execute", side_effect=[[[1]], [[0]]]) as execute:
+        pending = ddr.verify_queued_request(request)
+        completed = ddr.verify_queued_request(request)
+
+    assert pending == ddr.VerifyOutcome(remaining=1, promoted=False)
+    assert completed == ddr.VerifyOutcome(remaining=0, promoted=True)
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+    query, params = execute.call_args_list[0].args
+    assert "adhoc_events_deletion FINAL" in query
+    assert params == {"team_id": team.pk, "request_id": str(request.pk)}
+
+
 def test_query_backed_deletion_stats_are_rejected():
     request = DataDeletionRequest(
         team_id=TEAM_ID,

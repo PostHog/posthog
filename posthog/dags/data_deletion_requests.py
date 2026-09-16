@@ -459,6 +459,7 @@ def load_hogql_event_removal_request(
 ) -> HogQLEventRemovalContext:
     from django.db import transaction
 
+    failure_message: str | None = None
     with transaction.atomic():
         request = (
             DataDeletionRequest.objects.select_for_update()
@@ -475,12 +476,16 @@ def load_hogql_event_removal_request(
                 f"Request {config.request_id} is not an approved hogql_event_removal request.",
             )
         if request.created_by_id is None:
-            raise dagster.Failure(
-                f"Request {config.request_id} has no creator whose query permissions can be enforced.",
-            )
+            request.status = RequestStatus.FAILED
+            request.save(update_fields=["status", "updated_at"])
+            failure_message = f"Request {config.request_id} has no creator whose query permissions can be enforced."
+        else:
+            _record_execution_attempt(request, context.run_id)
 
-        _record_execution_attempt(request, context.run_id)
+    if failure_message is not None:
+        raise dagster.Failure(failure_message)
 
+    assert request.created_by_id is not None
     context.add_output_metadata(
         {
             "team_id": dagster.MetadataValue.int(request.team_id),
