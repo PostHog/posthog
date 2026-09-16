@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -62,6 +62,24 @@ export function ConnectStep(): JSX.Element {
                     <li>Retry duration: {setup.retry_duration_seconds} seconds. S3 backup: failed data only.</li>
                 </ul>
             </LemonField.Pure>
+            <LemonButton
+                type="secondary"
+                to={setup.quick_create_url ?? undefined}
+                targetBlank
+                disabledReason={
+                    setup.quick_create_url
+                        ? undefined
+                        : 'The CloudFormation template is not available on this instance. Enter the values above in the Firehose console.'
+                }
+                data-attr="logs-source-launch-stack"
+            >
+                Launch CloudFormation stack
+            </LemonButton>
+            <p className="m-0 text-xs text-secondary">
+                The stack creates the Firehose stream, an S3 bucket for failed deliveries, the IAM roles, and one
+                subscription filter in your AWS account. Nothing is created until you click Create stack in the AWS
+                console.
+            </p>
         </div>
     )
 }

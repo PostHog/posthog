@@ -54,6 +54,8 @@ const setup: LogsSourceSetupApi = {
     buffering_interval_seconds: 60,
     retry_duration_seconds: 300,
     content_encoding: 'GZIP',
+    quick_create_url:
+        'https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate?templateURL=https%3A%2F%2Ftemplates.example.com%2Ffirehose.yaml',
 }
 
 const meta: Meta = {

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, cast
 
+from django.conf import settings
 from django.db.models import QuerySet
 
 from drf_spectacular.utils import extend_schema
@@ -17,23 +18,18 @@ from posthog.event_usage import report_user_action
 from posthog.models.user import User
 
 from products.logs.backend.facade.sources import (
+    AWS_REGION_RE,
+    FIREHOSE_BUFFER_INTERVAL_SECONDS,
+    FIREHOSE_BUFFER_SIZE_MB,
+    FIREHOSE_ENDPOINT_PATH,
+    FIREHOSE_RETRY_DURATION_SECONDS,
     NO_DELIVERIES,
     LogsSource,
     LogsSourceHealthStatus,
     LogsSourceProvider,
     fetch_sources_health,
+    quick_create_url,
 )
-
-# Matches every commercial, GovCloud and isolated AWS region name, e.g. us-east-1, eu-central-2, us-gov-west-1.
-AWS_REGION_RE = r"^[a-z]{2}(-gov|-iso[a-z]*)?-[a-z]+-\d$"
-
-FIREHOSE_ENDPOINT_PATH = "/i/v1/logs/aws/firehose"
-
-# Firehose buffering that keeps one request under capture-logs' body limit once CloudWatch's
-# gzip output is base64-encoded, while still delivering within about a minute.
-FIREHOSE_BUFFER_SIZE_MB = 1
-FIREHOSE_BUFFER_INTERVAL_SECONDS = 60
-FIREHOSE_RETRY_DURATION_SECONDS = 300
 
 
 class LogsSourceConfigSerializer(serializers.Serializer):
@@ -120,6 +116,10 @@ class LogsSourceSetupSerializer(serializers.Serializer):
     buffering_interval_seconds = serializers.IntegerField(help_text="Recommended Firehose buffer interval.")
     retry_duration_seconds = serializers.IntegerField(help_text="Recommended Firehose retry duration.")
     content_encoding = serializers.CharField(help_text="Recommended Firehose content encoding.")
+    quick_create_url = serializers.URLField(
+        allow_null=True,
+        help_text="CloudFormation quick-create link with the endpoint, key and stack name filled in, or null when no template is published.",
+    )
 
 
 class LogsSourceHealthSerializer(serializers.Serializer):
@@ -199,14 +199,28 @@ class LogsSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def firehose_setup(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source = cast(LogsSource, self.get_object())
         endpoint_path = f"{FIREHOSE_ENDPOINT_PATH}/{source.id}"
+        endpoint_url = f"{get_api_host()}{endpoint_path}"
+        region = str(source.config.get("region", ""))
         data = {
             "endpoint_path": endpoint_path,
-            "endpoint_url": f"{get_api_host()}{endpoint_path}",
+            "endpoint_url": endpoint_url,
             "access_key": self.team.api_token,
             "buffering_size_mb": FIREHOSE_BUFFER_SIZE_MB,
             "buffering_interval_seconds": FIREHOSE_BUFFER_INTERVAL_SECONDS,
             "retry_duration_seconds": FIREHOSE_RETRY_DURATION_SECONDS,
             "content_encoding": "GZIP",
+            "quick_create_url": (
+                quick_create_url(
+                    region=region,
+                    template_url=settings.LOGS_CLOUD_SOURCES_TEMPLATE_URL,
+                    endpoint_url=endpoint_url,
+                    access_key=self.team.api_token,
+                    source_name=source.name,
+                    source_id=str(source.id),
+                )
+                if settings.LOGS_CLOUD_SOURCES_TEMPLATE_URL
+                else None
+            ),
         }
         return Response(LogsSourceSetupSerializer(data).data)
 
