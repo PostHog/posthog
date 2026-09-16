@@ -55,6 +55,7 @@ export const pinnedDashboardsModel = kea<pinnedDashboardsModelType>([
                         return []
                     }
 
+                    // nosemgrep: no-environments-api-urls-frontend -- the pinned-dashboard query needs parameters that the generated dashboard API does not expose
                     const response = await api.get<{ results: DashboardBasicType[] }>(
                         `api/environments/${teamLogic.values.currentTeamId}/dashboards/?pinned=true&limit=4&exclude_generated=true`
                     )

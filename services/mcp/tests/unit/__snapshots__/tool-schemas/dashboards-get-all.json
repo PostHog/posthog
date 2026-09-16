@@ -14,7 +14,7 @@
             "type": "number"
         },
         "pinned": {
-            "description": "Optional. Return only dashboards pinned by the current user.",
+            "description": "Optional. Return only pinned dashboards.",
             "type": "boolean"
         },
         "search": {
