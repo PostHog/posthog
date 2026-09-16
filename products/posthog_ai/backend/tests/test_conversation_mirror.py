@@ -148,7 +148,8 @@ class TestProjectLegacyMessages(APIBaseTest):
         assert user["update"]["_meta"] == {"importedUserPrompt": True, "imported": True}
         call, call_input, result = (f["notification"]["params"]["update"] for f in frames[2:5])
         assert call["_meta"]["claudeCode"]["toolName"] == "mcp__posthog__exec"
-        assert call_input["rawInput"]["command"] == 'call create_insight {"insight_type": "trends"}'
+        # The thread renders the insight card only for the exec sub-tool name, not the legacy one.
+        assert call_input["rawInput"]["command"] == 'call insight-create {"insight_type": "trends"}'
         assert result["status"] == "completed"
         assert result["rawOutput"]["artifact_id"] == "Ab12"
         assert result["rawOutput"]["query"] == {"kind": "TrendsQuery"}

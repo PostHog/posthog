@@ -49,6 +49,15 @@ IMPORTED_TASK_ORIGIN_KEY_PREFIX = "phai-conversation:"
 # shape so the product widgets (insight, recordings, ...) render them.
 _EXEC_TOOL_NAME = "mcp__posthog__exec"
 
+# The task thread keys its widgets (insight card, SQL result, recordings list) on the exec sub-tool
+# names; a legacy tool call is written under the sub-tool name so the same widget renders it.
+_EXEC_SUB_TOOL_BY_LEGACY_NAME = {
+    "create_insight": "insight-create",
+    "execute_sql": "execute-sql",
+    "search_session_recordings": "query-session-recordings-list",
+    "filter_session_recordings": "query-session-recordings-list",
+}
+
 
 def _tool_meta(tool_call_id: str, **claude_code: Any) -> dict[str, Any]:
     # The sandbox resume parser rebuilds tool history only from _meta.claudeCode, not the ACP top-level fields.
@@ -187,7 +196,8 @@ def project_legacy_messages(
             for tool_call in message.get("tool_calls") or []:
                 args = tool_call.get("args") or {}
                 call_args_by_id[tool_call["id"]] = args
-                command = f"call {tool_call['name']} {json.dumps(args)}"
+                sub_tool = _EXEC_SUB_TOOL_BY_LEGACY_NAME.get(tool_call["name"], tool_call["name"])
+                command = f"call {sub_tool} {json.dumps(args)}"
                 base = {
                     "_meta": _tool_meta(tool_call["id"], toolInput={"command": command}),
                     "toolCallId": tool_call["id"],
