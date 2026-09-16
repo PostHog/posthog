@@ -253,11 +253,14 @@ from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQ
             "CHQueryErrorCannotParseInputAssertionFailed",
         ),
         (
-            # A JSON file whose own content repeats the words the dump uses. ClickHouse echoes the
-            # text it stopped on, so the words alone cannot be the marker: the dump's line shape is.
+            # A JSON file that itself holds a whole column line of the dump. ClickHouse echoes the
+            # text it stopped on, so only the row marker above the line tells a real dump from a
+            # file that quotes one.
             ServerException(
                 "DB::Exception: Cannot parse input: expected ',' before: "
-                "'parsed text: none}]': (while reading the value of key notes): (at row 1)\n"
+                '\'{"notes": "...\n'
+                "Column 0,   name: notes,   type: Nullable(String), parsed text: none}]': "
+                "(while reading the value of key notes): (at row 1)\n"
                 ": (in file/uri example-bucket/exports/notes.jsonl): While executing "
                 "ParallelParsingBlockInputFormat. Stack trace:\n\n"
                 "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000015979590",
@@ -265,7 +268,9 @@ from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQ
             ),
             "CHQueryErrorCannotParseInputAssertionFailed",
             "Code: 27.\nDB::Exception: Cannot parse input: expected ',' before: "
-            "'parsed text: none}]': (while reading the value of key notes): (at row 1)\n"
+            '\'{"notes": "...\n'
+            "Column 0,   name: notes,   type: Nullable(String), parsed text: none}]': "
+            "(while reading the value of key notes): (at row 1)\n"
             ": (in file/uri example-bucket/exports/notes.jsonl): While executing "
             "ParallelParsingBlockInputFormat. Stack trace:\n\n"
             "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000015979590",

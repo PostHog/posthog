@@ -113,10 +113,11 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
     )
 
 
-# One line of the per-column dump a row input format prints when a row mis-splits. Matching the
-# whole line, not the words in it, keeps a file whose own content repeats those words from reading
-# as a dump: ClickHouse echoes the text it stopped on back into the same message.
-ROW_DUMP_COLUMN_PATTERN = re.compile(r"^Column \d+,\s+name: .+?,\s+type: .+?,\s+parsed text:", re.MULTILINE)
+# The head of the per-column dump a row input format prints when a row mis-splits: the row marker
+# and the first column line under it. Matching that structure, rather than the words in it, keeps a
+# file whose own content repeats those words from reading as a dump. ClickHouse echoes the text it
+# stopped on back into the same message, and the echo carries no row marker of its own.
+ROW_DUMP_PATTERN = re.compile(r"^Row \d+:\r?\nColumn \d+,\s+name: .+?,\s+type: .+?,\s+parsed text:", re.MULTILINE)
 
 
 def _is_delimited_row_split_mismatch(message: str) -> bool:
@@ -127,7 +128,7 @@ def _is_delimited_row_split_mismatch(message: str) -> bool:
     is the marker. It is also why the message stays fixed: it repeats whole rows of the customer's
     file.
     """
-    return "Cannot parse input:" in message and ROW_DUMP_COLUMN_PATTERN.search(message) is not None
+    return "Cannot parse input:" in message and ROW_DUMP_PATTERN.search(message) is not None
 
 
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
