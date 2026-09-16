@@ -7,9 +7,9 @@ import { logger } from '~/common/utils/logger'
 import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
 import { MlBlockMetadataRow } from './block-metadata-row'
+import { MlEncryptedEnvelope } from './keys/crypto'
 import { MlParquetSinkMetrics } from './metrics'
 import { rowsToParquetBuffer } from './parquet-writer'
-import { MlEncryptedEnvelope } from './privacy/crypto'
 import { EncryptedReplayIndex, replayIndexPartitions, replayIndexToParquetBuffer } from './replay-index'
 import { sessionStartMonth } from './session-identifier-format'
 
