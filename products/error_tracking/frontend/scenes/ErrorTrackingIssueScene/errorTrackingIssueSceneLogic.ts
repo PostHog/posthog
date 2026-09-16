@@ -64,7 +64,7 @@ import { errorTrackingExternalReferencesLinkIssueCreate } from '../../generated/
 import { ErrorTrackingExternalReferenceLinkApiExternalContext } from '../../generated/api.schemas'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from '../../queries'
 import { syncSearchParams } from '../../utils'
-import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
+import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds, toIssueTimestampParam } from '../../utils'
 import { linkedReportsLogic } from './linkedReportsLogic'
 
 export interface ErrorTrackingIssueSceneLogicProps {
@@ -97,6 +97,7 @@ export interface errorTrackingIssueSceneLogicValues {
     issueId: string
     issueIdValid: boolean
     issueLoading: boolean
+    issueNotFound: boolean
     lastSeen: Dayjs | null
     listDateRange: DateRange | null
     maxContext: MaxContextInput[]
@@ -325,6 +326,9 @@ export interface errorTrackingIssueSceneLogicActions {
         payload?: {
             value: true
         }
+    }
+    loadSceneData: () => {
+        value: true
     }
     loadSpikeEvents: () => any
     loadSpikeEventsFailure: (
@@ -677,6 +681,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     })),
 
     actions({
+        loadSceneData: true,
         loadIssue: true,
         loadSummary: true,
         loadInitialEvent: (timestamp: string) => ({ timestamp }),
@@ -706,7 +711,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         setListDateRange: (dateRange: DateRange) => ({ dateRange }),
     }),
 
-    defaults({
+    defaults(({ props }) => ({
         issue: null as ErrorTrackingRelationalIssue | null,
         summary: null as ErrorTrackingIssueSummary | null,
         properties: null as ErrorEventProperties | null,
@@ -716,8 +721,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         mobileDetailOpen: false as boolean,
         initialEventTimestamp: null as string | null,
         initialEventLoading: true as boolean,
+        // The scene branches on this before the mount dispatches loadIssue, so a false default
+        // would flash the load-error state on every issue page. A non-UUID id never dispatches it,
+        // so starting true there would leave shared consumers loading forever.
+        issueLoading: isUUIDLike(props.id),
+        issueNotFound: false as boolean,
         listDateRange: null as DateRange | null,
-    }),
+    })),
 
     reducers({
         summary: {},
@@ -741,6 +751,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 return state
             },
+        },
+        issueNotFound: {
+            // A deleted or merged-away issue answers 404, which no retry can recover.
+            loadIssueFailure: (_, { errorObject }) => errorObject?.status === 404,
+            loadIssue: () => false,
+            loadIssueSuccess: () => false,
         },
         selectedEvent: {
             selectEvent: (_, { event }) => event,
@@ -1024,6 +1040,20 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     listeners(({ props, values, actions }) => {
         return {
+            // The mount and the error banner's retry share this, so a retry after an outage
+            // restores the whole page rather than the issue alone.
+            loadSceneData: () => {
+                actions.loadIssue()
+                actions.loadSummary()
+                actions.loadIssueFingerprints()
+                actions.loadSpikeEvents()
+                actions.loadLinkedReports()
+                // On mount the timestamp is still null here and the subscription below starts the
+                // load. On a retry it is already set, so nothing else would ask for it again.
+                if (values.initialEventTimestamp) {
+                    actions.loadInitialEvent(values.initialEventTimestamp)
+                }
+            },
             setDateRange: () => {
                 actions.loadSummary()
                 actions.loadSpikeEvents()
@@ -1042,7 +1072,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             loadIssueFailure: ({ errorObject: { status, data } }) => {
                 if (status == 308 && 'issue_id' in data) {
                     router.actions.replace(urls.errorTrackingIssue(data.issue_id))
+                    return
                 }
+                // pinned: analytics event name - it is the only measure of how often the scene
+                // falls back to its error state instead of rendering the issue.
+                posthog.capture('error_tracking_issue_load_failed', { issue_id: props.id, status })
             },
             updateName: ({ name }) => actions.updateIssueName(props.id, name),
             updateDescription: ({ description }) => actions.updateIssueDescription(props.id, description),
@@ -1055,16 +1089,23 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
             },
             selectEvent: ({ event }) => {
-                if (event) {
-                    router.actions.replace(
-                        router.values.currentLocation.pathname,
-                        {
-                            ...router.values.searchParams,
-                            timestamp: event.timestamp,
-                        },
-                        router.values.hashParams
-                    )
+                if (!event) {
+                    return
                 }
+                // The events table hands back a fresh object for the already selected event on every
+                // page load, so replacing unconditionally churns the URL and fires a pageview each time.
+                const timestamp = toIssueTimestampParam(event.timestamp)
+                if (!timestamp || timestamp === toIssueTimestampParam(router.values.searchParams.timestamp)) {
+                    return
+                }
+                router.actions.replace(
+                    router.values.currentLocation.pathname,
+                    {
+                        ...router.values.searchParams,
+                        timestamp,
+                    },
+                    router.values.hashParams
+                )
             },
             [issueActionsLogic.actionTypes.mutationSuccess]: ({ mutationName }) => {
                 if (mutationName === 'mergeIssues') {
@@ -1086,12 +1127,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             if (!isUUIDLike(props.id)) {
                 return
             }
-            actions.loadIssue()
+            actions.loadSceneData()
             actions.setInitialEventTimestamp(props.timestamp ?? null)
-            actions.loadSummary()
-            actions.loadIssueFingerprints()
-            actions.loadSpikeEvents()
-            actions.loadLinkedReports()
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstError)
         },
     })),

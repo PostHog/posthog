@@ -934,6 +934,23 @@ export const GroupPageEmptyWithFilter: Story = {
     render: () => <IssueScenePreviewStory activePreview="time" propertyFilter={{ key: '$browser', value: 'Chrome' }} />,
 }
 
+export const GroupPageLoadFailed: Story = {
+    name: 'Issue scene when the issue fails to load',
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+    decorators: [
+        mswDecorator({
+            get: {
+                // Literal id: the shared `:id` handler also serves `issues/exists/`, which must keep
+                // answering or the setup prompt renders instead of the scene.
+                [`/api/environments/:team_id/error_tracking/issues/${ISSUE_ID}/`]: () => [
+                    500,
+                    { detail: 'Query timed out' },
+                ],
+            },
+        }),
+    ],
+}
+
 export const GroupPageLoading: Story = {
     name: 'Issue scene loading',
     parameters: {
