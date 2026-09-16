@@ -122,10 +122,10 @@ export interface integrationsLogicValues {
     githubPersonalConnected: boolean | null
     githubRepositories: Record<number, GitHubRepoApi[]>
     githubRepositoriesLoading: boolean
-    linearIntegrations: IntegrationType[]
     githubRepositoriesTotal: Record<number, number>
     integrations: IntegrationType[] | null
     integrationsLoading: boolean
+    linearIntegrations: IntegrationType[]
     linkedGithubInstallation: IntegrationType | null
     linkedGithubInstallationLoading: boolean
     newIntegrationModalId: string | null

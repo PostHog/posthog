@@ -229,7 +229,6 @@ export interface signalSourcesLogicValues {
     conversationsConfig: SignalSourceConfig | null
     dataSourceSetupSource: WarehouseBackedSource | null
     enabledSourcesCount: number
-    linearTeamsPicker: LinearTeamsPickerState | null
     enablingTool: SourceToolEnablement | null
     errorTrackingConfigs: SignalSourceConfig[]
     errorTrackingIsFullyEnabled: boolean
@@ -253,6 +252,7 @@ export interface signalSourcesLogicValues {
     isPgAnalyzeIssuesToggling: boolean
     isZendeskTicketsToggling: boolean
     linearIssuesConfig: SignalSourceConfig | null
+    linearTeamsPicker: LinearTeamsPickerState | null
     pgAnalyzeIssuesConfig: SignalSourceConfig | null
     sourceConfigs: SignalSourceConfig[] | null
     sourceConfigsLoadFailed: boolean
