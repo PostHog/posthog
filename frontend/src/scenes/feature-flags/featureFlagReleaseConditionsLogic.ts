@@ -36,8 +36,9 @@ import {
     MultivariateFlagVariant,
     PropertyFilterType,
     PropertyOperator,
-    UserBlastRadiusType,
 } from '~/types'
+
+import { featureFlagsUserBlastRadiusCreate } from 'products/feature_flags/frontend/generated/api'
 
 import type { SimpleOption } from '../../lib/components/TaxonomicFilter/types'
 import type { Noun } from '../../models/groupsModel'
@@ -172,6 +173,7 @@ export interface featureFlagReleaseConditionsLogicValues {
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
     currentProjectId: number | null // projectLogic
+    activityWindowDays: number | null
     affectedCounts: Record<string, number | undefined>
     aggregationTargetName: (conditionGroupTypeIndex?: number | null | undefined) => string
     blastRadiusErrors: Record<string, BlastRadiusError | undefined>
@@ -251,6 +253,9 @@ export interface featureFlagReleaseConditionsLogicActions {
     ) => {
         activeId: string
         overId: string
+    }
+    setActivityWindowDays: (activityWindowDays: number | null) => {
+        activityWindowDays: number | null
     }
     setAffectedCount: (
         sortKey: string,
@@ -341,7 +346,7 @@ export interface featureFlagReleaseConditionsLogicMeta {
             filters: FeatureFlagFilters & {
                 groups: FeatureFlagGroupTypeWithSortKey[]
             },
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => (conditionGroupTypeIndex?: number | null | undefined) => string
         taxonomicGroupTypesForCondition: (
             filters: FeatureFlagFilters & {
@@ -430,6 +435,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             count,
         }),
         setBlastRadiusError: (sortKey: string, error: BlastRadiusError) => ({ sortKey, error }),
+        setActivityWindowDays: (activityWindowDays: number | null) => ({ activityWindowDays }),
         calculateBlastRadius: true,
         calculateBlastRadiusForCondition: (
             sortKey: string,
@@ -659,6 +665,14 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }),
             },
         ],
+        // The basis depends on the project, not the condition, so every response carries the same
+        // value and one reducer covers all of them.
+        activityWindowDays: [
+            null as number | null,
+            {
+                setActivityWindowDays: (_, { activityWindowDays }) => activityWindowDays,
+            },
+        ],
         // Tracks conditions whose blast-radius estimate failed, keyed by sort_key. Holds the
         // caught error so the UI can explain why (and decide whether a retry is worth offering)
         // instead of just distinguishing failure from the still-loading (undefined) state.
@@ -855,15 +869,13 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             actions.setTotalCount(sortKey, undefined)
 
             try {
-                const response: UserBlastRadiusType = await api.create(
-                    `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
-                    {
-                        condition: { properties },
-                        group_type_index: groupTypeIndex,
-                    }
-                )
+                const response = await featureFlagsUserBlastRadiusCreate(String(values.currentProjectId), {
+                    condition: { properties },
+                    group_type_index: groupTypeIndex,
+                })
                 actions.setAffectedCount(sortKey, response.affected)
                 actions.setTotalCount(sortKey, response.total)
+                actions.setActivityWindowDays(response.activity_window_days ?? null)
             } catch (error) {
                 // Keep the caught error so the UI can show what went wrong and hide a retry that
                 // can't help, rather than masking it as -1, which the render path can't tell

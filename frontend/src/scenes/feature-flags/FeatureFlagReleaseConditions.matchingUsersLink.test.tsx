@@ -20,7 +20,10 @@ jest.mock('lib/components/AutoSizer', () => ({
 
 // `aggregation_group_type_index` is set at flag level only, so the condition has to inherit it. That
 // resolution happens at the call site and is invisible to `matchingActorsUrl`'s own tests.
-function buildFilters(aggregationGroupTypeIndex?: number): FeatureFlagType['filters'] {
+function buildFilters(
+    aggregationGroupTypeIndex?: number,
+    conditionGroupTypeIndex?: number
+): FeatureFlagType['filters'] {
     const group: FeatureFlagGroupType = {
         properties: [
             {
@@ -33,6 +36,7 @@ function buildFilters(aggregationGroupTypeIndex?: number): FeatureFlagType['filt
         rollout_percentage: 100,
         variant: null,
         sort_key: 'group-1',
+        aggregation_group_type_index: conditionGroupTypeIndex,
     }
     return {
         groups: [group],
@@ -59,7 +63,10 @@ describe('feature flag release conditions matching users link', () => {
             },
             post: {
                 '/api/environments/:team/query': { results: [] },
-                '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 0, total: 2 }],
+                '/api/projects/:team/feature_flags/user_blast_radius': () => [
+                    200,
+                    { affected: 0, total: 2, activity_window_days: 60 },
+                ],
             },
         })
     })
@@ -104,6 +111,25 @@ describe('feature flag release conditions matching users link', () => {
             '/groups/0',
         ],
     ] as const
+
+    // The guard has to read the resolved index: reading the flag-level field instead puts the
+    // person tooltip beside a group count whenever a condition overrides an unset flag level.
+    const tooltipCases = [
+        ['flag-level person targeting', buildFilters(), true],
+        ['condition overrides an unset flag level with a group', buildFilters(undefined, 0), false],
+        ['flag-level group targeting', buildFilters(0), false],
+    ] as const
+
+    test.each(tooltipCases)('shows the estimate tooltip for %s', async (_name, filters, expectTooltip) => {
+        const { container, getByText } = render(
+            <Provider>
+                <FeatureFlagReleaseConditions id="1234" filters={filters} onChange={jest.fn()} />
+            </Provider>
+        )
+
+        await waitFor(() => expect(getByText(/Filters match:/)).toBeInTheDocument())
+        expect(!!container.querySelector('[data-attr="matching-estimate-info"]')).toBe(expectTooltip)
+    })
 
     test.each(cases)(
         '%s links a condition to the matching actors once counts load',

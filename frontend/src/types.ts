@@ -4598,11 +4598,6 @@ export interface MinimalEarlyAccessFeatureType {
     payload?: Record<string, any>
 }
 
-export interface UserBlastRadiusType {
-    affected: number
-    total: number
-}
-
 export enum ScheduledChangeModels {
     FeatureFlag = 'FeatureFlag',
 }
