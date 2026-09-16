@@ -103,8 +103,8 @@ export function InsightEmptyState({
 
     // A query that crawled and then came back empty reads exactly like one that found nothing at all,
     // so people re-run the same query by hand to check. Say how long it ran and offer the re-run here.
-    const seconds = queryElapsedMs != null ? Math.round(queryElapsedMs / 1000) : null
-    const slowSeconds = queryElapsedMs != null && queryElapsedMs >= SLOW_LOADING_TIME * 1000 ? seconds : null
+    const querySeconds = queryElapsedMs != null ? queryElapsedMs / 1000 : null
+    const slowSeconds = querySeconds != null && querySeconds >= SLOW_LOADING_TIME ? Math.round(querySeconds) : null
 
     // Before a project has ingested any events, "no matching events" is misleading — every chart is
     // empty because nothing is flowing in yet. Show clearly-fake sample data instead, explaining on
@@ -122,7 +122,7 @@ export function InsightEmptyState({
         }
         posthog.capture('insight empty state shown', {
             has_custom_copy: hasCustomCopy,
-            query_seconds: seconds,
+            query_seconds: querySeconds,
             dashboard_id: insightProps?.dashboardId ?? null,
             insight_short_id: typeof insightProps?.dashboardItemId === 'string' ? insightProps.dashboardItemId : null,
         })
@@ -164,7 +164,7 @@ export function InsightEmptyState({
                             onClick={() => {
                                 setRetrying(true)
                                 posthog.capture('insight empty state retried', {
-                                    query_seconds: slowSeconds,
+                                    query_seconds: querySeconds,
                                     dashboard_id: insightProps?.dashboardId ?? null,
                                 })
                                 onRetry()
