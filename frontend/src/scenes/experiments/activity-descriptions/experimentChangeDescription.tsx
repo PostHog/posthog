@@ -150,6 +150,14 @@ export const getExperimentChangeDescription = (
                 }
             }
 
+            /**
+             * only a reset clears the start date, so this change carries the row;
+             * the end_date/conclusion clears from the same reset describe to null
+             */
+            if (action === 'deleted') {
+                return 'reset experiment:'
+            }
+
             return 'changed the start date'
         })
         .with({ field: 'end_date' }, ({ action, before, after }) => {
@@ -158,6 +166,13 @@ export const getExperimentChangeDescription = (
              */
             if (action === 'created' && before === null && after !== null) {
                 return 'stopped experiment'
+            }
+
+            /**
+             * only a reset clears the end date; the start_date clause renders the reset
+             */
+            if (action === 'deleted') {
+                return null
             }
 
             return 'changed the end date'
@@ -183,8 +198,19 @@ export const getExperimentChangeDescription = (
                 )
             }
 
+            /**
+             * only a reset clears the conclusion; the start_date clause renders the reset
+             */
+            if (action === 'deleted') {
+                return null
+            }
+
             return 'changed the conclusion'
         })
+        .with({ field: 'archived' }, ({ after }) =>
+            after === true ? 'archived experiment:' : 'unarchived experiment:'
+        )
+        .with({ field: 'description' }, () => 'updated the description')
         .with({ field: 'metrics', action: 'created', before: null }, () => 'added the first metric to')
         .with({ field: 'metrics', action: 'changed' }, ({ before, after }) =>
             getMetricChanges(before as ExperimentMetric[], after as ExperimentMetric[])
