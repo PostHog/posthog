@@ -3150,6 +3150,15 @@ export const workflowLogic = kea<workflowLogicType>([
                     // carries the old value and reads as a transition back to it.
                     const isStatusSave = cache.nextSaveChangesStatus === true
                     cache.nextSaveChangesStatus = false
+                    // The stamps "Keep mine" stored name the server copy the user chose to overwrite,
+                    // so they describe this save and no other. Claim them here, while they still do.
+                    // A save queued behind this one starts before kea clears the reducer, so it would
+                    // read the same stamps and fence on a copy this save has already moved past. The
+                    // server answers that with the 409 the choice is there to end.
+                    const baseStampsOverride = values.saveBaseStamps
+                    if (baseStampsOverride) {
+                        actions.setSaveBaseStamps(null)
+                    }
 
                     const runSave = async (): Promise<HogFlow> => {
                         updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
@@ -3212,7 +3221,7 @@ export const workflowLogic = kea<workflowLogicType>([
                             // back, so a stopped workflow resumes running and sending.
                             delete payload.status
                         }
-                        const baseStamps = values.saveBaseStamps ?? latest
+                        const baseStamps = baseStampsOverride ?? latest
                         const liveBase = baseStamps?.updated_at
                         const draftBase = baseStamps?.draft_updated_at
                         // Draft writes race against other draft writes, not the live row, so the staleness
@@ -3257,6 +3266,12 @@ export const workflowLogic = kea<workflowLogicType>([
                                     // skips 409).
                                     actions.setExternallyEdited(true)
                                 }
+                            } else if (baseStampsOverride) {
+                                // The write never reached the server, so the user's choice to
+                                // overwrite still stands and their next save needs these stamps
+                                // back. A 409 is not this case, because the server has moved past
+                                // them, and the banner asks the user again instead.
+                                actions.setSaveBaseStamps(baseStampsOverride)
                             }
                             throw error
                         }

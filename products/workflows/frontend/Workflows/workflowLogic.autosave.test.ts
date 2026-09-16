@@ -647,6 +647,30 @@ describe('workflowLogic auto-save', () => {
             await new Promise((resolve) => setTimeout(resolve, 300))
         })
 
+        it('fences a save queued behind the Keep mine save on the copy that save wrote', async () => {
+            // "Keep mine" adopts the server's stamps so the next save passes the optimistic-lock
+            // check and overwrites the other channel's version. Those stamps describe that one
+            // save. A save queued behind it has to fence on what the first save wrote, or the
+            // second half of the overlap 409s and brings the banner back.
+            // Another channel moved the live row forward, which is what raised the banner.
+            serverUpdatedAt = '2026-06-01T00:00:00.000Z'
+            logic.actions.setExternallyEdited(true)
+            logic.actions.keepMyWorkflowVersion()
+            await expectLogic(logic).toDispatchActions(['setSaveBaseStamps'])
+
+            logic.actions.setWorkflowValue('name', 'Renamed by me')
+            await expectLogic(logic).toDispatchActions(['saveWorkflow'])
+            await firstPatchSeen
+
+            logic.actions.submitWorkflow()
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            releaseFirstPatch?.()
+            await new Promise((resolve) => setTimeout(resolve, 200))
+
+            expect({ rejected, banner: logic.values.externallyEdited }).toEqual({ rejected: 0, banner: false })
+        })
+
         it('keeps the form submitting until the queued manual save lands', async () => {
             logic.actions.setWorkflowValue('name', 'Renamed by me')
             await expectLogic(logic).toDispatchActions(['saveWorkflow'])
