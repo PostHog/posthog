@@ -16,6 +16,7 @@ import { initKeaTests } from '~/test/init'
 
 import { SubscriptionTargetEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
+import { newSubscriptionTargetLogic } from './newSubscriptionTargetLogic'
 import { subscriptionsSceneLogic, SubscriptionsTab } from './subscriptionsSceneLogic'
 
 const EMPTY_SUBSCRIPTIONS = { count: 0, results: [] as unknown[] }
@@ -228,6 +229,73 @@ describe('subscriptionsSceneLogic', () => {
             await expectLogic(logic, () => {
                 router.actions.push(urls.subscriptions())
             }).toMatchValues({ subscriptionModalId: null })
+        })
+
+        it.each([
+            ['available', true, { kind: 'ai' }],
+            ['unavailable', false, null],
+        ])(
+            'picks the AI report target from ?resource_type=ai_prompt when AI subscriptions are %s',
+            async (_, aiAvailable, expectedTarget) => {
+                await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+                organizationLogic.actions.loadCurrentOrganizationSuccess({
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: true,
+                })
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: aiAvailable })
+                const targetLogic = newSubscriptionTargetLogic()
+                targetLogic.mount()
+
+                await expectLogic(logic, () => {
+                    router.actions.push(`${urls.subscriptionNew()}?resource_type=ai_prompt&prompt=What+changed`)
+                }).toMatchValues({ subscriptionModalId: 'new' })
+
+                expect(targetLogic.values.target).toEqual(expectedTarget)
+                targetLogic.unmount()
+            }
+        )
+
+        it('picks the AI report target once AI subscriptions become available after the deep link opened', async () => {
+            await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+            const targetLogic = newSubscriptionTargetLogic()
+            targetLogic.mount()
+
+            await expectLogic(logic, () => {
+                router.actions.push(`${urls.subscriptionNew()}?resource_type=ai_prompt`)
+            }).toMatchValues({ subscriptionModalId: 'new' })
+            expect(targetLogic.values.target).toBeNull()
+
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: true,
+            })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true })
+
+            expect(targetLogic.values.target).toEqual({ kind: 'ai' })
+            targetLogic.unmount()
+        })
+
+        it('drops the deep-linked target when the list route closes the modal', async () => {
+            await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: true,
+            })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true })
+            const targetLogic = newSubscriptionTargetLogic()
+            targetLogic.mount()
+
+            router.actions.push(`${urls.subscriptionNew()}?resource_type=ai_prompt`)
+            expect(targetLogic.values.target).toEqual({ kind: 'ai' })
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.subscriptions())
+            }).toMatchValues({ subscriptionModalId: null })
+            expect(targetLogic.values.target).toBeNull()
+
+            router.actions.push(urls.subscriptionNew())
+            expect(targetLogic.values.target).toBeNull()
+            targetLogic.unmount()
         })
 
         it('opens the modal with the subscription id on /subscriptions/:id/edit', async () => {
