@@ -2171,6 +2171,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             entries = entries.filter(scope=scope)
         key_prefix = request.query_params.get("key_prefix")
         if key_prefix:
+            if "\x00" in key_prefix:
+                return Response(
+                    {"detail": "key_prefix cannot contain null characters."}, status=status.HTTP_400_BAD_REQUEST
+                )
             entries = entries.filter(key__startswith=key_prefix)
         entries = entries.order_by("scope", "key")
         # A scope holds up to 256 keys of 64 KB, so a whole-scope read can exceed what the caller can hold.

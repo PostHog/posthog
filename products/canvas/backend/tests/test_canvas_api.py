@@ -1574,6 +1574,11 @@ class TestCanvasState(CanvasAPIBaseTest):
 
         assert [e["key"] for e in self._entries(canvas_id, key_prefix="todo:")] == ["todo:1", "todo:2"]
 
+        rejected = self.client.get(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/", {"key_prefix": "todo:\x00"}
+        )
+        assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+
         inventory = self._entries(canvas_id, keys_only="true")
         assert [e["key"] for e in inventory] == ["history", "todo:1", "todo:2"]
         assert all("value" not in e for e in inventory)
