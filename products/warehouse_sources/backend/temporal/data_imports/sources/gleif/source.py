@@ -1,12 +1,10 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -92,7 +90,7 @@ class GleifSource(ResumableSource[GleifSourceConfig, GleifResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GLEIF,
+            name=ExternalDataSourceType.GLEIF,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             keywords=["lei", "legal entity identifier"],
             label="GLEIF (Global Legal Entity Identifier Foundation)",

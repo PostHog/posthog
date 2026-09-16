@@ -14,6 +14,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { prepareNotebookInsightDataframes } from '../prepareNotebookInsightDataframes'
 import { applyReusableWidgetBinding, getReusableWidgetInputBinding } from '../ReusableWidget/reusableWidgetBindings'
 import {
     formatWidgetElapsed,
@@ -81,6 +82,7 @@ function ExpandedWidget({
         prompt,
         model,
         isEditable,
+        prepareInsightDataframes: () => prepareNotebookInsightDataframes(notebookLogic),
         persistNotebook: async (): Promise<void> => {
             await notebookLogic.asyncActions.saveNotebook({
                 content: notebookLogic.values.content,

@@ -42,16 +42,17 @@ KMS wraps each data key with an encryption context that binds its owner and purp
 Payload encryption uses XSalsa20-Poly1305.
 The authenticated payload also binds the dataset kind and, for images, the object or reference being encrypted.
 
-Ingestion processes privacy state in batches:
+Ingestion processes key state in batches:
 
-1. Bulk-read session keys, team blocks, month blocks, and image keys.
+1. Bulk-read session keys, team blocks, and image keys.
 2. Resolve keys in memory while processing the batch.
-3. Commit bounded DynamoDB transactions before publishing replay blocks or image messages.
-4. On a competing write, bulk-read the winning state and retry with its keys.
+3. Write each new key's month index entry, then the key with a conditional put.
+4. Re-read the batch, adopt a competing writer's keys, drop sessions or teams blocked during the batch, then publish replay blocks or image messages.
 
-Conditional writes prevent a deletion from being undone by an in-flight batch.
+A conditional put refuses to recreate a shredded session key.
+A team blocked during a batch is dropped by the batch re-read and refused by every reader, and the deletion worker sweeps the team once more after the reader lease, so a key stored after the block is shredded.
 Kafka offsets advance only after the required writes and publication succeed.
-DynamoDB transactions have at most 100 actions and stay below the request size limit.
+Bulk reads use batches of at most 100 keys; each new key is one conditional put, so no commit in the fleet waits on another.
 Reads use strongly consistent `BatchGetItem` requests with bounded retries for unprocessed keys.
 
 KMS plaintext caches reduce repeated decrypt calls.
@@ -60,7 +61,7 @@ Each process limits KMS concurrency and request rate; deployment capacity must a
 Readers check live state before each batch and permit key use for at most five minutes from the start of that read.
 An expired read must obtain permission again.
 
-The privacy table has no TTL or point-in-time recovery.
+The key table has no TTL or point-in-time recovery.
 Its resource policy denies backups, exports, and enabling continuous backups or Kinesis copies.
 Do not copy wrapped keys into object storage, logs, workflow payloads, or another persistent cache.
 Restoring a deleted wrapped key would defeat deletion.
@@ -102,14 +103,18 @@ Legacy dataset retirement needs a separate storage operation before claiming del
 
 ## Monthly key deletion
 
-Key creation writes a month index entry in the same DynamoDB transaction as the wrapped key.
+Key creation writes the month index entry with a plain put, then the wrapped key with a conditional put.
+The index entry comes first, so every stored key has an index entry.
+An index entry without a key is harmless: the month sweep leaves a tombstone that a later key put respects.
 The index uses 32 partitions named `month:<YYYY-MM>:shard:<0..31>` and stores key locations, without copying wrapped keys.
 Session keys and image keys appear in this index.
 
-Run `python manage.py delete_ai_training_month YYYY-MM` to permanently block that UTC session month and remove its keys.
+Run `python manage.py delete_ai_training_month YYYY-MM` to remove the keys of that UTC session month.
+The mirror drops a session whose ID started more than 14 days in the past or more than 1 day in the future, and the command accepts a month from 14 days and one hour after the month ends, so a batch admitted just inside the limit cannot commit a key after its index shard was swept.
+Neither side reads a shared block item for the month, because every commit in the fleet would contend on that one DynamoDB item.
 The command uses strongly consistent queries and bounded writes.
-Rerun the command after an interrupted run; it preserves the month block and safely repeats completed pages.
-Readers reject blocked months even when a wrapped key remains during deletion.
+Rerun the command after an interrupted run; it safely repeats completed pages.
+Rerun it once for any month that an earlier version of the command deleted, because readers no longer honor the month block that version wrote.
 Existing read leases expire within five minutes.
 The matching monthly S3 folders can then be removed from each dataset.
 Deleting a month does not affect another month's image keys.
@@ -174,9 +179,9 @@ Their HMAC key must remain stable while that data is in use.
 
 ## Configuration
 
-New privacy settings use `AI_RESEARCH_REPLAY_*`:
+New key manager and v2 storage settings use the `AI_RESEARCH_REPLAY_*` prefix:
 
-- `PRIVACY_TABLE`, `KMS_KEY_ARN`, and `AWS_REGION` select the key store and wrapping key.
+- `KEY_TABLE`, `KMS_KEY_ARN`, and `AWS_REGION` select the key store and wrapping key.
 - `KEY_CACHE_MAX`, `KEY_CACHE_LIFETIME_MS`, and `KMS_REQUESTS_PER_SECOND` bound ingestion key caching and KMS traffic.
 - `IMAGE_FETCH_V2_DYNAMODB_TABLE` selects the fresh v2 frontier.
 - `S3_PREFIX` selects v2 replay storage and defaults to `rrweb_2`.
@@ -191,11 +196,11 @@ It has no new alias.
 Renaming configuration must not rotate that key.
 
 The shared ML server configuration applies the legacy aliases before explicit server overrides.
-An image scrubber with privacy enabled must configure `SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC` before startup.
+An image scrubber with the key manager enabled must configure `SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC` before startup.
 Malformed encrypted images retain their original payload and headers in the dead-letter queue.
 The scrubber retries failed dead-letter writes and interrupts retry waits during shutdown.
 The image fetch consumer dead-letters unsupported ingestion version headers while processing other valid records in the batch.
-A v2 message without privacy configuration still fails the batch because it needs the missing encryption settings.
+A v2 message without key manager configuration still fails the batch because it needs the missing encryption settings.
 
 V2 data uses `YYYY-MM` directories from the session UUIDv7 start timestamp in UTC.
 Recording blocks, metadata, image shards, image lookups and URL images retain that month across late arrivals.
@@ -224,5 +229,5 @@ The database user needs SELECT and UPDATE only on `posthog_aitrainingdeletionreq
 The worker starts with `bin/docker-worker-ai-training-privacy` and does not use shared Django signing secrets.
 Its process-local signing key is not used for application requests.
 The worker skips general migration checks; the outbox table must exist before deployment.
-All processes that enqueue privacy work, including the general-purpose Temporal worker, need the privacy table setting.
-Shared Django and Temporal workers cannot delete keys from the privacy table.
+All processes that enqueue privacy work, including the general-purpose Temporal worker, need the key table setting.
+Shared Django and Temporal workers cannot delete keys from the key table.

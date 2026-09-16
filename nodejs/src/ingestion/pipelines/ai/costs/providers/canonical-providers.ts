@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-15 10:05:49 UTC
+// Generated at: 2026-09-15 20:02:05 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -50,7 +50,6 @@ export type CanonicalProvider =
     | 'coreweave-fp4'
     | 'coreweave-fp8'
     | 'coreweave-int4'
-    | 'crusoe'
     | 'crusoe-bf16'
     | 'crusoe-fp4'
     | 'crusoe-fp8'

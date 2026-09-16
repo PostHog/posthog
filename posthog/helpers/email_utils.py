@@ -5,6 +5,7 @@ lookup by email, and display-name / message validation.
 
 import re
 import html
+import string
 import hashlib
 import unicodedata
 from collections.abc import Callable
@@ -239,13 +240,24 @@ def sanitize_email_string(value: str) -> str:
     return _BARE_DOMAIN_RE.sub(_defang_match, defanged)
 
 
+_ASCII_UPPER_TO_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
+
+
 class EmailNormalizer:
     @staticmethod
     def normalize(email: str) -> str:
+        """Fold an address into the form `User.email` stores.
+
+        Only `A-Z` folds. Every lookup resolves an address through Postgres `LOWER`, and `A-Z` is
+        the range where Python and Postgres agree. `str.lower()` maps `İ` (U+0130) to `i` plus a
+        combining dot, where Postgres maps it to a plain `i`, so folding it here would store an
+        address that no string a person can type folds onto. Postgres still folds the untouched
+        characters at lookup time, so an address stays resolvable from any case it is typed in.
+        """
         if not email:
             return email
 
-        return email.lower()
+        return email.translate(_ASCII_UPPER_TO_LOWER)
 
 
 def strip_email_alias(email: str) -> str:
