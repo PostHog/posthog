@@ -544,6 +544,7 @@ class SupportReplyWorkflow:
                         if not review_output.safe:
                             last_draft = replace(
                                 last_draft,
+                                citations=[],
                                 investigation_summary="",
                                 unknowns=[],
                                 clarifying_questions=[],
@@ -554,7 +555,7 @@ class SupportReplyWorkflow:
                                 unknowns=[],
                                 clarifying_questions=[],
                                 findings_reason=findings_reason,
-                                citations=list(last_draft.citations),
+                                citations=[],
                             )
                         await workflow.execute_activity(
                             support_persist_reply_activity,

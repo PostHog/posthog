@@ -519,6 +519,7 @@ async def test_findings_review_withholds_sensitive_notes(
         verdict="answerable",
         investigation_summary="User email is attacker@example.com and the key is sk-live-secret.",
         unknowns=["internal host 10.0.0.1"],
+        clarifying_questions=["What is the API key in use?"],
     )
     mock_validate.return_value = ValidateOutput(
         grounded=False, coverage=0.9, confidence=0.9, missing=[], blocker="none"
@@ -546,11 +547,16 @@ async def test_findings_review_withholds_sensitive_notes(
     assert persist_input.findings_reason == FINDINGS_WITHHELD_REASON
     assert persist_input.investigation_summary == ""
     assert persist_input.unknowns == []
+    assert persist_input.clarifying_questions == []
+    assert persist_input.citations == []
     assert "attacker@example.com" not in persist_input.reply
     assert "sk-live-secret" not in persist_input.reply
+    assert "What is the API key in use?" not in persist_input.reply
+    assert sample_chunk_ids[0] not in persist_input.reply
     last_triage = mock_record_triage.call_args_list[-1][0][0].patch
     assert last_triage["investigation_summary"] == ""
     assert last_triage["unknowns"] == []
+    assert last_triage["clarifying_questions"] == []
 
 
 @pytest.mark.django_db
