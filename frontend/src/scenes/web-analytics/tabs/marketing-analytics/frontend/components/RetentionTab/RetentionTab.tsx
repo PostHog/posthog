@@ -3,6 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSelect, LemonSwitch, Popover } from '@posthog/lemon-ui'
 
+import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 
@@ -84,14 +85,6 @@ export function RetentionTab(): JSX.Element {
                     </div>
                 </>
             )}
-            {!showCohorts && (
-                <LemonSwitch
-                    fullWidth
-                    checked={comparePreviousPeriod}
-                    onChange={setComparePreviousPeriod}
-                    label="Compare to previous period"
-                />
-            )}
             <LemonDivider className="my-0" />
             <LemonSwitch
                 fullWidth
@@ -146,6 +139,11 @@ export function RetentionTab(): JSX.Element {
                     }
                     right={
                         <div className="flex flex-wrap items-center gap-2">
+                            <CompareFilter
+                                compareFilter={{ compare: comparePreviousPeriod }}
+                                updateCompareFilter={({ compare }) => setComparePreviousPeriod(!!compare)}
+                                allowCustomComparison={false}
+                            />
                             <ReloadAll iconOnly />
                             <Popover
                                 visible={optionsOpen}
