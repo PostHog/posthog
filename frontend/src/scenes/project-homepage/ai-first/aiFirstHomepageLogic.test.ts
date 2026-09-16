@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
-import { dashboardsModel } from '~/models/dashboardsModel'
+import { pinnedDashboardsModel } from '~/models/pinnedDashboardsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -82,28 +82,29 @@ describe('aiFirstHomepageLogic', () => {
 
     it('shares the rail row budget between pinned and recents, and fills suggestions to four', () => {
         const createFileSystemEntries = (prefix: string): FileSystemEntry[] =>
-            Array.from({ length: 9 }, (_, index) => ({
+            Array.from({ length: 4 }, (_, index) => ({
                 id: `${prefix}-${index}`,
                 path: `${prefix} ${index}`,
                 type: 'insight',
             }))
 
-        dashboardsModel.actions.loadDashboardsSuccess({
-            count: 9,
-            next: null,
-            previous: null,
-            results: Array.from({ length: 9 }, (_, index) => ({
+        pinnedDashboardsModel.actions.loadPinnedDashboardsSuccess(
+            Array.from({ length: 4 }, (_, index) => ({
                 id: index,
                 name: `Dashboard ${index}`,
                 pinned: true,
-            })) as DashboardBasicType[],
-        })
+            })) as DashboardBasicType[]
+        )
         recentItemsModel.actions.loadRecentsSuccess(createFileSystemEntries('Recent'))
 
         const dashboards = logic.values.gridItems.filter((item) => item.kind === 'dashboard')
         expect(dashboards).toHaveLength(4)
-        // Nine pinned dashboards render as three rows plus a link to the rest
-        expect(dashboards[3]).toMatchObject({ id: 'dashboard-overflow', label: 'And 6 more', href: urls.dashboards() })
+        // A full capped response renders three dashboards and a link to the complete list.
+        expect(dashboards[3]).toMatchObject({
+            id: 'dashboard-overflow',
+            label: 'View all dashboards',
+            href: urls.dashboards(),
+        })
         // A full pinned section leaves two of the rail's six budgeted rows for recents
         expect(logic.values.gridItems.filter((item) => item.kind === 'recent')).toHaveLength(2)
         const suggestions = logic.values.gridItems.filter((item) => item.kind === 'suggestion')
