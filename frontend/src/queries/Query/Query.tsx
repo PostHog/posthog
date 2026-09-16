@@ -25,7 +25,7 @@ import {
 import { QueryContext } from '~/queries/types'
 
 import { EndpointsUsageOverviewNode, EndpointsUsageTrendsNode } from 'products/endpoints/frontend/nodes'
-import { MetricsQueryNode } from 'products/metrics/frontend/nodes'
+import { MetricsHistogramQueryNode, MetricsQueryNode } from 'products/metrics/frontend/nodes'
 
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
@@ -37,6 +37,7 @@ import {
     isHogQuery,
     isInsightVizNode,
     isMarketingAnalyticsAggregatedQuery,
+    isMetricsHistogramQuery,
     isMetricsQuery,
     isSavedInsightNode,
     isWebOverviewQuery,
@@ -184,6 +185,15 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isMetricsQuery(query)) {
         component = (
             <MetricsQueryNode
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
+        )
+    } else if (isMetricsHistogramQuery(query)) {
+        component = (
+            <MetricsHistogramQueryNode
                 attachTo={props.attachTo}
                 query={query}
                 cachedResults={props.cachedResults}
