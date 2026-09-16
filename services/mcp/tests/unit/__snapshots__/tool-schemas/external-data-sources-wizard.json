@@ -4,7 +4,16 @@
         "fields": {
             "description": "Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.",
             "items": {
-                "enum": ["*.name", "*.caption", "*.docsUrl", "*.featured", "*.unreleasedSource", "*.fields"],
+                "enum": [
+                    "*.name",
+                    "*.caption",
+                    "*.docsUrl",
+                    "*.featured",
+                    "*.unreleasedSource",
+                    "*.fields",
+                    "*.webhookFields",
+                    "*.webhookFieldsBeforeCreate"
+                ],
                 "type": "string"
             },
             "minItems": 1,

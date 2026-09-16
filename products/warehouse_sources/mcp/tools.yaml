@@ -658,6 +658,8 @@ tools:
                 - '*.featured'
                 - '*.unreleasedSource'
                 - '*.fields'
+                - '*.webhookFields'
+                - '*.webhookFieldsBeforeCreate'
             selectable: true
     warehouse-column-statistics-list:
         operation: warehouse_column_statistics_list

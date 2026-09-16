@@ -969,7 +969,18 @@ const ExternalDataSourcesWizardSchema = () => {
     const ExternalDataSourcesWizardRetrieveQueryParams = orvalSchemas.ExternalDataSourcesWizardRetrieveQueryParams()
     return ExternalDataSourcesWizardRetrieveQueryParams.extend({
         fields: z
-            .array(z.enum(['*.name', '*.caption', '*.docsUrl', '*.featured', '*.unreleasedSource', '*.fields']))
+            .array(
+                z.enum([
+                    '*.name',
+                    '*.caption',
+                    '*.docsUrl',
+                    '*.featured',
+                    '*.unreleasedSource',
+                    '*.fields',
+                    '*.webhookFields',
+                    '*.webhookFieldsBeforeCreate',
+                ])
+            )
             .min(1)
             .optional()
             .describe(
@@ -997,7 +1008,16 @@ const externalDataSourcesWizard = (): ToolBase<
             result,
             params.fields?.length
                 ? params.fields
-                : ['*.name', '*.caption', '*.docsUrl', '*.featured', '*.unreleasedSource', '*.fields']
+                : [
+                      '*.name',
+                      '*.caption',
+                      '*.docsUrl',
+                      '*.featured',
+                      '*.unreleasedSource',
+                      '*.fields',
+                      '*.webhookFields',
+                      '*.webhookFieldsBeforeCreate',
+                  ]
         ) as typeof result
         return filtered
     },
