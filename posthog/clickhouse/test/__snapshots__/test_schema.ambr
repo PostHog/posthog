@@ -4296,7 +4296,9 @@
   PARTITION BY toDate(original_expiry_timestamp)
   ORDER BY (team_id, metric_name, series_fingerprint)
   TTL original_expiry_timestamp
-  SETTINGS index_granularity = 8192
+  SETTINGS
+      index_granularity = 8192,
+      map_serialization_version = 'with_buckets', map_buckets_strategy = 'constant', max_buckets_in_map = 64
   
   '''
 # ---
@@ -4413,6 +4415,7 @@
       INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
+      INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
       PROJECTION projection_series_activity
       (
           SELECT
@@ -11590,7 +11593,9 @@
   PARTITION BY toDate(original_expiry_timestamp)
   ORDER BY (team_id, metric_name, series_fingerprint)
   TTL original_expiry_timestamp
-  SETTINGS index_granularity = 8192
+  SETTINGS
+      index_granularity = 8192,
+      map_serialization_version = 'with_buckets', map_buckets_strategy = 'constant', max_buckets_in_map = 64
   
   '''
 # ---
@@ -11701,6 +11706,7 @@
       INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
+      INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
       PROJECTION projection_series_activity
       (
           SELECT

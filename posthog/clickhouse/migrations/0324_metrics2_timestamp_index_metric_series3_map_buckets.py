@@ -1,0 +1,27 @@
+from posthog.clickhouse.client.connection import NodeRole
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.clickhouse.metrics.metrics2 import METRICS2_ADD_TIMESTAMP_INDEX_SQL
+from posthog.clickhouse.metrics.metrics3 import METRIC_SERIES3_MODIFY_MAP_BUCKETS_SETTINGS_SQL
+
+# `time_bucket` in the `metrics2` sort key only narrows a time filter to the hour, so a
+# minmax index on `timestamp` lets a query skip the granules inside that hour it does
+# not need. Only parts written after the ADD carry the index; older parts fall back to
+# the sort key, which is what they do today.
+#
+# `metric_series3` keeps its attribute maps in one stream per column, so a key lookup
+# reads the whole map. The bucketed serialization applies to new parts and to merges,
+# so existing parts pick it up as they merge.
+operations = [
+    run_sql_with_exceptions(
+        METRICS2_ADD_TIMESTAMP_INDEX_SQL(),
+        node_roles=[NodeRole.LOGS],
+        sharded=False,
+        is_alter_on_replicated_table=True,
+    ),
+    run_sql_with_exceptions(
+        METRIC_SERIES3_MODIFY_MAP_BUCKETS_SETTINGS_SQL(),
+        node_roles=[NodeRole.LOGS],
+        sharded=False,
+        is_alter_on_replicated_table=True,
+    ),
+]
