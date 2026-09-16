@@ -64,7 +64,7 @@ export interface AITriage {
     schema_version?: number
     status?: AITriageStatus
     result?: AITriageResult
-    ticket_type?: 'how_to' | 'diagnostic' | 'account_billing' | 'unactionable'
+    ticket_type?: 'how_to' | 'diagnostic' | 'account_billing' | 'bug' | 'unactionable'
     needs_diagnostics?: boolean
     diagnostics_allowed?: boolean
     confidence?: number
@@ -75,6 +75,11 @@ export interface AITriage {
     run_id?: string
     ai_trace_id?: string
     missing?: string[]
+    cost?: {
+        sandbox_seconds?: number
+        llm_calls?: number
+    }
+    human_outcome?: 'used' | 'edited' | 'ignored'
 }
 
 export type AiReplyFeedbackRating = 'good' | 'bad'

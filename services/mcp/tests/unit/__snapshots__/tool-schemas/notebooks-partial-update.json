@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "content": {
-            "description": "Notebook content as a ProseMirror JSON document structure."
+            "description": "Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown."
         },
         "deleted": {
             "description": "Whether the notebook has been soft-deleted.",

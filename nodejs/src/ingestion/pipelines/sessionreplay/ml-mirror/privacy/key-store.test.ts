@@ -1,4 +1,9 @@
-import { BatchGetItemCommand, DynamoDBClient, TransactWriteItemsCommand } from '@aws-sdk/client-dynamodb'
+import {
+    BatchGetItemCommand,
+    ConditionalCheckFailedException,
+    DynamoDBClient,
+    PutItemCommand,
+} from '@aws-sdk/client-dynamodb'
 import { GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
 import { S3Client } from '@aws-sdk/client-s3'
 import { Message } from 'node-rdkafka'
@@ -16,7 +21,7 @@ import { MlKeyEncryption } from './crypto'
 import { DynamoItem, MlPrivacyDynamoDB, encodeKey } from './dynamodb'
 import { MlSessionKeyStore } from './key-store'
 import { MlKeyReader } from './reader'
-import { MlSessionIdentity, imageKeyId, monthBlockId, monthKeyIndexId, sessionKeyId, tableKeyString } from './schema'
+import { MlSessionIdentity, imageKeyId, monthKeyIndexId, sessionKeyId, tableKeyString, teamBlockId } from './schema'
 import { MlKafkaEncryption, encryptedKafkaValue } from './transport'
 
 const session: MlSessionIdentity = {
@@ -26,14 +31,17 @@ const session: MlSessionIdentity = {
 }
 const table = 'ml-privacy-test'
 
+function transientError(name: string): Error {
+    return Object.assign(new Error(name), { name })
+}
+
 class DynamoBoundary {
     public readonly items = new Map<string, DynamoItem>()
     public readSizes: number[] = []
-    public writeSizes: number[] = []
-    public transactionConflicts = 0
-    private readonly pendingWrites = new Set<string>()
+    public writes = 0
+    public conditionalFailures = 0
 
-    public async send(command: BatchGetItemCommand | TransactWriteItemsCommand): Promise<object> {
+    public async send(command: BatchGetItemCommand | PutItemCommand): Promise<object> {
         if (command instanceof BatchGetItemCommand) {
             const keys = command.input.RequestItems![table].Keys!
             if (keys.some((key) => Buffer.byteLength(key.sk.S!) > 1024)) {
@@ -49,44 +57,16 @@ class DynamoBoundary {
                 },
             })
         }
-        const actions = command.input.TransactItems!
-        const writes = actions.flatMap((action) =>
-            action.Put ? [JSON.stringify([action.Put.Item!.pk.S, action.Put.Item!.sk.S])] : []
-        )
-        if (writes.some((key) => this.pendingWrites.has(key))) {
-            this.transactionConflicts += 1
-            throw new Error('Conflicting transaction write')
+        const item = command.input.Item!
+        const id = JSON.stringify([item.pk.S, item.sk.S])
+        this.writes += 1
+        await Promise.resolve()
+        if (command.input.ConditionExpression === 'attribute_not_exists(pk)' && this.items.has(id)) {
+            this.conditionalFailures += 1
+            throw new ConditionalCheckFailedException({ $metadata: {}, message: 'The conditional request failed' })
         }
-        writes.forEach((key) => this.pendingWrites.add(key))
-        try {
-            await Promise.resolve()
-            this.writeSizes.push(actions.length)
-            for (const action of actions) {
-                const operation = action.ConditionCheck ?? action.Put!
-                const key = 'Item' in operation ? operation.Item! : operation.Key!
-                const current = this.items.get(JSON.stringify([key.pk.S, key.sk.S]))
-                const condition = operation.ConditionExpression
-                const valid =
-                    !condition ||
-                    (condition === 'attribute_not_exists(pk)'
-                        ? !current
-                        : condition === 'attribute_exists(wrapped_key) AND attribute_not_exists(deleted)'
-                          ? current?.wrapped_key?.B && !current?.deleted
-                          : false)
-                if (!valid) {
-                    throw new Error('Conditional transaction failed')
-                }
-            }
-            for (const action of actions) {
-                if (action.Put) {
-                    const item = action.Put.Item!
-                    this.items.set(JSON.stringify([item.pk.S, item.sk.S]), item)
-                }
-            }
-            return {}
-        } finally {
-            writes.forEach((key) => this.pendingWrites.delete(key))
-        }
+        this.items.set(id, item)
+        return {}
     }
 }
 
@@ -133,11 +113,11 @@ describe('ML session key batches', () => {
         await batch.commit()
         expect(boundary.items.size).toBe(4)
         expect(Math.max(...boundary.readSizes)).toBeLessThanOrEqual(100)
-        expect(Math.max(...boundary.writeSizes)).toBeLessThanOrEqual(100)
+        expect(boundary.writes).toBe(4)
         expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(1)
     })
 
-    it('commits concurrent new sessions in bounded transactions', async () => {
+    it('commits concurrent new sessions without conditional failures', async () => {
         await (await store.prepare([session])).commit()
         const identities = Array.from({ length: 120 }, (_, index) => ({
             ...session,
@@ -150,10 +130,124 @@ describe('ML session key batches', () => {
         await committed
         const keys = await reader.read(identities.map((identity) => sessionKeyId(identity.teamId, identity.sessionId)))
         expect(keys.size).toBe(identities.length)
-        expect(boundary.transactionConflicts).toBe(0)
+        expect(boundary.conditionalFailures).toBe(0)
     })
 
-    it('indexes monthly keys atomically and blocks a month during a competing batch', async () => {
+    it.each([
+        ['survives', 7, true],
+        ['gives up after', 10, false],
+    ])('%s %i consecutive write failures on commit', async (_label, failures, succeeds) => {
+        const send = boundary.send.bind(boundary)
+        let remaining = failures
+        jest.spyOn(boundary, 'send').mockImplementation((command) => {
+            if (
+                command instanceof PutItemCommand &&
+                command.input.Item!.sk.S!.startsWith('session:') &&
+                remaining > 0
+            ) {
+                remaining -= 1
+                return Promise.reject(transientError('ProvisionedThroughputExceededException'))
+            }
+            return send(command)
+        })
+        const batch = await store.prepare([session])
+        jest.useFakeTimers()
+        const settled = batch.commit().then(
+            () => 'committed',
+            () => 'failed'
+        )
+        await jest.runAllTimersAsync()
+        expect(await settled).toBe(succeeds ? 'committed' : 'failed')
+        expect(boundary.items.has(tableKeyString(sessionKeyId(session.teamId, session.sessionId)))).toBe(succeeds)
+    })
+
+    it('fails fast on a non-retryable write error', async () => {
+        const send = boundary.send.bind(boundary)
+        jest.spyOn(boundary, 'send').mockImplementation((command) =>
+            command instanceof PutItemCommand ? Promise.reject(transientError('ValidationException')) : send(command)
+        )
+        const batch = await store.prepare([session])
+        await expect(batch.commit()).rejects.toThrow('ValidationException')
+        expect(boundary.writes).toBeLessThanOrEqual(2)
+    })
+
+    it('writes the month index entry before the key and repairs a failed index put', async () => {
+        const send = boundary.send.bind(boundary)
+        let remaining = 1
+        jest.spyOn(boundary, 'send').mockImplementation((command) => {
+            if (command instanceof PutItemCommand && command.input.Item!.pk.S!.startsWith('month:') && remaining > 0) {
+                remaining -= 1
+                return Promise.reject(transientError('ProvisionedThroughputExceededException'))
+            }
+            return send(command)
+        })
+        const batch = await store.prepare([session])
+        jest.useFakeTimers()
+        const committing = batch.commit()
+        await jest.runAllTimersAsync()
+        await committing
+        const location = sessionKeyId(session.teamId, session.sessionId)
+        expect(boundary.items.has(tableKeyString(location))).toBe(true)
+        expect(boundary.items.has(tableKeyString(monthKeyIndexId({ ...session }, location)))).toBe(true)
+    })
+
+    it('keeps its own key when a retried put reports it as already stored', async () => {
+        const send = boundary.send.bind(boundary)
+        let lostResponses = 1
+        jest.spyOn(boundary, 'send').mockImplementation(async (command) => {
+            const result = await send(command)
+            if (
+                command instanceof PutItemCommand &&
+                command.input.Item!.sk.S!.startsWith('session:') &&
+                lostResponses > 0
+            ) {
+                lostResponses -= 1
+                throw Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' })
+            }
+            return result
+        })
+        const batch = await store.prepare([session])
+        const candidate = batch.get(session.teamId, session.sessionId)!.session.plaintext
+        jest.useFakeTimers()
+        const committing = batch.commit()
+        await jest.runAllTimersAsync()
+        await committing
+        expect(batch.get(session.teamId, session.sessionId)!.session.plaintext).toEqual(candidate)
+        const location = sessionKeyId(session.teamId, session.sessionId)
+        expect(boundary.items.has(tableKeyString(monthKeyIndexId({ ...session }, location)))).toBe(true)
+    })
+
+    it('gives up when the commit budget is spent before the attempts are', async () => {
+        const send = boundary.send.bind(boundary)
+        let remaining = 7
+        let slowReads = false
+        jest.spyOn(boundary, 'send').mockImplementation(async (command) => {
+            if (
+                command instanceof PutItemCommand &&
+                command.input.Item!.sk.S!.startsWith('session:') &&
+                remaining > 0
+            ) {
+                remaining -= 1
+                throw transientError('ProvisionedThroughputExceededException')
+            }
+            if (command instanceof BatchGetItemCommand && slowReads) {
+                await new Promise((resolve) => setTimeout(resolve, 20_000))
+            }
+            return send(command)
+        })
+        const batch = await store.prepare([session])
+        slowReads = true
+        jest.useFakeTimers()
+        const settled = batch.commit().then(
+            () => 'committed',
+            () => 'failed'
+        )
+        await jest.runAllTimersAsync()
+        expect(await settled).toBe('failed')
+        expect(remaining).toBeGreaterThan(0)
+    })
+
+    it('indexes monthly keys, ignores a month marker, and blocks on a team marker set during a batch', async () => {
         const october = { ...session, sessionId: '0199a13b-c000-7000-8000-000000000007' }
         const first = await store.prepare([session, october])
         await first.commit()
@@ -169,21 +263,31 @@ describe('ML session key batches', () => {
                 key_sk: { S: location.sk },
             })
         }
-        const inFlight = await store.prepare([session])
-        const blocked = monthBlockId('2025-09')
-        boundary.items.set(tableKeyString(blocked), { ...encodeKey(blocked), deleted: { BOOL: true } })
-        jest.useFakeTimers()
-        const committing = inFlight.commit()
-        await jest.runAllTimersAsync()
-        await committing
-        expect(inFlight.get(session.teamId, session.sessionId)).toBeUndefined()
         const locations = [
             sessionKeyId(session.teamId, session.sessionId),
             imageKeyId(session.teamId, '2025-09'),
             sessionKeyId(october.teamId, october.sessionId),
             imageKeyId(session.teamId, '2025-10'),
         ]
-        expect([...(await reader.read(locations))].map(([id]) => id)).toEqual(locations.slice(2).map(tableKeyString))
+        const monthMarker = { pk: 'month:2025-09', sk: 'deleted' }
+        boundary.items.set(tableKeyString(monthMarker), { ...encodeKey(monthMarker), deleted: { BOOL: true } })
+        const ignoringMonth = await store.prepare([session])
+        jest.useFakeTimers()
+        const committingDespiteMonth = ignoringMonth.commit()
+        await jest.runAllTimersAsync()
+        await committingDespiteMonth
+        expect(ignoringMonth.get(session.teamId, session.sessionId)).not.toBeUndefined()
+        expect((await reader.read(locations)).size).toBe(4)
+        jest.useRealTimers()
+        const inFlight = await store.prepare([session])
+        const blocked = teamBlockId(session.teamId)
+        boundary.items.set(tableKeyString(blocked), { ...encodeKey(blocked), deleted: { BOOL: true } })
+        jest.useFakeTimers()
+        const committing = inFlight.commit()
+        await jest.runAllTimersAsync()
+        await committing
+        expect(inFlight.get(session.teamId, session.sessionId)).toBeUndefined()
+        expect((await reader.read(locations)).size).toBe(0)
     })
 
     it('adopts a competing writer key', async () => {

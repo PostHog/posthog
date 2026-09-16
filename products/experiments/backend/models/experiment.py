@@ -295,9 +295,6 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             "created_at": self.created_at,
         }
 
-    def get_stats_config(self, key: str):
-        return self.stats_config.get(key) if self.stats_config else None
-
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Experiment"]:
         base_qs = cls.objects.filter(team=team).exclude(deleted=True)

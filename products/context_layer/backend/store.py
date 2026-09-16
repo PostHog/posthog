@@ -149,7 +149,7 @@ def _lock_key(organization_id: uuid.UUID | str) -> str:
 
 # Renewal and release must check ownership and act atomically: after TTL expiry
 # another writer may hold the key, and a plain get-then-expire/delete could
-# extend or drop that writer's lock. Same scripts as posthog/api/query_coalescer.py.
+# extend or drop that writer's lock.
 _RENEW_LOCK_SCRIPT = """
 if redis.call("get", KEYS[1]) == ARGV[1] then
     return redis.call("pexpire", KEYS[1], ARGV[2])

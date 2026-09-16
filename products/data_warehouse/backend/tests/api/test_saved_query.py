@@ -32,7 +32,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
-from products.data_warehouse.backend.presentation.views.saved_query import (
+from products.data_warehouse.backend.presentation.views.saved_query.viewset import (
     SavedQueryMaterializeSerializer,
     SavedQueryResumeSchedulesRequestSerializer,
 )
@@ -584,10 +584,15 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.json()[0]["name"], "Finance")
         self.assertEqual(response.json()[0]["view_count"], 1)
 
-    def test_delete_folder_deletes_views(self):
+    @parameterized.expand([("deleted_false", False), ("deleted_null", None)])
+    def test_delete_folder_deletes_views(self, _name, initial_deleted):
         folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Deprecated", created_by=self.user)
         first_view = DataWarehouseSavedQuery.objects.create(team=self.team, name="deprecated_a", folder=folder)
         second_view = DataWarehouseSavedQuery.objects.create(team=self.team, name="deprecated_b", folder=folder)
+        DataWarehouseSavedQuery.objects.filter(id__in=[first_view.id, second_view.id]).update(deleted=initial_deleted)
+
+        listing = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_query_folders/")
+        self.assertEqual(listing.json()[0]["view_count"], 2)
 
         response = self.client.delete(f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/")
 
@@ -598,6 +603,31 @@ class TestSavedQuery(APIBaseTest):
         second_view.refresh_from_db()
         self.assertTrue(first_view.deleted)
         self.assertTrue(second_view.deleted)
+
+    def test_a_refused_folder_delete_destroys_nothing(self):
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Shared", created_by=self.user)
+        view_a = DataWarehouseSavedQuery.objects.create(team=self.team, name="view_a", folder=folder)
+        view_b = DataWarehouseSavedQuery.objects.create(team=self.team, name="view_b", folder=folder)
+        outsider = DataWarehouseSavedQuery.objects.create(team=self.team, name="outsider")
+        dag = DAG.objects.create(team=self.team, name="Default")
+        node_a = Node.objects.create(team=self.team, dag=dag, name=view_a.name, saved_query=view_a, type=NodeType.VIEW)
+        node_b = Node.objects.create(team=self.team, dag=dag, name=view_b.name, saved_query=view_b, type=NodeType.VIEW)
+        node_out = Node.objects.create(
+            team=self.team, dag=dag, name=outsider.name, saved_query=outsider, type=NodeType.VIEW
+        )
+        Edge.objects.create(team=self.team, dag=dag, source=node_b, target=node_out)
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/")
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("view_b", response.json()["detail"])
+        view_a.refresh_from_db()
+        view_b.refresh_from_db()
+        self.assertFalse(view_a.deleted, "view_a was destroyed although the request was refused")
+        self.assertFalse(view_b.deleted)
+        self.assertTrue(DataWarehouseSavedQueryFolder.objects.filter(id=folder.id).exists())
+        self.assertTrue(Node.objects.filter(id=node_a.id).exists())
+        self.assertTrue(Node.objects.filter(id=node_b.id).exists())
 
     def test_delete_folder_deletes_endpoint_views(self):
         folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Endpoints", created_by=self.user)
@@ -985,7 +1015,9 @@ class TestSavedQuery(APIBaseTest):
     def test_sync_frequency_is_a_writable_field(self):
         # Regression: sync_frequency used to be a read-only SerializerMethodField, so it was
         # marked readOnly in the generated OpenAPI/MCP schemas and silently dropped from writes.
-        from products.data_warehouse.backend.presentation.views.saved_query import DataWarehouseSavedQuerySerializer
+        from products.data_warehouse.backend.presentation.views.saved_query.editing import (
+            DataWarehouseSavedQuerySerializer,
+        )
 
         field = DataWarehouseSavedQuerySerializer().fields["sync_frequency"]
         self.assertFalse(field.read_only)
@@ -1071,7 +1103,7 @@ class TestSavedQuery(APIBaseTest):
     def test_bounds_stay_off_the_list_page(self):
         # Bounds cost a graph walk per view, so serving them on a page of views is an N+1. The
         # picker only ever renders on one view's panel, so retrieve is the only place they belong.
-        from products.data_warehouse.backend.presentation.views.saved_query import (
+        from products.data_warehouse.backend.presentation.views.saved_query.view_state import (
             DataWarehouseSavedQueryMinimalSerializer,
         )
 
@@ -2300,7 +2332,6 @@ class TestSavedQuery(APIBaseTest):
             self.assertEqual(suspension_state(node), {})
 
     def test_resume_schedules_clears_suspension_for_every_listed_query(self):
-
         saved_queries = [
             DataWarehouseSavedQuery.objects.create(
                 team=self.team,
@@ -2525,7 +2556,7 @@ class TestSavedQueryRun(APIBaseTest):
             ("v2", "materialize-view-019e4ccb-8369-71dd-9270-9bf570948062-2026-08-13T04:30:00Z"),
         ]
     )
-    @patch("products.data_warehouse.backend.presentation.views.saved_query.sync_connect")
+    @patch("products.data_warehouse.backend.presentation.views.saved_query.viewset.sync_connect")
     def test_cancel_cancels_the_workflow_recorded_on_the_running_job(
         self, _name: str, workflow_id: str, mock_sync_connect
     ):
@@ -2552,7 +2583,7 @@ class TestSavedQueryRun(APIBaseTest):
         saved_query.refresh_from_db()
         self.assertEqual(saved_query.status, DataWarehouseSavedQuery.Status.CANCELLED)
 
-    @patch("products.data_warehouse.backend.presentation.views.saved_query.sync_connect")
+    @patch("products.data_warehouse.backend.presentation.views.saved_query.viewset.sync_connect")
     def test_cancel_is_rejected_when_no_job_is_running(self, mock_sync_connect):
         saved_query, _dag, _node = self._make_saved_query_with_node("idle_view")
         DataModelingJob.objects.create(
@@ -2569,7 +2600,7 @@ class TestSavedQueryRun(APIBaseTest):
         self.assertEqual(response.status_code, 400, response.content)
         mock_sync_connect.assert_not_called()
 
-    @patch("products.data_warehouse.backend.presentation.views.saved_query.sync_connect")
+    @patch("products.data_warehouse.backend.presentation.views.saved_query.viewset.sync_connect")
     def test_cancel_attempts_every_running_workflow_when_one_fails(self, mock_sync_connect):
         saved_query, _dag, _node = self._make_saved_query_with_node("partial_cancel_view")
         for workflow_id in ("materialize-view-1-unreachable", "materialize-view-2-healthy"):

@@ -101,7 +101,13 @@ for the values. Key points:
 ## 3. Logs (statement durations, plans, autovacuum, checkpoints, errors)
 
 The `logs` collector reads the Postgres log and writes typed rows —
-`ts_query_durations` is where **real per-query latency quantiles** come from.
+`ts_query_latency` is where **real per-query latency quantiles** come from: one row
+per statement fingerprint and minute holding log-spaced histograms of the sampled
+and of the always-logged durations (20 buckets per decade from 0.01 ms to 100 s),
+with the sample rate they were collected under, so a statement's cost is
+independent of how often it runs and the weighting survives a settings change. Durations at or above `sample_rows_over_ms`
+(default 100) also keep their own `ts_query_durations` row for the slowest-samples
+view; the statement text itself is stored once per fingerprint in `cur_query_texts`.
 On Aurora the log is already exported to CloudWatch Logs
 (`enabled_cloudwatch_logs_exports = ["postgresql"]`), one group per cluster,
 one stream per instance:

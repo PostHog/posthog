@@ -16,8 +16,12 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 
+from posthog.models import Team
+
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
+from .markdown_conversion import get_markdown_notebook_markdown, is_markdown_notebook_content
+from .markdown_migration import to_markdown_notebook_content
 from .models import Notebook, ResourceNotebook
 from .sql_v2_state import validate_cell_count
 
@@ -188,6 +192,13 @@ def create_account_notebook(
     created_by_id: int | None = None,
     last_modified_by_id: int | None = None,
 ) -> Notebook:
+    if not is_markdown_notebook_content(content):
+        organization_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
+        content = to_markdown_notebook_content(content, organization_id=organization_id)
+    # A converted or synthesized document can hold more cells than the editor allows, so count it before saving.
+    validate_cell_count(None, content)
+    # Search reads text_content, so it mirrors the stored markdown.
+    text_content = get_markdown_notebook_markdown(content)
     with transaction.atomic():
         notebook = Notebook.objects.create(
             team_id=team_id,
