@@ -92,9 +92,9 @@ const FULL_REFRESH_REASONS: Record<string, FullRefreshReasonCopy> = {
         explanation: 'The query or the incremental keys changed, so the stored rows no longer matched them.',
     },
     'no usable watermark': {
-        label: 'No watermark',
+        label: 'Unusable watermark',
         explanation:
-            'The last run recorded no value for the incremental key, so there was no point to continue from. Check that the incremental key has values in the query output.',
+            'The saved position for the incremental key could not be read, so this run rebuilt the whole table.',
     },
     'table missing': {
         label: 'Table missing',
