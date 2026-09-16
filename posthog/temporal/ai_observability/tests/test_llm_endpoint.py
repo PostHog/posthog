@@ -409,6 +409,14 @@ class TestFlexFirstChatOpenAI:
 
         assert llm.async_client.create.call_args.kwargs["service_tier"] == "flex"
 
+    def test_a_caller_cannot_override_the_tier_the_client_chose(self):
+        llm = _flex_client()
+        llm.client = _mock_create(_COMPLETION)
+
+        llm.invoke("label the clusters", service_tier="default")
+
+        assert llm.client.with_raw_response.create.call_args.kwargs["service_tier"] == "flex"
+
     def test_standard_client_never_falls_back(self):
         llm = _flex_client(service_tier=None)
         llm.client = _mock_create(

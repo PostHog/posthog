@@ -72,8 +72,12 @@ class FlexFirstChatOpenAI(ChatOpenAI):
         return self.service_tier == "flex" and not self._flex_latched and time.monotonic() >= self._flex_paused_until
 
     def _get_request_payload(self, input_: LanguageModelInput, *, stop: list[str] | None = None, **kwargs: Any) -> dict:
-        if self.service_tier == "flex" and not self._flex_this_call:
-            kwargs = {**kwargs, "service_tier": "default"}
+        # Written as an assignment rather than a guard so the tier sent always equals
+        # _flex_this_call. langchain builds the payload as {**defaults, **kwargs}, so a
+        # caller-supplied service_tier would otherwise win while the flag still claimed
+        # the call went out on flex, and a plain error would then be read as a refusal.
+        if self.service_tier == "flex":
+            kwargs = {**kwargs, "service_tier": "flex" if self._flex_this_call else "default"}
         return super()._get_request_payload(input_, stop=stop, **kwargs)
 
     def _latch_or_raise(self, error: APIError) -> None:
