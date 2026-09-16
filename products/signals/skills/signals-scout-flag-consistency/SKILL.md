@@ -43,7 +43,7 @@ Cycle between these moves; skip what is not useful.
 
 ### Get oriented
 
-- `scout-scratchpad-search` (`text=flag consistency`) — your durable steering: the repo map, the per-repo SDK regime, `noise:` entries for keys that are deliberately service-scoped, and `report:` / `reviewer:` pointers.
+- `scout-scratchpad-search` (`text=flag-consistency`, `limit=100`, `content_max_chars=400`) — your durable steering: the repo map, the per-repo SDK regime, `noise:` entries for keys that are deliberately service-scoped, and `report:` / `reviewer:` pointers. Search the hyphenated namespace every key carries, never a spaced phrase: the match is one literal substring against key and content, so `flag consistency` returns nothing. Then re-read `pattern:flag-consistency:repo-map` by exact `key` for its full body.
 - `scout-runs-list` (last 7d) — what earlier runs compared and ruled out.
 - `scout-project-profile-get` — `recent_feature_flags` and `recent_experiments`, so you can drop experiment-linked flags before spending anything on them.
 - `inbox-reports-list` (`search`=flag key, `ordering=-updated_at`) — the feature flags scout files on this surface too. A key it already covers single-repo is not yours to re-file; a genuinely cross-repo divergence on the same key is, and says so explicitly.
