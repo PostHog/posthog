@@ -1056,16 +1056,12 @@ function describeUnionIssue(
     if (depth >= MAX_UNION_DEPTH) {
         return undefined
     }
-    const options = unionValueOptions(branches)
-    if (options.length > 0) {
-        return options
-            .slice(0, MAX_UNION_ISSUES_NAMED)
-            .map(({ path: fieldPath, values }) => {
-                const name = [...path, ...fieldPath].map(String).join('.')
-                return `parameter "${name}" must be one of: ${namedValues(values)}`
-            })
-            .join('; ')
-    }
+    // Keyed by path, so the merged contract replaces the branch's own list for
+    // that field while the branch still carries the rest. A field every branch
+    // rejects is rejected by this branch too, so nothing merged is left behind.
+    const options = new Map(
+        unionValueOptions(branches).map(({ path: fieldPath, values }) => [fieldPath.map(String).join('.'), values])
+    )
     const branch = bestUnionBranch(branches)
     if (!branch) {
         return undefined
@@ -1079,6 +1075,10 @@ function describeUnionIssue(
             }
         }
         const nestedName = nestedPath.map(String).join('.')
+        const values = options.get(issue.path.map(String).join('.'))
+        if (values) {
+            return `parameter "${nestedName}" must be one of: ${namedValues(values)}`
+        }
         if (issue.code === 'invalid_type') {
             const expectations = unionTypeExpectations(branches, issue.path)
             if (expectations.length > 1) {

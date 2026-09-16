@@ -2553,15 +2553,37 @@ describe('exec tool', () => {
                 })
 
                 // Naming one of two wrong fields costs the round trip the
-                // merged contract exists to save.
-                it('names every field the caller has to change', () => {
+                // merged contract exists to save. A field the merge never sees,
+                // because every branch misses it rather than rejecting its
+                // value, costs the same round trip.
+                it.each([
+                    [
+                        'two values the variants reject',
+                        { key: '$browser', type: 'nonsense', operator: 'equals', value: 'Safari' },
+                        [
+                            'parameter "properties.0.operator" must be one of:',
+                            'parameter "properties.0.type" must be one of: event, person',
+                        ],
+                    ],
+                    [
+                        'a field left out beside a value they reject',
+                        { type: 'nonsense', operator: 'exact', value: 'Safari' },
+                        ['parameter "properties.0.key"', 'parameter "properties.0.type" must be one of: event, person'],
+                    ],
+                    [
+                        'a field left out beside the operator contract',
+                        { type: 'event', operator: 'equals', value: 'Safari' },
+                        ['parameter "properties.0.key"', 'parameter "properties.0.operator" must be one of:'],
+                    ],
+                ])('names every field the caller has to change, given %s', (_label, filter, expected) => {
                     const message = formatFor({
                         series: [{ kind: 'EventsNode', event: '$pageview' }],
-                        properties: [{ key: '$browser', type: 'nonsense', operator: 'equals', value: 'Safari' }],
+                        properties: [filter],
                     })
 
-                    expect(message).toContain('parameter "properties.0.operator" must be one of:')
-                    expect(message).toContain('parameter "properties.0.type" must be one of: event, person')
+                    for (const fragment of expected) {
+                        expect(message).toContain(fragment)
+                    }
                 })
 
                 // The array only reaches `exact` and `is_not`, so a contains
