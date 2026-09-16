@@ -123,6 +123,12 @@ class TestMCPRegistryAPI(APIBaseTest):
         assert response.status_code == 200
         data: dict[str, Any] = response.json()
         assert {score["version"] for score in data["scores"]} == {"v1_metadata_prior", "v2_measured_trust"}
+        # rank_score is a queryset annotation only the ranked list gets. Unless the detail
+        # path fills it from the score it already looked up, it reads null right beside a
+        # populated scores array.
+        assert data["rank_score"] == next(
+            score["score"] for score in data["scores"] if score["version"] == "v2_measured_trust"
+        )
         assert data["measured_stats"][0]["calls"] == 50_000
         assert data["connect"]["recommended"] == "remote_oauth"
         assert data["connect"]["methods"][-1]["method"] == "remote_api_key"
@@ -162,6 +168,12 @@ class TestMCPRegistryAPI(APIBaseTest):
         payload = self.client.get(self._url("discover/"), {"intent": "relay webhooks"}).json()
 
         assert payload["candidates"][0]["id"] == str(on_topic.id)
+        # Ordering is relevance combined with score, so returning only `score` leaves a
+        # reader sorting by a number the response never sent: the list reads as unsorted.
+        combined = [candidate["combined_score"] for candidate in payload["candidates"]]
+        assert all(value is not None for value in combined)
+        assert combined == sorted(combined, reverse=True)
+        assert payload["candidates"][0]["relevance"] is not None
 
     def test_discover_returns_one_row_per_server(self) -> None:
         # Several tools matching one intent used to duplicate the server in the results.
