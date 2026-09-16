@@ -676,6 +676,15 @@ class TestTicketAPI(APIBaseTest):
             self.assertEqual(len(deep.json()["results"]), 1)
             self.assertIsNone(deep.json()["next"])
 
+        # A total that lands exactly on the ceiling is exact, not capped: the count query reads
+        # one row past the ceiling, and here that row does not exist.
+        with patch.object(TicketPagination, "count_ceiling", 3):
+            exact = self.client.get(f"{list_url}?limit=1")
+            self.assertEqual(exact.status_code, status.HTTP_200_OK)
+            self.assertEqual(exact.json()["count"], 3)
+            self.assertFalse(exact.json()["count_capped"])
+            self.assertIsNotNone(exact.json()["next"])
+
     def test_filter_multiple_priorities_excludes_null(self, mock_on_commit):
         """Test that multiple priority filter excludes tickets with NULL priority."""
         self.ticket.priority = Priority.LOW

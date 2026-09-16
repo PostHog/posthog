@@ -312,8 +312,8 @@ class TicketPagination(pagination.LimitOffsetPagination):
 
     An exact ``count`` makes Postgres read every ticket the filters match, and the model's
     indexes are built for top-N ordered pages, not for counting. Counting inside a LIMIT
-    subquery lets the scan stop at the ceiling, so the count costs at most a ceiling-sized
-    read however many tickets a team has. The ceiling always leaves room for one row past
+    subquery lets the scan stop at the ceiling, so the count reads at most one row past the
+    ceiling however many tickets a team has. The ceiling always leaves room for one row past
     the current page, so "is there a next page" stays correct at any offset.
     """
 
@@ -328,15 +328,16 @@ class TicketPagination(pagination.LimitOffsetPagination):
         return super().paginate_queryset(queryset, request, view)
 
     def get_count(self, queryset: QuerySet | Sequence[Any]) -> int:
-        if isinstance(queryset, QuerySet):
-            # ``order_by()`` matters: with the sort still on, Postgres has to sort the matching
-            # rows before the LIMIT can cut the scan short. ``values("pk")`` drops the
-            # select_related joins that only serialization needs.
-            count = queryset.order_by().values("pk")[: self.ceiling].count()
-        else:
-            count = super().get_count(queryset)
-        self.count_capped = count >= self.ceiling
-        return count
+        if not isinstance(queryset, QuerySet):
+            self.count_capped = False
+            return super().get_count(queryset)
+        # ``order_by()`` matters: with the sort still on, Postgres has to sort the matching
+        # rows before the LIMIT can cut the scan short. ``values("pk")`` drops the
+        # select_related joins that only serialization needs. Sampling one row past the
+        # ceiling is what separates an exact total that lands on the ceiling from a capped one.
+        sampled = queryset.order_by().values("pk")[: self.ceiling + 1].count()
+        self.count_capped = sampled > self.ceiling
+        return min(sampled, self.ceiling)
 
     def get_paginated_response(self, data: Any) -> Response:
         response = super().get_paginated_response(data)
