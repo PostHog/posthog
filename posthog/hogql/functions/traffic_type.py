@@ -353,6 +353,18 @@ def get_bot_operator(
     return _build_bot_array_lookup(args, "operator", default="", empty_ua_value="", modifiers=modifiers)
 
 
+def get_agent_source(
+    node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"] = None
+) -> ast.Expr:
+    """
+    HogQL function: getAgentSource(user_agent[, ip])
+
+    Returns a stable slug identifying the AI agent or bot: "claude-browser", "chatgpt-user",
+    "gptbot", "headless-browser", "generic-bot", etc. Empty string for regular traffic.
+    """
+    return _build_bot_array_lookup(args, "agent_source_slug", default="", empty_ua_value="", modifiers=modifiers)
+
+
 def get_traffic_type(
     node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"] = None
 ) -> ast.Expr:

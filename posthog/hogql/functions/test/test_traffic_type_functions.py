@@ -13,6 +13,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.traffic_type import (
     _property_expr,
+    get_agent_source,
     get_bot_name,
     get_bot_operator,
     get_bot_type,
@@ -147,6 +148,34 @@ class TestTrafficTypeFunctions:
         assert "search_crawler" in label_values
         assert "http_client" in label_values
         assert "no_user_agent" in label_values  # For empty UA
+
+    def test_get_agent_source_returns_slugs_with_empty_default(self):
+        node = ast.Call(name="getAgentSource", args=[])
+        user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
+
+        result = get_agent_source(node=node, args=[user_agent_arg])
+
+        assert isinstance(result, ast.Call)
+        assert result.name == "if"
+        default_arg = result.args[1]
+        assert isinstance(default_arg, ast.Constant)
+        assert default_arg.value == ""
+
+        array_access = result.args[2]
+        assert isinstance(array_access, ast.ArrayAccess)
+        labels_array = array_access.array
+        assert isinstance(labels_array, ast.Array)
+        label_values = [expr.value for expr in labels_array.exprs if isinstance(expr, ast.Constant)]
+
+        assert "claude-browser" in label_values
+        assert "claudebot" in label_values
+        assert "chatgpt-user" in label_values
+        assert "gptbot" in label_values
+        assert "oai-searchbot" in label_values
+        assert "headless-browser" in label_values
+        assert "generic-bot" in label_values
+        # Display names must not leak into the slug vocabulary.
+        assert "Claude Browser" not in label_values
 
 
 class TestIsBotFunction:

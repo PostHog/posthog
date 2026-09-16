@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from posthog.models.bot_definition.sql import _bot_definition_rows
@@ -36,6 +38,13 @@ class TestBotDefinitionsDataStructure:
         valid_types = {"AI Agent", "Bot", "Automation"}
         for pattern, bot_def in BOT_DEFINITIONS.items():
             assert bot_def.traffic_type in valid_types, f"Invalid traffic_type for {pattern}: {bot_def.traffic_type}"
+
+    def test_agent_source_slugs_are_well_formed(self):
+        # Slugs are filter values users type and save; a malformed or empty one breaks filtering
+        # silently. Derived slugs can go empty when a name has no alphanumeric characters.
+        for pattern, bot_def in BOT_DEFINITIONS.items():
+            slug = bot_def.agent_source_slug
+            assert re.fullmatch(r"[a-z0-9-]+", slug), f"Malformed agent_source slug for {pattern}: {slug!r}"
 
     def test_categories_are_valid(self):
         valid_categories = {
@@ -76,6 +85,7 @@ class TestBotDefinitionsDataStructure:
             ("Applebot-Extended", "Apple AI", "ai_search", "AI Agent"),
             ("Applebot/", "Applebot", "ai_search", "AI Agent"),
             # AI Assistants
+            (r"Claude/[\d.]+ Chrome/[\d.]+ Safari/[\d.]+$", "Claude Browser", "ai_assistant", "AI Agent"),
             ("ChatGPT-User", "ChatGPT", "ai_assistant", "AI Agent"),
             ("Claude-User", "Claude User", "ai_assistant", "AI Agent"),
             ("Perplexity-User", "Perplexity User", "ai_assistant", "AI Agent"),

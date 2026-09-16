@@ -94,6 +94,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/1.21459.0 Chrome/148.0.7778.271 Electron/42.5.1 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Claude/1.20186.1 Chrome/148.0.7778.271 Electron/42.5.1 Safari/537.36 MSIX",
         "ChatGPT/1.2026.190 (Windows_NT 10.0.26200; x86_64; build ) Electron/39.2.7 Chrome/142.0.7444.235",
+        # Claude desktop's built-in browsing pane: Claude token in a Chrome UA, no Electron token
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/1.52000.0 Chrome/152.0.0.0 Safari/537.36",
     ],
     "search_crawler": [
         "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
@@ -401,6 +403,10 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
         # Genuine legacy EdgeHTML (Edge 18) shipped with Chrome 64, a pairing the rule must allow.
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.140 Safari/537.36 Edge/18.17763",
+        # Mobile in-app browser shapes with a Claude token: the Claude Browser rule must not match
+        # "Mobile Safari" (Android WebView) or a token appended after Safari.
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Claude/2.0.0 Chrome/152.0.0.0 Mobile Safari/537.36",
+        "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36 Claude/2.0.0",
     ],
 }
 

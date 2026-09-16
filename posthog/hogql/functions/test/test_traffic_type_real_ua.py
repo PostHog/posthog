@@ -138,7 +138,8 @@ class TestTrafficTypeIntegration(BaseTest):
                 isLikelyBot(properties.$user_agent) as is_bot,
                 getTrafficType(properties.$user_agent) as traffic_type,
                 getTrafficCategory(properties.$user_agent) as category,
-                getBotName(properties.$user_agent) as bot_name
+                getBotName(properties.$user_agent) as bot_name,
+                getAgentSource(properties.$user_agent) as agent_source
             """,
             tag,
         )
@@ -148,7 +149,7 @@ class TestTrafficTypeIntegration(BaseTest):
         for ua, category in all_cases:
             row = results_by_ua.get(ua)
             assert row is not None, f"No result for UA: {ua[:60]}"
-            _ua, is_bot, traffic_type, traffic_category, bot_name = row
+            _ua, is_bot, traffic_type, traffic_category, bot_name, agent_source = row
 
             expected_is_bot = category != "regular_browser"
             expected_traffic_category = CATEGORY_TO_TRAFFIC_CATEGORY[category]
@@ -165,8 +166,13 @@ class TestTrafficTypeIntegration(BaseTest):
                     f"traffic_type mismatch for {ua[:60]}: got {traffic_type}, expected {expected_traffic_type}"
                 )
                 assert bot_name != "", f"bot_name should not be empty for bot UA: {ua[:60]}"
+                expected_agent_source = BOT_DEFINITIONS[matched_pattern].agent_source_slug
+                assert agent_source == expected_agent_source, (
+                    f"agent_source mismatch for {ua[:60]}: got {agent_source}, expected {expected_agent_source}"
+                )
             else:
                 assert bot_name == "", f"bot_name should be empty for regular UA: {ua[:60]}"
+                assert agent_source == "", f"agent_source should be empty for regular UA: {ua[:60]}"
 
     def test_virt_properties_with_raw_user_agent(self):
         tag = uuid4().hex
@@ -180,14 +186,16 @@ class TestTrafficTypeIntegration(BaseTest):
         flush_persons_and_events()
 
         response = self._query_tagged(
-            "`$virt_is_bot`, `$virt_traffic_type`, `$virt_traffic_category`, `$virt_bot_name`", tag
+            "`$virt_is_bot`, `$virt_traffic_type`, `$virt_traffic_category`, `$virt_bot_name`, `$virt_agent_source`",
+            tag,
         )
         assert len(response.results) == 1
-        is_bot, traffic_type, category, bot_name = response.results[0]
+        is_bot, traffic_type, category, bot_name, agent_source = response.results[0]
         assert is_bot == 1
         assert traffic_type == "Bot"
         assert category == "search_crawler"
         assert bot_name == "Googlebot"
+        assert agent_source == "generic-bot"
 
     def test_virt_properties_ignore_user_agent_without_raw(self):
         # $user_agent alone (no $raw_user_agent) is intentionally not read — it has no
@@ -204,14 +212,16 @@ class TestTrafficTypeIntegration(BaseTest):
         flush_persons_and_events()
 
         response = self._query_tagged(
-            "`$virt_is_bot`, `$virt_traffic_type`, `$virt_traffic_category`, `$virt_bot_name`", tag
+            "`$virt_is_bot`, `$virt_traffic_type`, `$virt_traffic_category`, `$virt_bot_name`, `$virt_agent_source`",
+            tag,
         )
         assert len(response.results) == 1
-        is_bot, traffic_type, category, bot_name = response.results[0]
+        is_bot, traffic_type, category, bot_name, agent_source = response.results[0]
         assert is_bot == 1
         assert traffic_type == "Automation"
         assert category == "no_user_agent"
         assert bot_name == ""
+        assert agent_source == ""
 
     def test_virt_properties_raw_ua_takes_precedence(self):
         tag = uuid4().hex

@@ -37,6 +37,7 @@ from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
 from posthog.hogql.functions.traffic_type import (
+    get_agent_source,
     get_bot_name,
     get_bot_operator,
     get_bot_type,
@@ -2044,6 +2045,10 @@ class Resolver(CloningVisitor):
             if node.name in ("getBotOperator", "__preview_getBotOperator"):
                 return self._expand_duplicating_macro(
                     node, lambda: get_bot_operator(node=node, args=node.args, modifiers=self.context.modifiers)
+                )
+            if node.name == "getAgentSource":
+                return self._expand_duplicating_macro(
+                    node, lambda: get_agent_source(node=node, args=node.args, modifiers=self.context.modifiers)
                 )
             if node.name in ("_defaultChannelType", "_domainType"):
                 from posthog.hogql.database.schema.channel_type import (  # noqa: PLC0415 — avoid resolver->schema import cycle

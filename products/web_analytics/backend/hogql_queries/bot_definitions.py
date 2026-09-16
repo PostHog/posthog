@@ -1,7 +1,18 @@
+import re
 from dataclasses import dataclass
 
 
-@dataclass
+def derive_agent_source_slug(name: str, category: str, traffic_type: str, explicit: str | None) -> str:
+    if explicit:
+        return explicit
+    if traffic_type == "AI Agent":
+        return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    if category == "headless_browser":
+        return "headless-browser"
+    return "generic-bot"
+
+
+@dataclass(frozen=True)
 class BotDefinition:
     name: str  # Display name: "Googlebot", "ChatGPT"
     category: str  # Category: "search_crawler", "ai_crawler", "ai_search", "ai_assistant"
@@ -9,13 +20,25 @@ class BotDefinition:
     operator: str  # Operator/company: "Google", "OpenAI", "Anthropic"
     documentation_url: str | None = None  # Operator- or directory-published page describing the bot
     description: str | None = None  # Optional 1-line summary; None until populated case-by-case
+    # Stable filter slug ("claudebot", "chatgpt-user"). Set explicitly where the operator's
+    # canonical UA token differs from the display name; otherwise derived.
+    agent_source: str | None = None
+
+    @property
+    def agent_source_slug(self) -> str:
+        return derive_agent_source_slug(self.name, self.category, self.traffic_type, self.agent_source)
 
 
 # Pattern -> BotDefinition mapping (ordered by specificity)
 BOT_DEFINITIONS: dict[str, BotDefinition] = {
     # AI Crawlers (training data collection)
     "GPTBot": BotDefinition(
-        "GPTBot", "ai_crawler", "AI Agent", "OpenAI", documentation_url="https://bots.fyi/d/gptbot"
+        "GPTBot",
+        "ai_crawler",
+        "AI Agent",
+        "OpenAI",
+        documentation_url="https://bots.fyi/d/gptbot",
+        agent_source="gptbot",
     ),
     "Google-CloudVertexBot": BotDefinition(
         "Google Cloud Vertex",
@@ -23,9 +46,15 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "AI Agent",
         "Google",
         documentation_url="https://bots.fyi/d/google-cloudvertexbot",
+        agent_source="google-cloudvertexbot",
     ),
     "Google-Extended": BotDefinition(
-        "Google AI", "ai_crawler", "AI Agent", "Google", documentation_url="https://bots.fyi/d/google-extended"
+        "Google AI",
+        "ai_crawler",
+        "AI Agent",
+        "Google",
+        documentation_url="https://bots.fyi/d/google-extended",
+        agent_source="google-extended",
     ),
     "GoogleOther": BotDefinition(
         "GoogleOther", "ai_crawler", "AI Agent", "Google", documentation_url="https://bots.fyi/d/googleother"
@@ -36,18 +65,29 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "AI Agent",
         "Anthropic",
         documentation_url="https://bots.fyi/d/claude-searchbot",
+        agent_source="claude-searchbot",
     ),
     "Claude-User": BotDefinition(
         "Claude User", "ai_assistant", "AI Agent", "Anthropic", documentation_url="https://bots.fyi/d/claude-user"
     ),
     "ClaudeBot": BotDefinition(
-        "Claude", "ai_crawler", "AI Agent", "Anthropic", documentation_url="https://bots.fyi/d/claudebot"
+        "Claude",
+        "ai_crawler",
+        "AI Agent",
+        "Anthropic",
+        documentation_url="https://bots.fyi/d/claudebot",
+        agent_source="claudebot",
     ),
     "Claude-Web": BotDefinition(
         "Claude Web", "ai_crawler", "AI Agent", "Anthropic", documentation_url="https://bots.fyi/d/claudebot"
     ),
     "anthropic-ai": BotDefinition(
-        "Anthropic", "ai_crawler", "AI Agent", "Anthropic", documentation_url="https://bots.fyi/d/claudebot"
+        "Anthropic",
+        "ai_crawler",
+        "AI Agent",
+        "Anthropic",
+        documentation_url="https://bots.fyi/d/claudebot",
+        agent_source="anthropic-ai",
     ),
     "Perplexity-User": BotDefinition(
         "Perplexity User",
@@ -57,22 +97,52 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         documentation_url="https://bots.fyi/d/perplexity-user",
     ),
     "PerplexityBot": BotDefinition(
-        "Perplexity", "ai_search", "AI Agent", "Perplexity", documentation_url="https://bots.fyi/d/perplexitybot"
+        "Perplexity",
+        "ai_search",
+        "AI Agent",
+        "Perplexity",
+        documentation_url="https://bots.fyi/d/perplexitybot",
+        agent_source="perplexitybot",
     ),
     "CCBot": BotDefinition(
-        "Common Crawl", "ai_crawler", "AI Agent", "Common Crawl", documentation_url="https://bots.fyi/d/ccbot"
+        "Common Crawl",
+        "ai_crawler",
+        "AI Agent",
+        "Common Crawl",
+        documentation_url="https://bots.fyi/d/ccbot",
+        agent_source="ccbot",
     ),
     "meta-externalagent": BotDefinition(
-        "Meta AI", "ai_crawler", "AI Agent", "Meta", documentation_url="https://bots.fyi/d/meta-externalagent"
+        "Meta AI",
+        "ai_crawler",
+        "AI Agent",
+        "Meta",
+        documentation_url="https://bots.fyi/d/meta-externalagent",
+        agent_source="meta-externalagent",
     ),
     "Bytespider": BotDefinition(
-        "ByteDance", "ai_crawler", "AI Agent", "ByteDance", documentation_url="https://bots.fyi/d/bytespider"
+        "ByteDance",
+        "ai_crawler",
+        "AI Agent",
+        "ByteDance",
+        documentation_url="https://bots.fyi/d/bytespider",
+        agent_source="bytespider",
     ),
     "TikTokSpider": BotDefinition(
-        "TikTok AI", "ai_crawler", "AI Agent", "ByteDance", documentation_url="https://bots.fyi/d/tiktokspider"
+        "TikTok AI",
+        "ai_crawler",
+        "AI Agent",
+        "ByteDance",
+        documentation_url="https://bots.fyi/d/tiktokspider",
+        agent_source="tiktokspider",
     ),
     "cohere-ai": BotDefinition(
-        "Cohere", "ai_crawler", "AI Agent", "Cohere", documentation_url="https://docs.cohere.com/"
+        "Cohere",
+        "ai_crawler",
+        "AI Agent",
+        "Cohere",
+        documentation_url="https://docs.cohere.com/",
+        agent_source="cohere-ai",
     ),
     "Diffbot": BotDefinition(
         "Diffbot",
@@ -87,6 +157,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "AI Agent",
         "Webz.io",
         documentation_url="https://webz.io/blog/web-data/what-is-our-crawler/",
+        agent_source="omgili",
     ),
     "Webzio-Extended": BotDefinition(
         "Webz.io Extended",
@@ -94,13 +165,26 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "AI Agent",
         "Webz.io",
         documentation_url="https://webz.io/blog/web-data/what-is-our-crawler/",
+        agent_source="webzio-extended",
     ),
-    "Timpibot": BotDefinition("Timpi", "ai_crawler", "AI Agent", "Timpi", documentation_url="https://www.timpi.io/"),
+    "Timpibot": BotDefinition(
+        "Timpi", "ai_crawler", "AI Agent", "Timpi", documentation_url="https://www.timpi.io/", agent_source="timpibot"
+    ),
     "Amazonbot": BotDefinition(
-        "Amazon", "ai_crawler", "AI Agent", "Amazon", documentation_url="https://bots.fyi/d/amazonbot"
+        "Amazon",
+        "ai_crawler",
+        "AI Agent",
+        "Amazon",
+        documentation_url="https://bots.fyi/d/amazonbot",
+        agent_source="amazonbot",
     ),
     "PetalBot": BotDefinition(
-        "Petal", "ai_crawler", "AI Agent", "Huawei", documentation_url="https://bots.fyi/d/petalbot"
+        "Petal",
+        "ai_crawler",
+        "AI Agent",
+        "Huawei",
+        documentation_url="https://bots.fyi/d/petalbot",
+        agent_source="petalbot",
     ),
     "Brightbot": BotDefinition(
         "Brightbot", "ai_crawler", "AI Agent", "Bright Data", documentation_url="https://bots.fyi/d/brightbot"
@@ -114,14 +198,29 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     ),
     # AI Search (search result generation)
     "OAI-SearchBot": BotDefinition(
-        "OpenAI Search", "ai_search", "AI Agent", "OpenAI", documentation_url="https://bots.fyi/d/oai-searchbot"
+        "OpenAI Search",
+        "ai_search",
+        "AI Agent",
+        "OpenAI",
+        documentation_url="https://bots.fyi/d/oai-searchbot",
+        agent_source="oai-searchbot",
     ),
     "Applebot-Extended": BotDefinition(
-        "Apple AI", "ai_search", "AI Agent", "Apple", documentation_url="https://bots.fyi/d/applebot"
+        "Apple AI",
+        "ai_search",
+        "AI Agent",
+        "Apple",
+        documentation_url="https://bots.fyi/d/applebot",
+        agent_source="applebot-extended",
     ),
     # AI Assistants (real-time user-facing fetching)
     "ChatGPT-User": BotDefinition(
-        "ChatGPT", "ai_assistant", "AI Agent", "OpenAI", documentation_url="https://bots.fyi/d/chatgpt-user"
+        "ChatGPT",
+        "ai_assistant",
+        "AI Agent",
+        "OpenAI",
+        documentation_url="https://bots.fyi/d/chatgpt-user",
+        agent_source="chatgpt-user",
     ),
     # Lowercase variant first — Meta emits this casing in the wild (matches the bingbot/Bingbot
     # precedent). Both forms map to the same BotDefinition. The REGEXP_TREE dict is case-sensitive;
@@ -132,6 +231,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "AI Agent",
         "Meta",
         documentation_url="https://bots.fyi/d/meta-externalfetcher",
+        agent_source="meta-externalfetcher",
     ),
     "Meta-ExternalFetcher": BotDefinition(
         "Meta Fetcher",
@@ -139,6 +239,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "AI Agent",
         "Meta",
         documentation_url="https://bots.fyi/d/meta-externalfetcher",
+        agent_source="meta-externalfetcher",
     ),
     "DuckAssistBot": BotDefinition(
         "DuckDuckGo AI",
@@ -146,15 +247,28 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "AI Agent",
         "DuckDuckGo",
         documentation_url="https://bots.fyi/d/duckassistbot",
+        agent_source="duckassistbot",
     ),
     "MistralAI-User": BotDefinition(
-        "Mistral AI", "ai_assistant", "AI Agent", "Mistral", documentation_url="https://docs.mistral.ai/"
+        "Mistral AI",
+        "ai_assistant",
+        "AI Agent",
+        "Mistral",
+        documentation_url="https://docs.mistral.ai/",
+        agent_source="mistralai-user",
     ),
-    "Manus-User": BotDefinition("Manus", "ai_assistant", "AI Agent", "Manus", documentation_url="https://manus.im/"),
+    "Manus-User": BotDefinition(
+        "Manus", "ai_assistant", "AI Agent", "Manus", documentation_url="https://manus.im/", agent_source="manus-user"
+    ),
     "Google-NotebookLM": BotDefinition(
-        "NotebookLM", "ai_assistant", "AI Agent", "Google", documentation_url="https://notebooklm.google.com/"
+        "NotebookLM",
+        "ai_assistant",
+        "AI Agent",
+        "Google",
+        documentation_url="https://notebooklm.google.com/",
+        agent_source="google-notebooklm",
     ),
-    "Shap-User": BotDefinition("Shap", "ai_assistant", "AI Agent", "Shap"),
+    "Shap-User": BotDefinition("Shap", "ai_assistant", "AI Agent", "Shap", agent_source="shap-user"),
     # PostHog Desktop clients (Electron desktop, React Native mobile, agent CLI, cloud agent server).
     # Dots are escaped because keys are evaluated as re2 regex by the REGEXP_TREE dictionary.
     r"desktop\.hog\.dev": BotDefinition(
@@ -200,6 +314,18 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "AI Agent",
         "OpenAI",
         documentation_url="https://openai.com/chatgpt/desktop/",
+    ),
+    # Claude desktop's built-in browsing pane: an undocumented Claude/x.y.z token in an otherwise
+    # normal Chrome UA, with no Electron token. Requiring "Chrome/<v> Safari/<v>" at the end keeps
+    # this off the Electron shell (Electron/<v> sits between them) and off Android in-app WebViews
+    # ("Mobile Safari"); iOS in-app UAs carry no Chrome token at all.
+    r"Claude/[\d.]+ Chrome/[\d.]+ Safari/[\d.]+$": BotDefinition(
+        "Claude Browser",
+        "ai_assistant",
+        "AI Agent",
+        "Anthropic",
+        documentation_url="https://claude.ai/download",
+        agent_source="claude-browser",
     ),
     # Search Crawlers (Applebot/ avoids matching Applebot-Extended)
     "Applebot/": BotDefinition(

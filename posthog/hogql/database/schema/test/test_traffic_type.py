@@ -4,6 +4,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.models import ExpressionField
 from posthog.hogql.database.schema.traffic_type import (
     client_ip_expr,
+    create_agent_source_field,
     create_bot_name_field,
     create_bot_operator_field,
     create_is_bot_field,
@@ -17,8 +18,9 @@ FACTORY_FUNCTIONS = [
     create_traffic_type_field,
     create_traffic_category_field,
     create_bot_name_field,
+    create_agent_source_field,
 ]
-FIELD_NAMES = ["$virt_is_bot", "$virt_traffic_type", "$virt_traffic_category", "$virt_bot_name"]
+FIELD_NAMES = ["$virt_is_bot", "$virt_traffic_type", "$virt_traffic_category", "$virt_bot_name", "$virt_agent_source"]
 
 
 class TestUserAgentExpr:
@@ -75,6 +77,7 @@ FIELD_MARKERS = [
     (create_traffic_category_field, "$virt_traffic_category", "getTrafficCategory"),
     (create_bot_name_field, "$virt_bot_name", "getBotName"),
     (create_bot_operator_field, "$virt_bot_operator", "getBotOperator"),
+    (create_agent_source_field, "$virt_agent_source", "getAgentSource"),
 ]
 
 

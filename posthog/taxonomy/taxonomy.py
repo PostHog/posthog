@@ -3251,6 +3251,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "virtual": True,
         },
+        "$virt_agent_source": {
+            "label": "Agent source",
+            "description": "Stable identifier of the AI agent or bot that generated the event, detected from the user agent or from operator-published bot IP ranges. Empty for regular traffic.",
+            "examples": ["claude-browser", "chatgpt-user", "gptbot", "headless-browser", "generic-bot"],
+            "type": "String",
+            "virtual": True,
+        },
         # LLM analytics — per-modality token counts, per-unit pricing, and per-modality costs.
         # Emitted on $ai_generation / $ai_embedding events and stored as typed columns on the ai_events table.
         "$ai_text_input_tokens": {

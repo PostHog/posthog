@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from functools import cache
 from ipaddress import IPv6Address, collapse_addresses, ip_network
 
+from products.web_analytics.backend.hogql_queries.bot_definitions import derive_agent_source_slug
 from products.web_analytics.backend.hogql_queries.bot_ip_networks import (
     AHREFSBOT_NETWORKS,
     APPLEBOT_NETWORKS,
@@ -25,6 +26,13 @@ class BotIPDefinition:
     operator: str  # Operator/company: "Google"
     networks: tuple[str, ...]  # Collapsed CIDR ranges (IPv4 and IPv6) published by the operator
     documentation_url: str | None = None
+    # Same vocabulary as BotDefinition.agent_source, so a bot classifies to the same slug
+    # whichever signal (UA pattern or IP range) catches it.
+    agent_source: str | None = None
+
+    @property
+    def agent_source_slug(self) -> str:
+        return derive_agent_source_slug(self.name, self.category, self.traffic_type, self.agent_source)
 
 
 # Some crawlers (e.g. Google's mobile rendering service) send real browser user agents
@@ -66,6 +74,7 @@ BOT_IP_DEFINITIONS: dict[str, BotIPDefinition] = {
         "OpenAI",
         networks=OPENAI_CHATGPT_USER_NETWORKS,
         documentation_url="https://openai.com/chatgpt-user.json",
+        agent_source="chatgpt-user",
     ),
     "openai-searchbot": BotIPDefinition(
         "OpenAI Search",
@@ -74,6 +83,7 @@ BOT_IP_DEFINITIONS: dict[str, BotIPDefinition] = {
         "OpenAI",
         networks=OPENAI_SEARCHBOT_NETWORKS,
         documentation_url="https://openai.com/searchbot.json",
+        agent_source="oai-searchbot",
     ),
     "openai-gptbot": BotIPDefinition(
         "GPTBot",
@@ -98,6 +108,7 @@ BOT_IP_DEFINITIONS: dict[str, BotIPDefinition] = {
         "Perplexity",
         networks=PERPLEXITYBOT_NETWORKS,
         documentation_url="https://www.perplexity.com/perplexitybot.json",
+        agent_source="perplexitybot",
     ),
     "bingbot": BotIPDefinition(
         "Bingbot",
