@@ -3976,6 +3976,11 @@ class RetentionType(StrEnum):
     RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
 
 
+class ScanEstimateTimeRange(StrEnum):
+    BOUNDED = "bounded"
+    OPEN = "open"
+
+
 class XScale(StrEnum):
     LINEAR = "linear"
     LOGARITHMIC = "logarithmic"
