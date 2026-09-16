@@ -495,10 +495,10 @@ tools:
             (usually actions), and in actions only the steps you change, each carrying its id and only the fields you
             change; the rest of the step stays as it is. Pass the workflow version you read as base_version, so
             approving can tell whether someone changed the same step or field since. Send the evidence behind the
-            suggestion, and a rationale a person can judge without re-deriving your numbers. This changes nothing on its own: a person approves the
-            suggestion, which stages it as a draft, and publishes that draft to make it live. Pass a stable source_id
-            for your run or finding so retrying returns the suggestion you already made instead of creating a second
-            one. There is no tool to approve a suggestion, by design - only a person resolves one.
+            suggestion, and a rationale a person can judge without re-deriving your numbers. This changes nothing on its
+            own: a person approves the suggestion, which stages it as a draft, and publishes that draft to make it live.
+            Pass a stable source_id for your run or finding so retrying returns the suggestion you already made instead
+            of creating a second one. There is no tool to approve a suggestion, by design - only a person resolves one.
         feature_flag: self-optimising-workflows
     workflows-test-run:
         operation: hog_flows_invocations_create
