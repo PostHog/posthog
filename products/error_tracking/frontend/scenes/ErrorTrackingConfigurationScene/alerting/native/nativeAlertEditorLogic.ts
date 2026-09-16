@@ -130,7 +130,9 @@ export function draftFromAlert(alert: ErrorTrackingAlertApi): AlertDraft {
             channel: destination.config.channel
                 ? joinChannel(destination.config.channel, destination.config.channel_name)
                 : null,
-            replyBroadcast: destination.config.reply_broadcast ?? true,
+            // Same reading as delivery: a missing key is on, anything but an exact true is off.
+            replyBroadcast:
+                destination.config.reply_broadcast === undefined || destination.config.reply_broadcast === true,
         })),
     }
 }

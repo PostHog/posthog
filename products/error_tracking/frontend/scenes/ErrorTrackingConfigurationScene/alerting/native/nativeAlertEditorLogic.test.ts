@@ -85,10 +85,18 @@ describe('nativeAlertEditorLogic', () => {
         })
     })
 
-    it('treats a destination saved without the broadcast option as broadcasting', () => {
-        const { reply_broadcast: _omitted, ...config } = existingAlert.destinations[0].config
-        const draft = draftFromAlert({ ...existingAlert, destinations: [{ ...existingAlert.destinations[0], config }] })
-        expect(draft.destinations[0].replyBroadcast).toBe(true)
+    it('reads the broadcast option the way delivery does', () => {
+        const withValue = (reply_broadcast: unknown): boolean => {
+            const { reply_broadcast: _omitted, ...config } = existingAlert.destinations[0].config
+            const destination = { ...existingAlert.destinations[0], config: { ...config, reply_broadcast } as any }
+            return draftFromAlert({ ...existingAlert, destinations: [destination] }).destinations[0].replyBroadcast
+        }
+        // A destination saved before the option existed has no key and is on.
+        expect(withValue(undefined)).toBe(true)
+        expect(withValue(true)).toBe(true)
+        // Anything else stored, including null, means off, matching the backend read.
+        expect(withValue(false)).toBe(false)
+        expect(withValue(null)).toBe(false)
     })
 
     it('previews the first selected trigger and blocks saving until a channel is picked', async () => {
