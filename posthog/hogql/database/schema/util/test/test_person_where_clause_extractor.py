@@ -38,9 +38,10 @@ def prop_read(blob: str, *keys: Union[str, int]) -> ast.PropertyAccess:
     return ast.PropertyAccess(expr=ast.Field(chain=[blob]), keys=list(keys))
 
 
-def prefiltered(values: list[str], compare: ast.Expr) -> ast.Call:
+def prefiltered(values: list[str], compare: Union[ast.Expr, None]) -> ast.Call:
     # The resolver puts a substring pre-check ahead of an unbacked person JSON compare, so an extracted
     # clause carries both. See `_person_json_substring_prefilter`.
+    assert compare is not None
     return ast.Call(
         name="and",
         args=[
