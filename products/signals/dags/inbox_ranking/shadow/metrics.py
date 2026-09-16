@@ -395,6 +395,13 @@ def grade_lists(joined: pd.DataFrame, *, served: pd.DataFrame) -> list[RankingGr
     Grouping is by model family and role rather than version for the reason `RankingGrade` gives:
     one day's lists are ranked by whichever version scored each report at its birth.
 
+    `model_role` is the role a score was written under, not a policy identity. The scorer writes a
+    champion row only when the pointer names a version other than the day's candidate, so a
+    partition promoted that morning carries candidate rows alone and the reports born on it are
+    missing from the champion group. That group's own `score_coverage` shows the thinness; the
+    reports cannot be recovered here, because nothing records which version the pointer held on a
+    past day.
+
     `served` is the pre-join frame, and it is here to be a denominator. The join keeps only the
     rows a score existed for, so the graded lists are a subset of the rendered ones in two ways
     the ranking metrics cannot show: an outcome on an unscored row leaves the sample entirely, and
