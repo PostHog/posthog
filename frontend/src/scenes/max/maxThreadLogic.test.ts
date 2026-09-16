@@ -3410,6 +3410,50 @@ describe('maxThreadLogic', () => {
             // Remount so the shared afterEach unmount stays balanced
             logic.mount()
         })
+
+        it('leaves a replacement mount for the same conversation untouched', async () => {
+            let resolveCancel: (() => void) | undefined
+            jest.spyOn(api.conversations, 'cancel').mockImplementation(
+                () =>
+                    new Promise<void>((resolve) => {
+                        resolveCancel = resolve
+                    })
+            )
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            logic.actions.stopGeneration()
+            logic.unmount()
+
+            // Same conversation id and panel, so findMounted on its own answers with this instance
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
+            logic.mount()
+            logic.actions.setCancelLoading(true)
+
+            resolveCancel?.()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.cancelLoading).toBe(true)
+        })
+
+        it('reports an unknown outcome for a sandbox cancel the relay never confirms', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const cancelSpy = jest.spyOn(api.conversations, 'cancel')
+
+            logic.actions.setConversation({
+                ...MOCK_IN_PROGRESS_CONVERSATION,
+                agent_runtime: 'sandbox',
+            } as Conversation)
+
+            await expectLogic(logic, () => {
+                logic.actions.stopGeneration()
+            }).toFinishAllListeners()
+
+            expect(cancelSpy).not.toHaveBeenCalled()
+            expect(captureSpy).toHaveBeenCalledWith(
+                'max conversation cancel completed',
+                expect.objectContaining({ status: 'unknown', agent_runtime: 'sandbox' })
+            )
+        })
     })
 
     describe('multiQuestionFormPending selector', () => {

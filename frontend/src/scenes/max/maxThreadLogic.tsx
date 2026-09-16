@@ -2179,9 +2179,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.setConversation(canceledConversation)
             actions.updateGlobalConversationCache(canceledConversation)
 
+            const isSandboxRun = conversation.agent_runtime === 'sandbox'
             let cancelFailure: any = null
             let attempts = 0
-            if (conversation.agent_runtime === 'sandbox') {
+            if (isSandboxRun) {
                 // Sandbox runs cancel through the generic tasks relay (the renderer owns the run id).
                 actions.cancelSandboxRun()
             } else {
@@ -2200,7 +2201,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
 
             posthog.capture('max conversation cancel completed', {
-                status: cancelFailure ? 'failure' : 'success',
+                // The relay behind a sandbox cancel reports no result back here, so that outcome
+                // stays unknown - only the API path knows whether the run was really canceled.
+                status: isSandboxRun ? 'unknown' : cancelFailure ? 'failure' : 'success',
                 conversation_id: conversationId,
                 agent_runtime: conversation.agent_runtime,
                 attempts,
@@ -2208,8 +2211,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             // The await above yields, so the user may have navigated away and unmounted this keyed
             // logic. Dispatching into it now throws a Kea "can not find path" error, which used to
-            // surface as a cancel failure even though the run was canceled.
-            if (!maxThreadLogic.findMounted(props)) {
+            // surface as a cancel failure even though the run was canceled. findMounted resolves by
+            // key alone, so a replacement mount for the same conversation answers too - compare the
+            // instance cache to keep a stale completion out of that replacement.
+            if (maxThreadLogic.findMounted(props)?.cache !== cache) {
                 return
             }
 
