@@ -9,6 +9,21 @@ This doc says how a change becomes an activity row, where the code for a new mod
 The skill `.agents/skills/adding-activity-logging/SKILL.md` carries the step-by-step workflow.
 Read this doc before you add or change activity logging.
 
+## Reading activity rows
+
+Dashboard activity rows show the actor, optional client tag, and time above a short action summary and the linked dashboard.
+Description changes include a two-line preview of the new value in normal text.
+The expand control on the right reveals the complete preview and agent intent, along with the existing detail tabs.
+Diff compares the recorded values, and Raw shows the activity payload.
+Product-specific detail tabs remain the initial view when supplied by a describer.
+The copy-link control beside expand appears on hover or keyboard focus.
+
+Describers can supply an optional `summary` with `actor`, `action`, `target`, and `preview` fields alongside their existing `description`.
+The row uses that structure without parsing a JSX sentence.
+The complete `description` remains available to notifications and other activity consumers.
+Describers without a summary keep their original sentence, including any specialized actor attribution.
+Agent intent and task links remain optional and retain their existing attribution rules.
+
 ## How a change becomes an activity row
 
 ```text

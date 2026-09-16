@@ -66,14 +66,23 @@ export type Description = string | JSX.Element | null
 export type ExtendedDescription = JSX.Element | undefined
 // content too large to sit inline with the sentence, shown as its own tab once the row is expanded
 export type ExpandedView = { label: string; content: JSX.Element }
+export type ActivityLogSummary = {
+    actor: JSX.Element
+    action: Description
+    target: Description
+    preview?: string
+}
 export type ChangeMapping = {
     description: Description[] | null
+    summary?: Description[]
+    preview?: string
     extendedDescription?: ExtendedDescription
     expandedView?: ExpandedView
     suffix?: string | JSX.Element | null // to override the default suffix
 }
 export type HumanizedChange = {
     description: Description | null
+    summary?: ActivityLogSummary
     extendedDescription?: ExtendedDescription
     expandedView?: ExpandedView
 }
@@ -89,6 +98,7 @@ export type HumanizedActivityLogItem = {
     /** SDK or integration that triggered this action (from x-posthog-client header). */
     client?: string | null
     description: Description
+    summary?: ActivityLogSummary
     extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
     expandedView?: ExpandedView // e.g. a flag's release conditions after the change
     created_at: dayjs.Dayjs
@@ -124,7 +134,7 @@ export function humanize(
         if (!describer) {
             continue
         }
-        const { description, extendedDescription, expandedView } = describer(logItem, asNotification)
+        const { description, summary, extendedDescription, expandedView } = describer(logItem, asNotification)
 
         if (description !== null) {
             const impersonatedUserName = logItem.user ? fullName(logItem.user) : undefined
@@ -139,6 +149,7 @@ export function humanize(
                 wasImpersonated: logItem.was_impersonated,
                 client: logItem.client,
                 description,
+                summary,
                 extendedDescription,
                 expandedView,
                 created_at: dayjs(logItem.created_at),

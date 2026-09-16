@@ -10,6 +10,7 @@ import {
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogSummary,
     ActivityLogUserName,
     ChangeMapping,
     Description,
@@ -41,6 +42,15 @@ function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
     )
 }
 
+function dashboardSummary(logItem: ActivityLogItem, action: Description, preview?: string): ActivityLogSummary {
+    return {
+        actor: <ActivityLogUserName logItem={logItem} />,
+        action,
+        target: <>Dashboard · {nameAndLink(logItem)}</>,
+        preview,
+    }
+}
+
 const dashboardActionsMapping: Record<
     keyof DashboardType,
     (change?: ActivityChange, logItem?: ActivityLogItem, asNotification?: boolean) => ChangeMapping | null
@@ -54,6 +64,7 @@ const dashboardActionsMapping: Record<
                 </>,
             ],
             suffix: <></>,
+            summary: ['renamed the dashboard'],
         }
     },
     deleted: function onSoftDelete(change, logItem, asNotification) {
@@ -67,6 +78,7 @@ const dashboardActionsMapping: Record<
                 </>,
             ],
             suffix: <>{nameAndLink(logItem)}</>,
+            summary: [`${describeChange} the dashboard`],
         }
     },
     description: function onDescription(change, _, asNotification) {
@@ -77,6 +89,8 @@ const dashboardActionsMapping: Record<
                     <strong>"{change?.after as string}"</strong>
                 </>,
             ],
+            summary: [change?.after ? 'updated the description' : 'removed the description'],
+            preview: typeof change?.after === 'string' ? change.after : undefined,
         }
     },
     tags: function onTags(change) {
@@ -116,6 +130,7 @@ const dashboardActionsMapping: Record<
                 </>,
             ],
             suffix: <>{nameAndLink(logItem)}</>,
+            summary: [isFavoriteAfter ? 'pinned the dashboard' : 'unpinned the dashboard'],
         }
     },
     filters: function onChangedFilters(change, logItem) {
@@ -202,11 +217,14 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
                     <ActivityLogUserName logItem={logItem} /> created the dashboard {nameAndLink(logItem)}
                 </>
             ),
+            summary: dashboardSummary(logItem, 'Created the dashboard'),
         }
     }
 
     if (logItem.activity == 'updated') {
         let changes: Description[] = []
+        let summaryChanges: Description[] = []
+        let preview: string | undefined
         let extendedDescription: JSX.Element | undefined
         let changeSuffix: Description = (
             <>
@@ -230,6 +248,8 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
                 const { description, extendedDescription: _extendedDescription, suffix } = processedChange
                 if (description) {
                     changes = changes.concat(description)
+                    summaryChanges = summaryChanges.concat(processedChange.summary ?? description)
+                    preview = processedChange.preview ?? preview
                 }
                 if (_extendedDescription) {
                     extendedDescription = _extendedDescription
@@ -252,6 +272,7 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
                         suffix={changeSuffix}
                     />
                 ),
+                summary: dashboardSummary(logItem, <SentenceList listParts={summaryChanges} />, preview),
                 extendedDescription,
             }
         }
@@ -265,6 +286,7 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
                     {nameAndLink(logItem)}
                 </>
             ),
+            summary: dashboardSummary(logItem, 'Shared the dashboard'),
         }
     }
 
@@ -276,6 +298,7 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
                     dashboard {nameAndLink(logItem)}
                 </>
             ),
+            summary: dashboardSummary(logItem, 'Deleted the shared link'),
         }
     }
 
@@ -287,6 +310,7 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
                     {asNotification ? 'your' : 'the'} dashboard {nameAndLink(logItem)}
                 </>
             ),
+            summary: dashboardSummary(logItem, 'Refreshed the shared link'),
         }
     }
 
