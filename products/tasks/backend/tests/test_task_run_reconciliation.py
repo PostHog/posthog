@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from unittest.mock import patch
 
@@ -96,6 +96,24 @@ class TestReconcileStaleInProgressTaskRuns(TestCase):
             # metric this sweep feeds must not gain a phantom failure for it.
             with self.assertRaises(SoftTimeLimitExceeded):
                 self.reconcile("gone")
+
+    def test_reaped_run_publishes_a_frame_the_watcher_will_accept(self):
+        run = self.create_run(age=STALE_AFTER + timedelta(minutes=1))
+        stale_updated_at = TaskRun.objects.values_list("updated_at", flat=True).get(id=run.id)
+        state_frames: list[dict] = []
+
+        with patch(
+            "products.tasks.backend.models.publish_task_run_stream_event",
+            side_effect=lambda _run_id, event, *_args, **_kwargs: state_frames.append(event),
+        ):
+            self.reconcile("gone")
+
+        # A watcher drops a state frame whose timestamp is not newer than the one it holds, and
+        # it holds the candidate's. A frame carrying that same value leaves the run on screen as
+        # in progress even though the row now reads FAILED.
+        self.assertEqual(len(state_frames), 1)
+        self.assertEqual(state_frames[0]["status"], TaskRun.Status.FAILED)
+        self.assertGreater(datetime.fromisoformat(state_frames[0]["updated_at"]), stale_updated_at)
 
     def test_reaped_run_closes_its_event_stream_after_the_terminal_frame(self):
         run = self.create_run(age=STALE_AFTER + timedelta(minutes=1))

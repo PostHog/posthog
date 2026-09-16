@@ -1798,7 +1798,8 @@ def claim_and_fail_stranded_cloud_run(
     Terminal statuses are final, so that row would stay ``FAILED`` while its agent kept working.
 
     ``updated_at`` is the version column: every path that re-queues or terminalizes a run saves
-    it, so a row that moved since the scan matches nothing and the claim is lost instead.
+    it, so a row that moved since the scan matches nothing and the claim is lost instead. The
+    claim reads that value and writes a fresh one in the same statement.
     Intentionally cross-team (janitor sweep).
     """
     from celery.exceptions import SoftTimeLimitExceeded  # noqa: PLC0415 (only this janitor path needs it)
@@ -1811,12 +1812,17 @@ def claim_and_fail_stranded_cloud_run(
     )
     from products.tasks.backend.redis import run_uses_dedicated_stream  # noqa: PLC0415
 
+    # `update()` bypasses `auto_now` and `mark_failed` saves without `updated_at`, so without
+    # this the reap leaves the row's timestamp at the stale candidate value. A desktop watcher
+    # drops a state frame that is not newer than the one it already holds, and it holds exactly
+    # that value, so the terminal frame published below has to carry a moved timestamp to land.
+    reaped_at = django_timezone.now()
     claimed = TaskRun.objects.filter(
         id=run_id,
         status=TaskRun.Status.IN_PROGRESS,
         environment=TaskRun.Environment.CLOUD,
         updated_at=expected_updated_at,
-    ).update(status=TaskRun.Status.FAILED)  # nosemgrep: celery-task-team-scope-audit
+    ).update(status=TaskRun.Status.FAILED, updated_at=reaped_at)  # nosemgrep: celery-task-team-scope-audit
     if not claimed:
         return False
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
