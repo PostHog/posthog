@@ -1421,14 +1421,22 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert listed.json()["results"] == []
         assert recreated.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_a_listing_builds_the_callers_warehouse_database_at_most_once(self) -> None:
+    @parameterized.expand(
+        [
+            ("a_definition_that_names_a_table", "SELECT {index} FROM customers", 1),
+            ("no_names_at_all", "SELECT {index}", 0),
+        ]
+    )
+    def test_a_listing_builds_the_callers_warehouse_database_at_most_once(
+        self, _name: str, query: str, expected_builds: int
+    ) -> None:
         allowed = self._make_view("customers")
         for index in range(3):
             self._create_check(
                 url=self._checks_url(allowed.id),
                 check_type=CheckType.CUSTOM_SQL,
                 column_name="",
-                config={"query": f"SELECT {index} FROM customers"},
+                config={"query": query.format(index=index)},
             )
         self._deny_the_view()
 
@@ -1437,7 +1445,33 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
         assert listed.status_code == status.HTTP_200_OK, listed.json()
         assert len(listed.json()["results"]) == 3
-        assert build.call_count == 1
+        assert build.call_count == expected_builds
+
+    def test_the_backing_table_of_a_deleted_view_is_denied_like_any_other(self) -> None:
+        allowed = self._make_view("customers")
+        orphaned = self._make_view("daily_orders")
+        backing_table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=orphaned.name,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=f"s3://bucket/{orphaned.folder_path}/{orphaned.normalized_name}",
+        )
+        DataWarehouseSavedQuery.objects.filter(id=orphaned.id).update(
+            table=backing_table, is_materialized=True, deleted=True
+        )
+        reads_backing_table = self._payload(
+            check_type=CheckType.CUSTOM_SQL, column_name="", config={"query": f"SELECT 1 FROM {backing_table.name}"}
+        )
+        created = self.client.post(f"{self._checks_url(allowed.id)}/", reads_backing_table)
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        self._deny_object("warehouse_table", str(backing_table.id))
+
+        listed = self.client.get(f"{self._checks_url(allowed.id)}/")
+        recreated = self.client.post(f"{self._checks_url(allowed.id)}/", reads_backing_table)
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert listed.json()["results"] == []
+        assert recreated.status_code == status.HTTP_403_FORBIDDEN
 
     def test_a_database_build_that_fails_refuses_rather_than_500s(self) -> None:
         allowed = self._make_view("customers")

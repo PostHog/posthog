@@ -533,19 +533,23 @@ def definition_reads_unreadable_subject(
         refs.related_subject.subject_type, refs.related_subject.subject_uuid
     ):
         return True
+    if not refs.names:
+        return False
     if context.matcher.matches(refs.names):
         return True
     return bool(unconfirmable_subject_names(refs.names, context.database.get()))
 
 
 def unconfirmable_subject_names(names: tuple[str, ...], database: Database) -> set[str]:
-    """The referenced names this caller can neither resolve nor be shown to have been denied.
+    """Every referenced name the caller's own database does not expose.
 
-    Deleting a warehouse object takes its denial with it: the name leaves the database the caller
-    can resolve *and* the denial set that is rebuilt from the objects that still exist, so a check
-    that once read a denied table starts reading as harmless. Neither state proves access, so both
-    are reported and the caller fails them closed."""
-    return {name for name in names if not database.has_table(name) and not database.is_table_access_denied(name)}
+    A name is absent from that database for two reasons, and neither proves access. It was deleted,
+    which takes its denial with it: the name leaves both the database and the denial set that is
+    rebuilt from the objects that still exist, so a check that once read a denied table starts
+    reading as harmless. Or the caller is denied it, which the denial set does not always carry --
+    the backing table of a soft-deleted saved query is denied in the database and absent from the
+    set. Both are reported and the caller fails them closed."""
+    return {name for name in names if not database.has_table(name)}
 
 
 # A check type reads beyond its declared subject only if it overrides one of these hooks: a
