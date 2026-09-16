@@ -811,6 +811,32 @@ class TestCohortUtils(BaseTest):
         self.assertEqual(len(rows), 1)
         self.assertIn(str(rows[0][0]), {str(duplicate_a.uuid), str(duplicate_b.uuid)})
 
+    def test_print_cohort_hogql_query_keeps_root_cte_for_later_union_branches(self):
+        # HogQL gives later UNION branches the root WITH through the first branch's own CTEs, so a
+        # root CTE that moved into the subquery of an aggregating first branch would leave the later
+        # branch with a table it cannot resolve.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="Test Root CTE Union Cohort",
+            query={
+                "kind": "HogQLQuery",
+                "query": (
+                    "WITH recent AS (SELECT id FROM persons) "
+                    "SELECT any(id) AS id, properties.email AS email FROM persons GROUP BY properties.email "
+                    "UNION ALL "
+                    "SELECT id FROM recent"
+                ),
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertIn("union all", sql.lower())
+        self.assertIn("as actor_id", sql.lower())
+
     def test_print_cohort_hogql_query_source_without_id_column_still_raises_when_unresolvable(self):
         # When the source has no id column and its table isn't events/persons, the fallback
         # can't resolve an actor id — surface the clear "Could not find" error, not a crash

@@ -445,11 +445,17 @@ def _wrap_aggregating_query(select_query: ast.SelectQuery, actor_column: str) ->
     BY keys". Wrapping keeps the grouping intact and reads the actor out of the result instead. The
     actor column is read by name rather than by expression, because the expression can reference
     other columns of the same SELECT list and would bind differently once moved.
+
+    The CTEs stay on the wrapper. HogQL gives the later branches of a set query the root WITH
+    through the first branch's own `ctes`, so a CTE that moved into the subquery would leave a
+    later branch with a table it cannot resolve. The inner query still sees them, because the
+    resolver copies the CTEs of a scope into the scopes below it.
     """
-    inner = dataclasses.replace(select_query)
+    inner = dataclasses.replace(select_query, ctes=None)
     wrapper = ast.SelectQuery(
         select=[ast.Alias(expr=ast.Field(chain=[actor_column]), alias="actor_id")],
         select_from=ast.JoinExpr(table=inner),
+        ctes=select_query.ctes,
     )
     for query_field in dataclasses.fields(ast.SelectQuery):
         setattr(select_query, query_field.name, getattr(wrapper, query_field.name))
