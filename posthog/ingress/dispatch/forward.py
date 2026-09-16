@@ -19,6 +19,12 @@ from posthog.regions import SECONDARY_REGION_DOMAIN
 
 logger = structlog.get_logger(__name__)
 
+# The other region reads its own identity off the connection it receives, so a host this region
+# put on the request would let it read itself as the primary region and forward the delivery on
+# again. X-Forwarded-Proto travels with them because SECURE_PROXY_SSL_HEADER resolves the scheme
+# from it. X-Forwarded-For stays: nothing regional reads it, and it holds the third party's address.
+HOST_IDENTIFYING_HEADERS = frozenset({"host", "x-forwarded-host", "x-forwarded-port", "x-forwarded-proto", "forwarded"})
+
 
 def forward_to_secondary_region(request: HttpRequest, *, provider: str, app: str, timeout: float = 3.0) -> bool:
     """Send this request on to the secondary region once. True only when it answered 2xx.
@@ -27,7 +33,7 @@ def forward_to_secondary_region(request: HttpRequest, *, provider: str, app: str
     request, so a batched body that carries several unowned deliveries still crosses once.
     """
     target_url = urlunparse(urlparse(request.build_absolute_uri())._replace(netloc=SECONDARY_REGION_DOMAIN))
-    headers = {key: value for key, value in request.headers.items() if key.lower() != "host"}
+    headers = {key: value for key, value in request.headers.items() if key.lower() not in HOST_IDENTIFYING_HEADERS}
 
     try:
         response = requests.request(

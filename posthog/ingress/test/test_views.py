@@ -13,7 +13,7 @@ from requests import RequestException
 
 from posthog.ingress.contracts import DeliveryOwnership, ProviderSpec, WebhookConsumer, WebhookDelivery
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
-from posthog.ingress.dispatch.forward import forward_to_secondary_region
+from posthog.ingress.dispatch.forward import HOST_IDENTIFYING_HEADERS, forward_to_secondary_region
 from posthog.ingress.dispatch.registry import ConsumerRegistry
 from posthog.ingress.github.provider import GitHubProvider, build_github_provider
 from posthog.ingress.pandadoc.provider import build_pandadoc_provider
@@ -376,7 +376,14 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
             "/webhooks/github/",
             data=self.body,
             content_type="application/json",
-            headers={"X-Hub-Signature-256": _github_signature(self.body), "X-GitHub-Event": "issues"},
+            headers={
+                "X-Hub-Signature-256": _github_signature(self.body),
+                "X-GitHub-Event": "issues",
+                "X-Forwarded-Host": "eu.posthog.com",
+                "X-Forwarded-Proto": "https",
+                "Forwarded": "host=eu.posthog.com;proto=https",
+                "X-Forwarded-For": "140.82.115.1",
+            },
         )
 
     @parameterized.expand(
@@ -408,6 +415,9 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
         kwargs = request.call_args.kwargs
         self.assertEqual(kwargs["data"], self.body)
         self.assertEqual(kwargs["headers"]["X-Hub-Signature-256"], _github_signature(self.body))
-        # The other region routes on Host, so carrying this region's would send it straight back.
-        self.assertNotIn("host", {key.lower() for key in kwargs["headers"]})
+        sent = {key.lower() for key in kwargs["headers"]}
+        # The other region routes on the host it sees, so any host this region sends would send the
+        # request straight back here and both regions would forward it in a loop.
+        self.assertEqual(sent & HOST_IDENTIFYING_HEADERS, set())
+        self.assertIn("x-forwarded-for", sent)
         self.assertIn(SECONDARY_REGION_DOMAIN, kwargs["url"])

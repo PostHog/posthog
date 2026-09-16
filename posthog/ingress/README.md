@@ -132,6 +132,8 @@ Every delivery in the request is assessed first, and the request is then forward
 One forward per request rather than per delivery, because the unit being replayed is the HTTP request.
 Local dispatch runs either way: a consumer that answered `ELSEWHERE` no-ops on its own, and the other consumers on the endpoint are unaffected.
 Only the primary region forwards; on the secondary region an `ELSEWHERE` answer is logged as `ingress_delivery_unowned_here`, because a local miss there is that consumer's unresolved routing rather than proof that no region owns the delivery.
+The replay carries the signed bytes and the provider's own headers, but never the headers that name the host this region answered on: `Host`, `X-Forwarded-Host`, `X-Forwarded-Port`, `X-Forwarded-Proto` and `Forwarded`.
+The receiving region reads which region it is off the connection it receives, so a forwarded host would make it forward the delivery on again.
 
 The ownership lookup runs inside the request, before dispatch, and inside the same wall-clock budget.
 A lookup that reads the database must be bounded with `bounded_statement_timeout(ms, models=...)`.
