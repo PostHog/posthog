@@ -23,6 +23,7 @@ from django_structlog.celery.steps import DjangoStructLogInitStep
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram, start_http_server
 
+from posthog.celery_control import register_event_dispatcher_guards
 from posthog.celery_task_names import LIVENESS_ALERTED_TASK_NAMES
 
 # When PROMETHEUS_MULTIPROC_DIR is set (by bin/docker-worker-celery),
@@ -41,6 +42,8 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 
 
 app = Celery("posthog")
+
+register_event_dispatcher_guards()
 
 CELERY_TASK_PRE_RUN_COUNTER = Counter(
     "posthog_celery_task_pre_run",
