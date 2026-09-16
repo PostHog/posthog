@@ -173,3 +173,18 @@ export const McpAnalyticsMissingCapabilitiesCreateBody = /* @__PURE__ */ zod.obj
         .default(mcpAnalyticsMissingCapabilitiesCreateBodyBlockedDefault)
         .describe("Whether the missing capability blocked the user's progress."),
 })
+
+/**
+ * Generate (or return the cached) LLM digest of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions: a one-sentence summary plus semantic themes, each sized and attributed to tools from the intents themselves. Cached by intent corpus, recency, and caller_kind, so repeated calls are cheap and a busy server regenerates at a bounded rate. Powers the dashboard's activity tab.
+ */
+export const mcpAnalyticsSessionsIntentDigestBodyCallerKindDefault = `people`
+
+export const McpAnalyticsSessionsIntentDigestBody = /* @__PURE__ */ zod.object({
+    caller_kind: zod
+        .enum(['people', 'automations', 'all'])
+        .describe('\* `people` - PEOPLE\n\* `automations` - AUTOMATIONS\n\* `all` - ALL')
+        .default(mcpAnalyticsSessionsIntentDigestBodyCallerKindDefault)
+        .describe(
+            "Which caller segment to summarize. 'people' (the default) excludes PostHog's own hosted-server automated run types; 'automations' includes only them; 'all' includes both. Customer servers never set the underlying property, so their traffic is always 'people'.\n\n\* `people` - PEOPLE\n\* `automations` - AUTOMATIONS\n\* `all` - ALL"
+        ),
+})

@@ -609,6 +609,28 @@ export interface MCPActivityOverviewApi {
     readonly recent_calls: readonly MCPActivityRecentCallApi[]
 }
 
+/**
+ * * `people` - PEOPLE
+ * * `automations` - AUTOMATIONS
+ * * `all` - ALL
+ */
+export type CallerKindEnumApi = (typeof CallerKindEnumApi)[keyof typeof CallerKindEnumApi]
+
+export const CallerKindEnumApi = {
+    People: 'people',
+    Automations: 'automations',
+    All: 'all',
+} as const
+
+export interface MCPIntentDigestRequestApi {
+    /** Which caller segment to summarize. 'people' (the default) excludes PostHog's own hosted-server automated run types; 'automations' includes only them; 'all' includes both. Customer servers never set the underlying property, so their traffic is always 'people'.
+     *
+     * * `people` - PEOPLE
+     * * `automations` - AUTOMATIONS
+     * * `all` - ALL */
+    caller_kind?: CallerKindEnumApi
+}
+
 export interface MCPIntentThemeApi {
     /** Short sentence-case name for this group of intents. */
     readonly name: string
@@ -620,6 +642,10 @@ export interface MCPIntentThemeApi {
     readonly example_intent: string
     /** The MCP tool names recorded alongside this theme's intents, sorted, taken from the corpus. */
     readonly tools: readonly string[]
+    /** How many of this theme's intents came from a call that errored, counted from the corpus. */
+    readonly error_count: number
+    /** Share of this theme's intents that came from a successful call, counted from the corpus. */
+    readonly success_pct: number
 }
 
 export interface MCPIntentDigestApi {

@@ -29,6 +29,7 @@ from .serializers import (
     MCPAnalyticsSubmissionSerializer,
     MCPFeedbackCreateSerializer,
     MCPIntentClusterSnapshotSerializer,
+    MCPIntentDigestRequestSerializer,
     MCPIntentDigestSerializer,
     MCPMissingCapabilityCreateSerializer,
     MCPSessionIntentSerializer,
@@ -258,25 +259,25 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = MCPSessionIntentSerializer({"session_id": session_id, "intent": intent})
         return Response(serializer.data)
 
-    @extend_schema(
+    @validated_request(
+        request_serializer=MCPIntentDigestRequestSerializer,
         operation_id="mcp_analytics_sessions_intent_digest",
         description=(
             "Generate (or return the cached) LLM digest of what agents are trying to do with this MCP server, "
             "derived from the most recent recorded $mcp_intents across all sessions: a one-sentence summary "
             "plus semantic themes, each sized and attributed to tools from the intents themselves. Cached by "
-            "intent corpus and by recency, so repeated calls are cheap and a busy server regenerates at a "
-            "bounded rate. Powers the dashboard's activity tab."
+            "intent corpus, recency, and caller_kind, so repeated calls are cheap and a busy server regenerates "
+            "at a bounded rate. Powers the dashboard's activity tab."
         ),
-        request=None,
         responses={
-            200: MCPIntentDigestSerializer,
+            200: OpenApiResponse(response=MCPIntentDigestSerializer),
             503: OpenApiResponse(description="Intent digest generation is unavailable (LLM not configured)."),
         },
     )
     @action(detail=False, methods=["post"], url_path="intent_digest")
-    def intent_digest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def intent_digest(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         try:
-            digest = api.generate_intent_digest(self.team)
+            digest = api.generate_intent_digest(self.team, caller_kind=request.validated_data["caller_kind"])
         except contracts.IntentGenerationUnavailable:
             return Response(
                 {"detail": "Intent digest generation is unavailable (LLM not configured)."},
