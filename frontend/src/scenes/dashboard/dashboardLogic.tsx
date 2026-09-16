@@ -233,6 +233,42 @@ const tileLayoutsFromDashboard = (
     return tileIdToLayouts
 }
 
+function mergeRenamedInsightIntoDashboard(
+    state: DashboardType<QueryBasedInsightModel> | null,
+    item: QueryBasedInsightModel
+): DashboardType<QueryBasedInsightModel> | null {
+    const tileIndex = state?.tiles.findIndex((t) => !!t.insight && t.insight.short_id === item.short_id)
+    const tiles = state?.tiles.slice(0)
+
+    if (tileIndex === undefined || tileIndex === -1 || !tiles) {
+        return state
+    }
+
+    // A bare PATCH (rename, display-option persist) doesn't recompute the insight, so
+    // its response carries `result: null` and stale-but-empty cache metadata. Keep the
+    // tile's already-computed chart data instead of blanking it into "Chart data didn't load".
+    // SQL insights draw from `columns` and `types` rather than `result`, so those have to
+    // survive the merge too or the tile loses the columns it picks its axes from.
+    const existing = tiles[tileIndex].insight as QueryBasedInsightModel
+    tiles[tileIndex] = {
+        ...tiles[tileIndex],
+        insight: {
+            ...existing,
+            ...item,
+            result: item.result ?? existing.result,
+            last_refresh: item.last_refresh ?? existing.last_refresh,
+            columns: item.columns ?? existing.columns,
+            types: item.types ?? existing.types,
+            query_scan: item.query_scan ?? existing.query_scan,
+        },
+    }
+
+    return {
+        ...state,
+        tiles,
+    } as DashboardType<QueryBasedInsightModel>
+}
+
 function mergeUpdatedWidgetTileIntoDashboard(
     dashboard: DashboardType<QueryBasedInsightModel>,
     updatedTile: DashboardTile<QueryBasedInsightModel>
@@ -320,6 +356,7 @@ export interface dashboardLogicValues {
     dashboardWidgetsEnabled: boolean
     dataColorTheme: DataColorTheme | null
     dataColorThemeId: number | null
+    deferredInsightRenames: QueryBasedInsightModel<Node<Record<string, any>>>[]
     effectiveBreakdownColors: BreakdownColorConfig[]
     effectiveEditBarFilters: DashboardFilter
     effectiveLastRefresh: Dayjs | null
@@ -508,6 +545,9 @@ export interface dashboardLogicActions {
     dashboardNotFound: () => {
         value: true
     }
+    deferInsightRename: (item: QueryBasedInsightModel) => {
+        item: QueryBasedInsightModel<Node<Record<string, any>>>
+    }
     discardDashboardChanges: () => {
         value: true
     }
@@ -654,6 +694,9 @@ export interface dashboardLogicActions {
     }
     previewDashboardChangesFailure: () => {
         value: true
+    }
+    reapplyInsightRenames: (items: QueryBasedInsightModel[]) => {
+        items: QueryBasedInsightModel<Node<Record<string, any>>>[]
     }
     receiveTileFromStream: (data: { order: number; tile: any }) => {
         order: number
@@ -1357,6 +1400,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         receiveTileFromStream: (data: { tile: any; order: number }) => data,
         /** Tile streaming completed. */
         tileStreamingComplete: true,
+        /** Hold an insight rename that landed while a load was in flight, so the load cannot revert it. */
+        deferInsightRename: (item: QueryBasedInsightModel) => ({ item }),
+        /** Patch the held renames back onto the tiles once the load has replaced them. */
+        reapplyInsightRenames: (items: QueryBasedInsightModel[]) => ({ items }),
         /** Tile streaming failed. */
         tileStreamingFailure: (error: any) => ({ error }),
         /** A non-404 stream failure left no dashboard to render — show a load error, not "not found". */
@@ -1967,6 +2014,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 tileStreamingFailure: () => false,
             },
         ],
+        deferredInsightRenames: [
+            [] as QueryBasedInsightModel[],
+            {
+                deferInsightRename: (state, { item }) => [
+                    ...state.filter((held) => held.short_id !== item.short_id),
+                    item,
+                ],
+                reapplyInsightRenames: () => [],
+                loadDashboardFailure: () => [],
+                tileStreamingFailure: () => [],
+            },
+        ],
         dashboardTileSpacingSaving: [
             false,
             {
@@ -2200,38 +2259,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 [insightsModel.actionTypes.renameInsightSuccess]: (
                     state,
                     { item }
-                ): DashboardType<QueryBasedInsightModel> | null => {
-                    const tileIndex = state?.tiles.findIndex((t) => !!t.insight && t.insight.short_id === item.short_id)
-                    const tiles = state?.tiles.slice(0)
-
-                    if (tileIndex === undefined || tileIndex === -1 || !tiles) {
-                        return state
-                    }
-
-                    // A bare PATCH (rename, display-option persist) doesn't recompute the insight, so
-                    // its response carries `result: null` and stale-but-empty cache metadata. Keep the
-                    // tile's already-computed chart data instead of blanking it into "Chart data didn't load".
-                    // SQL insights draw from `columns` and `types` rather than `result`, so those have to
-                    // survive the merge too or the tile loses the columns it picks its axes from.
-                    const existing = tiles[tileIndex].insight as QueryBasedInsightModel
-                    tiles[tileIndex] = {
-                        ...tiles[tileIndex],
-                        insight: {
-                            ...existing,
-                            ...item,
-                            result: item.result ?? existing.result,
-                            last_refresh: item.last_refresh ?? existing.last_refresh,
-                            columns: item.columns ?? existing.columns,
-                            types: item.types ?? existing.types,
-                            query_scan: item.query_scan ?? existing.query_scan,
-                        },
-                    }
-
-                    return {
-                        ...state,
-                        tiles,
-                    } as DashboardType<QueryBasedInsightModel>
-                },
+                ): DashboardType<QueryBasedInsightModel> | null => mergeRenamedInsightIntoDashboard(state, item),
+                reapplyInsightRenames: (state, { items }): DashboardType<QueryBasedInsightModel> | null =>
+                    items.reduce(mergeRenamedInsightIntoDashboard, state),
                 loadDashboardMetadataSuccess: (state, { dashboard }) => {
                     if (!dashboard) {
                         return state
@@ -3475,6 +3505,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         handleDashboardLoadComplete: () => {
+            // The load answered with the tiles as they were when it started, so a rename that landed
+            // while it was in flight has just been overwritten. Patch those names back on.
+            if (values.deferredInsightRenames.length > 0) {
+                actions.reapplyInsightRenames(values.deferredInsightRenames)
+            }
+
             // Shared logic for refreshing dashboard items after load (used by both regular and streaming loads)
             if (values.placement !== DashboardPlacement.Export) {
                 const loadAction = values.dashboardLoadData.action!
@@ -3632,9 +3668,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         [insightsModel.actionTypes.renameInsightSuccess]: ({ item }: { item: QueryBasedInsightModel }) => {
-            const targetDashboards = (item.dashboard_tiles || []).map((tile) => tile.dashboard_id)
-            if (!targetDashboards.includes(props.id)) {
+            const tileMembership = item.dashboard_tiles?.map((tile) => tile.dashboard_id)
+            if (tileMembership && !tileMembership.includes(props.id)) {
                 // this update is not for this dashboard
+                return
+            }
+
+            if (values.dashboardLoading || values.dashboardStreaming) {
+                // The in-flight load will answer with the old name and replace the tile.
+                actions.deferInsightRename(item)
                 return
             }
 
@@ -3642,7 +3684,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             if (tileIndex === -1) {
                 // the rename landed before this dashboard had the tile in state, so the reducer
-                // could not patch it and the tile would show the stale name forever - reload instead
+                // could not patch it and the tile would show the stale name forever - reload instead.
+                // A payload without tile membership says nothing about where the insight sits, so
+                // recover rather than trust it to be someone else's dashboard.
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
