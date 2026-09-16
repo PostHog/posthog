@@ -368,9 +368,9 @@ function WebhookMissingCredentialsSection({
             }}
         >
             <p className="mb-0">
-                This webhook is missing {fieldLabels}, so we cannot check that a delivery really came from {sourceName}.
-                Until you add it, we accept every delivery and drop it, and no data reaches your tables. Find it in your{' '}
-                {sourceName} dashboard.
+                This webhook is missing the {fieldLabels}, so we cannot check that a delivery really came from{' '}
+                {sourceName}. Until you add it, we accept every delivery and drop it, and no data reaches your tables.
+                Find it in your {sourceName} dashboard.
             </p>
         </LemonBanner>
     )
