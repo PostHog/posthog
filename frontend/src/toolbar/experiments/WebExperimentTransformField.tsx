@@ -6,6 +6,7 @@ import { LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 
+import { ShiftToInteractTip } from '~/toolbar/elements/ShiftToInteractTip'
 import {
     ElementSelectorButtonTypes,
     ElementSelectorType,
@@ -66,6 +67,7 @@ export function WebExperimentTransformField({
                     }}
                 />
             </div>
+            {inspectingElement === transformIndex && selectedVariant === variant && <ShiftToInteractTip />}
             {transform.selector && (
                 <div>
                     <div className="mt-4">

@@ -115,6 +115,7 @@ export interface elementsLogicValues {
               selectorQuality: FragileSelectorResult | null
           })
         | null
+    inspectDomCounter: number
     inspectElements: ElementWithMetadata[]
     inspectEnabled: boolean
     inspectEnabledRaw: boolean
@@ -161,6 +162,9 @@ export interface elementsLogicActions {
     setSelectedElement: (element: HTMLElement | null) => {
         element: HTMLElement | null
     }
+    rescanInspectElements: () => {
+        value: true
+    }
     updateRects: () => {
         value: true
     }
@@ -193,7 +197,7 @@ export interface elementsLogicMeta {
             rectUpdateCounter: number,
             buttonVisible: boolean
         ) => ElementWithMetadata[]
-        allInspectElements: (inspectEnabled: boolean, href: string) => HTMLElement[]
+        allInspectElements: (inspectEnabled: boolean, href: string, inspectDomCounter: number) => HTMLElement[]
         inspectElements: (
             allInspectElements: HTMLElement[],
             rectUpdateCounter: number,
@@ -307,6 +311,7 @@ export const elementsLogic = kea<elementsLogicType>([
         createAction: (element: HTMLElement) => ({ element }),
 
         updateRects: true,
+        rescanInspectElements: true,
         setHoverElement: (element: HTMLElement | null) => ({ element }),
         setHighlightElement: (element: HTMLElement | null) => ({ element }),
         setSelectedElement: (element: HTMLElement | null) => ({ element }),
@@ -325,6 +330,12 @@ export const elementsLogic = kea<elementsLogicType>([
             0,
             {
                 updateRects: (state) => state + 1,
+            },
+        ],
+        inspectDomCounter: [
+            0,
+            {
+                rescanInspectElements: (state) => state + 1,
             },
         ],
         hoverElement: [
@@ -446,7 +457,7 @@ export const elementsLogic = kea<elementsLogicType>([
         ],
 
         allInspectElements: [
-            (s) => [s.inspectEnabled, s.href],
+            (s) => [s.inspectEnabled, s.href, s.inspectDomCounter],
             (inspectEnabled: boolean) => {
                 if (!inspectEnabled) {
                     return []
@@ -867,6 +878,30 @@ export const elementsLogic = kea<elementsLogicType>([
             }, 'keydownListener')
 
             cache.disposables.add(() => {
+                let debounceTimer: ReturnType<typeof setTimeout> | undefined
+
+                // the element list is a snapshot taken when the picker starts, so anything the
+                // page reveals later (a menu, a dropdown, a modal) needs a rescan to get an overlay
+                const mutationObserver = new MutationObserver(() => {
+                    if (!values.inspectEnabled) {
+                        return
+                    }
+                    clearTimeout(debounceTimer)
+                    debounceTimer = setTimeout(() => actions.rescanInspectElements(), 500)
+                })
+
+                mutationObserver.observe(document.body, {
+                    childList: true,
+                    subtree: true,
+                })
+
+                return () => {
+                    clearTimeout(debounceTimer)
+                    mutationObserver.disconnect()
+                }
+            }, 'inspectMutationObserver')
+
+            cache.disposables.add(() => {
                 window.document.addEventListener('scroll', onScrollResize, { capture: true, passive: true })
                 return () => window.document.removeEventListener('scroll', onScrollResize, { capture: true })
             }, 'scrollListener')
@@ -874,3 +909,4 @@ export const elementsLogic = kea<elementsLogicType>([
         },
     })),
 ])
+
