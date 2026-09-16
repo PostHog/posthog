@@ -1,3 +1,4 @@
+import os
 from datetime import timedelta
 
 from kombu import Exchange, Queue
@@ -35,6 +36,10 @@ CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
 CELERY_IGNORE_RESULT = True  # only applies to delay(), must do @shared_task(ignore_result=True) for apply_async
 CELERY_RESULT_EXPIRES = timedelta(days=4)  # expire tasks after 4 days instead of the default 1
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
+# RedBeat reads its Redis from this setting and falls back to the broker URL. An explicit
+# setting lets a deployment whose broker Redis refuses the scheduler's commands point beat
+# at a Redis that allows them. An empty value must become the default, not an empty URL.
+REDBEAT_REDIS_URL = os.getenv("REDBEAT_REDIS_URL", "") or REDIS_URL
 
 if TEST:
     import celery
