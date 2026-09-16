@@ -80,6 +80,27 @@ const EMPTY_PARAGRAPH_MARKDOWN = ' '
  * one lands as its own node. */
 export const NOTEBOOK_BLOCK_SEPARATOR = '\n\n\n'
 const NOTEBOOK_BLOCK_JOINER = '\n\n'
+/**
+ * A block id the document stores, rather than one derived from the block's content on every
+ * parse. Only these are written back as an anchor, so a document that never carried one
+ * serializes byte for byte as it was read.
+ */
+export const STORED_NODE_ID_PREFIX = 'phb-'
+/**
+ * A stored block id, written on its own line above the block it names.
+ *
+ * A comment is the only place a paragraph can carry an id: the document is markdown, and prose
+ * has no attribute to hold one. It renders nowhere, so a reader never sees it.
+ */
+const NODE_ANCHOR_REGEX = /^<!--ph:([A-Za-z0-9._-]{1,128})-->$/
+
+export function isStoredNodeId(id: string | undefined): boolean {
+    return !!id && id.startsWith(STORED_NODE_ID_PREFIX)
+}
+
+export function serializeNodeAnchor(id: string): string {
+    return `<!--ph:${id}-->\n`
+}
 // Every character the serializer may backslash-escape; the inline parser turns `\X` back into
 // the literal character for exactly this set, so the two must stay in sync.
 const INLINE_ESCAPABLE_CHARS = new Set([
@@ -128,7 +149,14 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
     const nodes: NotebookBlockNode[] = []
     const errors: NotebookParseError[] = []
     const occurrences = new Map<string, number>()
+    let pendingAnchorId: string | null = null
     const pushParsedNode = (node: NotebookBlockNode): void => {
+        if (pendingAnchorId !== null) {
+            node.id = pendingAnchorId
+            pendingAnchorId = null
+            nodes.push(node)
+            return
+        }
         const fingerprint = getNodeFingerprint(node)
         const occurrence = occurrences.get(fingerprint) ?? 0
         occurrences.set(fingerprint, occurrence + 1)
@@ -159,6 +187,16 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
             continue
         }
 
+        // Read before the block scan, so `parseCommentBlock` never takes an anchor for an
+        // authorial note. The blank-line count is left alone: the anchor sits inside the
+        // separator that decides the card boundary, and must not close it.
+        const anchorMatch = NODE_ANCHOR_REGEX.exec(line.trim())
+        if (anchorMatch) {
+            pendingAnchorId = anchorMatch[1]!
+            lineIndex += 1
+            continue
+        }
+
         const result = parseBlock(lines, lineIndex)
         if (result.error) {
             errors.push(result.error)
@@ -184,7 +222,10 @@ export function serializeMarkdownNotebook(document: NotebookDocument): string {
     const shouldPreserveEmptyParagraphs = document.nodes.length > 1
     const serialized = document.nodes
         .map((node, index) => {
-            const block = serializeDocumentNode(node, shouldPreserveEmptyParagraphs)
+            const body = serializeDocumentNode(node, shouldPreserveEmptyParagraphs)
+            // A derived id is rebuilt from the block on the next parse, so writing it back would
+            // rewrite every document the editor opens and break `serialize(parse(md)) === md`.
+            const block = isStoredNodeId(node.id) ? `${serializeNodeAnchor(node.id)}${body}` : body
             if (index === 0) {
                 return block
             }

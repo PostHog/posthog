@@ -313,18 +313,18 @@ describe('notebook cell tools', () => {
             cell_type: 'markdown',
             markdown: 'Some **notes**.',
         })
-        await addCellHandler(context, {
+        const second = await addCellHandler(context, {
             notebook_id: 'aBcD1234',
             cell_type: 'markdown',
             markdown: 'More notes.',
         })
 
-        expect(result).toEqual({})
         expect(state.runBodies).toHaveLength(0)
         // Each cell is a node of its own: one blank line would fold consecutive prose cells
-        // into a single card in the editor, two keeps them separate.
+        // into a single card in the editor, two keeps them separate. The anchor above each one
+        // gives the block an id that survives a later edit to its text.
         expect(state.saveBodies[1].content.content[0].attrs.markdown).toBe(
-            '# Doc\n\n\nSome **notes**.\n\n\nMore notes.\n'
+            `# Doc\n\n\n<!--ph:${result.node_id}-->\nSome **notes**.\n\n\n<!--ph:${second.node_id}-->\nMore notes.\n`
         )
     })
 
@@ -696,7 +696,7 @@ describe('notebook cell tools', () => {
             state.stateCells = [{ ...FIRST, start: FIRST.start + 12, end: FIRST.end + 12 }]
             const context = createMockContext(state)
 
-            await addCellHandler(context, {
+            const result = await addCellHandler(context, {
                 notebook_id: 'aBcD1234',
                 cell_type: 'markdown',
                 markdown: 'Inserted note.',
@@ -704,7 +704,9 @@ describe('notebook cell tools', () => {
             })
 
             const inserted = state.saveBodies[0].content.content[0].attrs.markdown
-            expect(inserted).toBe('# Doc\n\n\nFirst paragraph.\n\n\nInserted note.\n\n\nSecond paragraph.\n')
+            expect(inserted).toBe(
+                `# Doc\n\n\nFirst paragraph.\n\n\n<!--ph:${result.node_id}-->\nInserted note.\n\n\nSecond paragraph.\n`
+            )
         })
 
         it.each([

@@ -177,6 +177,7 @@ class TestMarkdownBlockSpans(SimpleTestCase):
     MARKDOWN = (
         "# Title\n\n"
         "Some prose.\nA second line.\n\n"
+        "<!--ph:phb-anchored-->\nAn anchored paragraph.\n\n"
         '<SQLV2 nodeId="s1" code="select 1" returnVariable="df" />\n\n'
         "```python\nx = 1\n\ny = 2\n```\n\n"
         "Closing paragraph."
@@ -221,6 +222,23 @@ class TestMarkdownBlockSpans(SimpleTestCase):
     def test_identical_prose_blocks_get_distinct_ids(self) -> None:
         blocks = list(iter_markdown_blocks("Same text.\n\nSame text."))
         assert len({block.node_id for block in blocks}) == 2
+
+    def test_an_anchored_block_keeps_its_id_when_its_text_changes(self) -> None:
+        edited = self.MARKDOWN.replace("An anchored paragraph.", "A rewritten paragraph.")
+        before = {block.node_id for block in iter_markdown_blocks(self.MARKDOWN)}
+        after = {block.node_id for block in iter_markdown_blocks(edited)}
+        assert "phb-anchored" in before & after
+
+    def test_a_tag_prop_id_wins_over_an_anchor_above_it(self) -> None:
+        markdown = '<!--ph:phb-outer-->\n<SQLV2 nodeId="s1" code="select 1" returnVariable="df" />'
+        blocks = list(iter_markdown_blocks(markdown))
+        assert [block.node_id for block in blocks] == ["s1"]
+
+    def test_an_anchor_inside_a_fence_is_not_read_as_one(self) -> None:
+        markdown = "```\n<!--ph:phb-example-->\n```\n\nParagraph."
+        blocks = list(iter_markdown_blocks(markdown))
+        assert [block.node_id for block in blocks] != ["phb-example"]
+        assert blocks[0].source == "```\n<!--ph:phb-example-->\n```"
 
 
 class TestCellCountLimit(SimpleTestCase):

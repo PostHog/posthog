@@ -648,6 +648,51 @@ describe('markdown round trip', () => {
         })
     })
 
+    describe('stored block ids', () => {
+        it('reads an anchor as the block id and makes no node for it', () => {
+            const document = parseMarkdownNotebook('<!--ph:phb-abc-->\nA paragraph.')
+
+            expect(document.nodes.map((node) => node.type)).toEqual(['paragraph'])
+            expect(document.nodes[0].id).toEqual('phb-abc')
+        })
+
+        it('writes a stored id back, so the block keeps it across an edit to its text', () => {
+            const document = parseMarkdownNotebook('<!--ph:phb-abc-->\nA paragraph.')
+            const edited: NotebookDocument = {
+                ...document,
+                nodes: [{ ...document.nodes[0], children: [text('A rewritten paragraph.')] } as NotebookBlockNode],
+            }
+
+            const serialized = serializeMarkdownNotebook(edited)
+            expect(serialized).toEqual('<!--ph:phb-abc-->\nA rewritten paragraph.')
+            expect(parseMarkdownNotebook(serialized).nodes[0].id).toEqual('phb-abc')
+        })
+
+        // A derived id is rebuilt from the block on every parse. Written back, it would rewrite
+        // every document the editor opens, and the whole-document diff would reach the merge.
+        it('writes no anchor for a derived id, so an unanchored document is unchanged', () => {
+            const markdown = '# Title\n\nA paragraph.\n\nAnother paragraph.'
+            expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(markdown)
+        })
+
+        // A three-way markdown merge can copy an anchor line onto a second block. Two blocks
+        // claiming one id would send an edit by id to whichever the lookup reached first.
+        it('refuses to let a duplicated anchor name two blocks', () => {
+            const document = parseMarkdownNotebook('<!--ph:phb-abc-->\nFirst.\n\n<!--ph:phb-abc-->\nSecond.')
+
+            const ids = document.nodes.map((node) => node.id)
+            expect(ids[0]).toEqual('phb-abc')
+            expect(new Set(ids).size).toEqual(2)
+        })
+
+        it('keeps an anchored block out of the paragraph above it', () => {
+            const document = parseMarkdownNotebook('First.\n<!--ph:phb-abc-->\nSecond.')
+
+            expect(document.nodes.map((node) => getNodeText(node))).toEqual(['First.', 'Second.'])
+            expect(document.nodes[1].id).toEqual('phb-abc')
+        })
+    })
+
     describe('discussion comment tags', () => {
         it('round-trips a discussion comment as a JSX tag, not an html comment', () => {
             const markdown = '<Comment ref="banana" replies={[{"id":"r1","author":"Ann","text":"Looks off"}]} />'

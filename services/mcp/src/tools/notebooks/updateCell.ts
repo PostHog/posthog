@@ -25,12 +25,14 @@ import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor, saveMarkdown
 import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
 
 /**
- * Written by `_create_stable_markdown_prose_id` in `products/notebooks/backend/util.py`.
+ * The two id shapes a markdown block can carry: derived from its text by
+ * `_create_stable_markdown_prose_id` in `products/notebooks/backend/util.py`, or stored in the
+ * document as an anchor above the block.
  *
  * Only sharpens an error, because the content parameter decides the branch. A prefix change in
  * the backend therefore degrades one message and breaks nothing.
  */
-const PROSE_NODE_ID_PREFIX = 'mdp-'
+const PROSE_NODE_ID_PREFIXES = ['mdp-', 'phb-']
 
 const UpdateCellInputSchema = z
     .object({
@@ -162,7 +164,7 @@ export const updateCellHandler: ToolBase<
             'Pass either code (a SQL or Python cell) or markdown (a markdown cell), not both. The cell type follows from node_id; read it from notebooks-get.'
         )
     }
-    if (params.node_id.startsWith(PROSE_NODE_ID_PREFIX) || params.markdown !== undefined) {
+    if (PROSE_NODE_ID_PREFIXES.some((prefix) => params.node_id.startsWith(prefix)) || params.markdown !== undefined) {
         return await updateProseCell(context, params)
     }
     if (params.code !== undefined && !params.code.trim()) {

@@ -97,6 +97,21 @@ export interface AddCellResult {
 const BLOCK_SEPARATOR = '\n\n\n'
 
 /**
+ * A block id the document stores, written on its own line above the block it names. Mirrors
+ * `serializeNodeAnchor` in frontend/src/lib/components/MarkdownNotebook/markdown.ts.
+ *
+ * A markdown block otherwise has no identity of its own: the backend derives its id from the
+ * block text, so the id dies with the next edit to that text. An anchor gives a block the same
+ * durable id a cell tag carries in its `nodeId` prop.
+ */
+function anchoredMarkdownBlock(nodeId: string, markdown: string): string {
+    return `<!--ph:${nodeId}-->\n${markdown}`
+}
+
+/** Matches `STORED_NODE_ID_PREFIX` in the editor, which writes an anchor back only for these. */
+const STORED_NODE_ID_PREFIX = 'phb-'
+
+/**
  * A prose block resolved through the state endpoint, which owns the block grammar this side
  * cannot reproduce. `source` re-locates the block when an edit elsewhere has moved the offsets.
  */
@@ -306,10 +321,16 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
                 'A markdown cell has no header to title — put the heading in the markdown itself (e.g. "## Weekly signups").'
             )
         }
+        const proseNodeId = `${STORED_NODE_ID_PREFIX}${uuidv4()}`
         await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
-            insertBlock(markdown, params.markdown!.trim(), params.after_node_id, proseAnchor)
+            insertBlock(
+                markdown,
+                anchoredMarkdownBlock(proseNodeId, params.markdown!.trim()),
+                params.after_node_id,
+                proseAnchor
+            )
         )
-        return {}
+        return { node_id: proseNodeId }
     }
 
     const nodeId = uuidv4()
