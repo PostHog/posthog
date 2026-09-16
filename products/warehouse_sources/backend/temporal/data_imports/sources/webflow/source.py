@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import structlog
 
@@ -193,6 +193,12 @@ class WebflowSource(
     # webhook re-created here would deliver events we could never verify. There is nothing to
     # drift anyway: `create_webhook` registers every trigger the one eligible table needs, and
     # anything missing afterwards is surfaced to the user by `get_desired_webhook_events`.
+
+    def missing_webhook_inputs(self, inputs: dict[str, Any]) -> list[str]:
+        # Webflow returns one secret per registered trigger, stored in the hidden `signing_secrets`.
+        if inputs.get("signing_secrets", {}).get("secret"):
+            return []
+        return super().missing_webhook_inputs(inputs)
 
     def get_external_webhook_info(
         self, config: WebflowSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None

@@ -159,6 +159,18 @@ class TestWebflowWebhookSupport:
 
     @parameterized.expand(
         [
+            ("provider_secrets", {"signing_secrets": {"secret": True}}, []),
+            ("manual_secret", {"signing_secret": {"secret": True}}, []),
+            ("nothing_set", {"signing_secret": {"value": ""}}, ["signing_secret"]),
+        ]
+    )
+    def test_missing_webhook_inputs_accepts_provider_managed_secrets(
+        self, _name: str, inputs: dict, expected: list[str]
+    ) -> None:
+        assert WebflowSource().missing_webhook_inputs(inputs) == expected
+
+    @parameterized.expand(
+        [
             ("create", "create_webflow_webhook", "create_webhook"),
             ("delete", "delete_webflow_webhook", "delete_webhook"),
             ("info", "get_webflow_webhook_info", "get_external_webhook_info"),

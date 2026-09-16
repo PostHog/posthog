@@ -6528,6 +6528,8 @@ export interface WebhookInfo {
     webhook_url?: string
     schema_mapping?: Record<string, string>
     inputs?: Record<string, WebhookInputValue>
+    // Required webhook field names with no value yet. Deliveries are dropped while any is missing.
+    missing_inputs?: string[]
     external_status?: WebhookExternalStatus | null
     // Desired provider events not yet on the webhook (manual setup, or created before a new table).
     missing_events?: string[]

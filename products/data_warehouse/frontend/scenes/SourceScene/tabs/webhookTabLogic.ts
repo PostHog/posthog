@@ -16,7 +16,6 @@ import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/gen
 import type { WebhookCreateResult } from '../../../shared/components/forms/WebhookSetupForm'
 import { getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
-import { missingWebhookCredentials } from './webhookCredentials'
 
 export interface WebhookTabLogicProps {
     id: string
@@ -260,7 +259,9 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
         missingCredentialFields: [
             (s) => [s.webhookInfo, s.sourceConfig],
             (webhookInfo: WebhookInfo | null, sourceConfig: SourceConfigResponseApi | null): SourceFieldConfig[] =>
-                missingWebhookCredentials(webhookInfo, sourceConfig),
+                (sourceConfig?.webhookFields ?? []).filter((field) =>
+                    webhookInfo?.missing_inputs?.includes(field.name)
+                ),
         ],
         internalStateLabel: [
             (s) => [s.webhookInfo, s.missingCredentialFields],

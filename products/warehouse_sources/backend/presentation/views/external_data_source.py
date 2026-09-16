@@ -5275,6 +5275,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "webhook_url": webhook_url,
                 "schema_mapping": schema_mapping,
                 "inputs": webhook_inputs,
+                "missing_inputs": source.missing_webhook_inputs(all_inputs),
                 "external_status": dataclasses.asdict(external_status) if external_status else None,
                 "missing_events": missing_events,
                 "auto_creation_blocked_reason": blocked_reason,

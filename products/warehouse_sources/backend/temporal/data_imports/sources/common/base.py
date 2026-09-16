@@ -532,6 +532,15 @@ class ExternalWebhookInfo:
     error: str | None = None
 
 
+def _serialized_input_has_value(serialized: dict[str, Any] | None) -> bool:
+    # A set secret is redacted to `{"secret": True}`, so the marker is the only proof it has a value.
+    if not serialized:
+        return False
+    if serialized.get("secret"):
+        return True
+    return serialized.get("value") not in (None, "")
+
+
 class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
     """Base class for sources that support webhook based imports."""
 
@@ -571,6 +580,18 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         surfaces from `create_webhook`.
         """
         return None
+
+    def missing_webhook_inputs(self, inputs: dict[str, Any]) -> list[str]:
+        """Names of required ``webhookFields`` the hog function has no value for, from its serialized inputs.
+
+        While one is missing the webhook accepts and drops every delivery. Override where the
+        provider stores the credential under another input, so a configured webhook is not reported.
+        """
+        return [
+            field.name
+            for field in (self.get_source_config.webhookFields or [])
+            if getattr(field, "required", False) and not _serialized_input_has_value(inputs.get(field.name))
+        ]
 
     def get_desired_webhook_events(self, config: ConfigType, eligible_schema_names: list[str]) -> list[str] | None:
         """Events the webhook should subscribe to. ``None`` when the source has no
