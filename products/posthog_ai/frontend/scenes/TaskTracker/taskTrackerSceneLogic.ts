@@ -347,11 +347,11 @@ export interface taskTrackerSceneLogicMeta {
             defaultRuntimeAdapter: string | null,
             catalogue: ModelChoiceApi[]
         ) => string
-        isDefaultSelection: (newTaskData: TaskCreateForm) => boolean
         effectiveRepositoryConfig: (
             newTaskData: TaskCreateForm,
             composerOverride: ComposerOverride | null
         ) => RepositoryConfig
+        isDefaultSelection: (newTaskData: TaskCreateForm) => boolean
     }
 }
 
