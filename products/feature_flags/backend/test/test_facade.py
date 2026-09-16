@@ -293,6 +293,7 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
 class TestRedactUnchangedEncryptedPayloads:
     def test_only_redacts_byte_identical_stored_values(self):
         flag = FeatureFlag(
+            is_remote_configuration=True,
             has_encrypted_payloads=True,
             filters={"payloads": {"same": "CIPHER", "changed": "OLD"}},
         )

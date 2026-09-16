@@ -13962,7 +13962,7 @@ class TestFeatureFlagVersions(APIBaseTest):
         flag = self._create_flag_via_api()
         flag_id = flag["id"]
 
-        FeatureFlag.objects.filter(id=flag_id).update(has_encrypted_payloads=True)
+        FeatureFlag.objects.filter(id=flag_id).update(is_remote_configuration=True, has_encrypted_payloads=True)
 
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST

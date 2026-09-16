@@ -62,6 +62,16 @@ Ordinary POST, PUT, and PATCH writes route through the feature flag facade.
 The serializer remains the v1 validation, approval, and persistence adapter.
 See [API write ownership](api-writes.md) for the call path and transaction boundary.
 
+### Remote configuration and encrypted payloads
+
+Only remote configuration flags can have encrypted payloads. `has_encrypted_payloads=True` requires `is_remote_configuration=True`. Regular flags can have plaintext payloads, and remote configuration flags can have either plaintext or encrypted payloads. A null value in either field is treated as false for this restriction.
+
+The `encrypted_payloads_require_remote_config` database constraint enforces this restriction on inserts and updates, including writes that bypass the API serializer or `FeatureFlag.clean()`. The serializer validates the effective values on partial updates, so turning off remote configuration also requires turning off encryption in the same request. The API removes the stored encrypted payload when encryption is turned off.
+
+The constraint is added with `AddConstraintNotValid`, so it applies to new and updated rows without scanning existing data. Validation is deferred because an earlier migration can preserve encrypted, non-remote flags whose payload needs manual reconciliation. PostgreSQL still evaluates a `NOT VALID` check against every row version an update writes, whatever column that update sets, so it rejects any update to a preserved row until someone reconciles that row. This affects key rotation, soft deletion, `last_called_at` synchronization, and dependency version bumps. Before adding a validation migration, check for rows where `has_encrypted_payloads IS TRUE AND is_remote_configuration IS NOT TRUE`. Review and repair those rows first; do not clear the encryption marker while retaining ciphertext as a regular payload.
+
+Flag evaluation and local evaluation exclude every flag where `has_encrypted_payloads` is true, whatever its `is_remote_configuration` value. Only the `/remote_config` endpoint serves an encrypted payload, because only that endpoint decrypts.
+
 ### Custom actions
 
 | Method | URL                                                     | Description                                                                     |

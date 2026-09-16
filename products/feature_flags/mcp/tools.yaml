@@ -50,6 +50,7 @@ tools:
             - tags
             - evaluation_contexts
             - is_remote_configuration
+            - has_encrypted_payloads
             - ensure_experience_continuity
             - evaluation_runtime
             - bucketing_identifier
@@ -756,6 +757,7 @@ tools:
             - tags
             - evaluation_contexts
             - is_remote_configuration
+            - has_encrypted_payloads
             - ensure_experience_continuity
             - evaluation_runtime
             - bucketing_identifier

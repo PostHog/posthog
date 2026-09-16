@@ -61,6 +61,7 @@ from products.feature_flags.backend.flags_cache import (
 from products.feature_flags.backend.flags_cache_messages import FlagsCacheInvalidation
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.test.encrypted_payloads_test_helpers import create_pre_constraint_encrypted_flag
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -283,25 +284,15 @@ class TestServiceFlagsCache(BaseTest):
         [
             # (is_remote_config, has_encrypted, should_include, description)
             (False, False, True, "regular_flag"),
-            (False, True, False, "encrypted_but_not_remote_config"),
             (True, False, True, "unencrypted_remote_config"),
             (True, True, False, "encrypted_remote_config"),
             (None, False, True, "null_remote_config_unencrypted"),
-            (None, True, False, "null_remote_config_encrypted"),
             (False, None, True, "regular_flag_null_encrypted"),
             (True, None, True, "remote_config_null_encrypted"),
             (None, None, True, "legacy_flag_both_null"),
         ]
     )
     def test_filtering_matrix_for_service(self, is_remote_config, has_encrypted, should_include, desc):
-        """Test filtering behavior for all combinations of is_remote_configuration and has_encrypted_payloads.
-
-        Any flag with has_encrypted_payloads=True is excluded — these can only be
-        accessed via /remote_config. The model invariant (clean() + serializer
-        validation) guarantees True implies is_remote_configuration=True, but the
-        filter is intentionally strict to defend against invariant violations.
-        NULL has_encrypted_payloads is preserved (legacy flags pre-dating the field).
-        """
         FeatureFlag.objects.create(
             team=self.team,
             key=f"flag-{desc}",
@@ -323,18 +314,15 @@ class TestServiceFlagsCache(BaseTest):
         [
             # (is_remote_config, has_encrypted, should_include, description)
             (False, False, True, "regular_flag"),
-            (False, True, False, "encrypted_but_not_remote_config"),
             (True, False, True, "unencrypted_remote_config"),
             (True, True, False, "encrypted_remote_config"),
             (None, False, True, "null_remote_config_unencrypted"),
-            (None, True, False, "null_remote_config_encrypted"),
             (False, None, True, "regular_flag_null_encrypted"),
             (True, None, True, "remote_config_null_encrypted"),
             (None, None, True, "legacy_flag_both_null"),
         ]
     )
     def test_filtering_matrix_for_teams_batch(self, is_remote_config, has_encrypted, should_include, desc):
-        """Mirrors test_filtering_matrix_for_service for the batch loader path."""
         FeatureFlag.objects.create(
             team=self.team,
             key=f"flag-{desc}",
@@ -351,6 +339,23 @@ class TestServiceFlagsCache(BaseTest):
             assert f"flag-{desc}" in flag_keys, f"Expected flag-{desc} to be included"
         else:
             assert f"flag-{desc}" not in flag_keys, f"Expected flag-{desc} to be excluded"
+
+    @parameterized.expand([(False,), (None,)])
+    def test_pre_constraint_encrypted_flag_is_excluded(self, is_remote_config):
+        # Excluding on both booleans would serve this row's ciphertext as an ordinary payload.
+        create_pre_constraint_encrypted_flag(
+            team=self.team,
+            key="flag-pre-constraint-encrypted",
+            created_by=self.user,
+            is_remote_configuration=is_remote_config,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        service_keys = {f["key"] for f in _get_feature_flags_for_service(self.team)["flags"]}
+        batch_keys = {f["key"] for f in _get_feature_flags_for_teams_batch([self.team])[self.team.id]["flags"]}
+
+        assert "flag-pre-constraint-encrypted" not in service_keys
+        assert "flag-pre-constraint-encrypted" not in batch_keys
 
     def test_get_flags_from_cache_redis_hit(self):
         """Test getting flags from Redis cache."""

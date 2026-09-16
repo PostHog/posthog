@@ -37,6 +37,7 @@ from products.feature_flags.backend.local_evaluation import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
+from products.feature_flags.backend.test.encrypted_payloads_test_helpers import create_pre_constraint_encrypted_flag
 from products.surveys.backend.models import Survey
 
 
@@ -895,25 +896,15 @@ class TestLocalEvaluationBatch(BaseTest):
         [
             # (is_remote_config, has_encrypted, should_include, description)
             (False, False, True, "regular_flag"),
-            (False, True, False, "encrypted_but_not_remote_config"),
             (True, False, True, "unencrypted_remote_config"),
             (True, True, False, "encrypted_remote_config"),
             (None, False, True, "null_remote_config_unencrypted"),
-            (None, True, False, "null_remote_config_encrypted"),
             (False, None, True, "regular_flag_null_encrypted"),
             (True, None, True, "remote_config_null_encrypted"),
             (None, None, True, "legacy_flag_both_null"),
         ]
     )
     def test_batch_filtering_matrix_for_encrypted_payloads(self, is_remote_config, has_encrypted, should_include, desc):
-        """Mirrors test_filtering_matrix_for_teams_batch in test_flags_cache.py for the local evaluation batch path.
-
-        Any flag with has_encrypted_payloads=True is excluded — these can only be
-        accessed via /remote_config. The model invariant (clean() + serializer
-        validation) guarantees True implies is_remote_configuration=True, but the
-        filter is intentionally strict to defend against invariant violations.
-        NULL has_encrypted_payloads is preserved (legacy flags pre-dating the field).
-        """
         team = self._create_team_with_project(f"Team {desc}")
         FeatureFlag.objects.create(
             team=team,
@@ -931,6 +922,22 @@ class TestLocalEvaluationBatch(BaseTest):
             assert f"flag-{desc}" in flag_keys, f"Expected flag-{desc} to be included"
         else:
             assert f"flag-{desc}" not in flag_keys, f"Expected flag-{desc} to be excluded"
+
+    @parameterized.expand([(False,), (None,)])
+    def test_batch_excludes_pre_constraint_encrypted_flag(self, is_remote_config):
+        # Excluding on both booleans would serve this row's ciphertext as an ordinary payload.
+        team = self._create_team_with_project(f"Team pre-constraint {is_remote_config}")
+        create_pre_constraint_encrypted_flag(
+            team=team,
+            key="flag-pre-constraint-encrypted",
+            created_by=self.user,
+            is_remote_configuration=is_remote_config,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        results = _get_flags_response_for_local_evaluation_batch([team])
+
+        assert "flag-pre-constraint-encrypted" not in {f["key"] for f in results[team.id]["flags"]}
 
     def test_batch_two_teams_flags_isolated(self):
         team_a = self._create_team_with_project("Team A")
