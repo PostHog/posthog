@@ -29,7 +29,6 @@ from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
-from posthog.utils import str_to_bool
 
 from products.canvas.backend import build_service, error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, CanvasActionDenied, canvas_actions_disabled
@@ -84,8 +83,11 @@ from products.canvas.backend.presentation.serializers import (
     CanvasSourcePublishSerializer,
     CanvasSourceResponseSerializer,
     CanvasStateEntrySerializer,
+    CanvasStateQuerySerializer,
     CanvasStateResponseSerializer,
     CanvasStateSetSerializer,
+    CanvasStateValueQuerySerializer,
+    CanvasStateValueResponseSerializer,
     CanvasSummarySerializer,
     CanvasUpdateSerializer,
     CanvasValidateRequestSerializer,
@@ -95,6 +97,7 @@ from products.canvas.backend.presentation.serializers import (
     canvas_url,
 )
 from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
+from products.canvas.backend.state_reads import CanvasStateReader
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response
 
@@ -444,6 +447,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         "builds",
         "validate",
         "state",
+        "state_value",
         "layout",
         "connectors",
         "view",
@@ -2116,29 +2120,15 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         )
         return Response(CanvasConnectorCallResultSerializer(instance=result).data)
 
+    def _readable_state_entries(self, canvas: Canvas, user: User) -> QuerySet[CanvasState]:
+        version = canvas.current_source_version
+        declared = declared_state_scopes(version.capabilities if version else None)
+        readable = Q(scope=CanvasState.SCOPE_SHARED, user__isnull=True) | Q(scope=CanvasState.SCOPE_USER, user=user)
+        return CanvasState.objects.for_team(self.team_id).filter(readable, canvas=canvas, scope__in=declared)
+
     @extend_schema(
         operation_id="canvases_state_retrieve",
-        parameters=[
-            OpenApiParameter(
-                "scope",
-                OpenApiTypes.STR,
-                required=False,
-                enum=CanvasState.SCOPES,
-                description="Only return entries in this scope.",
-            ),
-            OpenApiParameter(
-                "key_prefix",
-                OpenApiTypes.STR,
-                required=False,
-                description="Only return entries whose key starts with this prefix.",
-            ),
-            OpenApiParameter(
-                "keys_only",
-                OpenApiTypes.BOOL,
-                required=False,
-                description="Return the entries without their values, to inventory the keys of a large state.",
-            ),
-        ],
+        parameters=[CanvasStateQuerySerializer],
         responses={
             200: CanvasStateResponseSerializer,
             403: OpenApiResponse(description="Canvas state requires an authenticated user."),
@@ -2158,32 +2148,43 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         # Reads honor the same reviewed boundary as writes: a canvas only sees
         # the scopes its head version declares, so narrowing capabilities also
         # stops reads of previously written entries.
-        version = canvas.current_source_version
-        declared = declared_state_scopes(version.capabilities if version else None)
-        readable_entries = Q(scope=CanvasState.SCOPE_SHARED, user__isnull=True) | Q(
-            scope=CanvasState.SCOPE_USER, user=user
-        )
-        entries = CanvasState.objects.for_team(self.team_id).filter(readable_entries, canvas=canvas, scope__in=declared)
-        scope = request.query_params.get("scope")
-        if scope:
-            if scope not in CanvasState.SCOPES:
-                return Response({"detail": "scope must be 'user' or 'shared'."}, status=status.HTTP_400_BAD_REQUEST)
-            entries = entries.filter(scope=scope)
-        key_prefix = request.query_params.get("key_prefix")
-        if key_prefix:
-            if "\x00" in key_prefix:
-                return Response(
-                    {"detail": "key_prefix cannot contain null characters."}, status=status.HTTP_400_BAD_REQUEST
-                )
-            entries = entries.filter(key__startswith=key_prefix)
-        entries = entries.order_by("scope", "key")
-        # A scope holds up to 256 keys of 64 KB, so a whole-scope read can exceed what the caller can hold.
-        rows = (
-            entries.values("scope", "key", "updated_at")
-            if str_to_bool(request.query_params.get("keys_only"))
-            else entries
-        )
-        return Response(CanvasStateResponseSerializer(instance={"entries": rows}).data)
+        query = CanvasStateQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        result = CanvasStateReader.entries(self._readable_state_entries(canvas, user), **query.validated_data)
+        return Response(CanvasStateResponseSerializer(result).data)
+
+    @extend_schema(
+        operation_id="canvases_state_value_retrieve",
+        parameters=[CanvasStateValueQuerySerializer],
+        responses={
+            200: CanvasStateValueResponseSerializer,
+            404: OpenApiResponse(description="No readable value for this scope and key."),
+            409: OpenApiResponse(description="The value changed. Restart from offset zero."),
+        },
+    )
+    @action(methods=["GET"], detail=True, url_path="state/value")
+    def state_value(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        canvas = self.get_object()
+        user = self._state_actor(request)
+        if user is None:
+            return _state_rejection()
+        query = CanvasStateValueQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        params = query.validated_data
+        entry = self._readable_state_entries(canvas, user).filter(scope=params["scope"], key=params["key"]).first()
+        if entry is None:
+            raise NotFound("No readable value for this scope and key. Read the key inventory first.")
+        result = CanvasStateReader.value(entry, offset=params["offset"], limit=params["limit"])
+        if params.get("revision") and params["revision"] != result["revision"]:
+            return Response(
+                {"detail": "The value changed. Read again from offset zero."}, status=status.HTTP_409_CONFLICT
+            )
+        if params["offset"] > result["total_length"]:
+            return Response(
+                {"detail": "Offset exceeds the value length. Read again from offset zero."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(CanvasStateValueResponseSerializer(result).data)
 
     @extend_schema(
         operation_id="canvases_state_set",

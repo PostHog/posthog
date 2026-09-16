@@ -4,6 +4,10 @@ import { z } from 'zod'
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
 
+export const CanvasStateReadLimitSchema = z.number().int().min(1).max(100).default(20)
+export const CanvasStateKeysOnlySchema = z.boolean().default(true)
+export const WikiPageReadLimitSchema = z.number().int().min(1).max(12000).default(12000)
+
 export const ChannelInstructionsBaseVersionSchema = z
     .number()
     .int()

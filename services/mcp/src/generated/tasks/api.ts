@@ -732,6 +732,12 @@ export const LoopsRunsRetrieveQueryParams = () => zod.object({
         .max(loopsRunsRetrieveQueryLimitMax)
         .default(loopsRunsRetrieveQueryLimitDefault)
         .describe('Max results per page (default 50, max 100).'),
+    status: zod
+        .enum(['not_started', 'queued', 'in_progress', 'completed', 'failed', 'cancelled'])
+        .optional()
+        .describe(
+            'Only return runs with this status. Use failed to read errors even when canvas state is unavailable.\n\n\* `not_started` - Not Started\n\* `queued` - Queued\n\* `in_progress` - In Progress\n\* `completed` - Completed\n\* `failed` - Failed\n\* `cancelled` - Cancelled'
+        ),
 })
 
 /**

@@ -1475,7 +1475,7 @@
         }
     },
     "canvas-state-retrieve": {
-        "description": "Read persisted `ph.state` entries for a visible canvas. Returns shared entries and the authenticated user's own user-scoped entries, never another user's. Use this with canvas-source-retrieve when collaborative progress, checklist selections, filters, or other runtime values live outside the source. Only scopes declared by the live canvas version are readable. Optionally filter to `user` or `shared` with `scope`. A whole-scope read can be too large to hold: pass `keys_only` to inventory the keys first, then read them in bounded groups with `key_prefix`.",
+        "description": "Read persisted `ph.state` entries for a visible canvas. Returns shared entries and the authenticated user's own user-scoped entries, never another user's. Use this with canvas-source-retrieve when collaborative progress, checklist selections, filters, or other runtime values live outside the source. Only scopes declared by the live canvas version are readable. Optionally filter to `user` or `shared` with `scope`. Returns a key inventory by default. Keep filters unchanged and follow next_offset until complete is true. Set key or key_prefix and keys_only=false for small selected values. Use canvas-state-value-retrieve for long values. This reads persisted state directly; no composition storage tool is needed.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "Read canvas state",
@@ -1500,6 +1500,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "canvas-state-value-retrieve": {
+        "description": "Read one exact scope and key as bounded JSON text chunks. Start at offset zero, then pass next_offset and revision until complete is true. Join value_json chunks in order before parsing the JSON. If the value changes, the read returns 409; discard earlier chunks and restart at zero. A 404 means no readable value for that scope and key, not a need for broader permissions.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Read a canvas state value",
+        "title": "Read a canvas state value",
+        "required_scopes": ["canvas:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "canvas-validate-create": {
@@ -2092,7 +2106,7 @@
         "feature_flag": "context-layer"
     },
     "context-wiki-page-retrieve": {
-        "description": "Read one repo-relative Markdown page from the organization context wiki. Returns its content and head_sha; pass that head_sha as base_head when updating the page.",
+        "description": "Read one repo-relative Markdown page from the organization context wiki. Returns its content and head_sha; pass that head_sha as base_head when updating the page. Reads are bounded. Follow next_offset with the same head_sha and limit until complete is true. Join content chunks in order before editing. On 409, discard the chunks and restart at offset zero.",
         "category": "Context wiki",
         "feature": "context_layer",
         "summary": "Read a context wiki page",
@@ -8167,7 +8181,7 @@
         "feature_flag": "context-layer"
     },
     "loop-context-wiki-page-retrieve": {
-        "description": "Read a context wiki page and its head_sha for an unattended loop run.",
+        "description": "Read a bounded context wiki page chunk and its head_sha for an unattended loop run. Follow next_offset with the same head_sha and limit until complete is true. Join all content chunks before editing. On 409, discard the chunks and restart at offset zero.",
         "category": "Context wiki",
         "feature": "context_layer",
         "summary": "Read a loop context wiki page",
@@ -8332,7 +8346,7 @@
         "feature_flag": "loops"
     },
     "loops-runs-retrieve": {
-        "description": "List a loop's run history, newest first, cursor-paginated. Each entry carries the run's status, branch, error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and what they produced.",
+        "description": "List a loop's run history, newest first, cursor-paginated. Each entry carries the run's status, branch, error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and what they produced. Set status=failed to find failure records without reading canvas state. Keep the status filter unchanged when following next_cursor. Use these records and the loop's last_run_status, last_error, and consecutive_failures for current health; an enabled schedule alone does not show successful work.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "List loop runs",
@@ -11918,7 +11932,7 @@
         "feature_flag": "context-layer"
     },
     "task-context-wiki-page-retrieve": {
-        "description": "Read a context wiki page and its head_sha for an unattended task run.",
+        "description": "Read a bounded context wiki page chunk and its head_sha for an unattended task run. Follow next_offset with the same head_sha and limit until complete is true. Join all content chunks before editing. On 409, discard the chunks and restart at offset zero.",
         "category": "Context wiki",
         "feature": "context_layer",
         "summary": "Read this task's context wiki page",
@@ -12053,7 +12067,7 @@
         "feature_flag": "tasks-mcp-agent-run-start"
     },
     "tasks-list": {
-        "description": "Search agent tasks before starting related work. Use `search` to match task titles and descriptions, and `channel` to limit results to the current space. The results identify who created each task and whether its latest run is active. Supports additional filtering by status, repository, creator, origin product, and archived or internal state. Requires the calling token's organization to have Tasks access enabled.",
+        "description": "Search agent tasks before starting related work. Use `search` to match task titles and descriptions, and `channel` to limit results to the current space. The results identify who created each task and whether its latest run is active. Supports additional filtering by status, repository, creator, origin product, and archived or internal state. Requires the calling token's organization to have Tasks access enabled. To inspect failures in a space, set channel, status=failed, internal=all, and archived=all. For workflow-backed loops, also set hog_flow_id. The latest_run includes the stored error and completion time even if the run stopped before writing canvas state. Use tasks-runs-list for earlier runs of a task.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Search and list tasks",

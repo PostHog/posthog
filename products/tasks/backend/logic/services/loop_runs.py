@@ -161,6 +161,8 @@ def render_context_target_block(context_target: dict | None) -> str:
             f"`loop-channel-instructions-retrieve` and "
             f"`loop-channel-instructions-update` with the version you just read as base_version. Edit in place, "
             f"carrying forward anything still true instead of rewriting from scratch."
+            " If a page read returns next_offset, continue with that offset, the same head_sha, and the same limit "
+            "until complete is true. Join all content chunks before editing. On a revision conflict, restart the read."
         )
     if outputs["canvas_id"]:
         lines.append(
@@ -168,7 +170,19 @@ def render_context_target_block(context_target: dict | None) -> str:
             f"`current_version_id` with `canvas-source-retrieve`, then publish the "
             f"complete project with `canvas-publish-create`, passing the version you "
             f"read as `expected_current_version_id`. Follow the `building-canvases` skill."
+            " Read runtime state with `canvas-state-retrieve`: list keys without values, follow next_offset, "
+            "and select only the keys needed. Read long values with `canvas-state-value-retrieve`, keeping "
+            "the revision fixed across chunks. Discover these tools through MCP search and info; do not assume "
+            "a composition storage tool is available. Missing tools, denied access, missing values, and incomplete "
+            "reads are different conditions. Report the actual condition instead of requesting broader permissions."
         )
+    lines.append(
+        f"- Read failures with `tasks-list`, channel={channel_id}, status=failed, internal=all, and archived=all. "
+        "Use hog_flow_id for workflow-backed loops and `tasks-runs-list` for earlier runs of a task. "
+        "When available, `loops-runs-retrieve` also accepts status=failed and next_cursor. Show task/run links "
+        "and stored errors in the canvas, not a saved Enabled label. If state cannot be read, report the failure "
+        "in the task response; do not mark the work complete."
+    )
     return "\n".join(lines)
 
 

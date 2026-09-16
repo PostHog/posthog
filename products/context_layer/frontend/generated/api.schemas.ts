@@ -176,6 +176,17 @@ export interface WikiPageApi {
     head_sha: string
     /** When this page was last changed in the wiki history. */
     updated_at: string
+    /** Character offset of this chunk. */
+    offset?: number
+    /** Character length of the complete page. */
+    total_length?: number
+    /**
+     * Next character offset, or null when complete.
+     * @nullable
+     */
+    next_offset?: number | null
+    /** True when no further chunks remain. Do not write a page until all chunks are read. */
+    complete?: boolean
 }
 
 /**
@@ -284,7 +295,25 @@ export interface WikiPageProposalWriteApi {
 
 export type ContextLayerPagesRetrieveParams = {
     /**
+     * Head from the first chunk. Required for continuation. A changed head returns 409.
+     * @minLength 1
+     * @maxLength 64
+     */
+    head_sha?: string
+    /**
+     * Maximum characters to read. Omit for the full page.
+     * @minimum 1
+     * @maximum 12000
+     */
+    limit?: number
+    /**
+     * Character offset from next_offset.
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Repo-relative Markdown path of the page to read.
+     * @minLength 1
      */
     path: string
 }
@@ -302,7 +331,25 @@ export type ContextLayerProposalsListParams = {
 
 export type ContextLayerAgentPagesRetrieveParams = {
     /**
+     * Head from the first chunk. Required for continuation. A changed head returns 409.
+     * @minLength 1
+     * @maxLength 64
+     */
+    head_sha?: string
+    /**
+     * Maximum characters to read. Omit for the full page.
+     * @minimum 1
+     * @maximum 12000
+     */
+    limit?: number
+    /**
+     * Character offset from next_offset.
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Repo-relative Markdown path of the page to read.
+     * @minLength 1
      */
     path: string
 }

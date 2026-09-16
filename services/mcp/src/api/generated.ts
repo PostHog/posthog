@@ -17499,7 +17499,7 @@ export namespace Schemas {
          * @maxLength 200
          */
       key: string;
-      /** The stored JSON value. Absent when the read asked for keys only. */
+      /** The stored JSON value. Omitted from a key inventory. */
       value?: unknown;
       /** When the entry was last written. */
       updated_at: string;
@@ -17511,6 +17511,13 @@ export namespace Schemas {
     export interface CanvasStateResponse {
       /** The canvas's shared entries plus the caller's own user-scoped entries. */
       entries: CanvasStateEntry[];
+      /**
+         * Next entry offset, or null when complete.
+         * @nullable
+         */
+      next_offset: number | null;
+      /** True when no further entries remain for this selection. */
+      complete: boolean;
     }
 
     /**
@@ -17529,6 +17536,31 @@ export namespace Schemas {
       key: string;
       /** JSON value to store (at most 64 KB serialized), or null to delete the key. */
       value: unknown;
+    }
+
+    export interface CanvasStateValueResponse {
+      /** Scope of this value.
+       *
+       * * `user` - user
+       * * `shared` - shared */
+      scope: CanvasStateScopeEnum;
+      /** Key of this value. */
+      key: string;
+      /** A chunk of JSON text. Join all chunks in order, then parse the complete JSON. */
+      value_json: string;
+      /** Content revision. Pass it on subsequent reads; a changed value returns 409. */
+      revision: string;
+      /** Character offset of this chunk. */
+      offset: number;
+      /** Character length of the complete JSON text. */
+      total_length: number;
+      /**
+         * Next character offset, or null when complete.
+         * @nullable
+         */
+      next_offset: number | null;
+      /** True when no further chunks remain. Earlier chunks are still needed when offset is nonzero. */
+      complete: boolean;
     }
 
     /**
@@ -93378,6 +93410,17 @@ export namespace Schemas {
       head_sha: string;
       /** When this page was last changed in the wiki history. */
       updated_at: string;
+      /** Character offset of this chunk. */
+      offset?: number;
+      /** Character length of the complete page. */
+      total_length?: number;
+      /**
+         * Next character offset, or null when complete.
+         * @nullable
+         */
+      next_offset?: number | null;
+      /** True when no further chunks remain. Do not write a page until all chunks are read. */
+      complete?: boolean;
     }
 
     /**
@@ -96539,7 +96582,25 @@ export namespace Schemas {
 
     export type ContextLayerPagesRetrieveParams = {
     /**
+     * Head from the first chunk. Required for continuation. A changed head returns 409.
+     * @minLength 1
+     * @maxLength 64
+     */
+    head_sha?: string;
+    /**
+     * Maximum characters to read. Omit for the full page.
+     * @minimum 1
+     * @maximum 12000
+     */
+    limit?: number;
+    /**
+     * Character offset from next_offset.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Repo-relative Markdown path of the page to read.
+     * @minLength 1
      */
     path: string;
     };
@@ -98085,15 +98146,37 @@ export namespace Schemas {
 
     export type CanvasesStateRetrieveParams = {
     /**
-     * Only return entries whose key starts with this prefix.
+     * Only read this exact key.
+     * @minLength 1
+     * @maxLength 200
+     */
+    key?: string;
+    /**
+     * Only read entries whose key starts with this prefix.
+     * @maxLength 200
      */
     key_prefix?: string;
     /**
-     * Return the entries without their values, to inventory the keys of a large state.
+     * True returns a key inventory without stored values.
      */
     keys_only?: boolean;
     /**
-     * Only return entries in this scope.
+     * Maximum entries per page. Omit for the full state. Prefer an inventory and state/value for large values.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Entry offset from next_offset. Keep filters unchanged between pages.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Only read this scope.
+     *
+     * * `user` - user
+     * * `shared` - shared
+     * @minLength 1
      */
     scope?: CanvasesStateRetrieveScope;
     };
@@ -98102,8 +98185,50 @@ export namespace Schemas {
 
 
     export const CanvasesStateRetrieveScope = {
-      Shared: 'shared',
       User: 'user',
+      Shared: 'shared',
+    } as const;
+
+    export type CanvasesStateValueRetrieveParams = {
+    /**
+     * Exact key to read.
+     * @minLength 1
+     * @maxLength 200
+     */
+    key: string;
+    /**
+     * Maximum JSON characters in this response.
+     * @minimum 1
+     * @maximum 12000
+     */
+    limit?: number;
+    /**
+     * Character offset from next_offset.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Revision from the first chunk. Required when offset is greater than zero.
+     * @minLength 1
+     * @maxLength 64
+     */
+    revision?: string;
+    /**
+     * Scope of the value to read.
+     *
+     * * `user` - user
+     * * `shared` - shared
+     * @minLength 1
+     */
+    scope: CanvasesStateValueRetrieveScope;
+    };
+
+    export type CanvasesStateValueRetrieveScope = typeof CanvasesStateValueRetrieveScope[keyof typeof CanvasesStateValueRetrieveScope];
+
+
+    export const CanvasesStateValueRetrieveScope = {
+      User: 'user',
+      Shared: 'shared',
     } as const;
 
     export type CanvasesVersionsRetrieveParams = {
@@ -98328,7 +98453,25 @@ export namespace Schemas {
 
     export type ContextLayerAgentPagesRetrieveParams = {
     /**
+     * Head from the first chunk. Required for continuation. A changed head returns 409.
+     * @minLength 1
+     * @maxLength 64
+     */
+    head_sha?: string;
+    /**
+     * Maximum characters to read. Omit for the full page.
+     * @minimum 1
+     * @maximum 12000
+     */
+    limit?: number;
+    /**
+     * Character offset from next_offset.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Repo-relative Markdown path of the page to read.
+     * @minLength 1
      */
     path: string;
     };
@@ -104007,7 +104150,31 @@ export namespace Schemas {
      * @maximum 100
      */
     limit?: number;
+    /**
+     * Only return runs with this status. Use failed to read errors even when canvas state is unavailable.
+     *
+     * * `not_started` - Not Started
+     * * `queued` - Queued
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     * @minLength 1
+     */
+    status?: LoopsRunsRetrieveStatus;
     };
+
+    export type LoopsRunsRetrieveStatus = typeof LoopsRunsRetrieveStatus[keyof typeof LoopsRunsRetrieveStatus];
+
+
+    export const LoopsRunsRetrieveStatus = {
+      NotStarted: 'not_started',
+      Queued: 'queued',
+      InProgress: 'in_progress',
+      Completed: 'completed',
+      Failed: 'failed',
+      Cancelled: 'cancelled',
+    } as const;
 
     export type LoopsTriggerCreateBodyOne = { [key: string]: unknown };
 

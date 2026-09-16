@@ -362,9 +362,30 @@ tools:
             Read persisted `ph.state` entries for a visible canvas. Returns shared entries and the authenticated user's
             own user-scoped entries, never another user's. Use this with canvas-source-retrieve when collaborative
             progress, checklist selections, filters, or other runtime values live outside the source. Only scopes
-            declared by the live canvas version are readable. Optionally filter to `user` or `shared` with `scope`. A
-            whole-scope read can be too large to hold: pass `keys_only` to inventory the keys first, then read them in
-            bounded groups with `key_prefix`.
+            declared by the live canvas version are readable. Optionally filter to `user` or `shared` with `scope`.
+            Returns a key inventory by default. Keep filters unchanged and follow next_offset until complete is true.
+            Set key or key_prefix and keys_only=false for small selected values. Use canvas-state-value-retrieve for long values.
+            This reads persisted state directly; no composition storage tool is needed.
+        param_overrides:
+            limit:
+                input_schema: CanvasStateReadLimitSchema
+            keys_only:
+                input_schema: CanvasStateKeysOnlySchema
+    canvas-state-value-retrieve:
+        operation: canvases_state_value_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read a canvas state value
+        description: >
+            Read one exact scope and key as bounded JSON text chunks. Start at offset zero, then pass next_offset
+            and revision until complete is true. Join value_json chunks in order before parsing the JSON.
+            If the value changes, the read returns 409; discard earlier chunks and restart at zero.
+            A 404 means no readable value for that scope and key, not a need for broader permissions.
     canvas-state-set:
         operation: canvases_state_set
         enabled: true

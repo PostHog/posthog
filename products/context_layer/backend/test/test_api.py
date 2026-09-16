@@ -737,6 +737,27 @@ class TestContextLayerAPI(APIBaseTest):
         )
         assert read.status_code == 200, read.content
 
+        content = read.json()["content"]
+        params = {"path": f"projects/{self.team.id}/spaces/growth.md", "limit": "23"}
+        chunks: list[str] = []
+        while True:
+            response = self.client.get(f"{self.agent_url}/pages/", params, HTTP_AUTHORIZATION=f"Bearer {token}")
+            assert response.status_code == 200, response.content
+            page = response.json()
+            chunks.append(page["content"])
+            assert len(page["content"]) <= 23
+            if page["next_offset"] is None:
+                assert page["complete"] is True
+                break
+            params.update(offset=page["next_offset"], head_sha=page["head_sha"])
+        assert "".join(chunks) == content
+        stale = self.client.get(
+            f"{self.agent_url}/pages/",
+            {**params, "head_sha": "0" * 40},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert stale.status_code == 409, stale.content
+
         updated = self.client.put(
             f"{self.agent_url}/pages/",
             {
