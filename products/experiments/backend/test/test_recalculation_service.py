@@ -586,7 +586,7 @@ class TestLiveQueryProgressFinishedQueries(BaseTest, ClickhouseTestMixin):
 
         with tags_context(
             team_id=self.team.id,
-            client_query_id=f"experiment_metric_recalc_{recalc.id}_metric-1",
+            client_query_id=f"experiment_metric_recalc_{recalc.id}_metric-1_attempt01",
             product=Product.EXPERIMENTS,
             feature=Feature.CACHE_WARMUP,
         ):

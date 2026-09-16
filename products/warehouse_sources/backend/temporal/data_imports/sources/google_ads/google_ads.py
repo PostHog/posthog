@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Column, Table
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
@@ -604,7 +605,7 @@ def google_ads_source(
     """
 
     name = NamingConvention.normalize_identifier(resource_name)
-    table = get_schemas(config, team_id, api_version)[resource_name]
+    table = schema_for_resource(get_schemas(config, team_id, api_version), resource_name)
 
     # Report tables always need a date filter, so a full-refresh schema is forced onto the
     # incremental query path here. Record whether the pipeline itself is incremental first: only an

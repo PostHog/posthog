@@ -1,5 +1,6 @@
 """The writable saved-query serializer: validation, create, and update."""
 
+import uuid
 from typing import Any, cast
 
 from django.conf import settings
@@ -93,7 +94,12 @@ class DataWarehouseSavedQuerySerializer(
     sync_frequency_bounds = serializers.SerializerMethodField(
         read_only=True, help_text=sync_cadence.SYNC_FREQUENCY_BOUNDS_HELP_TEXT
     )
-    latest_history_id = serializers.SerializerMethodField(read_only=True)
+    latest_history_id = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Activity log ID of the most recent query edit to this view. Send it back as "
+        "edited_history_id on the next query write, so conflict detection can tell whether someone else "
+        "changed the query in the meantime. Edits that leave the query alone do not advance it.",
+    )
     last_run_at = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     latest_error = serializers.SerializerMethodField(read_only=True)
@@ -220,8 +226,8 @@ class DataWarehouseSavedQuerySerializer(
                 saved_query=view, column_name=""
             ).delete()
 
-    @extend_schema_field(serializers.IntegerField(allow_null=True))
-    def get_latest_history_id(self, view: DataWarehouseSavedQuery):
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_latest_history_id(self, view: DataWarehouseSavedQuery) -> uuid.UUID | None:
         # First check if we have an activity log from a recent creation/update
         if (
             "activity_log" in self.context
@@ -231,10 +237,7 @@ class DataWarehouseSavedQuerySerializer(
             return self.context["activity_log"].id
 
         # Otherwise check for annotated field from queryset
-        if hasattr(view, "latest_activity_id"):
-            return view.latest_activity_id
-
-        return None
+        return cast(uuid.UUID | None, getattr(view, "latest_activity_id", None))
 
     @extend_schema_field(
         serializers.DictField(

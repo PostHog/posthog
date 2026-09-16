@@ -532,6 +532,79 @@ class TestServiceFlagsCache(BaseTest):
         assert len(result[other_team.id]["cohorts"]) == 1
         assert result[other_team.id]["cohorts"][0]["id"] == cohort_b.id
 
+    def _create_cohort(self, name: str) -> Cohort:
+        return Cohort.objects.create(
+            team=self.team,
+            name=name,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"type": "OR", "values": [{"key": "email", "value": "a@example.com", "type": "person"}]}
+                    ],
+                }
+            },
+        )
+
+    def test_get_feature_flags_for_service_reads_explicit_config_version_1_like_absent(self):
+        cohort = self._create_cohort("referenced")
+        target = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependency-target",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        stored_filters = {
+            "version": 1,
+            "groups": [
+                {
+                    "properties": [
+                        {"type": "cohort", "value": cohort.id},
+                        {"type": "flag", "key": str(target.id), "value": ["true"], "operator": "exact"},
+                    ],
+                    "rollout_percentage": 100,
+                }
+            ],
+        }
+        flag = FeatureFlag.objects.create(
+            team=self.team, key="explicit-version-1", created_by=self.user, filters=stored_filters
+        )
+
+        result = _get_feature_flags_for_service(self.team)
+
+        assert {f["key"] for f in result["flags"]} == {"dependency-target", "explicit-version-1"}
+        assert [c["id"] for c in result["cohorts"]] == [cohort.id]
+        assert result["evaluation_metadata"]["dependency_stages"] == [[target.id], [flag.id]]
+        assert result["evaluation_metadata"]["transitive_deps"][str(flag.id)] == [target.id]
+        flag.refresh_from_db()
+        assert flag.filters == stored_filters
+
+    def test_update_flags_cache_keeps_existing_entry_when_a_flag_has_unsupported_format(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="v1-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        assert update_flags_cache(self.team) is True
+        etag_before = flags_hypercache.get_etag(self.team)
+
+        # A v2 discriminator over v1-looking groups: reading it as v1 would publish the
+        # document into the service payload instead of failing this team's rebuild.
+        unsupported_filters = {"version": 2, "groups": [{"properties": [], "rollout_percentage": 100}]}
+        unsupported = FeatureFlag.objects.create(
+            team=self.team, key="unsupported-format", created_by=self.user, filters=unsupported_filters
+        )
+
+        assert update_flags_cache(self.team) is False
+
+        cached = get_flags_from_cache(self.team)
+        assert cached is not None
+        assert [f["key"] for f in cached] == ["v1-flag"]
+        assert flags_hypercache.get_etag(self.team) == etag_before
+        unsupported.refresh_from_db()
+        assert unsupported.filters == unsupported_filters
+
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestHasExperimentField(BaseTest):
@@ -3411,6 +3484,11 @@ class TestExtractDirectDependencyIds:
             ("inactive_flag_returns_empty", _make_flag(1, "flag_a", deps=[2], active=False), set()),
             ("deleted_flag_returns_empty", _make_flag(1, "flag_a", deps=[2], deleted=True), set()),
             (
+                "inactive_unsupported_format_returns_empty",
+                {**_make_flag(1, "flag_a", active=False), "filters": {"version": 2, **_dependency_filters(2)}},
+                set(),
+            ),
+            (
                 "non_flag_properties_ignored",
                 {
                     "id": 1,
@@ -3893,15 +3971,17 @@ class TestExtractCohortIdsFromFlagFilters(BaseTest):
 
     @parameterized.expand(
         [
-            ("inactive", {"active": False}),
-            ("deleted", {"active": True, "deleted": True}),
+            ("inactive", {"active": False}, {}),
+            ("deleted", {"active": True, "deleted": True}, {}),
+            ("inactive_unsupported_format", {"active": False}, {"version": 2}),
         ]
     )
-    def test_skips_excluded_flag(self, _name, flag_overrides):
+    def test_skips_excluded_flag(self, _name, flag_overrides, filters_overrides):
         flags_data = [
             {
                 **flag_overrides,
                 "filters": {
+                    **filters_overrides,
                     "groups": [{"properties": [{"type": "cohort", "value": 42}]}],
                 },
             }

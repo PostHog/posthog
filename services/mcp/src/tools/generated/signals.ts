@@ -638,6 +638,9 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
@@ -685,6 +688,7 @@ const scoutConfigList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
+                search: params.search,
                 tags: params.tags,
             },
         })
@@ -793,6 +797,9 @@ const scoutCreate = (): ToolBase<ReturnType<typeof ScoutCreateSchema>, Schemas.S
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }
@@ -1437,6 +1444,9 @@ const signalsScoutConfigCreate = (): ToolBase<
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
@@ -1484,6 +1494,7 @@ const signalsScoutConfigList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
+                search: params.search,
                 tags: params.tags,
             },
         })
