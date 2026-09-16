@@ -796,7 +796,13 @@ class TestScoutReportAPI(APIBaseTest):
         # The decision is latest-wins and auto-start re-reads it from paths a scout never sees, so
         # the refused rewrite has to leave a `False` standing rather than the last honored `True`.
         decision = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION)
-        assert decision is not None and json.loads(decision.content)["supersede"] is False
+        assert decision is not None
+        refused = json.loads(decision.content)
+        assert refused["supersede"] is False
+        # A reviewer opens this entry to find out why no replacement started, so the refused claim
+        # must not read back as the scout judging the open pull request still right.
+        assert "asked to replace the open pull request" in refused["reason"]
+        assert "without changing what the fix should be" not in refused["reason"]
 
     def test_a_rewrite_that_claims_nothing_retracts_the_last_supersede_decision(self) -> None:
         # Same hazard from the other side: a scout supersedes once, then rewrites again saying

@@ -617,6 +617,7 @@ def record_implementation_decision(
     attribution: ArtefactAttribution,
     implementation_context: ImplementationResearchContext,
     author: str | None = None,
+    supersede_requested: bool = False,
 ) -> None:
     """Record what this rewrite means for the report's pull request, as the same
     `implementation_decision` artefact the research agent writes.
@@ -629,14 +630,27 @@ def record_implementation_decision(
     latest-wins and auto-start re-reads it from paths a scout never sees (a reviewer edit, a later
     research pass), so leaving an old `supersede=True` standing after a rewrite that made no such
     claim would let one of those paths open a replacement off a decision nobody made.
+
+    `supersede_requested` is the caller's ask, `supersede` the policy answer to it. They part company
+    past the revision cap, where the reason has to say the cap refused the claim: reading the refusal
+    back as "the fix did not change" states the scout's judgment backwards, in the one entry a
+    reviewer opens to find out why no replacement started.
     """
     fields = " and ".join(sorted(set(updated_fields) & {"title", "summary"})) or "content"
     who = author or "A scout"
-    reason = (
-        f"{who} rewrote the report's {fields}. The open pull request was built from the version before that rewrite."
-        if supersede
-        else f"{who} rewrote the report's {fields} without changing what the fix should be."
-    )
+    if supersede:
+        reason = (
+            f"{who} rewrote the report's {fields}. "
+            "The open pull request was built from the version before that rewrite."
+        )
+    elif supersede_requested:
+        reason = (
+            f"{who} rewrote the report's {fields} and asked to replace the open pull request. "
+            f"Only a report's first {MAX_SCOUT_CONTENT_REVISIONS} rewrites can do that, "
+            "so the pull request stays open."
+        )
+    else:
+        reason = f"{who} rewrote the report's {fields} without changing what the fix should be."
     report = SignalReport.objects.get(team_id=team_id, id=report_id)
     context_matches = (
         implementation_context.run_count == report.run_count

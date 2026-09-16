@@ -1772,6 +1772,7 @@ def _do_edit_report(
                     team_id=team.id,
                     report_id=report_id,
                     supersede=supersede_recorded,
+                    supersede_requested=supersedes_implementation,
                     updated_fields=updated_fields,
                     attribution=attribution,
                     author=run.skill_name,
