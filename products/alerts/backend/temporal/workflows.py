@@ -9,6 +9,11 @@ from temporalio.exceptions import ActivityError, ApplicationError, TimeoutError,
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.logger import get_write_only_logger
+
+from products.alerts.backend.temporal.sources import SOURCE_EVALUATION_WORKFLOWS
+
+LOGGER = get_write_only_logger(__name__)
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
@@ -17,12 +22,14 @@ with workflow.unsafe.imports_passed_through():
     from asgiref.sync import sync_to_async
 
     from products.alerts.backend.facade.contracts import (
+        AlertDeliveryPreview,
         AlertDemand,
         DemandDiscoveryInputs,
         OrchestrateInputs,
         OrchestrateResult,
         SourceDispatchInputs,
         SourceDispatchReport,
+        SourceEvaluationInputs,
         TickPage,
     )
     from products.alerts.backend.logic.demand import discover_synthetic_demand
@@ -63,6 +70,38 @@ async def alerts_product_probe_postgres_activity() -> None:
 @activity.defn
 async def alerts_product_deliver_activity() -> None:
     pass
+
+
+@activity.defn
+async def alerts_product_deliver_preview_activity(preview: AlertDeliveryPreview) -> None:
+    """Records what delivery would have sent. The PoC contacts no destination."""
+    await LOGGER.ainfo(
+        "alerts_product_delivery_preview",
+        source=preview.source.value,
+        alert_id=preview.alert_id,
+        alert_name=preview.alert_name,
+        evaluation_key=preview.evaluation_key,
+        destinations=list(preview.destination_names),
+        transitions=[
+            {"grouping_key": transition.grouping_key, "notification": transition.notification}
+            for transition in preview.transitions
+        ],
+    )
+
+
+@workflow.defn(name="alerts-product-deliver-preview")
+class AlertsProductDeliverPreviewWorkflow(PostHogWorkflow):
+    inputs_cls = AlertDeliveryPreview
+
+    @workflow.run
+    async def run(self, inputs: AlertDeliveryPreview) -> None:
+        await workflow.execute_activity(
+            alerts_product_deliver_preview_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(seconds=10),
+            schedule_to_close_timeout=dt.timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
 
 
 @workflow.defn(name="alerts-product-deliver")
@@ -130,17 +169,33 @@ class AlertsProductSourceDispatchWorkflow(PostHogWorkflow):
     async def run(self, inputs: SourceDispatchInputs) -> SourceDispatchReport:
         evaluation_workflow_id: str | None = None
         if inputs.configuration_ids:
-            # Members are not passed to evaluation until claims exist. The probe path stays as is.
             evaluation_workflow_id = f"{workflow.info().workflow_id}-eval"
-            await workflow.start_child_workflow(
-                AlertsProductEvaluateWorkflow.run,
-                AlertsProductInputs(),
-                id=evaluation_workflow_id,
-                task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
-                parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=dt.timedelta(seconds=40),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
+            source_workflow = SOURCE_EVALUATION_WORKFLOWS.get(inputs.source)
+            if source_workflow is None:
+                # No adapter yet. Members are not passed to the noop, and the probe path stays as is.
+                await workflow.start_child_workflow(
+                    AlertsProductEvaluateWorkflow.run,
+                    AlertsProductInputs(),
+                    id=evaluation_workflow_id,
+                    task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    execution_timeout=dt.timedelta(seconds=40),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            else:
+                await workflow.start_child_workflow(
+                    source_workflow,
+                    SourceEvaluationInputs(
+                        source=inputs.source,
+                        cutoff=inputs.cutoff,
+                        configuration_ids=inputs.configuration_ids,
+                    ),
+                    id=evaluation_workflow_id,
+                    task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    execution_timeout=dt.timedelta(seconds=40),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
         return SourceDispatchReport(
             source=inputs.source,
             page=inputs.page,
@@ -180,6 +235,7 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
                 hard_deadline=(now + hard_stop).isoformat(),
             )
         assert inputs.cutoff is not None and inputs.deadline is not None and inputs.hard_deadline is not None
+        cutoff_iso = inputs.cutoff
         deadline = dt.datetime.fromisoformat(inputs.deadline)
         hard_deadline = dt.datetime.fromisoformat(inputs.hard_deadline)
 
@@ -215,6 +271,7 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
                         source=source,
                         page=page,
                         configuration_ids=configuration_ids,
+                        cutoff=cutoff_iso,
                     ),
                     id=f"{info.workflow_id}-{source.value}-p{page}",
                     task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
@@ -244,5 +301,8 @@ SHARED_ORCHESTRATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductOrch
 SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., object]] = [alerts_product_discover_demand_activity]
 EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductEvaluateWorkflow, AlertsProductSourceDispatchWorkflow]
 EVALUATION_ACTIVITIES: list[Callable[..., object]] = [alerts_product_probe_postgres_activity]
-DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductDeliverWorkflow]
-DELIVERY_ACTIVITIES: list[Callable[..., object]] = [alerts_product_deliver_activity]
+DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductDeliverWorkflow, AlertsProductDeliverPreviewWorkflow]
+DELIVERY_ACTIVITIES: list[Callable[..., object]] = [
+    alerts_product_deliver_activity,
+    alerts_product_deliver_preview_activity,
+]

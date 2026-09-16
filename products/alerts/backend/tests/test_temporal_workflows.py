@@ -498,3 +498,20 @@ async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) 
     )
     dispatch.assert_not_awaited()
     assert result == OrchestrateResult(pages=[], remaining=0, deadline_reached=False)
+
+
+def test_every_source_evaluation_binding_names_a_registered_workflow() -> None:
+    import temporalio.workflow
+
+    from posthog.management.commands.start_temporal_worker import WORKFLOWS_DICT
+
+    from products.alerts.backend.temporal.sources import SOURCE_EVALUATION_WORKFLOWS
+
+    definitions = (
+        temporalio.workflow._Definition.from_class(registered_workflow)
+        for registered_workflow in WORKFLOWS_DICT[settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE]
+    )
+    registered = {definition.name for definition in definitions if definition is not None}
+    # A binding naming a workflow no evaluation worker registers leaves every dispatch for
+    # that source queued until it times out.
+    assert set(SOURCE_EVALUATION_WORKFLOWS.values()) <= registered

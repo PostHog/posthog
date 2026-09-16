@@ -147,6 +147,35 @@ The result feeds the tick loop above. Evaluation still runs the probe/delivery s
 TTL claims are not implemented here.
 Discovery has a five-second start-to-close timeout, a ten-second schedule-to-close timeout, and at most three attempts.
 
+## Source evaluation bindings
+
+`products/alerts/backend/temporal/sources.py` maps a `SourceKind` to the workflow name that evaluates it.
+A source in that map gets its own workflow started by name, carrying the dispatcher's configuration IDs and the tick cutoff.
+A source absent from it keeps the noop `alerts-product-evaluate` path, which receives no IDs.
+The alerts product imports nothing from a source: the binding holds a name, and `test_every_source_evaluation_binding_names_a_registered_workflow` fails if that name is not registered on the evaluation queue.
+
+`logs` is bound to `logs-alert-evaluate`, which is the first real source evaluation.
+
+## Logs source evaluation
+
+`logs-alert-evaluate` evaluates the configurations its dispatcher hands over and previews one delivery per notification.
+The evaluation is a plain function in `products/logs/backend/alert_source_cycle.py`, so a test calls it without Temporal.
+
+It writes nothing. The production `logs-alerting-task-queue` fleet evaluates these same alerts every minute,
+so a state transition, a schedule advance, a `LogsAlertEvent` row or a Kafka message here would notify a person twice for one breach.
+Delivery stops at `alerts-product-deliver-preview`, which records what would have been sent and contacts no destination.
+
+It evaluates against the tick cutoff rather than the clock, so a retried attempt selects the same alerts,
+resolves the same windows and derives the same evaluation keys as the attempt it replaced.
+The due predicate is applied a second time here, because discovery ran earlier in the tick and a configuration
+can have been disabled, snoozed or broken since.
+
+Cohorting, the batched ClickHouse query, projection routing, the byte ceiling and ingestion-freshness gating
+all come from the existing logs code, so a preview says what production would have sent.
+
+Delivery previews carry a list of group transitions with one entry and an empty grouping key.
+Logs does not group yet; the list is the shape that lets fan-out change the evaluation and nothing downstream.
+
 ## Postgres connectivity probe
 
 Each evaluation activity issues one explicit `SELECT 1` and checks for `(1,)` through Django's `default` main writer connection.
