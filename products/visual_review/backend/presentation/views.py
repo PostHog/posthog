@@ -216,6 +216,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             repo_id=_parse_uuid(pk),
             baseline_file_paths=body.baseline_file_paths,
             enable_pr_comments=body.enable_pr_comments,
+            debt_digest_enabled=body.debt_digest_enabled,
         )
 
         try:
@@ -385,7 +386,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             api.get_repo(repo_id, team_id=self.team_id)
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
-        result = api.get_flakiness_overview(repo_id)
+        result = api.get_flakiness_overview(repo_id, self.team_id)
         return Response(FlakinessOverviewSerializer(instance=result).data)
 
 

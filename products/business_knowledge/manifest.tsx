@@ -22,13 +22,21 @@ export const manifest: ProductManifest = {
             description:
                 'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
         },
+        BusinessKnowledgeSettings: {
+            name: 'Business knowledge settings',
+            import: () => import('./frontend/scenes/BusinessKnowledgeSettingsScene'),
+            projectBased: true,
+            iconType: 'conversations',
+        },
     },
     routes: {
         '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
+        '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
     },
     redirects: {},
     urls: {
         businessKnowledge: (): string => '/business-knowledge',
+        businessKnowledgeSettings: (): string => '/business-knowledge/settings',
     },
     fileSystemTypes: {},
     treeItemsNew: [],

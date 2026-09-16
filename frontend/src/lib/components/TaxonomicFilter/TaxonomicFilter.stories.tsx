@@ -6,11 +6,9 @@ import { delay } from 'msw'
 import { useEffect } from 'react'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
-import { CategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
@@ -20,6 +18,7 @@ import { type AnyPropertyFilter, AvailableFeature, EntityTypes, PropertyFilterTy
 import { infiniteListLogic } from './infiniteListLogic'
 import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
+import { taxonomicFilterCategoryLayoutLogic } from './taxonomicFilterCategoryLayoutLogic'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { TaxonomicFilterProps } from './types'
 
@@ -41,8 +40,34 @@ const meta: Meta<TaxonomicFilterProps> = {
 type Story = StoryObj<TaxonomicFilterProps>
 export default meta
 
+export const DashboardPropertySearch: Story = {
+    args: {
+        taxonomicFilterLogicKey: 'dashboard-property-search',
+        taxonomicGroupTypes: [
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+            TaxonomicFilterGroupType.EventFeatureFlags,
+            TaxonomicFilterGroupType.EventMetadata,
+            TaxonomicFilterGroupType.PageviewUrls,
+            TaxonomicFilterGroupType.Screens,
+            TaxonomicFilterGroupType.EmailAddresses,
+            TaxonomicFilterGroupType.Cohorts,
+            TaxonomicFilterGroupType.Elements,
+            TaxonomicFilterGroupType.SessionProperties,
+            TaxonomicFilterGroupType.HogQLExpression,
+            TaxonomicFilterGroupType.DataWarehousePersonProperties,
+        ],
+        enableKeywordShortcuts: true,
+        collapseUrlsToContainsRow: true,
+    },
+    parameters: { testOptions: { waitForSelector: '.taxonomic-infinite-list' } },
+}
+
 function EventsStoryRender(args: TaxonomicFilterProps): JSX.Element {
     useMountedLogic(actionsModel)
+    const { setActiveTab } = useActions(
+        taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+    )
 
     const { setIndex } = useActions(
         infiniteListLogic({
@@ -54,7 +79,10 @@ function EventsStoryRender(args: TaxonomicFilterProps): JSX.Element {
 
     // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
     // - we do want to show the definition popover here too
-    useDelayedOnMountEffect(() => setIndex(1))
+    useDelayedOnMountEffect(() => {
+        setActiveTab(TaxonomicFilterGroupType.Events)
+        setIndex(1)
+    })
 
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
@@ -82,6 +110,9 @@ export const EventsPremium: Story = {
     render: (args) => {
         useMountedLogic(actionsModel)
         useAvailableFeatures([AvailableFeature.INGESTION_TAXONOMY])
+        const { setActiveTab } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
 
         const { setIndex } = useActions(
             infiniteListLogic({
@@ -91,7 +122,10 @@ export const EventsPremium: Story = {
             })
         )
 
-        useDelayedOnMountEffect(() => setIndex(1))
+        useDelayedOnMountEffect(() => {
+            setActiveTab(TaxonomicFilterGroupType.Events)
+            setIndex(1)
+        })
 
         return (
             <div className="w-fit border rounded p-2 bg-surface-primary">
@@ -506,18 +540,8 @@ export const MCPToolCallContextLeadsWithMCPProperties: Story = {
     },
 }
 
-function CategoryDropdownStoryRender({
-    variant,
-    ...args
-}: TaxonomicFilterProps & { variant: CategoryDropdownVariant }): JSX.Element {
+function CategoryDropdownStoryRender(args: TaxonomicFilterProps): JSX.Element {
     useMountedLogic(actionsModel)
-    useMountedLogic(featureFlagLogic)
-
-    useEffect(() => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
-            [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
-        })
-    }, [variant])
 
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
@@ -539,32 +563,48 @@ const CATEGORY_DROPDOWN_PARAMETERS = {
     testOptions: { waitForSelector: '.taxonomic-infinite-list' },
 }
 
-export const CategoryDropdownControl: Story = {
-    render: (args) => <CategoryDropdownStoryRender {...args} variant="control" />,
+export const CategoryDropdown: Story = {
+    render: CategoryDropdownStoryRender,
     args: CATEGORY_DROPDOWN_ARGS,
-    tags: ['test-skip'], // featureFlagLogic setup via useEffect races with the visual-regression runner — verified manually in storybook
     parameters: {
         ...CATEGORY_DROPDOWN_PARAMETERS,
         docs: {
             description: {
-                story: 'A/B test control: left-hand Categories column is visible and Tab/Shift+Tab cycles between categories.',
+                story: 'The active category appears as a pill in the search input. Open it to browse categories or dock the category rail.',
             },
         },
     },
 }
 
-export const CategoryDropdownPill: Story = {
-    render: (args) => <CategoryDropdownStoryRender {...args} variant="pill" />,
+export const CategoryRailPinned: Story = {
+    render: CategoryRailStoryRender,
     args: CATEGORY_DROPDOWN_ARGS,
-    tags: ['test-skip'], // featureFlagLogic setup via useEffect races with the visual-regression runner — verified manually in storybook
     parameters: {
-        ...CATEGORY_DROPDOWN_PARAMETERS,
+        testOptions: { waitForSelector: '[data-attr="taxonomic-category-rail-unpin"]' },
         docs: {
             description: {
-                story: 'Test variant "pill": left-hand Categories column is hidden; the current category is shown as a pill in the right-hand suffix of the search input.',
+                story: 'Pinned categories remain visible beside the results on wide layouts.',
             },
         },
     },
+}
+
+function CategoryRailStoryRender(args: TaxonomicFilterProps): JSX.Element {
+    useMountedLogic(actionsModel)
+    const { setCategoryRailPinned } = useActions(taxonomicFilterCategoryLayoutLogic)
+
+    useEffect(() => {
+        setCategoryRailPinned(true)
+        return () => {
+            setCategoryRailPinned(false)
+        }
+    }, [setCategoryRailPinned])
+
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <TaxonomicFilter {...args} />
+        </div>
+    )
 }
 
 // The committed selection of a renamed series ('signed up', renamed "Completed sign-up")
@@ -613,7 +653,7 @@ export const RenamedSeriesSelected: Story = {
     },
 }
 
-export const RenamedSeriesSelectedPill: Story = {
+export const RenamedSeriesSelectedWithAllResults: Story = {
     render: (args) => {
         useMountedLogic(actionsModel)
         return (
@@ -624,14 +664,13 @@ export const RenamedSeriesSelectedPill: Story = {
     },
     args: {
         ...RENAMED_SERIES_ARGS,
-        taxonomicFilterLogicKey: 'renamed-series-selected-pill',
+        taxonomicFilterLogicKey: 'renamed-series-selected-all',
     },
     parameters: {
         ...RENAMED_SERIES_PARAMETERS,
-        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill' },
         docs: {
             description: {
-                story: "Same renamed-series selection in the pill category-dropdown variant: the Categories column is folded into the search input's pill, and the promoted committed row still shows the rename with the underlying event.",
+                story: 'Same renamed-series selection with All results. The promoted committed row still shows the rename with the underlying event.',
             },
         },
     },

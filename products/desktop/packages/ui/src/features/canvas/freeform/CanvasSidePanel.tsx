@@ -21,6 +21,7 @@ import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canv
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useQuery } from "@tanstack/react-query";
 import { type Ref, useEffect, useRef } from "react";
@@ -83,7 +84,26 @@ export function CanvasSidePanel({
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-gray-1">
-      <div className="flex h-10 shrink-0 items-center justify-between border-b bg-chrome pr-2 pl-3">
+      <ChromeBar
+        className="bg-chrome"
+        actions={
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon"
+                  variant="default"
+                  aria-label="Minimize panel"
+                  onClick={onMinimize}
+                >
+                  <SidebarSimpleIcon size={16} />
+                </Button>
+              }
+            />
+            <TooltipContent>Minimize panel</TooltipContent>
+          </Tooltip>
+        }
+      >
         <Tabs
           value={tab}
           onValueChange={(value) => setTab(value as "chat" | "comments")}
@@ -101,22 +121,7 @@ export function CanvasSidePanel({
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                size="icon"
-                variant="default"
-                aria-label="Minimize panel"
-                onClick={onMinimize}
-              >
-                <SidebarSimpleIcon size={16} />
-              </Button>
-            }
-          />
-          <TooltipContent>Minimize panel</TooltipContent>
-        </Tooltip>
-      </div>
+      </ChromeBar>
 
       <div className="min-h-0 flex-1">
         {tab === "comments" && commentTaskId ? (

@@ -116,8 +116,8 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     UserCustomerAnalyticsConfigSerializer,
     UserCustomerAnalyticsConfigUpdateSerializer,
 )
-
-from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
+from products.notebooks.backend.facade.content import build_markdown_notebook_content
+from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded, NotebookContentNotConvertible
 
 # Object-level access levels for the resource ViewSets, matching what
 # ``AccessControlPermission._get_required_access_level`` derives for these scope objects:
@@ -2120,19 +2120,22 @@ class AccountNotebookViewSet(
         serializer = AccountNotebookSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        notebook = api.create_account_notebook(
-            team_id=self.team_id,
-            team=self.team,
-            account_id=self.parents_query_dict["account_id"],
-            input=contracts.CreateAccountNotebookInput(
-                title=data.title,
-                content=data.content,
-                text_content=data.text_content,
-                synthesized_content=_synthesize_notebook_content(data.text_content, data.content),
-            ),
-            user=cast(User, request.user),
-            user_access_control=self.user_access_control,
-        )
+        try:
+            notebook = api.create_account_notebook(
+                team_id=self.team_id,
+                team=self.team,
+                account_id=self.parents_query_dict["account_id"],
+                input=contracts.CreateAccountNotebookInput(
+                    title=data.title,
+                    content=data.content,
+                    text_content=data.text_content,
+                    synthesized_content=_synthesize_notebook_content(data.text_content, data.content),
+                ),
+                user=cast(User, request.user),
+                user_access_control=self.user_access_control,
+            )
+        except (NotebookContentNotConvertible, NotebookCellLimitExceeded) as err:
+            raise ValidationError({"content": str(err)})
         if notebook is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountNotebookSerializer(instance=notebook).data, status=status.HTTP_201_CREATED)
@@ -2151,18 +2154,18 @@ class AccountNotebookViewSet(
 
 def _synthesize_notebook_content(text_content, existing_content):
     """When the caller passed Markdown ``text_content`` but no usable ProseMirror ``content``
-    tree, build one from the Markdown. Agents calling the MCP notebook-create tool typically
-    send ``text_content`` only (hand-writing ProseMirror is awkward), and NotebookScene only
-    renders ``content`` — so without this the result is a blank page. The tiptap helper lives
-    in ``ee.hogai`` and stays in the view so it never reaches the facade import path. Returns
-    ``None`` when the caller already supplied usable content (or no markdown)."""
+    tree, build a markdown notebook document from the Markdown. Agents calling the MCP
+    notebook-create tool typically send ``text_content`` only, because hand-writing ProseMirror
+    is awkward, and NotebookScene renders ``content`` only, so without this the result is a
+    blank page. Returns ``None`` when the caller already supplied usable content (or no
+    markdown)."""
     has_usable_content = (
         isinstance(existing_content, dict)
         and existing_content.get("type") == "doc"
         and isinstance(existing_content.get("content"), list)
     )
     if text_content and not has_usable_content:
-        return {"type": "doc", "content": markdown_to_tiptap_nodes(text_content) or [{"type": "paragraph"}]}
+        return build_markdown_notebook_content(text_content)
     return None
 
 

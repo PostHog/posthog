@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from time import monotonic
 from typing import Any
 from uuid import UUID
 
@@ -205,6 +206,7 @@ INSTRUCTIONS:
 Return your response as a JSON object with keys: reply, citations, confidence, sources (a list of {{ref, excerpt}})."""
 
     session: MultiTurnSession | None = None
+    started = monotonic()
     try:
         session, result = await MultiTurnSession.start(
             prompt,
@@ -222,6 +224,7 @@ Return your response as a JSON object with keys: reply, citations, confidence, s
             confidence=result.confidence,
             sources=[{"ref": s.ref, "excerpt": s.excerpt[:MAX_EXCERPT_CHARS]} for s in result.sources[:MAX_SOURCES]],
             task_run_id=str(session.task_run.id),
+            sandbox_seconds=monotonic() - started,
         )
     finally:
         if session is not None:

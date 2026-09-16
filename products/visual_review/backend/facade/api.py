@@ -38,10 +38,12 @@ from ..logic import (
     flakiness,
     gating,
     history,
+    owners,
     quarantine,
     repos,
     run_queries,
     runs,
+    story_index,
     thumbnails,
     toleration,
 )
@@ -260,6 +262,7 @@ def _to_repo(repo) -> contracts.Repo:
         repo_full_name=repo.repo_full_name,
         baseline_file_paths=repo.baseline_file_paths,
         enable_pr_comments=repo.enable_pr_comments,
+        debt_digest_enabled=repo.debt_digest_enabled,
         created_at=repo.created_at,
     )
 
@@ -319,9 +322,9 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
         run = snapshot.run
         artifact = snapshot.current_artifact
         thumbnail = artifact.thumbnail if artifact is not None else None
-        # `(run_type, identifier)` keys because the same identifier in
-        # different run types is a different baseline.
-        key = (run.run_type, identifier)
+        # Keyed per identity because the same identifier in different run types
+        # is a different baseline.
+        key = run_queries.SnapshotKey(run_type=run.run_type, identifier=identifier)
         metadata = snapshot.metadata or {}
         active_quarantine = raw.active_quarantines_by_key.get(key)
         entries.append(
@@ -334,6 +337,7 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
                 height=artifact.height if artifact is not None else None,
                 tolerate_count_30d=raw.tolerate_30d_by_id.get(identifier, 0),
                 tolerate_count_90d=raw.tolerate_90d_by_id.get(identifier, 0),
+                active_variants_current_baseline=raw.active_variants_by_key.get(key, 0),
                 is_quarantined=active_quarantine is not None,
                 last_run_at=run.completed_at or run.created_at,
                 baseline_change_count=raw.change_count_by_key.get(key, 0),
@@ -351,6 +355,7 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
         recently_tolerated=raw.totals_recent,
         frequently_tolerated=raw.totals_frequent,
         currently_quarantined=raw.totals_quarantined,
+        variant_pileups=raw.totals_variant_pileups,
         by_run_type=raw.by_run_type,
     )
 
@@ -362,13 +367,16 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
     )
 
 
-def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
+def get_flakiness_overview(repo_id: UUID, team_id: int) -> contracts.FlakinessOverview:
     """Snapshot identities carrying rendering instability or an open quarantine.
 
     Backs the flakiness page. See `flakiness.get_flakiness_overview` for the
     scoping rule and query shape.
     """
     raw = flakiness.get_flakiness_overview(repo_id)
+    owner_team_by_key = owners.owner_teams(
+        repos.get_repo(repo_id, team_id), [flakiness.snapshot_key(row) for row in raw.rows], raw.newest_run_by_type
+    )
 
     quarantine_user_ids = {
         row.quarantine.created_by_id for row in raw.rows if row.quarantine and row.quarantine.created_by_id
@@ -411,6 +419,7 @@ def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
                     if row.quarantine is not None
                     else None
                 ),
+                owner_team=owner_team_by_key.get(flakiness.snapshot_key(row)),
             )
         )
 
@@ -520,7 +529,15 @@ def add_snapshots(input: contracts.AddSnapshotsInput, run_id: UUID, team_id: int
         contracts.UploadTarget(content_hash=u["content_hash"], url=u["url"], fields=u["fields"]) for u in uploads
     ]
 
-    return contracts.AddSnapshotsResult(added=added, uploads=upload_targets)
+    story_index_upload = None
+    if input.story_index_hash:
+        upload = story_index.register_story_index(run_id, team_id, input.story_index_hash)
+        if upload is not None:
+            story_index_upload = contracts.UploadTarget(
+                content_hash=input.story_index_hash, url=upload.url, fields=upload.fields
+            )
+
+    return contracts.AddSnapshotsResult(added=added, uploads=upload_targets, story_index_upload=story_index_upload)
 
 
 def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:

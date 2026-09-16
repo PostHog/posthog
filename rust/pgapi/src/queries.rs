@@ -175,16 +175,17 @@ pub async fn query_detail(
         &sampling.hard_threshold_ms,
         &sampling.rate,
     ];
-    let quantile_sql = |bucket_col: &str| {
-        format!(
-            "WITH d AS (
-           SELECT {bucket_col} AS bucket, duration_ms, {weight} AS w
+    // One scan serves both the per-bucket series and the whole-range row (bucket NULL):
+    // the cumulative weights are windowed twice, once per bucket and once overall.
+    let quantile_sql = format!(
+        "WITH d AS (
+           SELECT {bucket} AS bucket, duration_ms, {weight} AS w
            FROM ts_query_durations WHERE server_id = $1 AND collected_at >= $3 AND collected_at < $4
-             AND (query_id = $2 OR ($5::bigint IS NOT NULL AND fingerprint = $5))
-             AND kind NOT IN ('parse', 'bind')),
+             AND (query_id = $2 OR fingerprint = $5) AND kind NOT IN ('parse', 'bind')),
          r AS (
-           SELECT bucket, duration_ms, sum(w) OVER (PARTITION BY bucket ORDER BY duration_ms) AS cw,
-                  sum(w) OVER (PARTITION BY bucket) AS tw
+           SELECT bucket, duration_ms,
+                  sum(w) OVER (PARTITION BY bucket ORDER BY duration_ms) AS cw, sum(w) OVER (PARTITION BY bucket) AS tw,
+                  sum(w) OVER (ORDER BY duration_ms) AS cw_all, sum(w) OVER () AS tw_all
            FROM d)
          SELECT bucket, count(*)::bigint AS samples,
                 count(*) FILTER (WHERE duration_ms < $6::float8 OR $6::float8 <= 0)::bigint AS sampled,
@@ -193,34 +194,44 @@ pub async fn query_detail(
                 min(duration_ms) FILTER (WHERE cw >= 0.95 * tw)::float8 AS p95,
                 min(duration_ms) FILTER (WHERE cw >= 0.99 * tw)::float8 AS p99,
                 max(duration_ms)::float8 AS max_ms
-         FROM r GROUP BY bucket ORDER BY bucket"
-        )
-    };
-    let latency_series = if quantiles_available {
-        opt(
-            db,
-            &quantile_sql(&bucket_expr("log_time", interval)),
-            &quantile_params,
-        )
-        .await?
+         FROM r GROUP BY bucket
+         UNION ALL
+         SELECT NULL, count(*)::bigint,
+                count(*) FILTER (WHERE duration_ms < $6::float8 OR $6::float8 <= 0)::bigint,
+                min(duration_ms) FILTER (WHERE cw_all >= 0.5 * tw_all)::float8,
+                min(duration_ms) FILTER (WHERE cw_all >= 0.9 * tw_all)::float8,
+                min(duration_ms) FILTER (WHERE cw_all >= 0.95 * tw_all)::float8,
+                min(duration_ms) FILTER (WHERE cw_all >= 0.99 * tw_all)::float8,
+                max(duration_ms)::float8
+         FROM r
+         ORDER BY bucket NULLS FIRST",
+        bucket = bucket_expr("log_time", interval)
+    );
+    let (quantiles, latency_series): (Vec<Value>, Vec<Value>) = if quantiles_available {
+        opt(db, &quantile_sql, &quantile_params)
+            .await?
+            .into_iter()
+            .partition(|r| r["bucket"].is_null())
     } else {
-        vec![]
+        (vec![], vec![])
     };
-    let quantiles = if quantiles_available {
-        opt(db, &quantile_sql("NULL::timestamptz"), &quantile_params).await?
-    } else {
-        vec![]
-    };
-    let slow_samples = opt(db, "SELECT log_time, log_stream, datname, usename, duration_ms, left(query, 500) AS query
-         FROM ts_query_durations WHERE server_id = $1 AND collected_at >= $3 AND collected_at < $4
-           AND (query_id = $2 OR ($5::bigint IS NOT NULL AND fingerprint = $5)) AND kind NOT IN ('parse', 'bind')
-         ORDER BY duration_ms DESC LIMIT 10", &[&server, &queryid, &from, &to, &fingerprint]).await?;
+    let slow_samples = opt(
+        db,
+        "SELECT d.log_time, d.log_stream, d.datname, d.usename, d.duration_ms, left(t.query, 500) AS query
+         FROM ts_query_durations d
+         LEFT JOIN cur_query_texts t ON t.server_id = d.server_id AND t.instance = d.instance AND t.datname = coalesce(d.datname, '') AND t.fingerprint = d.fingerprint
+         WHERE d.server_id = $1 AND d.collected_at >= $3 AND d.collected_at < $4
+           AND (d.query_id = $2 OR d.fingerprint = $5) AND d.kind NOT IN ('parse', 'bind')
+         ORDER BY d.duration_ms DESC LIMIT 10",
+        &[&server, &queryid, &from, &to, &fingerprint],
+    )
+    .await?;
     let aurora_plans = opt(db, "SELECT p.planid, p.plan_type, p.plan_captured_time, p.explain_plan,
                 (SELECT sum(calls) FROM ts_aurora_plans a WHERE a.server_id = $1 AND a.planid = p.planid AND a.queryid = $2 AND a.collected_at >= $3 AND a.collected_at < $4)::bigint AS calls,
                 (SELECT sum(total_exec_time) FROM ts_aurora_plans a WHERE a.server_id = $1 AND a.planid = p.planid AND a.queryid = $2 AND a.collected_at >= $3 AND a.collected_at < $4)::float8 AS total_ms
          FROM cur_query_plans p WHERE p.server_id = $1 AND p.queryid = $2 ORDER BY calls DESC NULLS LAST", &[&server, &queryid, &from, &to]).await?;
     let logged_plans = opt(db, "SELECT log_time, datname, duration_ms, plan FROM ts_log_plans WHERE server_id = $1 AND collected_at >= $3 AND collected_at < $4
-           AND (query_id = $2 OR ($5::bigint IS NOT NULL AND fingerprint = $5)) ORDER BY duration_ms DESC LIMIT 5", &[&server, &queryid, &from, &to, &fingerprint]).await?;
+           AND (query_id = $2 OR fingerprint = $5) ORDER BY duration_ms DESC LIMIT 5", &[&server, &queryid, &from, &to, &fingerprint]).await?;
     let waits = opt(db, "SELECT wait_event_type, wait_event, sum(backends)::bigint AS samples FROM ts_activity_samples
          WHERE server_id = $1 AND query_id = $2 AND collected_at >= $3 AND collected_at < $4 GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 10", &[&server, &queryid, &from, &to]).await?;
     Ok(

@@ -19,13 +19,20 @@ from modal.exception import (
     TimeoutError as ModalTimeoutError,
 )
 from parameterized import parameterized
-from requests.exceptions import ConnectionError, Timeout
+from python_socks import ProxyError as SocksProxyError
+from requests.exceptions import (
+    ConnectionError,
+    ProxyError as RequestsProxyError,
+    Timeout,
+)
 
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_DIRECTORY
 from products.tasks.backend.exceptions import (
     SandboxExecutionError,
     SandboxNetworkPolicyError,
+    SandboxNotFoundError,
     SandboxProvisionError,
+    SandboxRateLimitedError,
     SandboxTimeoutError,
     SnapshotCreationError,
     SnapshotFileLimitExceededError,
@@ -52,6 +59,7 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS,
     FILESYSTEM_SNAPSHOT_TIMEOUT_SECONDS,
     PUBLISHED_IMAGE_SNAPSHOT_TIMEOUT_SECONDS,
+    RUNNING_STATUS_CACHE_SECONDS,
     SANDBOX_IMAGE,
     ModalSandbox,
     _attach_local_package_mounts,
@@ -1933,6 +1941,69 @@ class TestModalSandboxCreateImageFallback:
         assert "resume state dropped" in sandbox.config.image_fallback
         assert not sandbox.config.image_fallback.startswith("snapshot image")
 
+    def _create_shed_by_the_proxy(self, config: SandboxConfig, *, app_lookup: Any, sandbox_create: Any) -> Any:
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", app_lookup),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
+                return_value=MagicMock(name="base"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_id",
+                return_value=MagicMock(name="snapshot_image"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                side_effect=lambda image, template, **kwargs: image,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create", side_effect=sandbox_create
+            ),
+            patch("products.tasks.backend.logic.services.modal_sandbox.capture_exception"),
+        ):
+            with pytest.raises(SandboxRateLimitedError) as error:
+                ModalSandbox.create(config)
+        return error.value
+
+    @pytest.mark.parametrize("shed_call,expected_operation", [("app_lookup", "lookup"), ("sandbox_create", "create")])
+    def test_proxy_rate_limit_never_downgrades_past_the_snapshot_candidate(
+        self, shed_call: str, expected_operation: str
+    ):
+        config = SandboxConfig(name="t", snapshot_external_id="im-snap-1")
+        images_tried: list[Any] = []
+        app_lookup = MagicMock(return_value=MagicMock())
+        if shed_call == "app_lookup":
+            app_lookup.side_effect = _modal_wrapped_rate_limit()
+
+        def sandbox_create(**kwargs: Any) -> Any:
+            images_tried.append(kwargs["image"])
+            raise _modal_wrapped_rate_limit()
+
+        error = self._create_shed_by_the_proxy(config, app_lookup=app_lookup, sandbox_create=sandbox_create)
+
+        assert error.context["operation"] == expected_operation
+        assert error.next_retry_delay is not None
+        assert len(images_tried) == (0 if shed_call == "app_lookup" else 1)
+
+    def test_proxy_rate_limit_in_the_restore_probe_keeps_the_restored_sandbox(self):
+        config = SandboxConfig(name="t", snapshot_external_id="im-snap-1")
+        restored = MagicMock(object_id="sb-restored")
+        restored.exec.side_effect = _socks_rate_limit()
+        images_tried: list[Any] = []
+
+        def sandbox_create(**kwargs: Any) -> Any:
+            images_tried.append(kwargs["image"])
+            return restored
+
+        error = self._create_shed_by_the_proxy(
+            config, app_lookup=MagicMock(return_value=MagicMock()), sandbox_create=sandbox_create
+        )
+
+        assert error.context["operation"] == "restore_probe"
+        assert len(images_tried) == 1
+        restored.terminate.assert_not_called()
+
 
 class TestLaunchDevStackBootstrap:
     def _sandbox(
@@ -2087,24 +2158,52 @@ class TestResourceCreateKwargs:
         assert kwargs == {"cpu": (2.0, 8.0), "memory": (4096, 16384)}
 
     @pytest.mark.parametrize(
-        "config_kwargs, expected_cpu",
+        "config_kwargs, expected_cpu, expected_memory",
         [
-            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (4.0, 8.0)),
-            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6}, (6.0, 8.0)),
+            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (4.0, 8.0), (32768, 32768)),
+            (
+                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6},
+                (6.0, 8.0),
+                (32768, 32768),
+            ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6, "cpu_cores": 4},
                 (4.0, 4.0),
+                (32768, 32768),
             ),
-            ({"vm_runtime": True, "custom_image_name": "posthog-sandbox-custom-other"}, (0.5, 8.0)),
-            ({"custom_image_name": "posthog-dev-stack"}, (0.5, 8.0)),
+            ({"vm_runtime": True, "custom_image_name": "posthog-sandbox-custom-other"}, (0.5, 8.0), (16384, 16384)),
+            ({"custom_image_name": "posthog-dev-stack"}, (0.5, 8.0), (1024, 16384)),
+            (
+                {"template": SandboxTemplate.VM_BASE, "custom_image_name": "posthog-dev-stack"},
+                (4.0, 8.0),
+                (32768, 32768),
+            ),
+            (
+                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 16},
+                (4.0, 8.0),
+                (32768, 32768),
+            ),
+            (
+                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 48},
+                (4.0, 8.0),
+                (49152, 49152),
+            ),
+            (
+                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "burstable_resources": False},
+                8.0,
+                32768,
+            ),
         ],
     )
-    def test_dev_stack_image_raises_the_cpu_request_floor(
-        self, config_kwargs: dict[str, Any], expected_cpu: tuple[float, float]
+    def test_dev_stack_image_resource_floors(
+        self,
+        config_kwargs: dict[str, Any],
+        expected_cpu: float | tuple[float, float],
+        expected_memory: int | tuple[int, int],
     ) -> None:
-        config = SandboxConfig(name="t", memory_gb=16, burstable_resources=True, **{"cpu_cores": 8, **config_kwargs})
+        config = SandboxConfig(name="t", **{"cpu_cores": 8, "burstable_resources": True, **config_kwargs})
 
-        assert _resource_create_kwargs(config)["cpu"] == expected_cpu
+        assert _resource_create_kwargs(config) == {"cpu": expected_cpu, "memory": expected_memory}
 
     def test_vm_runtime_uses_equal_memory_request_and_limit(self):
         config = SandboxConfig(name="t", cpu_cores=4, memory_gb=16, burstable_resources=True, vm_runtime=True)
@@ -2261,3 +2360,139 @@ class TestSessionInitProbeHosts:
     def test_deduplicates_against_static_hosts_and_skips_unset(self):
         hosts = _session_init_probe_hosts()
         assert hosts.count("gateway.us.posthog.com") == 1
+
+
+def _socks_rate_limit() -> Exception:
+    return SocksProxyError("Proxy server unexpectedly closed: 429 Too Many Requests")
+
+
+def _requests_rate_limit() -> Exception:
+    return RequestsProxyError("Tunnel connection failed: 429 Too Many Requests")
+
+
+def _modal_wrapped_rate_limit() -> Exception:
+    error = ModalConnectionError("failed to connect to the modal control plane")
+    error.__cause__ = SocksProxyError("429 Too Many Requests")
+    return error
+
+
+RATE_LIMIT_ERRORS = [_socks_rate_limit, _requests_rate_limit, _modal_wrapped_rate_limit]
+
+
+def _running_process(exit_code: int = 0) -> Any:
+    process = MagicMock(returncode=exit_code)
+    process.wait.return_value = exit_code
+    process.stdout.read.return_value = ""
+    process.stderr.read.return_value = ""
+    return process
+
+
+class TestModalSandboxProxyRateLimit:
+    @pytest.fixture
+    def mock_sandbox(self) -> Any:
+        mock_modal_sandbox = MagicMock()
+        mock_modal_sandbox.object_id = "test-sandbox-id"
+        mock_modal_sandbox.poll.return_value = None
+        mock_modal_sandbox.exec.return_value = _running_process()
+
+        credentials = MagicMock()
+        credentials.url = "https://test-sandbox.modal.run"
+        credentials.token = "test-connect-token"
+        mock_modal_sandbox.create_connect_token.return_value = credentials
+
+        with patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()):
+            return ModalSandbox(sandbox=mock_modal_sandbox, config=SandboxConfig(name="test-sandbox"))
+
+    @pytest.mark.parametrize("make_error", RATE_LIMIT_ERRORS)
+    @pytest.mark.parametrize("operation", ["poll", "exec"])
+    def test_proxy_rate_limit_raises_retryable_error(self, make_error: Any, operation: str, mock_sandbox: Any):
+        if operation == "poll":
+            mock_sandbox._sandbox.poll.side_effect = make_error()
+        else:
+            mock_sandbox._sandbox.exec.side_effect = make_error()
+
+        with pytest.raises(SandboxRateLimitedError) as exc:
+            mock_sandbox.get_status() if operation == "poll" else mock_sandbox.execute("echo hi")
+
+        assert exc.value.context["operation"] == operation
+        assert exc.value.context["sandbox_id"] == "test-sandbox-id"
+        assert exc.value.non_retryable is False
+        assert exc.value.next_retry_delay is not None
+
+    def test_non_rate_limited_proxy_error_stays_generic(self, mock_sandbox: Any):
+        mock_sandbox._sandbox.exec.side_effect = RequestsProxyError("Tunnel connection failed: 502 Bad Gateway")
+
+        with pytest.raises(SandboxExecutionError) as exc:
+            mock_sandbox.execute("echo hi")
+
+        assert not isinstance(exc.value, SandboxRateLimitedError)
+
+    def test_get_by_id_rate_limit_is_not_reported_as_missing_sandbox(self):
+        with patch(
+            "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.from_id",
+            side_effect=_modal_wrapped_rate_limit(),
+        ):
+            with pytest.raises(SandboxRateLimitedError) as exc:
+                ModalSandbox.get_by_id("sb-123")
+
+        assert not isinstance(exc.value, SandboxNotFoundError)
+        assert exc.value.context["operation"] == "lookup"
+
+    def test_write_file_rate_limit_skips_exec_fallback(self, mock_sandbox: Any):
+        mock_sandbox._sandbox.filesystem.write_bytes.side_effect = _socks_rate_limit()
+
+        with pytest.raises(SandboxRateLimitedError) as exc:
+            mock_sandbox.write_file("/tmp/target", b"payload")
+
+        assert exc.value.context["operation"] == "filesystem_write"
+        mock_sandbox._sandbox.exec.assert_not_called()
+
+    def test_write_file_rate_limit_in_fallback_skips_cleanup(self, mock_sandbox: Any):
+        mock_sandbox._sandbox.filesystem.write_bytes.side_effect = RuntimeError("filesystem unavailable")
+        mock_sandbox._sandbox.exec.side_effect = _socks_rate_limit()
+
+        with pytest.raises(SandboxRateLimitedError):
+            mock_sandbox.write_file("/tmp/target", b"payload")
+
+        assert mock_sandbox._sandbox.exec.call_count == 1
+
+    @pytest.mark.parametrize("stage", ["wait", "iterate"])
+    def test_execute_stream_rate_limit_propagates(self, stage: str, mock_sandbox: Any):
+        process = _running_process()
+        if stage == "wait":
+            process.wait.side_effect = _socks_rate_limit()
+        else:
+            process.stdout.__iter__.side_effect = _socks_rate_limit()
+        mock_sandbox._sandbox.exec.return_value = process
+
+        stream = mock_sandbox.execute_stream("echo hi")
+
+        with pytest.raises(SandboxRateLimitedError) as exc:
+            stream.wait() if stage == "wait" else list(stream.iter_stdout())
+
+        assert exc.value.context["operation"] == "exec"
+
+    def test_get_connect_credentials_rate_limit(self, mock_sandbox: Any):
+        mock_sandbox._sandbox.create_connect_token.side_effect = _requests_rate_limit()
+
+        with pytest.raises(SandboxRateLimitedError) as exc:
+            mock_sandbox.get_connect_credentials()
+
+        assert exc.value.context["operation"] == "create_connect_token"
+
+    def test_consecutive_commands_reuse_one_liveness_poll(self, mock_sandbox: Any):
+        clock = {"now": 1000.0}
+
+        with patch(
+            "products.tasks.backend.logic.services.modal_sandbox.time.monotonic",
+            side_effect=lambda: clock["now"],
+        ):
+            mock_sandbox.execute("echo one")
+            mock_sandbox.execute("echo two")
+
+            assert mock_sandbox._sandbox.poll.call_count == 1
+
+            clock["now"] += RUNNING_STATUS_CACHE_SECONDS + 1
+            mock_sandbox.execute("echo three")
+
+            assert mock_sandbox._sandbox.poll.call_count == 2

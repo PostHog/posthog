@@ -88,6 +88,7 @@ export default defineConfig({
     "src/extensions/posthog-provider/model-catalog.ts",
     "src/extensions/mcp/config.ts",
     "src/extensions/mcp/schema.ts",
+    "src/extensions/mcp/tool-bridge.ts",
     "src/extensions/footer-focus-demo/index.ts",
   ],
   format: ["esm"],

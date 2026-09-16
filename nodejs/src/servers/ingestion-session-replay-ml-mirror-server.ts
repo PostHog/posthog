@@ -2,21 +2,12 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
 
-import { initializePrometheusLabels } from '~/common/api/router'
-import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
-import { getDefaultKafkaDownstreamProducerEnvConfig } from '~/ingestion/common/outputs/producers'
-import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
 import { AllowListFetcher, loadAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/allow-list-loader'
-import {
-    type SessionReplayProducerName,
-    getDefaultSessionRecordingApiConfig,
-    getDefaultSessionRecordingConfig,
-    getDefaultSessionReplayOutputsConfig,
-} from '~/ingestion/pipelines/sessionreplay/config'
+import { type SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import {
     SessionRecordingIngester,
     SessionRecordingIngesterCollaborators,
@@ -24,53 +15,28 @@ import {
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/dynamodb-crawl-history'
 import {
-    MlMirrorConfig,
-    getDefaultMlMirrorConfig,
     resolveMlAnonymizeMaxConcurrency,
     resolveMlMirrorRedisConnection,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
 import { createMlMirrorReplayPipeline } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-mirror-pipeline'
+import { MlPrivacyRuntime } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/runtime'
 import { resolvePseudonymKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/pseudonym-key'
+import { SessionFormatFileStorage } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-format-file-storage'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/registry'
 import { BlackholeSessionBatchFileStorage } from '~/ingestion/pipelines/sessionreplay/sessions/blackhole-session-batch-writer'
 import { S3SessionBatchFileStorage } from '~/ingestion/pipelines/sessionreplay/sessions/s3-session-batch-writer'
 import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
-import { CleartextRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto/cleartext-encryptor'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
-import { CleartextKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cleartext-keystore'
-import { getDefaultKafkaSessionreplayProducerEnvConfig } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
+import { RedisPool } from '~/types'
 
-import { RedisPool } from '../types'
-import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
-import { IngestionSessionReplayServerConfig, buildSessionReplayRedisPools } from './ingestion-session-replay-server'
+import { CleanupResources } from './base-server'
+import { buildSessionReplayRedisPools } from './ingestion-session-replay-server'
+import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'
 
-/** Full config for an ML mirror deployment: the primary replay config plus ML knobs. */
-export type IngestionSessionReplayMlMirrorServerConfig = IngestionSessionReplayServerConfig & MlMirrorConfig
-
-/** Assembles the ML-mirror config; shared by the mirror ingester and the Parquet-sink deployments. */
-export function buildMlMirrorServerConfig(
-    config: Partial<IngestionSessionReplayMlMirrorServerConfig>
-): IngestionSessionReplayMlMirrorServerConfig {
-    return {
-        ...defaultConfig,
-        ...overrideConfigWithEnv(getDefaultIngestionConsumerConfig()),
-        ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
-        ...overrideConfigWithEnv(getDefaultKafkaSessionreplayProducerEnvConfig()),
-        ...overrideConfigWithEnv({
-            ...getDefaultSessionRecordingConfig(),
-            // Distinct default group id so the mirror gets its own copy of every recording rather than
-            // splitting the snapshot topic's partitions with the primary ingester (still env-overridable).
-            INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: 'session-replay-ml-mirror',
-        }),
-        ...overrideConfigWithEnv(getDefaultSessionRecordingApiConfig()),
-        ...overrideConfigWithEnv(getDefaultSessionReplayOutputsConfig()),
-        ...overrideConfigWithEnv(getDefaultMlMirrorConfig()),
-        ...config,
-    }
-}
+export { type IngestionSessionReplayMlMirrorServerConfig, buildMlMirrorServerConfig } from './ml-mirror-server-config'
 
 /** Boot-time smoke test so a broken addon crashes startup instead of dropping all traffic later. */
 async function assertAnonymizerHealthy(anonymizer: typeof import('@posthog/replay-anonymizer')): Promise<void> {
@@ -89,35 +55,15 @@ async function assertAnonymizerHealthy(anonymizer: typeof import('@posthog/repla
     }
 }
 
-export class IngestionSessionReplayMlMirrorServer implements NodeServer {
-    readonly lifecycle: ServerLifecycle
-    private config: IngestionSessionReplayMlMirrorServerConfig
-
+export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer {
+    private readonly privacy = new MlPrivacyRuntime(this.config)
     private postgres?: PostgresRouter
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
     private crawlHistoryClient?: DynamoDBClient
     private redisPool?: RedisPool
     private restrictionRedisPool?: RedisPool
 
-    constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
-        this.config = buildMlMirrorServerConfig(config)
-        this.lifecycle = new ServerLifecycle(this.config)
-    }
-
-    async start(): Promise<void> {
-        return this.lifecycle.start(
-            () => this.startServices(),
-            () => this.getCleanupResources()
-        )
-    }
-
-    async stop(error?: Error): Promise<void> {
-        return this.lifecycle.stop(() => this.getCleanupResources(), error)
-    }
-
-    private async startServices(): Promise<void> {
-        initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
-
+    protected async startServices(): Promise<void> {
         this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE ?? undefined)
         this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
@@ -129,13 +75,27 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
 
         const s3Client = buildSessionRecordingS3Client(this.config)
         const bucket = this.config.SESSION_RECORDING_V2_S3_BUCKET
-        const prefix = this.config.SESSION_RECORDING_V2_S3_PREFIX
+        const prefix = this.config.AI_RESEARCH_REPLAY_S3_PREFIX
 
         const pseudonymSecret = await resolvePseudonymKey(this.config)
 
-        // Anonymized blocks are written unencrypted, in a single prefix (no retention sharding).
+        // A session keeps its storage prefix across flushes and late arrivals.
         const fileStorage = s3Client
-            ? new S3SessionBatchFileStorage(s3Client, bucket, prefix, this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS)
+            ? new SessionFormatFileStorage(
+                  new S3SessionBatchFileStorage(
+                      s3Client,
+                      bucket,
+                      this.config.SESSION_RECORDING_V2_S3_PREFIX,
+                      this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
+                  ),
+                  (month) =>
+                      new S3SessionBatchFileStorage(
+                          s3Client,
+                          bucket,
+                          month ? `${prefix}/${month}` : prefix,
+                          this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
+                      )
+              )
             : new BlackholeSessionBatchFileStorage()
 
         const allow = await loadAllowLists(this.buildAllowListFetcher(s3Client, bucket))
@@ -149,14 +109,14 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
         logger.info('🦀', 'ml_mirror_rust_anonymizer_initialized')
 
         // Block metadata is produced to Kafka; the dedicated Parquet-sink deployment writes it to the ML bucket.
-        const metadataStore = new MlBlockMetadataSink(outputs, pseudonymSecret)
+        await this.privacy.start()
+        const metadataStore = new MlBlockMetadataSink(outputs, pseudonymSecret, this.privacy.reader)
         const urlProducerEnabled =
             this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED &&
             this.config.SESSION_RECORDING_ML_URL_PRODUCER_ENABLED
         const urlCrawlHistory = urlProducerEnabled ? this.buildUrlCrawlHistory() : undefined
 
-        // Cleartext crypto: no encryption, deletions not honored (every session stays cleartext).
-        const keyStore = new CleartextKeyStore()
+        const privacy = this.privacy.controller
         const collaborators: SessionRecordingIngesterCollaborators = {
             fileStorage,
             metadataStore,
@@ -166,12 +126,13 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
                 enabled: false,
             }),
             featureStore: new SessionFeatureStore(outputs, false),
-            keyStore,
-            encryptor: new CleartextRecordingEncryptor(keyStore),
+            keyStore: privacy,
+            encryptor: privacy,
             createPipeline: (pipelineConfig) =>
                 createMlMirrorReplayPipeline(
                     pipelineConfig,
                     {
+                        privacy,
                         anonymizeMaxConcurrency: resolveMlAnonymizeMaxConcurrency(
                             this.config.SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY
                         ),
@@ -251,12 +212,13 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
         return new DynamoDBCrawlHistory(this.crawlHistoryClient, tableName, timeoutMs, timeoutMs)
     }
 
-    private getCleanupResources(): CleanupResources {
+    protected getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
             redisPools: [this.redisPool, this.restrictionRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             additionalCleanup: async () => {
+                this.privacy.stop()
                 this.crawlHistoryClient?.destroy()
                 await this.producerRegistry?.disconnectAll()
             },
