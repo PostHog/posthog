@@ -27,7 +27,7 @@ This change needs no update to the existing header survey configuration.
 - `survey shown` records the impression and starts the cooldown.
 - `survey sent` records the first answer immediately with `$survey_completed: false`.
 - Done or Send feedback sends the same answer and optional text with `$survey_completed: true` and the same submission ID.
-- Navigating away leaves the prompt as seen-only; it does not emit a dismissal or abandonment event.
+- Navigating away does not emit a dismissal or abandonment event; any partial response already captured remains.
 - `survey dismissed` records an unfinished dismissal and whether the first answer was captured. Closing the thank-you state does not count.
 
 Responses use `$survey_response_<question-id>` with `"1"` for thumbs up and `"2"` for thumbs down.
