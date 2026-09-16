@@ -1257,7 +1257,8 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
         assert job.status == PreaggregationJob.Status.READY
         assert job.team == self.team
 
-    def test_reuses_existing_jobs(self):
+    @parameterized.expand([("unchanged", None), ("versioned", {"classification": "v1"})])
+    def test_reuses_existing_jobs(self, _name: str, cache_key_context: dict[str, str] | None) -> None:
         # First call
         first_result = ensure_precomputed(
             team=self.team,
@@ -1267,17 +1268,27 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
         )
         first_job_id = first_result.job_ids[0]
 
-        # Second call with same parameters
         second_result = ensure_precomputed(
             team=self.team,
             insert_query=self.MANUAL_INSERT_QUERY,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            cache_key_context=cache_key_context,
+            modifiers=HogQLQueryModifiers(sessionIdPushdown=True),
         )
 
-        # Should reuse the existing job
         assert len(second_result.job_ids) == 1
-        assert second_result.job_ids[0] == first_job_id
+        assert (second_result.job_ids[0] == first_job_id) is (cache_key_context is None)
+
+        restored_result = ensure_precomputed(
+            team=self.team,
+            insert_query=self.MANUAL_INSERT_QUERY,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_inserts=False,
+        )
+        assert restored_result.ready is True
+        assert restored_result.job_ids == [first_job_id]
 
     def test_creates_jobs_for_missing_ranges(self):
         # Create job for Jan 1 only

@@ -30,10 +30,16 @@ curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
   -d '{"query":"SELECT amuont FROM warehouse_0420"}'
 ```
 
-Validation resolves table CTEs in the language service, validates their projected fields, and reports only the
-underlying catalog tables in `tableNames`.
-Each validation request can expand up to 16,384 projected CTE fields. Larger projections return a `query_limit`
-diagnostic and ask the user to select fewer fields.
+Completion and validation share scope analysis for table CTEs and aliased `FROM` subqueries.
+Completion suggests projected fields, including aliases and wildcard outputs, with catalog types for direct field projections.
+For example, `WITH t AS (SELECT event AS kind FROM events) SELECT t.` suggests `kind`, even before typing `FROM t`.
+Validation checks those output fields and reports only underlying catalog tables in `tableNames`.
+Each request can expand up to 16,384 projected fields before deduplication.
+Larger projections return HTTP 400 for completion or a `query_limit` validation diagnostic.
+Select fewer fields to stay within the limit.
+Field lookup work has a separate request-wide budget.
+Queries that exceed it return HTTP 400 for completion or a `query_limit` validation diagnostic; reduce the number of sources or qualify field names.
+Joining a CTE or subquery without a `properties` output does not suppress the physical table's property suggestions or validation.
 
 Validation diagnostic offsets use `positionEncoding`, which defaults to UTF-16. Diagnostics include up to five visible
 typo suggestions ranked by case-insensitive Levenshtein distance. Dynamic properties use the same cached namespaces as
@@ -60,8 +66,10 @@ suggestions, the total match count, and an opaque `nextCursor` when another page
 position with `"cursor":"<nextCursor>"` to retrieve it. The HTTP `Content-Length` is the encoded response size.
 
 The parser currently accepts ClickHouse's `database.table` identifiers but not HogQL's three-part synced-table names.
-Completion retains the parser error for diagnostics and uses a catalog-aware table-reference fallback for those names.
-Validation normalizes those table references before parsing while preserving byte offsets.
+Shared analysis normalizes those table references before parsing while preserving byte offsets.
+For incomplete SQL, completion can recover a single query's `FROM` clause and keeps the parser error in `parseError`.
+It does not recover bindings from malformed CTEs or nested queries.
+Derived-property provenance, select-alias visibility, and other exclusions are tracked in [query analysis and remaining work](../../docs/internal/hogql-language-service.md#recovery-and-remaining-work).
 
 ## Multitenant catalogs
 
