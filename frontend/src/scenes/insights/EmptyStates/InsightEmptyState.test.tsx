@@ -93,11 +93,17 @@ describe('EmptyStates', () => {
         it('re-runs the query from the slow empty state', async () => {
             mountWithTeam({ ingested_event: true, is_demo: false })
             const onRetry = jest.fn()
-            render(<InsightEmptyState queryElapsedMs={42_000} onRetry={onRetry} />)
+            const { rerender } = render(<InsightEmptyState queryElapsedMs={42_000} onRetry={onRetry} />)
 
+            await userEvent.click(screen.getByText('Run again'))
             await userEvent.click(screen.getByText('Run again'))
 
             expect(onRetry).toHaveBeenCalledTimes(1)
+
+            rerender(<InsightEmptyState queryElapsedMs={38_000} onRetry={onRetry} />)
+            await userEvent.click(screen.getByText('Run again'))
+
+            expect(onRetry).toHaveBeenCalledTimes(2)
         })
     })
 })

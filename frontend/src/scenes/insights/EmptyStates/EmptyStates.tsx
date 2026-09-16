@@ -101,6 +101,10 @@ export function InsightEmptyState({
     const { shouldShowSampleData } = useValues(sampleDataStateLogic)
     const [retrying, setRetrying] = useState(false)
 
+    // The re-run keeps the button busy so a second click cannot start a second query. A caller that
+    // stays mounted through the reload reports a new elapsed time when it ends, which frees the button.
+    useEffect(() => setRetrying(false), [queryElapsedMs])
+
     // A query that crawled and then came back empty reads exactly like one that found nothing at all,
     // so people re-run the same query by hand to check. Say how long it ran and offer the re-run here.
     const querySeconds = queryElapsedMs != null ? queryElapsedMs / 1000 : null
