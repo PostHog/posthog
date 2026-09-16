@@ -26164,6 +26164,10 @@
                 "chance_to_win": {
                     "type": "number"
                 },
+                "ci_level": {
+                    "description": "Credible level the `significant` decision used, so the frontend can print `chance_to_win` consistently with it.",
+                    "type": "number"
+                },
                 "covariate_sum": {
                     "type": "number"
                 },
@@ -26180,6 +26184,14 @@
                     "maxItems": 2,
                     "minItems": 2,
                     "type": "array"
+                },
+                "cuped_adjusted": {
+                    "description": "True when CUPED variance reduction shaped `delta` and the interval, so neither matches the raw sums.",
+                    "type": "boolean"
+                },
+                "delta": {
+                    "description": "Relative difference against the baseline, as estimated by the test that produced the interval.",
+                    "type": "number"
                 },
                 "denominator_sum": {
                     "type": "number"
@@ -26252,6 +26264,14 @@
                     "type": "number"
                 },
                 "covariate_sum_squares": {
+                    "type": "number"
+                },
+                "cuped_adjusted": {
+                    "description": "True when CUPED variance reduction shaped `delta` and the interval, so neither matches the raw sums.",
+                    "type": "boolean"
+                },
+                "delta": {
+                    "description": "Relative difference against the baseline, as estimated by the test that produced the interval.",
                     "type": "number"
                 },
                 "denominator_sum": {

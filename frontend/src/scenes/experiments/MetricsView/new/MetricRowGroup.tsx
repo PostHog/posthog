@@ -49,12 +49,14 @@ import {
     getMetricSubtitleValues,
     getNiceTickValues,
     isBayesianResult,
+    isCupedAdjusted,
     isDeltaPositive,
     isSignificant,
     isWinning,
 } from '~/scenes/experiments/MetricsView/shared/utils'
 import { Experiment, InsightType, BreakdownAttributionType } from '~/types'
 
+import { CupedAdjustedTag } from 'products/experiments/frontend/components/CupedAdjustedTag'
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { DetailsModal } from 'products/experiments/frontend/modals/DetailsModal/DetailsModal'
 import { TimeseriesModal } from 'products/experiments/frontend/modals/TimeseriesModal/TimeseriesModal'
@@ -352,6 +354,7 @@ function CollapsibleBreakdownSection({
                                                                     const deltaPositive = isDeltaPositive(variant)
                                                                     const winning = isWinning(variant, metric.goal)
                                                                     const deltaText = formatDeltaPercent(variant)
+                                                                    const cupedAdjusted = isCupedAdjusted(variant)
                                                                     const rowBackgroundColor = significant
                                                                         ? winning
                                                                             ? `${colors.BAR_POSITIVE}${SIGNIFICANT_ROW_BG_ALPHA}`
@@ -419,6 +422,9 @@ function CollapsibleBreakdownSection({
                                                                                     >
                                                                                         {deltaText}
                                                                                     </span>
+                                                                                    {cupedAdjusted && (
+                                                                                        <CupedAdjustedTag />
+                                                                                    )}
                                                                                     {significant &&
                                                                                         deltaPositive !== undefined && (
                                                                                             <span
@@ -1124,6 +1130,7 @@ export function MetricRowGroup({
                 const deltaPositive = isDeltaPositive(variant)
                 const winning = isWinning(variant, metric.goal)
                 const deltaText = formatDeltaPercent(variant)
+                const cupedAdjusted = isCupedAdjusted(variant)
                 const rowBackgroundColor = significant
                     ? winning
                         ? `${colors.BAR_POSITIVE}${SIGNIFICANT_ROW_BG_ALPHA}`
@@ -1182,6 +1189,7 @@ export function MetricRowGroup({
                                 >
                                     {deltaText}
                                 </span>
+                                {cupedAdjusted && <CupedAdjustedTag />}
                                 {significant && deltaPositive !== undefined && (
                                     <span className={`flex-shrink-0 ${winning ? 'text-success' : 'text-danger'}`}>
                                         {deltaPositive ? (

@@ -18,7 +18,7 @@ import {
 import { Experiment, ExperimentIdType } from '~/types'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
-import { getVariantInterval } from './MetricsView/shared/utils'
+import { getDelta, getVariantInterval } from './MetricsView/shared/utils'
 import { getExperimentVariants } from './utils'
 
 export interface ProcessedTimeseriesDataPoint {
@@ -243,19 +243,19 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                             const baseline = d.baseline
 
                             if (variant && baseline) {
-                                const interval = getVariantInterval(variant)
-                                const [lower, upper] = interval || [0, 0]
-                                const delta = (lower + upper) / 2
+                                const [lower, upper] = getVariantInterval(variant) || [0, 0]
 
                                 const dataPoint = {
                                     date: entry.date,
-                                    value: delta,
+                                    // Same helper the results table uses, so the two cannot disagree.
+                                    value: getDelta(variant),
                                     upper_bound: upper,
                                     lower_bound: lower,
                                     hasRealData: true,
                                     number_of_samples: variant.number_of_samples || 0,
                                     denominator_sum: variant.denominator_sum || 0,
-                                    significant: variant.significant ?? false,
+                                    // Snapshots written before the field existed have no verdict to report.
+                                    significant: variant.significant,
                                 }
 
                                 lastKnownData = dataPoint
@@ -281,7 +281,6 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                             hasRealData: false,
                             number_of_samples: 0,
                             denominator_sum: 0,
-                            significant: false,
                         }
                     })
                 }

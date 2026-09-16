@@ -17,6 +17,8 @@ interface TableHeaderProps {
     axisRange?: number
     statsMethod?: ExperimentStatsMethod
     sequentialTestingEnabled?: boolean
+    /** True when at least one delta in the table came from CUPED-adjusted means. */
+    hasCupedAdjustedDelta?: boolean
     loading?: boolean
 }
 
@@ -24,6 +26,7 @@ export function TableHeader({
     axisRange,
     statsMethod,
     sequentialTestingEnabled,
+    hasCupedAdjustedDelta = false,
     loading = false,
 }: TableHeaderProps): JSX.Element {
     const [svgWidth, setSvgWidth] = useState<number | undefined>(undefined)
@@ -62,7 +65,18 @@ export function TableHeader({
                     Value
                 </th>
                 <th className="w-1/15 border-b-2 bg-bg-table p-3 text-left text-xs sticky top-0 z-10 metric-cell-header">
-                    Delta
+                    <span className="inline-flex items-center gap-1">
+                        Delta
+                        <Tooltip
+                            title={`The estimated change against the baseline, from the same test that produced the interval.${
+                                hasCupedAdjustedDelta
+                                    ? ' Rows marked CUPED compare adjusted means, so the delta will not match the difference between the values shown.'
+                                    : ''
+                            }`}
+                        >
+                            <IconInfo className="text-secondary text-base" />
+                        </Tooltip>
+                    </span>
                 </th>
                 <th className="w-1/15 border-b-2 bg-bg-table p-3 text-center text-xs sticky top-0 z-10 metric-cell-header whitespace-nowrap">
                     {statsMethod === ExperimentStatsMethod.Frequentist ? (

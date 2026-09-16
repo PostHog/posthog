@@ -20,7 +20,12 @@ import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { experimentLogic } from '../../experimentLogic'
 import { experimentMetricsLogic } from '../../experimentMetricsLogic'
 import { resolveSequentialEnabled } from '../../ExperimentView/sequential'
-import { type ExperimentVariantResult, getDefaultMetricTitle, getVariantInterval } from '../shared/utils'
+import {
+    type ExperimentVariantResult,
+    getDefaultMetricTitle,
+    getVariantInterval,
+    isCupedAdjusted,
+} from '../shared/utils'
 import { MAX_AXIS_RANGE } from './constants'
 import { MetricRowGroup } from './MetricRowGroup'
 import { SortableMetricRowGroup } from './SortableMetricRowGroup'
@@ -126,6 +131,7 @@ export function MetricsTable({
 
     // Calculate shared axisRange across all metrics
     let hasBreakdowns = false
+    let hasCupedAdjustedDelta = false
     const allIntervalValues = results.flatMap((result: NewExperimentQueryResponse) => {
         const allVariants: ExperimentVariantResult[] = []
 
@@ -145,6 +151,7 @@ export function MetricsTable({
         }
 
         return allVariants.flatMap((variant: ExperimentVariantResult) => {
+            hasCupedAdjustedDelta = hasCupedAdjustedDelta || isCupedAdjusted(variant)
             const interval = getVariantInterval(variant)
             return interval ? [Math.abs(interval[0]), Math.abs(interval[1])] : []
         })
@@ -196,6 +203,7 @@ export function MetricsTable({
                         axisRange={axisRange}
                         statsMethod={experiment.stats_config?.method || ExperimentStatsMethod.Bayesian}
                         sequentialTestingEnabled={sequentialTestingEnabled}
+                        hasCupedAdjustedDelta={hasCupedAdjustedDelta}
                         loading={sectionLoading}
                     />
                     <SortableContext items={orderedUuids} strategy={verticalListSortingStrategy}>

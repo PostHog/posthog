@@ -5911,6 +5911,10 @@ export interface ExperimentVariantResultFrequentist extends ExperimentStatsBaseV
     significant?: boolean
     p_value?: number
     confidence_interval?: [number, number]
+    /** Relative difference against the baseline, as estimated by the test that produced the interval. */
+    delta?: number
+    /** True when CUPED variance reduction shaped `delta` and the interval, so neither matches the raw sums. */
+    cuped_adjusted?: boolean
 }
 
 export interface ExperimentVariantResultBayesian extends ExperimentStatsBaseValidated {
@@ -5918,6 +5922,12 @@ export interface ExperimentVariantResultBayesian extends ExperimentStatsBaseVali
     significant?: boolean
     chance_to_win?: number
     credible_interval?: [number, number]
+    /** Relative difference against the baseline, as estimated by the test that produced the interval. */
+    delta?: number
+    /** True when CUPED variance reduction shaped `delta` and the interval, so neither matches the raw sums. */
+    cuped_adjusted?: boolean
+    /** Credible level the `significant` decision used, so the frontend can print `chance_to_win` consistently with it. */
+    ci_level?: number
 }
 
 /**

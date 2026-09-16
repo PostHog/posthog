@@ -5317,10 +5317,27 @@ class ExperimentVariantResultBayesian(BaseModel):
         extra="forbid",
     )
     chance_to_win: float | None = None
+    ci_level: float | None = Field(
+        default=None,
+        description=(
+            "Credible level the `significant` decision used, so the frontend can print"
+            " `chance_to_win` consistently with it."
+        ),
+    )
     covariate_sum: float | None = None
     covariate_sum_product: float | None = None
     covariate_sum_squares: float | None = None
     credible_interval: list[float] | None = Field(default=None, max_length=2, min_length=2)
+    cuped_adjusted: bool | None = Field(
+        default=None,
+        description=(
+            "True when CUPED variance reduction shaped `delta` and the interval, so neither matches the raw sums."
+        ),
+    )
+    delta: float | None = Field(
+        default=None,
+        description=("Relative difference against the baseline, as estimated by the test that produced the interval."),
+    )
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
@@ -5343,6 +5360,16 @@ class ExperimentVariantResultFrequentist(BaseModel):
     covariate_sum: float | None = None
     covariate_sum_product: float | None = None
     covariate_sum_squares: float | None = None
+    cuped_adjusted: bool | None = Field(
+        default=None,
+        description=(
+            "True when CUPED variance reduction shaped `delta` and the interval, so neither matches the raw sums."
+        ),
+    )
+    delta: float | None = Field(
+        default=None,
+        description=("Relative difference against the baseline, as estimated by the test that produced the interval."),
+    )
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str

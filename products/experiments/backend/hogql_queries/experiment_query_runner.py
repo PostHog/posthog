@@ -1060,7 +1060,10 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         )
 
     def get_cache_payload(self) -> dict:
+        # Bump when the response gains or changes a field, so entries written by the previous shape are
+        # invalidated rather than served for the rest of their 24 hours. Experiment-scoped on purpose,
+        # so it doesn't invalidate every other query type's cache.
         payload = super().get_cache_payload()
-        payload["experiment_response_version"] = 2
+        payload["experiment_response_version"] = 3
         payload["stats_method"] = self.stats_method
         return payload
