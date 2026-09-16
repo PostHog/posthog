@@ -737,6 +737,7 @@
     'start_date',
     'status',
     'status_label',
+    'tagged_items',
     'team_id',
     'updated_at',
   ])

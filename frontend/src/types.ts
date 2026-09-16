@@ -53,7 +53,6 @@ import type {
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
-    ExternalDataSourceType,
     FileSystemIconType,
     FileSystemImport,
     EndpointQueryNode,
@@ -66,6 +65,7 @@ import type {
     NodeKind,
     ProductItemCategory,
     ProductKey,
+    QueryScanSummary,
     QuerySchema,
     QueryStatus,
     QuickFilterContext,
@@ -95,6 +95,7 @@ import type { CommentSlackThreadRefApi } from 'products/platform_features/fronte
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -164,6 +165,7 @@ export enum AvailableFeature {
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
     SAML = 'saml',
+    OIDC = 'oidc',
     SCIM = 'scim',
     SSO_ENFORCEMENT = 'sso_enforcement',
     XAA_AUTHENTICATION = 'xaa_authentication',
@@ -268,7 +270,7 @@ export enum Region {
     DEV = 'DEV',
 }
 
-export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml' | 'oidc'
 export type LoginMethod = SSOProvider | 'password' | 'passkey' | null
 
 export interface AuthBackends {
@@ -276,6 +278,7 @@ export interface AuthBackends {
     gitlab?: boolean
     github?: boolean
     saml?: boolean
+    oidc?: boolean
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
@@ -802,6 +805,7 @@ export interface ConversationsSettings {
 export interface LogsSettings {
     capture_console_logs?: boolean
     json_parse_logs?: boolean
+    json_parse_logs_attribute_key?: string
     pii_scrub_logs?: boolean
     retention_days?: number
     retention_last_updated?: string
@@ -2657,6 +2661,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     alerts?: AlertType[]
     query?: Node | null
     query_status?: QueryStatus
+    query_scan?: QueryScanSummary
     is_cached?: boolean
     filter_override_context?: InsightFilterOverrideContextApi | null
     resolved_date_range?: ResolvedDateRangeResponse | null
@@ -5098,6 +5103,7 @@ export interface Experiment {
     /** Desktop task opened to remove the experiment's flag code, when requested on end/ship. */
     flag_cleanup_task_id?: string | null
     user_access_level: AccessControlLevel
+    tags?: string[]
     /** Optimistic-concurrency token, bumped by the server on every update. Send the last-read
      * value with updates so concurrent edits are detected (409) or merged instead of clobbered. */
     version?: number | null
@@ -6438,7 +6444,7 @@ export interface ExternalDataSourceRevenueAnalyticsConfig {
 }
 
 export interface ExternalDataSourceCreatePayload {
-    source_type: ExternalDataSourceType
+    source_type: ExternalDataSourceTypeEnumApi
     prefix?: string
     description?: string
     access_method?: 'warehouse' | 'direct'
@@ -6470,7 +6476,7 @@ export interface ExternalDataSource {
     source_id: string
     connection_id: string
     status: ExternalDataJobStatus
-    source_type: ExternalDataSourceType
+    source_type: ExternalDataSourceTypeEnumApi
     prefix: string | null
     description: string | null
     access_method?: 'warehouse' | 'direct'
@@ -6694,7 +6700,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
 export interface ExternalDataSchemaSourceSummary {
     id: string
-    source_type: ExternalDataSourceType
+    source_type: ExternalDataSourceTypeEnumApi
     access_method?: ExternalDataSource['access_method']
     supports_column_selection?: boolean
     supports_row_filters?: boolean

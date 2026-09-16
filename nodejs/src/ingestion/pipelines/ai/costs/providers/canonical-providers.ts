@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-15 10:05:49 UTC
+// Generated at: 2026-09-16 10:05:38 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -50,7 +50,7 @@ export type CanonicalProvider =
     | 'coreweave-fp4'
     | 'coreweave-fp8'
     | 'coreweave-int4'
-    | 'crusoe'
+    | 'coreweave-nvfp4'
     | 'crusoe-bf16'
     | 'crusoe-fp4'
     | 'crusoe-fp8'
@@ -169,6 +169,7 @@ export type CanonicalProvider =
     | 'relace-fp8'
     | 'sail-research-fp4'
     | 'sail-research-fp8'
+    | 'sail-research-us'
     | 'sakana'
     | 'sambanova'
     | 'sambanova-fp8'

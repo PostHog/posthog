@@ -12,8 +12,8 @@ import (
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
 )
 
-func testCatalog() *catalog.Catalog {
-	return &catalog.Catalog{Tables: map[string]catalog.Table{
+func testCatalog() *catalog.PreparedCatalog {
+	return catalog.Prepare(&catalog.Catalog{Tables: map[string]catalog.Table{
 		"orders": {Name: "orders", Type: "data_warehouse", Fields: map[string]catalog.Field{
 			"order_id": {Name: "order_id", Type: "string"},
 			"amount":   {Name: "amount", Type: "float"},
@@ -23,11 +23,11 @@ func testCatalog() *catalog.Catalog {
 			"synced_id": {Name: "synced_id", Type: "string"},
 		}},
 	}, Properties: map[string][]catalog.Property{
-		"event":   {{Name: "$geo_city", ValueType: "String"}, {Name: "$geo_country", ValueType: "String"}},
+		"event":   {{Name: "$geo_city", ValueType: "String"}, {Name: "$geo_country", ValueType: "String"}, {Name: "$Geo_Region", ValueType: "String"}},
 		"person":  {{Name: "$geo_city", ValueType: "String"}},
 		"session": {{Name: "$entry_current_url", ValueType: "String"}},
 		"group:0": {{Name: "industry", ValueType: "String"}},
-	}}
+	}})
 }
 
 func TestCompletionRejectsQueriesOutsideResourceLimits(t *testing.T) {
@@ -67,6 +67,7 @@ func TestCompletesPropertiesForGenericNamespaces(t *testing.T) {
 		{query: "SELECT properties.$geo FROM persons", position: len("SELECT properties.$geo"), expect: "$geo_city"},
 		{query: "SELECT session.properties.$entry FROM events", position: len("SELECT session.properties.$entry"), expect: "$entry_current_url"},
 		{query: "SELECT group_0.properties.ind FROM events", position: len("SELECT group_0.properties.ind"), expect: "industry"},
+		{query: "SELECT properties.$geo_r FROM events", position: len("SELECT properties.$geo_r"), expect: "$Geo_Region"},
 	}
 	for _, test := range tests {
 		result, err := Complete(testCatalog(), test.query, test.position, PositionEncodingUTF8, "")
@@ -108,6 +109,93 @@ func TestCompletesFieldsForAlias(t *testing.T) {
 	}
 	if len(result.Suggestions) != 2 {
 		t.Fatalf("suggestions = %#v; parse error = %q", result.Suggestions, result.ParseError)
+	}
+}
+
+func TestCompletionQuotesIdentifierInsertionText(t *testing.T) {
+	schema := catalog.Prepare(&catalog.Catalog{Tables: map[string]catalog.Table{
+		"from":          {Name: "from", Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+		"order-items":   {Name: "order-items", Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+		"percent%table": {Name: "percent%table", Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+		"orders": {Name: "orders", Type: "data_warehouse", Fields: map[string]catalog.Field{
+			"billing address": {Name: "billing address", Type: "string"},
+			"FROM":            {Name: "FROM", Type: "string"},
+			"order-total":     {Name: "order-total", Type: "float"},
+			"percent%field":   {Name: "percent%field", Type: "string"},
+			"tick`value":      {Name: "tick`value", Type: "string"},
+		}},
+	}, Properties: map[string][]catalog.Property{}})
+
+	tableResult, err := Complete(schema, "SELECT * FROM order", len("SELECT * FROM order"), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keywordTableResult, err := Complete(schema, "SELECT * FROM fr", len("SELECT * FROM fr"), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unsupportedTableResult, err := Complete(schema, "SELECT * FROM percent", len("SELECT * FROM percent"), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fieldResult, err := Complete(schema, "SELECT o. FROM orders AS o", len("SELECT o."), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		result     Result
+		label      string
+		insertText string
+	}{
+		{result: tableResult, label: "order-items", insertText: "`order-items`"},
+		{result: keywordTableResult, label: "from", insertText: "`from`"},
+		{result: fieldResult, label: "billing address", insertText: "`billing address`"},
+		{result: fieldResult, label: "FROM", insertText: "`FROM`"},
+		{result: fieldResult, label: "order-total", insertText: "`order-total`"},
+		{result: fieldResult, label: "tick`value", insertText: "`tick``value`"},
+	} {
+		suggestion, ok := findSuggestion(test.result.Suggestions, test.label)
+		if !ok || suggestion.InsertText != test.insertText {
+			t.Fatalf("suggestion %q = %#v, want insert text %q", test.label, suggestion, test.insertText)
+		}
+	}
+	for _, test := range []struct {
+		result Result
+		label  string
+	}{
+		{result: fieldResult, label: "percent%field"},
+		{result: unsupportedTableResult, label: "percent%table"},
+	} {
+		if suggestion, ok := findSuggestion(test.result.Suggestions, test.label); ok {
+			t.Fatalf("unsupported suggestion %q = %#v", test.label, suggestion)
+		}
+	}
+}
+
+func TestCompletionPaginationSkipsUnsupportedIdentifiers(t *testing.T) {
+	tables := make(map[string]catalog.Table, PageSize+2)
+	for index := range PageSize + 1 {
+		name := fmt.Sprintf("table_%02d", index)
+		tables[name] = catalog.Table{Name: name, Type: "data_warehouse", Fields: map[string]catalog.Field{}}
+	}
+	tables["table_%"] = catalog.Table{Name: "table_%", Type: "data_warehouse", Fields: map[string]catalog.Field{}}
+	schema := catalog.Prepare(&catalog.Catalog{Tables: tables, Properties: map[string][]catalog.Property{}})
+	query := "SELECT * FROM table_"
+
+	first, err := Complete(schema, query, len(query), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Complete(schema, query, len(query), PositionEncodingUTF8, first.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Total != PageSize+1 || len(first.Suggestions) != PageSize || first.NextCursor == "" {
+		t.Fatalf("first page = %#v", first)
+	}
+	if second.Total != PageSize+1 || len(second.Suggestions) != 1 || second.NextCursor != "" {
+		t.Fatalf("second page = %#v", second)
 	}
 }
 
@@ -198,8 +286,9 @@ func TestCompletionPagesWithoutSkippingOrRepeatingTables(t *testing.T) {
 		name := fmt.Sprintf("table_%02d", index)
 		schema.Tables[name] = catalog.Table{Name: name, Type: "data_warehouse", Fields: map[string]catalog.Field{}}
 	}
+	prepared := catalog.Prepare(schema)
 	query := "SELECT * FROM table_"
-	first, err := Complete(schema, query, len(query), PositionEncodingUTF8, "")
+	first, err := Complete(prepared, query, len(query), PositionEncodingUTF8, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +298,7 @@ func TestCompletionPagesWithoutSkippingOrRepeatingTables(t *testing.T) {
 	if first.Total != 30 {
 		t.Fatalf("total = %d", first.Total)
 	}
-	second, err := Complete(schema, query, len(query), PositionEncodingUTF8, first.NextCursor)
+	second, err := Complete(prepared, query, len(query), PositionEncodingUTF8, first.NextCursor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +308,7 @@ func TestCompletionPagesWithoutSkippingOrRepeatingTables(t *testing.T) {
 	if first.Suggestions[24].Label != "table_24" || second.Suggestions[0].Label != "table_25" {
 		t.Fatalf("page boundary is %q then %q", first.Suggestions[24].Label, second.Suggestions[0].Label)
 	}
-	if _, err := Complete(schema, query, len(query), PositionEncodingUTF8, "not-a-cursor"); err == nil {
+	if _, err := Complete(prepared, query, len(query), PositionEncodingUTF8, "not-a-cursor"); err == nil {
 		t.Fatal("invalid cursor was accepted")
 	}
 }
@@ -242,7 +331,7 @@ func findSuggestion(suggestions []Suggestion, label string) (Suggestion, bool) {
 	return Suggestion{}, false
 }
 
-func largeContextualCatalog() *catalog.Catalog {
+func largeContextualCatalog() *catalog.PreparedCatalog {
 	schema := &catalog.Catalog{Tables: make(map[string]catalog.Table, 1024)}
 	for tableIndex := 0; tableIndex < 1024; tableIndex++ {
 		fields := make(map[string]catalog.Field, 25)
@@ -253,7 +342,7 @@ func largeContextualCatalog() *catalog.Catalog {
 		name := fmt.Sprintf("table_%04d", tableIndex)
 		schema.Tables[name] = catalog.Table{Name: name, Type: "data_warehouse", Fields: fields}
 	}
-	return schema
+	return catalog.Prepare(schema)
 }
 
 func TestCompleteContextualCatalogStaysWithinLatencyBudget(t *testing.T) {
