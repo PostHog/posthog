@@ -188,12 +188,16 @@ def select_from_persons_table(
         # rows after deduplication, so they need the full person set as well.
         # The push-down does arithmetic on the LIMIT and OFFSET values. A LIMIT or OFFSET that is
         # not an integer constant, such as a placeholder or an expression, therefore skips it.
+        # A join filters after deduplication too, so skip a query that joins another table to
+        # persons: the inner LIMIT would slice the person set before the join could match it.
+        # Lazy joins are appended after this runs, so this only excludes joins written in the query.
         can_push_to_inner = (
             node.select_from
             and node.select_from.type
             and hasattr(node.select_from.type, "table")
             and node.select_from.type.table
             and isinstance(node.select_from.type.table, PersonsTable)
+            and node.select_from.next_join is None
             and not node.group_by  # TODO: support group_by
             and _is_integer_constant(node.limit)
             and (node.offset is None or _is_integer_constant(node.offset))

@@ -263,6 +263,20 @@ class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
         assert "in(tuple(person.id, person.version)" in response.clickhouse
         assert pushed_down_limit not in response.clickhouse
 
+    def test_v2_join_does_not_push_limit_down(self):
+        # The inner subquery slices persons before the join runs, so a joined person that sits
+        # outside the slice never reaches the join and the query returns too few rows.
+        printed, _ = prepare_and_print_ast(
+            parse_select(
+                "SELECT persons.properties.email, events.event FROM persons "
+                "JOIN events ON events.person_id = persons.id LIMIT 10"
+            ),
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=self._v2_modifiers()),
+            "clickhouse",
+        )
+        assert "in(tuple(person.id, person.version)" in printed
+        assert "LIMIT 11" not in printed
+
     def test_v2_non_integer_limit_does_not_push_limit_down(self):
         query = parse_select("SELECT id FROM persons LIMIT 1")
         assert isinstance(query, ast.SelectQuery)
