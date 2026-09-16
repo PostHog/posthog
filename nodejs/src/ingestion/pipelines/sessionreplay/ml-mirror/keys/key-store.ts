@@ -1,4 +1,5 @@
 import { logger } from '~/common/utils/logger'
+import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 
 import { MlDataKey, MlKeyEncryption } from './crypto'
@@ -54,6 +55,13 @@ function commitRetryDelayMs(attempt: number): number {
 export interface MlSessionKeys {
     session: MlDataKey
     image: MlDataKey
+}
+
+interface MlStoredKeyMismatch {
+    id: string
+    teamId: number
+    expectedOrganizationId: string
+    storedOrganizationId?: string
 }
 
 function storedKeyId(identity: MlKeyIdentity): TableKey {
@@ -124,6 +132,8 @@ export class MlKeyBatch {
         for (const [id, item] of await this.db.read(remaining, deadline)) {
             this.state.set(id, item)
         }
+        const unusable: MlStoredKeyMismatch[] = []
+        const rehomed: MlStoredKeyMismatch[] = []
         await Promise.all(
             [...keyIdentities].map(async ([id, identity]) => {
                 const item = this.state.get(id)
@@ -131,10 +141,27 @@ export class MlKeyBatch {
                     return
                 }
                 if (item) {
-                    if (!item.wrapped_key?.B || item.organization_id?.S !== identity.organizationId) {
-                        throw new Error('Invalid stored ML key identity')
+                    const storedOrganizationId = item.organization_id?.S
+                    if (!item.wrapped_key?.B || !storedOrganizationId) {
+                        unusable.push({
+                            id,
+                            teamId: identity.teamId,
+                            expectedOrganizationId: identity.organizationId,
+                            storedOrganizationId,
+                        })
+                        return
                     }
-                    this.keys.set(id, await this.encryption.decrypt(identity, Buffer.from(item.wrapped_key.B)))
+                    // The key was wrapped under the organization the row names, and KMS only unwraps it under that same context, so a team that moved organizations keeps its key under the old one.
+                    if (storedOrganizationId !== identity.organizationId) {
+                        rehomed.push({
+                            id,
+                            teamId: identity.teamId,
+                            expectedOrganizationId: identity.organizationId,
+                            storedOrganizationId,
+                        })
+                    }
+                    const storedIdentity = { ...identity, organizationId: storedOrganizationId }
+                    this.keys.set(id, await this.encryption.decrypt(storedIdentity, Buffer.from(item.wrapped_key.B)))
                 } else {
                     let candidate = this.candidates.get(id)
                     if (!candidate) {
@@ -145,6 +172,23 @@ export class MlKeyBatch {
                 }
             })
         )
+        if (rehomed.length) {
+            MlMirrorMetrics.incrementMlKeyIdentityMismatch('organization_changed', rehomed.length)
+            logger.warn('🔑', 'ml_key_organization_changed', {
+                count: rehomed.length,
+                teamIds: [...new Set(rehomed.map((entry) => entry.teamId))].slice(0, 20),
+                sample: rehomed.slice(0, 5),
+            })
+        }
+        // A row with no wrapped key and no tombstone cannot serve this batch; its sessions are dropped like blocked ones so one bad row cannot stop the lane, and the log names it so the data can be repaired.
+        if (unusable.length) {
+            MlMirrorMetrics.incrementMlKeyIdentityMismatch('wrapped_key_missing', unusable.length)
+            logger.error('🔑', 'ml_key_stored_key_unusable', {
+                count: unusable.length,
+                teamIds: [...new Set(unusable.map((entry) => entry.teamId))].slice(0, 20),
+                sample: unusable.slice(0, 5),
+            })
+        }
     }
 
     public get(teamId: number, sessionId: string): MlSessionKeys | undefined {
