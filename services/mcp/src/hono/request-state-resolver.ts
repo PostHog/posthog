@@ -54,7 +54,9 @@ export interface ResolvedState {
      * Gated on the same flag as the gateway UI — the tools are the gateway's payoff,
      * so they roll out together. Also forced off in read-only mode: a connected
      * server's tools can mutate and PostHog can't prove otherwise, so the catalog's
-     * read-only filter has no equivalent to apply to them.
+     * read-only filter has no equivalent to apply to them. Forced off for a built-in
+     * agent too, because the roster comes from the same member-facing API Django
+     * denies that agent — asking for it only buys a 403 and a captured exception.
      *
      * Deliberately not folded into `allTools`: `instructions.ts` looks every entry up in
      * the static tool-definition registry (which throws on an unknown name) and renders
@@ -124,6 +126,11 @@ const BUILT_IN_AGENT_SCOPE = 'mcp_builtin_agent:read'
 /** MCP Store tools backed by the member-facing installation API, which Django guards with `DenyMCPBuiltInAgentOAuth`. */
 const MCP_STORE_MEMBER_TOOL_NAMES = ['mcp-connections-list', 'mcp-connection-tools-list'] as const
 
+/** Whether the token was minted for one of PostHog's built-in agents. */
+export function isBuiltInAgentToken(apiKeyScopes: string[]): boolean {
+    return apiKeyScopes.includes(BUILT_IN_AGENT_SCOPE)
+}
+
 /**
  * Which tools to hide from a built-in agent's token. These 403 on every call —
  * the agent reaches connected servers through its explicit gateway grants, which
@@ -131,7 +138,7 @@ const MCP_STORE_MEMBER_TOOL_NAMES = ['mcp-connections-list', 'mcp-connection-too
  * the invitation to break it is what goes away.
  */
 export function builtInAgentToolsToExclude(apiKeyScopes: string[]): string[] {
-    return apiKeyScopes.includes(BUILT_IN_AGENT_SCOPE) ? [...MCP_STORE_MEMBER_TOOL_NAMES] : []
+    return isBuiltInAgentToken(apiKeyScopes) ? [...MCP_STORE_MEMBER_TOOL_NAMES] : []
 }
 
 // ─── Resolver ───
@@ -234,6 +241,7 @@ export class RequestStateResolver {
         props.mode = resolvedMode
 
         const apiKeyScopes = _apiKey?.scopes ?? []
+        const isBuiltInAgent = isBuiltInAgentToken(apiKeyScopes)
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
         const aiConsentGiven = await context.stateManager.getAiConsentGiven()
         const availableFeatures = await context.stateManager.getAvailableFeatures()
@@ -295,6 +303,7 @@ export class RequestStateResolver {
                 useSingleExec &&
                 !readOnly &&
                 mergedFlags[MCP_GATEWAY_FLAG] === true &&
+                !isBuiltInAgent &&
                 !mountsGatewayServersDirectly(props.taskOriginProduct),
             distinctId,
             renderUiEnabled,

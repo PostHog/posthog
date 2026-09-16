@@ -398,14 +398,18 @@ describe('RequestStateResolver MCP client contexts', () => {
     })
 
     it.each([
-        ['a Desktop task', { taskOriginProduct: undefined }, true],
-        ['a support reply task', { taskOriginProduct: 'support_reply' }, true],
+        ['a Desktop task', { taskOriginProduct: undefined }, ['*'], true],
+        ['a support reply task', { taskOriginProduct: 'support_reply' }, ['*'], true],
         // Scout sandboxes mount gateway servers directly as `mcp__<server>__<tool>`; a second
         // `<slug>__<tool>` spelling inside exec resolves for a member but not for the service
         // account, so skills learned interactively fail on the schedule.
-        ['a scout run', { taskOriginProduct: 'signals_scout' }, false],
-    ] as const)('surfaces gateway tools through exec for %s', async (_label, overrides, enabled) => {
+        ['a scout run', { taskOriginProduct: 'signals_scout' }, ['*'], false],
+        // The roster comes from the member-facing installations API, which Django denies for
+        // a built-in agent token — every request it sends is a guaranteed 403.
+        ['a writable built-in agent run', { taskOriginProduct: 'workflow' }, ['*', 'mcp_builtin_agent:read'], false],
+    ] as const)('surfaces gateway tools through exec for %s', async (_label, overrides, scopes, enabled) => {
         vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ 'mcp-gateway': true })
+        mockApiKey.scopes = [...scopes]
 
         const result = await makeResolver().resolve(makeProps({ mcpConsumer: 'posthog-code', ...overrides }))
 
