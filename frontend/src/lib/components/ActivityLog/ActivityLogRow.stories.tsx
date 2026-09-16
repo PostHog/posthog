@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { dayjs } from 'lib/dayjs'
 import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDescriber'
 
-import { ActivityScope } from '~/types'
+import { ActivityScope, InsightShortId } from '~/types'
 
 import { ActivityLogRow } from './ActivityLogRow'
 import { describerFor } from './describers'
@@ -144,7 +144,7 @@ const productEvents: ActivityLogItem[] = [
         detail: {
             ...dashboardEvents[0].detail,
             name: 'Weekly signups',
-            short_id: 'example1',
+            short_id: 'example1' as InsightShortId,
             changes: [
                 {
                     type: ActivityScope.INSIGHT,
@@ -253,7 +253,7 @@ const productEvents: ActivityLogItem[] = [
         client: null,
         detail: {
             name: 'Weekly signups',
-            short_id: 'example1',
+            short_id: 'example1' as InsightShortId,
             merge: null,
             trigger: null,
             changes: [
