@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -7,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { CATEGORY_DETAIL_CONFIG } from '../categoryDetail/categoryDetailConfig'
 import { CATEGORY_ORDER, HEALTH_CATEGORY_CONFIG, categoryForKind } from '../healthCategories'
 import type { HealthIssueCategory } from '../healthCategories'
+import { healthCheckFreshnessLogic } from '../healthCheckFreshnessLogic'
 import { healthSceneLogic } from '../healthSceneLogic'
 import { severityToTagType, worstSeverity } from '../healthUtils'
 import type { HealthIssue } from '../types'
@@ -15,6 +17,8 @@ import { HealthIssueCard } from './HealthIssueCard'
 export const HealthIssueList = (): JSX.Element => {
     const { issues, healthIssuesLoading, healthIssues } = useValues(healthSceneLogic)
     const { snoozeIssue, dismissIssue, undismissIssue, loadHealthIssues } = useActions(healthSceneLogic)
+    const { refreshingKinds } = useValues(healthCheckFreshnessLogic)
+    const { recheckKinds } = useActions(healthCheckFreshnessLogic)
 
     if (healthIssuesLoading && !healthIssues) {
         return (
@@ -60,6 +64,8 @@ export const HealthIssueList = (): JSX.Element => {
                 const categoryIssues = groupedByCategory[category]!
                 const config = HEALTH_CATEGORY_CONFIG[category]
                 const worst = worstSeverity(categoryIssues)
+                const categoryKinds = Array.from(new Set(categoryIssues.map((issue) => issue.kind)))
+                const isRechecking = categoryKinds.some((kind) => refreshingKinds.includes(kind))
                 return (
                     <LemonCollapse
                         key={category}
@@ -78,6 +84,21 @@ export const HealthIssueList = (): JSX.Element => {
                                             <LemonTag type={severityToTagType(worst)} size="small">
                                                 {worst}
                                             </LemonTag>
+                                            <LemonButton
+                                                type="tertiary"
+                                                size="xsmall"
+                                                icon={<IconRefresh />}
+                                                loading={isRechecking}
+                                                disabledReason={isRechecking ? 'Re-checking' : undefined}
+                                                tooltip="Run the checks behind these issues again now"
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    recheckKinds(categoryKinds, loadHealthIssues)
+                                                }}
+                                                data-attr={`health-category-recheck-${category}`}
+                                            >
+                                                Re-check
+                                            </LemonButton>
                                             <LemonButton
                                                 type="tertiary"
                                                 size="xsmall"
@@ -100,6 +121,7 @@ export const HealthIssueList = (): JSX.Element => {
                                             onSnooze={snoozeIssue}
                                             onDismiss={dismissIssue}
                                             onUndismiss={undismissIssue}
+                                            onRechecked={loadHealthIssues}
                                         />
                                     </div>
                                 ),
@@ -118,12 +140,14 @@ function CategoryContent({
     onSnooze,
     onDismiss,
     onUndismiss,
+    onRechecked,
 }: {
     category: HealthIssueCategory
     issues: HealthIssue[]
     onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
+    onRechecked: () => void
 }): JSX.Element {
     const TableComponent = CATEGORY_DETAIL_CONFIG[category]?.tableComponent
     if (TableComponent) {
@@ -138,6 +162,7 @@ function CategoryContent({
                     onSnooze={onSnooze}
                     onDismiss={onDismiss}
                     onUndismiss={onUndismiss}
+                    onRechecked={onRechecked}
                 />
             ))}
         </div>

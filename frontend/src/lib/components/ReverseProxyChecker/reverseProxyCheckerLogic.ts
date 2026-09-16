@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { hogql } from '~/queries/utils'
@@ -84,11 +85,27 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
             },
         ],
     })),
-    listeners(({ values }) => ({
-        loadHasReverseProxySuccess: () => {
-            if (values.hasReverseProxy) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpReverseProxy)
+    listeners(({ values, selectors }) => ({
+        loadHasReverseProxySuccess: (_payload, _breakpoint, _action, previousState) => {
+            if (!values.hasReverseProxy) {
+                return
             }
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpReverseProxy)
+
+            // The proxy went live since the last check, so the daily "no reverse proxy" check is
+            // holding a warning that is no longer true. Re-run just that check now. Only on the
+            // transition: this logic mounts on every scene, and re-checking on each mount would
+            // spend the scoped cooldown on projects that changed nothing.
+            const teamId = getCurrentTeamIdOrNone()
+            if (selectors.hasReverseProxy(previousState) !== false || teamId === null) {
+                return
+            }
+            api.create(`api/environments/${teamId}/health_issues/refresh/`, {
+                kinds: ['reverse_proxy'],
+            }).catch(() => {
+                // Advisory: the scheduled run picks the fix up anyway, and a 429 here is expected
+                // when several tabs notice the same proxy at once.
+            })
         },
     })),
     afterMount(({ actions }) => {
