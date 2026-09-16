@@ -464,6 +464,31 @@ class TestHeatmapsAPI(APIBaseTest):
         r = self.client.post(f"/api/environments/{self.team.id}/saved/{saved.short_id}/regenerate/")
         self.assertEqual(r.status_code, 400)
 
+    @parameterized.expand(
+        [
+            ("default_order", None, True),
+            ("requested_descending", "-created_at", True),
+            ("requested_ascending", "created_at", False),
+        ]
+    )
+    def test_tied_timestamps_keep_a_stable_order_across_pages(self, _name, order, newest_first):
+        created = [
+            SavedHeatmap.objects.create(team=self.team, url=f"https://example.com/{index}", created_by=self.user)
+            for index in range(5)
+        ]
+        timestamp = timezone.now()
+        SavedHeatmap.objects.filter(team=self.team).update(created_at=timestamp, updated_at=timestamp)
+
+        query = f"&order={order}" if order else ""
+        seen = []
+        for offset in range(5):
+            r = self.client.get(f"/api/environments/{self.team.id}/saved/?limit=1&offset={offset}{query}")
+            self.assertEqual(r.status_code, 200)
+            seen.extend(row["id"] for row in r.data["results"])
+
+        expected = [str(saved.id) for saved in sorted(created, key=lambda heatmap: heatmap.id, reverse=newest_first)]
+        self.assertEqual(seen, expected)
+
 
 class TestSavedHeatmapRegeneratePersonalAPIKeyScopes(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
