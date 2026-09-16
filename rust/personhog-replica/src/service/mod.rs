@@ -318,7 +318,7 @@ impl PersonHogReplica for PersonHogReplicaService {
         let req = request.into_inner();
         let consistency = to_storage_consistency(&req.read_options);
         let limit = req.limit.filter(|&l| l > 0);
-        let cursor_id = req.cursor_id.filter(|&c| c > 0);
+        let cursor_id = req.cursor_id;
 
         let distinct_ids = self
             .storage

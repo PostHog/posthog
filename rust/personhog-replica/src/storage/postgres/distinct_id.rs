@@ -42,6 +42,8 @@ impl DistinctIdLookup for PostgresStorage {
         // get the user-defined one. The regex mirrors ANONYMOUS_REGEX in
         // posthog/utils.py (keep in sync).
         let rows = match (cursor_id, limit) {
+            // No composite index on (person_id, id) — cursor branches scan all rows for the
+            // person per page instead of seeking. Fine for bulk-delete; add the index if needed.
             (Some(cursor), Some(l)) => {
                 sqlx::query_as!(
                     DistinctIdWithVersion,

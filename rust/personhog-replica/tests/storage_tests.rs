@@ -3401,17 +3401,27 @@ async fn test_delete_tombstoned_persons_gives_up_when_a_writer_holds_the_row() {
 #[tokio::test]
 async fn test_get_distinct_ids_for_person_paginated() {
     let ctx = TestContext::new().await;
+    // Mix anonymous-format UUIDs with identified strings so the anonymous-
+    // deprioritizing sort and ORDER BY id ASC produce different orderings.
     let person = ctx
-        .insert_person("page_did_0", None)
+        .insert_person("0190f8e1-1234-7abc-89de-f0123456789a", None)
         .await
         .expect("insert person");
+    ctx.add_distinct_id_to_person(person.id, "user@example.com")
+        .await
+        .expect("add distinct id");
+    ctx.add_distinct_id_to_person(person.id, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+        .await
+        .expect("add distinct id");
+    ctx.add_distinct_id_to_person(person.id, "another_identified")
+        .await
+        .expect("add distinct id");
+    ctx.add_distinct_id_to_person(person.id, "01234567-abcd-efab-cdef-0123456789ab")
+        .await
+        .expect("add distinct id");
 
-    for i in 1..5 {
-        ctx.add_distinct_id_to_person(person.id, &format!("page_did_{i}"))
-            .await
-            .expect("add distinct id");
-    }
-
+    // cursor_id=0 selects the keyset branch (ORDER BY id ASC), same as all
+    // subsequent pages, so cross-page ordering is consistent.
     let page1 = ctx
         .storage
         .get_distinct_ids_for_person(
@@ -3419,7 +3429,7 @@ async fn test_get_distinct_ids_for_person_paginated() {
             person.id,
             ConsistencyLevel::Eventual,
             Some(2),
-            None,
+            Some(0),
         )
         .await
         .expect("page 1");
@@ -3461,7 +3471,13 @@ async fn test_get_distinct_ids_for_person_paginated() {
         .map(|d| d.distinct_id.clone())
         .collect();
     all_dids.sort();
-    let mut expected: Vec<String> = (0..5).map(|i| format!("page_did_{i}")).collect();
+    let mut expected = vec![
+        "0190f8e1-1234-7abc-89de-f0123456789a",
+        "01234567-abcd-efab-cdef-0123456789ab",
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "another_identified",
+        "user@example.com",
+    ];
     expected.sort();
     assert_eq!(all_dids, expected);
 
