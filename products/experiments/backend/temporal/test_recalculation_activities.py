@@ -861,6 +861,7 @@ class TestCalculateActivity(BaseTest):
             ("too_many_bytes", "Limit for bytes to read exceeded"),
         ]
     )
+    @time_machine.travel("2026-06-23T05:00:00Z", tick=False)
     def test_query_breaker_replay_fails_the_metric_without_capture(self, kind: FailureKind, detail: str):
         # An open query failure breaker rebuilds the remembered failure instead of running ClickHouse, so
         # the first failure is the only one error tracking has anything to learn from. The activity must
