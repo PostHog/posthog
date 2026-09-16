@@ -28,6 +28,7 @@ from ..remote_config import build_error_tracking_config as build_error_tracking_
 from . import contracts
 from .contracts import (
     CrashFreeSummary as CrashFreeSummary,
+    DocumentEmbeddingTable as DocumentEmbeddingTable,
     ExceptionSummary as ExceptionSummary,
 )
 
@@ -782,10 +783,15 @@ def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
     weekly_digest_delivery.send_digest_to_workflow(digest, distinct_id)
 
 
-def document_embedding_tables() -> list[tuple[str, str]]:
-    """Every per-model embeddings table as ``(sharded storage table, distributed read table)``.
+def document_embedding_tables() -> list[DocumentEmbeddingTable]:
+    """Every per-model embeddings table.
 
     Other products embed their documents into these tables too, so a sweep that removes a
     product's rows needs the full list rather than the one model it writes with.
     """
-    return [(table.sharded_table_name(), table.distributed_table_name()) for table in EMBEDDING_TABLES]
+    return [
+        DocumentEmbeddingTable(
+            sharded_table=table.sharded_table_name(), distributed_table=table.distributed_table_name()
+        )
+        for table in EMBEDDING_TABLES
+    ]

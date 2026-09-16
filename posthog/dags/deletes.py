@@ -37,7 +37,7 @@ from posthog.dataclasses import frozen
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
-    _table_exists,
+    _any_node_has,
     resolve_placements,
     surviving_rows_sql,
     sweep_clusters,
@@ -52,7 +52,7 @@ from posthog.models.person.sql import (
     PERSONS_TABLE,
 )
 
-from products.error_tracking.backend.facade.api import document_embedding_tables
+from products.error_tracking.backend.facade.api import DocumentEmbeddingTable, document_embedding_tables
 
 
 class DeleteConfig(dagster.Config):
@@ -698,9 +698,9 @@ def delete_event_documents(
 
     reuse_floor = _mutation_reuse_floor(cluster)
     by_shard: dict[int, list[MutationWaiter]] = {}
-    for sharded_table, _ in _present_document_embedding_tables(cluster):
+    for table in _present_document_embedding_tables(cluster):
         runner = LightweightDeleteMutationRunner(
-            table=sharded_table,
+            table=table.sharded_table,
             predicate=_DOCUMENT_DELETE_PREDICATE,
             parameters=_document_delete_predicate_params(load_and_verify_deletes_dictionary),
             reuse_since=reuse_floor,
@@ -826,13 +826,13 @@ class VerifiedDeletionResources:
     adhoc_event_deletes_dictionary: AdhocEventDeletesDictionary
 
 
-def _present_document_embedding_tables(cluster: ClickhouseCluster) -> list[tuple[str, str]]:
-    """The embeddings tables that exist here: the Python registry can name a model whose migration has not landed."""
-    return [
-        (sharded_table, distributed_table)
-        for sharded_table, distributed_table in document_embedding_tables()
-        if cluster.any_host_by_role(partial(_table_exists, table=sharded_table), NodeRole.DATA).result()
-    ]
+def _present_document_embedding_tables(cluster: ClickhouseCluster) -> list[DocumentEmbeddingTable]:
+    """The embeddings tables that exist here: the Python registry can name a model whose migration has not landed.
+
+    Present on any shard host counts, as for the registered targets: a table missing from some hosts
+    makes the mutation fail loudly there, which beats skipping the deletion.
+    """
+    return [table for table in document_embedding_tables() if _any_node_has(cluster, table.sharded_table)]
 
 
 def _document_delete_predicate_params(pending_deletes_dictionary: "PendingDeletesDictionary") -> dict[str, str | int]:
@@ -953,11 +953,11 @@ def _count_unswept_rows(
                 max_execution_time,
             )
     document_params = _document_delete_predicate_params(pending_deletes_dictionary)
-    for _, distributed_table in _present_document_embedding_tables(cluster):
-        counts[distributed_table] = _count_through(
+    for table in _present_document_embedding_tables(cluster):
+        counts[table.distributed_table] = _count_through(
             context,
             partial(_rows_from_any_host, cluster),
-            distributed_table,
+            table.distributed_table,
             document_params,
             max_execution_time,
             predicate=_DOCUMENT_DELETE_PREDICATE,
