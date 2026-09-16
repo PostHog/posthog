@@ -366,20 +366,14 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert self._job_count() == 0, "extra metrics are not precomputed — must fall through to raw"
 
-    @parameterized.expand(
-        [
-            ("page", WebStatsBreakdown.PAGE),
-            ("initial_page", WebStatsBreakdown.INITIAL_PAGE),
-            ("exit_click", WebStatsBreakdown.EXIT_CLICK),
-        ]
-    )
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
-    def test_high_cardinality_breakdown_falls_through(self, _name: str, breakdown_by: WebStatsBreakdown):
-        # Page/path breakdowns are intentionally excluded — handled by the
-        # dedicated paths lazy precompute. They fall through to raw here.
+    def test_high_cardinality_breakdown_falls_through(self):
+        # Pathname breakdowns (PAGE/INITIAL_PAGE) are owned by the paths lazy
+        # precompute — bounce or not — and are covered in its test suite.
+        # EXIT_CLICK belongs to no family and must stay on the raw path.
         self._seed()
         with self._enable_lazy():
-            self._run(self._build_query(breakdown_by=breakdown_by))
+            self._run(self._build_query(breakdown_by=WebStatsBreakdown.EXIT_CLICK))
 
         assert self._job_count() == 0
 

@@ -48,6 +48,7 @@ from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precomput
     _entry_breakdown_value_expr,
     _events_session_id_expr,
     _top_k_ranking_expr,
+    can_use_lazy_precompute,
 )
 
 
@@ -359,9 +360,73 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         )
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
-    def test_missing_include_bounce_rate_falls_through(self):
+    def test_bounce_less_read_shares_buckets(self):
+        """A PAGE read without bounce rate (the weekly digest's shape) must take the
+        lazy path and resolve the SAME jobs as the dashboard's bounce read — not fall
+        through to live, and not mint a second bucket namespace."""
+        self._seed_two_sessions()
         with self._enable_lazy():
-            self._run(self._build_query(include_bounce_rate=False))
+            no_bounce_query = self._build_query(include_bounce_rate=False)
+            runner = WebStatsTableQueryRunner(team=self.team, query=no_bounce_query)
+            assert runner._owning_lazy_precompute_family() == "paths"
+            assert can_use_lazy_precompute(runner)
+
+            self._run(no_bounce_query)
+            no_bounce_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+            assert no_bounce_hashes, "bounce-less read should create precompute jobs"
+
+            self._run(self._build_query())
+            bounce_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+
+        assert bounce_hashes == no_bounce_hashes, (
+            "bounce and bounce-less reads must share one bucket namespace, "
+            f"got extra hashes: {bounce_hashes ^ no_bounce_hashes}"
+        )
+
+    @parameterized.expand(
+        [
+            ("with_bounce", True),
+            ("without_bounce", False),
+        ]
+    )
+    def test_lazy_response_bounce_column_follows_query(self, _name: str, include_bounce: bool) -> None:
+        # One row in the executor's 8-tuple wire shape; the builder must emit the
+        # bounce column only when the query asked for it.
+        rows = [("/a", 3, 1, 5, 2, 0.5, 0.25, 0.8)]
+        runner = WebStatsTableQueryRunner(
+            team=self.team,
+            query=self._build_query(include_bounce_rate=include_bounce, compare=True),
+        )
+        response = runner._build_response_from_lazy_rows(rows, limit=10, offset=0)
+
+        expected_columns = [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.views",
+            *(["context.columns.bounce_rate"] if include_bounce else []),
+            "context.columns.ui_fill_fraction",
+            "context.columns.cross_sell",
+        ]
+        assert response.columns == expected_columns
+        expected_row = [
+            "/a",
+            (3, 1),
+            (5, 2),
+            *([(0.5, 0.25)] if include_bounce else []),
+            0.8,
+            "",
+        ]
+        assert response.results == [expected_row]
+
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_bounce_less_read_with_bounce_sort_falls_through(self):
+        with self._enable_lazy():
+            self._run(
+                self._build_query(
+                    include_bounce_rate=False,
+                    order_by=[WebAnalyticsOrderByFields.BOUNCE_RATE, WebAnalyticsOrderByDirection.DESC],
+                )
+            )
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
