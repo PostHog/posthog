@@ -3824,6 +3824,43 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
         assert "query access" in str(patch_resp.json()).lower(), patch_resp.json()
 
+    def test_re_enabling_ai_sub_without_original_creator_project_access_is_rejected(
+        self, mock_is_cloud: MagicMock, mock_flag: MagicMock, mock_sync: MagicMock
+    ) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        original_creator = self._create_user("project-revoked-creator@posthog.com")
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(),
+        )
+        sub_id = create_resp.json()["id"]
+        Subscription.objects.filter(pk=sub_id).update(enabled=False, created_by=original_creator)
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        membership = original_creator.organization_memberships.get(organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save(update_fields=["level"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=membership,
+            access_level="none",
+        )
+        cache.clear()
+
+        patch_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"enabled": True},
+        )
+
+        assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
+        assert "project access" in str(patch_resp.json()).lower(), patch_resp.json()
+
     def test_re_enabling_ai_sub_without_ai_processing_approval_is_rejected(
         self, mock_is_cloud: MagicMock, mock_flag: MagicMock, mock_sync: MagicMock
     ) -> None:

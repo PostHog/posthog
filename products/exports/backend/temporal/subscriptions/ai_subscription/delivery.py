@@ -278,7 +278,9 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     if context.user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
     if not context.creator_can_query:
-        raise QueryAccessRevokedError("AI subscription creator no longer has query access; cannot deliver.")
+        raise QueryAccessRevokedError(
+            "AI subscription creator is unavailable or no longer has required project or query access; cannot deliver."
+        )
 
     report_context = await resolve_report_context(subscription, context.context_selection)
 

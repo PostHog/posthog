@@ -1,3 +1,5 @@
+import asyncio
+
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
@@ -15,6 +17,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.event_usage import EventSource
 from posthog.models import Team, User
 
 from ee.hogai.context.insight.context import InsightContext
@@ -65,6 +68,31 @@ class TestInsightSchema(SimpleTestCase):
         ):
             computed = await context.execute_and_format()
         assert "fresh rows" in computed
+        assert directive not in computed
+        assert "cached-cell" not in computed
+
+    async def test_subscription_context_prepares_filtered_query_once_on_worker_pool(self) -> None:
+        query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
+        context = InsightContext(
+            team=Team(id=1),
+            query=query,
+            user=User(id=1),
+            dashboard_filters={"date_from": "-7d"},
+            event_source=EventSource.SUBSCRIPTION,
+        )
+        apply_filters = AsyncMock(return_value=query.model_dump(mode="json"))
+
+        with (
+            patch("ee.hogai.context.insight.context.database_sync_to_async_pool", return_value=apply_filters) as pool,
+            patch("ee.hogai.context.insight.context.database_sync_to_async") as serial,
+        ):
+            first, second = await asyncio.gather(context._get_effective_query(), context._get_effective_query())
+
+        self.assertEqual(first, query)
+        self.assertEqual(second, query)
+        pool.assert_called_once()
+        apply_filters.assert_awaited_once()
+        serial.assert_not_called()
 
 
 class TestInsightContext(BaseTest):

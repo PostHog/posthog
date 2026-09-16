@@ -82,7 +82,11 @@ from products.product_analytics.backend.facade.api import insights_including_sof
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, validate_re_enable
+from ee.tasks.subscriptions.auto_disable import (
+    AI_CONSENT_REVOKED_DISABLE_REASON,
+    AI_QUERY_ACCESS_REVOKED_DISABLE_REASON,
+    validate_re_enable,
+)
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, TEAMS_WEBHOOK_URL_MASKED_ERROR
 
@@ -834,13 +838,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                         {"enabled": ["Cannot re-enable AI subscription: the original creator is unavailable."]}
                     )
                 if not creator_can_query(user=created_by_after, team=self.context["get_team"]()):
-                    raise ValidationError(
-                        {
-                            "enabled": [
-                                "Cannot re-enable AI subscription: the original creator no longer has query access."
-                            ]
-                        }
-                    )
+                    raise ValidationError({"enabled": [AI_QUERY_ACCESS_REVOKED_DISABLE_REASON.user_message]})
                 try:
                     sanitize_prompt(prompt_after)
                 except PromptRejectedError as exc:
