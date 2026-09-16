@@ -93,10 +93,6 @@ def postgres_cursor() -> Iterator[MagicMock]:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("database_error", [False, True])
-@pytest.mark.parametrize(
-    "tick_workflow, tick_queue",
-    [("alerts-product-evaluate", settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE)],
-)
 async def test_each_tick_starts_independent_delivery(
     environment: WorkflowEnvironment,
     caplog: pytest.LogCaptureFixture,
@@ -105,8 +101,6 @@ async def test_each_tick_starts_independent_delivery(
     activity_logs,
     postgres_cursor: MagicMock,
     database_error: bool,
-    tick_workflow: str,
-    tick_queue: str,
 ) -> None:
     if database_error:
         postgres_cursor.execute.side_effect = OperationalError("sensitive connection details")
@@ -142,10 +136,10 @@ async def test_each_tick_starts_independent_delivery(
     ):
         for _ in range(2):
             parent = await client.start_workflow(
-                tick_workflow,
+                "alerts-product-evaluate",
                 AlertsProductInputs(),
                 id=workflow_id,
-                task_queue=tick_queue,
+                task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
                 execution_timeout=dt.timedelta(seconds=10),
             )
             assert await parent.result() is None

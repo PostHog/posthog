@@ -80,8 +80,8 @@ docker exec posthog-temporal-admin-tools-1 \
     --input '{}'
 ```
 
-The empty `--input '{}'` becomes the empty `AlertsProductInputs`.
-Watch orchestration, its evaluation child, and the delivery grandchild in the Temporal UI at <http://localhost:8081>.
+The empty `--input '{}'` becomes an `OrchestrateInputs` with every field defaulted.
+Watch orchestration, its source dispatcher children, their evaluation children, and the delivery great-grandchildren in the Temporal UI at <http://localhost:8081>.
 
 Evaluation and delivery accept an empty `AlertsProductInputs` dataclass; orchestration accepts `OrchestrateInputs` with all fields defaulted.
 Orchestration pages source dispatchers, which start evaluation children with a 40-second execution timeout and one workflow attempt.
