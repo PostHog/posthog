@@ -483,6 +483,7 @@ def team_api_test_factory():
                 user_id=self.user.id,
                 # The org's first project already holds the plain default name, so the second one gets a suffix
                 project_name="Default project 2",
+                start_delay=timedelta(hours=48),
             )
             assert mock_capture.call_args_list == expected_capture_calls
 

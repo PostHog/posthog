@@ -1,13 +1,24 @@
 import asyncio
+from datetime import timedelta
 
 from django.conf import settings
+
+from temporalio.common import WorkflowIDConflictPolicy
 
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.delete_teams.types import DeleteOrganizationWorkflowInputs, DeleteProjectDataWorkflowInputs
 
+PROJECT_DELETION_DELAY = timedelta(hours=48)
+
 
 def start_delete_project_data_workflow(
-    *, team_ids: list[int], project_id: int | None, user_id: int, project_name: str
+    *,
+    team_ids: list[int],
+    project_id: int | None,
+    user_id: int,
+    project_name: str,
+    start_delay: timedelta | None = None,
+    id_conflict_policy: WorkflowIDConflictPolicy = WorkflowIDConflictPolicy.UNSPECIFIED,
 ) -> None:
     inputs = DeleteProjectDataWorkflowInputs(
         team_ids=team_ids, project_id=project_id, user_id=user_id, project_name=project_name
@@ -21,9 +32,19 @@ def start_delete_project_data_workflow(
             inputs,
             id=workflow_id,
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            start_delay=start_delay if project_id is not None else None,
+            id_conflict_policy=id_conflict_policy,
         )
 
     asyncio.run(_start())
+
+
+def cancel_delete_project_data_workflow(*, project_id: int) -> None:
+    async def _cancel() -> None:
+        client = await async_connect()
+        await client.get_workflow_handle(f"delete-project-{project_id}").cancel()
+
+    asyncio.run(_cancel())
 
 
 def start_delete_organization_workflow(
