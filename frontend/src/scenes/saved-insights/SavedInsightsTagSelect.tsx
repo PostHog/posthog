@@ -4,6 +4,7 @@ import { useId } from 'react'
 import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
 import { useScrollObserver } from 'lib/hooks/useScrollObserver'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { savedInsightsTagFilterLogic } from './savedInsightsTagFilterLogic'
 
@@ -81,7 +82,15 @@ export function SavedInsightsTagSelect({
                                     {tagSearch ? 'No matching tags' : 'No tags'}
                                 </li>
                             ) : null}
-                            {tagPageLoading ? <li className="p-2 text-secondary">Loading tags...</li> : null}
+                            {tagPageLoading ? (
+                                <li className="p-1" aria-label="Loading tags">
+                                    <LemonSkeleton.Row
+                                        className="h-8 mb-1"
+                                        repeat={tagResults.length === 0 ? 5 : 2}
+                                        fade
+                                    />
+                                </li>
+                            ) : null}
                         </ul>
                     </div>
                     {tagPageError && (
