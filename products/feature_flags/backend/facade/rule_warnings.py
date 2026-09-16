@@ -186,12 +186,22 @@ class _Walk:
     closed_by: int | None  # the rule after which nothing was left to evaluate
 
 
+def _has_contradictory_presence_checks(population: frozenset[Predicate]) -> bool:
+    required = {(predicate.key, predicate.negation) for predicate in population if predicate.operator == "is_set"}
+    return any(
+        predicate.operator == "is_not_set" and (predicate.key, predicate.negation) in required
+        for predicate in population
+    )
+
+
 def _walk(config: ValidatedConfig, population: frozenset[Predicate], *, until: int | None = None) -> _Walk:
     """Evaluate ``population`` through the rules before ``until`` (all rules when None).
 
     Stops at the first rule that does not provably apply to the population; the regions
     settled before it stay valid, the rest is unknown.
     """
+    if _has_contradictory_presence_checks(population):
+        return _Walk(settled=(), closed_by=None)
     open_boxes: list[_Box] = [{}]
     settled: list[tuple[_Box, _Outcome]] = []
     for index, rule in enumerate(config.rules[:until]):

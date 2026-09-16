@@ -37,6 +37,9 @@ OTHER_SEED = "second-seed"
 PRO = Predicate(key="plan", operator="exact", value='"pro"', negation=False)
 FREE = Predicate(key="plan", operator="exact", value='"free"', negation=False)
 NORWAY = Predicate(key="country", operator="exact", value='"NO"', negation=False)
+PLAN_SET = Predicate(key="plan", operator="is_set", value="null", negation=False)
+PLAN_NOT_SET = Predicate(key="plan", operator="is_not_set", value='"ignored"', negation=False)
+COUNTRY_NOT_SET = Predicate(key="country", operator="is_not_set", value="null", negation=False)
 
 
 def targeted(rule_id: str, value: bool = True, *predicates: Predicate) -> ValidatedRule:
@@ -131,6 +134,11 @@ class TestConfigWarnings:
                 [],
             ),
             ("zero_percent_continue_is_a_no_op", cfg(rollout(A, 0), targeted(B)), []),
+            (
+                "catch_all_does_not_explain_impossible_lower_population",
+                cfg(targeted(A, False), targeted(B, True, PLAN_SET, PLAN_NOT_SET)),
+                [],
+            ),
         ]
     )
     def test_unreachable_lower_rule(self, _name: str, config: ValidatedConfig, expected: list[tuple[str, str]]) -> None:
@@ -192,6 +200,21 @@ class TestConfigWarnings:
             ),
             ("full_rollout_never_misses", cfg(rollout(A, 100), targeted(B)), [(UNREACHABLE, "filters.rules[1]")]),
             ("zero_rollout_serves_nobody_to_extend", cfg(rollout(A, 0), targeted(B)), []),
+            (
+                "impossible_upper_population_has_no_rollout_to_extend",
+                cfg(rollout(A, 25, True, PLAN_SET, PLAN_NOT_SET), targeted(B)),
+                [],
+            ),
+            (
+                "impossible_lower_population_cannot_extend_rollout",
+                cfg(rollout(A, 25), targeted(B, True, PLAN_SET, PLAN_NOT_SET)),
+                [],
+            ),
+            (
+                "presence_checks_on_different_keys_can_extend_rollout",
+                cfg(rollout(A, 25, True, PLAN_SET, COUNTRY_NOT_SET), targeted(B)),
+                [(EXTENDS, "filters.rules[1]")],
+            ),
             (
                 "terminal_catch_all_between_blocks",
                 cfg(rollout(A, 25), targeted(B, False), targeted(C)),
@@ -281,6 +304,12 @@ class TestReorderWarnings:
                 [(REORDER, "filters.rules[1]")],
             ),
             ("identical_order", cfg(targeted(A), targeted(B, False)), cfg(targeted(A), targeted(B, False)), []),
+            (
+                "impossible_rollout_population_has_no_traffic_to_change",
+                cfg(rollout(A, 25, True, PLAN_SET, PLAN_NOT_SET), targeted(B, False)),
+                cfg(targeted(B, False), rollout(A, 25, True, PLAN_SET, PLAN_NOT_SET)),
+                [],
+            ),
             ("same_value_swap_is_a_no_op", cfg(targeted(A), targeted(B)), cfg(targeted(B), targeted(A)), []),
             (
                 "continuing_partial_true_below_targeted_true_is_a_no_op",
