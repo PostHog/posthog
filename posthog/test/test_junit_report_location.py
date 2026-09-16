@@ -69,17 +69,10 @@ def test_retry_diagnostics_survive_a_passing_final_attempt(
     assert "ConnectionError: example connection dropped" in output.getvalue()
 
 
-@pytest.mark.parametrize("final_outcome", ["passed", "failed", "skipped"])
 @pytest.mark.parametrize("when", ["setup", "call", "teardown"])
-@pytest.mark.parametrize("report_duration", ["call", "total"])
-def test_retry_attempt_is_preserved_in_junit_xml(
-    tmp_path: Path,
-    final_outcome: Literal["passed", "failed", "skipped"],
-    when: Literal["setup", "call", "teardown"],
-    report_duration: Literal["call", "total"],
-) -> None:
+def test_retry_failure_uses_separate_junit_file(tmp_path: Path, when: Literal["setup", "call", "teardown"]) -> None:
     junit_path = tmp_path / "junit.xml"
-    xml = LogXML(junit_path, prefix=None, report_duration=report_duration)
+    xml = LogXML(junit_path, prefix=None, report_duration="call")
     xml.pytest_sessionstart()
     plugin = _JUnitTimingsPlugin()
     session = cast(
@@ -88,7 +81,7 @@ def test_retry_attempt_is_preserved_in_junit_xml(
     )
     plugin.pytest_sessionstart(session)
 
-    first_attempt = pytest.TestReport(
+    retry = pytest.TestReport(
         nodeid="test_example.py::test_retry",
         location=("test_example.py", 1, "test_retry"),
         keywords={},
@@ -96,47 +89,29 @@ def test_retry_attempt_is_preserved_in_junit_xml(
         longrepr="first failure",
         when=when,
         duration=0.1,
+        rerun=0,
     )
-    if when == "teardown":
-        first_call = pytest.TestReport(
-            nodeid=first_attempt.nodeid,
-            location=first_attempt.location,
-            keywords={},
-            outcome="passed",
-            longrepr=None,
-            when="call",
-            duration=0.1,
-        )
-        plugin.pytest_runtest_logreport(first_call)
-        xml.pytest_runtest_logreport(first_call)
-    plugin.pytest_runtest_logreport(first_attempt)
-    xml.pytest_runtest_logreport(first_attempt)
+    plugin.pytest_runtest_logreport(retry)
+    xml.pytest_runtest_logreport(retry)
 
     final_call = pytest.TestReport(
-        nodeid=first_attempt.nodeid,
-        location=first_attempt.location,
+        nodeid=retry.nodeid,
+        location=retry.location,
         keywords={},
-        outcome=final_outcome,
-        longrepr=(
-            "final failure"
-            if final_outcome == "failed"
-            else ("test_example.py", 1, "Skipped: final attempt skipped")
-            if final_outcome == "skipped"
-            else None
-        ),
+        outcome="skipped",
+        longrepr=("test_example.py", 1, "Skipped: final attempt skipped"),
         when="call",
         duration=0.1,
     )
     plugin.pytest_runtest_logreport(final_call)
     xml.pytest_runtest_logreport(final_call)
     teardown = pytest.TestReport(
-        nodeid=first_attempt.nodeid,
-        location=first_attempt.location,
+        nodeid=retry.nodeid,
+        location=retry.location,
         keywords={},
         outcome="passed",
         longrepr=None,
         when="teardown",
-        duration=0.01,
         rerun=1,
     )
     plugin.pytest_runtest_logreport(teardown)
@@ -144,23 +119,40 @@ def test_retry_attempt_is_preserved_in_junit_xml(
     plugin.pytest_sessionfinish(session, 0)
     xml.pytest_sessionfinish()
 
-    suite = ElementTree.parse(junit_path).getroot().find("testsuite")
-    assert suite is not None
-    assert suite.get("tests") == "1"
-    assert suite.get("failures") == ("1" if final_outcome == "failed" else "0")
-    assert suite.get("skipped") == ("1" if final_outcome == "skipped" else "0")
-    assert len(suite.findall("testcase")) == 1
-    testcase = suite.find("testcase")
+    main_suite = ElementTree.parse(junit_path).getroot().find("testsuite")
+    assert main_suite is not None
+    assert main_suite.find(".//skipped") is not None
+    assert main_suite.find(".//failure") is None
+    assert main_suite.find(".//error") is None
+
+    retry_suite = ElementTree.parse(tmp_path / "junit-retry-failures.xml").getroot().find("testsuite")
+    assert retry_suite is not None
+    assert retry_suite.get("tests") == "1"
+    assert retry_suite.get("failures") == ("1" if when == "call" else "0")
+    assert retry_suite.get("errors") == ("0" if when == "call" else "1")
+    testcase = retry_suite.find("testcase")
     assert testcase is not None
-    if report_duration == "call":
-        expected_time = 0.1 if when == "setup" else 0.2
-    else:
-        expected_time = 0.31 if when == "teardown" else 0.21
-    assert float(testcase.get("time", "0")) == pytest.approx(expected_time)
-    retry_tag = ("rerun" if final_outcome == "failed" else "flaky") + ("Failure" if when == "call" else "Error")
-    retry = testcase.find(retry_tag)
-    assert retry is not None
-    assert retry.get("time") == ("0.100" if report_duration == "call" and when != "call" else None)
-    assert retry.get("message") == "first failure"
-    assert retry.findtext("stackTrace") == "first failure"
-    assert (testcase.find("failure") is not None) == (final_outcome == "failed")
+    assert testcase.get("classname") == "test_example"
+    assert testcase.get("name") == "test_retry"
+    assert testcase.get("file") == "test_example.py"
+    assert testcase.get("attempt_number") == "1"
+    failure = testcase.find("failure" if when == "call" else "error")
+    assert failure is not None
+    assert failure.get("message") == "first failure"
+
+
+def test_retry_junit_removes_stale_file_without_reruns(tmp_path: Path) -> None:
+    junit_path = tmp_path / "junit.xml"
+    retry_path = tmp_path / "junit-retry-failures.xml"
+    retry_path.write_text("stale")
+    xml = LogXML(junit_path, prefix=None)
+    xml.pytest_sessionstart()
+    plugin = _JUnitTimingsPlugin()
+    session = cast(
+        pytest.Session,
+        SimpleNamespace(config=SimpleNamespace(pluginmanager=SimpleNamespace(list_name_plugin=lambda: [("xml", xml)]))),
+    )
+    plugin.pytest_sessionstart(session)
+    plugin.pytest_sessionfinish(session, 0)
+
+    assert not retry_path.exists()

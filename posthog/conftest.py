@@ -4,13 +4,14 @@ import warnings
 import subprocess
 from collections.abc import Callable
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote_plus
 
 import pytest
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
 
-from _pytest.junitxml import ET, bin_xml_escape
+from _pytest.junitxml import ET, bin_xml_escape, mangle_test_address
 
 if TYPE_CHECKING:
     from _pytest.terminal import TerminalReporter
@@ -546,9 +547,9 @@ class _JUnitTimingsPlugin:
     module-scoped fixture setup time is excluded from `<testcase time>` and
     instead lives in this pre-first-call gap.
 
-    Also records pytest-rerunfailures retries as a `<testcase>` property and
-    JUnit retry elements. Pytest's junitxml ignores intermediate rerun reports;
-    the retry elements preserve their failures for Trunk.
+    Also records pytest-rerunfailures retries as a `<testcase>` property.
+    Pytest's JUnit output omits intermediate rerun reports, so a separate
+    JUnit file preserves their failures for Trunk.
     """
 
     _PROPERTY_SETUP = "posthog.setup_seconds"
@@ -559,15 +560,10 @@ class _JUnitTimingsPlugin:
         self._session_start: float | None = None
         self._collection_finish: float | None = None
         self._first_test_call_start: float | None = None
-        self._failed_attempts: dict[tuple[str, object | None], list[ET.Element]] = {}
-        self._discarded_junit_duration: dict[tuple[str, object | None], float] = {}
-        self._final_failures: set[tuple[str, object | None]] = set()
-        self._skipped: set[tuple[str, object | None]] = set()
-        self._junit_xml: Any = None
+        self._retry_reports: list[pytest.TestReport] = []
 
     def pytest_sessionstart(self, session: pytest.Session) -> None:
         self._session_start = time.monotonic()
-        self._junit_xml = self._find_junit_xml_plugin(session.config)
 
     def pytest_collection_finish(self, session: pytest.Session) -> None:
         if self._collection_finish is None:
@@ -585,49 +581,11 @@ class _JUnitTimingsPlugin:
     # logreport consumes `user_properties` into the `<testcase>` element.
     @pytest.hookimpl(tryfirst=True)
     def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
-        key = (report.nodeid, getattr(report, "node", None))
         reruns = getattr(report, "rerun", 0) or 0  # attempt index, set by pytest-rerunfailures
-        if str(report.outcome) == "rerun" and report.longrepr is not None:
-            reprcrash = getattr(report.longrepr, "reprcrash", None)
-            message = getattr(reprcrash, "message", None) or str(report.longrepr)
-            tag = "flakyFailure" if report.when == "call" else "flakyError"
-            attempt = ET.Element(tag, message=bin_xml_escape(message))
-            if self._junit_xml is None or self._junit_xml.report_duration not in ("total", report.when):
-                attempt.set("time", f"{report.duration:.3f}")
-            ET.SubElement(attempt, "stackTrace").text = bin_xml_escape(report.longreprtext)
-            self._failed_attempts.setdefault(key, []).append(attempt)
-            if report.when == "teardown" and self._junit_xml is not None:
-                # Pytest's JUnit hook finalizes teardown reruns as separate testcases.
-                reporter = self._junit_xml.node_reporters.get(key)
-                if reporter is not None:
-                    duration = reporter.duration
-                    if self._junit_xml.report_duration in ("total", "teardown"):
-                        duration += report.duration
-                    self._discarded_junit_duration[key] = self._discarded_junit_duration.get(key, 0.0) + duration
-                    self._junit_xml.node_reporters_ordered.remove(reporter)
-                    outcome = "skipped" if key in self._skipped else "passed"
-                    self._junit_xml.stats[outcome] -= 1
-                self._skipped.discard(key)
-        elif report.failed:
-            self._final_failures.add(key)
-        elif report.skipped:
-            self._skipped.add(key)
+        if str(report.outcome) == "rerun":
+            self._retry_reports.append(report)
         # str() widens TestReport.outcome's Literal: "rerun" is assigned by pytest-rerunfailures.
-        if report.when != "teardown" or str(report.outcome) == "rerun":
-            return
-        discarded_duration = self._discarded_junit_duration.pop(key, 0.0)
-        if discarded_duration and self._junit_xml is not None:
-            self._junit_xml.node_reporter(report).duration += discarded_duration
-        attempts = self._failed_attempts.pop(key, [])
-        if attempts and self._junit_xml is not None:
-            if key in self._final_failures:
-                for attempt in attempts:
-                    attempt.tag = attempt.tag.replace("flaky", "rerun")
-            # Pytest's JUnit hook finalizes this reporter later in the same logreport call.
-            self._junit_xml.node_reporter(report).nodes.extend(attempts)
-        self._final_failures.discard(key)
-        self._skipped.discard(key)
-        if not reruns:
+        if not reruns or report.when != "teardown" or str(report.outcome) == "rerun":
             return
         # Appended exactly once: intermediate attempts never log a non-rerun teardown,
         # and each report owns its own copy of `user_properties`.
@@ -668,6 +626,49 @@ class _JUnitTimingsPlugin:
             xml.add_global_property(self._PROPERTY_SETUP, f"{self._first_test_call_start - self._session_start:.6f}")
         if self._collection_finish is not None:
             xml.add_global_property(self._PROPERTY_COLLECTION, f"{self._collection_finish - self._session_start:.6f}")
+        self._write_retry_junit(xml)
+
+    def _write_retry_junit(self, xml: Any) -> None:
+        source_path = Path(xml.logfile)
+        retry_path = source_path.with_name(f"{source_path.stem}-retry-failures.xml")
+        if not self._retry_reports:
+            retry_path.unlink(missing_ok=True)
+            return
+
+        failures = sum(report.when == "call" for report in self._retry_reports)
+        suite = ET.Element(
+            "testsuite",
+            name=xml.suite_name,
+            tests=str(len(self._retry_reports)),
+            failures=str(failures),
+            errors=str(len(self._retry_reports) - failures),
+            skipped="0",
+            time=f"{sum(report.duration for report in self._retry_reports):.3f}",
+            timestamp=xml.suite_start.as_utc().astimezone().isoformat(),
+        )
+        for report in self._retry_reports:
+            names = mangle_test_address(report.nodeid)
+            classnames = names[:-1]
+            if xml.prefix:
+                classnames.insert(0, xml.prefix)
+            attrs = {
+                "classname": ".".join(classnames),
+                "name": bin_xml_escape(names[-1]),
+                "file": report.location[0],
+                "time": f"{report.duration:.3f}",
+                "attempt_number": str(getattr(report, "rerun", 0) + 1),
+            }
+            if report.location[1] is not None:
+                attrs["line"] = str(report.location[1])
+            testcase = ET.SubElement(suite, "testcase", attrs)
+            reprcrash = getattr(report.longrepr, "reprcrash", None)
+            message = getattr(reprcrash, "message", None) or report.longreprtext or "pytest retry failed"
+            tag = "failure" if report.when == "call" else "error"
+            ET.SubElement(testcase, tag, message=bin_xml_escape(message)).text = bin_xml_escape(report.longreprtext)
+
+        root = ET.Element("testsuites")
+        root.append(suite)
+        ET.ElementTree(root).write(retry_path, encoding="utf-8", xml_declaration=True)
 
 
 def pytest_configure(config):

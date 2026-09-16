@@ -231,12 +231,13 @@ def is_retry_attempt(tag: str) -> bool:
 def classify_testcase(testcase: Any) -> tuple[str, int]:
     """Return (outcome, attempts) from a single `<testcase>` element.
 
-    The root conftest's `posthog-junit-timings` plugin records both the
-    `posthog.reruns` property and JUnit retry elements. Other producers may
-    record only one form. Walk children once and count each attempt once.
+    pytest's junitxml records nothing for pytest-rerunfailures attempts (a
+    rerun report is neither passed, failed, nor skipped), so the root
+    conftest's `posthog-junit-timings` plugin surfaces the retry count as a
+    `posthog.reruns` testcase property. `<rerunFailure>`/`<rerunError>`
+    children from other junit producers are honored too. Walk children once.
     """
-    property_reruns = 0
-    element_reruns = 0
+    rerun_count = 0
     final_outcome: str | None = None
     for child in testcase:
         tag = child.tag
@@ -244,11 +245,11 @@ def classify_testcase(testcase: Any) -> tuple[str, int]:
             for prop in child.findall("property"):
                 if prop.get("name") == "posthog.reruns":
                     try:
-                        property_reruns += max(0, int(prop.get("value", "0")))
+                        rerun_count += max(0, int(prop.get("value", "0")))
                     except ValueError:
                         pass
         elif is_retry_attempt(tag):
-            element_reruns += 1
+            rerun_count += 1
         elif tag in ("failure", "error", "skipped") and final_outcome is None:
             if tag == "skipped" and child.get("type") == "pytest.xfail":
                 # Quarantined-but-still-failing tests (xfail strict=False) must stay
@@ -256,7 +257,6 @@ def classify_testcase(testcase: Any) -> tuple[str, int]:
                 final_outcome = "xfailed"
             else:
                 final_outcome = "failed" if tag == "failure" else tag
-    rerun_count = max(property_reruns, element_reruns)
     if final_outcome is None:
         final_outcome = "rerun_passed" if rerun_count else "passed"
     return final_outcome, 1 + rerun_count
