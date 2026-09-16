@@ -79,6 +79,10 @@ class MessagingRecord(UUIDTModel):
     # and "every attempt failed". These separate the two per recipient and per campaign, which
     # the posthog_email_send_total counter cannot do, because it carries no email or campaign
     # label by design.
+    #
+    # A failed attempt stamps them and a later attempt can still succeed, so a delivered row can
+    # carry both `sent_at` and `failed_at`. Read "still undelivered after a failure" as
+    # `sent_at IS NULL AND failure_count > 0`, never as `failed_at IS NOT NULL` on its own.
     failed_at = models.DateTimeField(null=True)
     failure_count = models.IntegerField(default=0, db_default=0)
     # Exception class plus the provider's status code, never its message: SMTP and Customer.io

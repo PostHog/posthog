@@ -248,6 +248,36 @@ class TestEmail(BaseTest):
         self.assertEqual(record.failure_count, 1)
         self.assertEqual(record.last_failure_reason, expected_reason)
 
+    def test_smtp_auth_failure_records_every_recipient(self) -> None:
+        # SMTP authentication happens in `connection.open()`, so bad credentials abort the batch
+        # before the send loop runs. Every recipient must still be on record, otherwise the
+        # failure mode that leaves the least evidence is the one that leaves none.
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            patch(
+                "django.core.mail.backends.locmem.EmailBackend.open",
+                side_effect=smtplib.SMTPAuthenticationError(535, b"bad creds"),
+            ),
+        ):
+            _send_via_smtp(
+                to=[
+                    {"raw_email": "one@posthog.com", "recipient": "one@posthog.com"},
+                    {"raw_email": "two@posthog.com", "recipient": "two@posthog.com"},
+                ],
+                campaign_key="auth_failure",
+                subject="Subject",
+                txt_body="",
+                html_body="<p>hi</p>",
+                headers={},
+            )
+
+        records = MessagingRecord.objects.filter(campaign_key="auth_failure")
+        self.assertEqual(records.count(), 2)
+        for record in records:
+            self.assertIsNone(record.sent_at)
+            self.assertEqual(record.failure_count, 1)
+            self.assertEqual(record.last_failure_reason, "SMTPAuthenticationError (535)")
+
     def test_smtp_retry_after_a_failed_attempt_still_sends(self) -> None:
         # The row exists from the first attempt on, so it must not become an idempotency guard of
         # its own, because dedupe keys off `sent_at`. If it did, a campaign that failed once would
@@ -363,6 +393,19 @@ class TestEmail(BaseTest):
 
         after = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
         self.assertEqual(after - before, 2.0)  # b failed + c never attempted; a succeeded
+
+        # The rows use the same per-recipient unit as the counter, so c is on record as a failed
+        # attempt even though the abort happened before its own request went out.
+        by_email = {
+            email: MessagingRecord.objects.filter(
+                email_hash__in=get_email_hashes(email), campaign_key="http_failcount"
+            ).first()
+            for email in ("a@posthog.com", "b@posthog.com", "c@posthog.com")
+        }
+        self.assertIsNotNone(by_email["a@posthog.com"].sent_at)
+        self.assertEqual(by_email["a@posthog.com"].failure_count, 0)
+        self.assertEqual(by_email["b@posthog.com"].last_failure_reason, "EmailProviderError (500)")
+        self.assertEqual(by_email["c@posthog.com"].failure_count, 1)
 
     @patch("posthoganalytics.capture")
     @patch("posthog.email.requests.post")
