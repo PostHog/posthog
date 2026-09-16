@@ -107,6 +107,20 @@ describe('eventUsageLogic', () => {
             )
         })
 
+        it('keeps sources for insights opened in quick succession', () => {
+            const firstInsightShortId = 'abc123' as InsightShortId
+            const secondInsightShortId = 'def456' as InsightShortId
+
+            eventUsageLogic.actions.reportInsightOpened(firstInsightShortId, 'starred')
+            eventUsageLogic.actions.reportInsightOpened(secondInsightShortId, 'recents')
+            eventUsageLogic.actions.reportInsightViewed({ short_id: firstInsightShortId }, null, true)
+
+            expect(capture).toHaveBeenCalledWith(
+                'insight viewed',
+                expect.objectContaining({ insight_short_id: firstInsightShortId, opened_from: 'starred' })
+            )
+        })
+
         it('records a stable insight ID for starred actions without the display name', () => {
             const insightShortId = 'abc123' as InsightShortId
 
