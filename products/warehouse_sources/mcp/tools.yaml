@@ -53,11 +53,11 @@ tools:
             in the response — on success webhook-capable tables sync in real time (including webhook-only tables like
             Stripe Discount); on failure (e.g. the API key can't create webhooks) tables keep the polling defaults and
             webhook-only tables stay disabled. When the source's webhookFields include a credential the vendor never
-            returns (Mailgun's 'signing_secret'), collect it first and pass it in 'webhook_inputs' so the webhook
-            never runs without it. If 'webhook.pending_inputs' is still non-empty, ask the user for those values
-            and submit them via 'external-data-sources-update-webhook-inputs-create'. Use this for revenue (Stripe), CRM
-            (Hubspot, Salesforce), support tickets (Zendesk), e-commerce (Shopify), and your own databases (Postgres,
-            MySQL, BigQuery, Snowflake). Discover required credential fields per source_type with
+            returns (Mailgun's 'signing_secret'), collect it first and pass it in 'webhook_inputs' so the webhook never
+            runs without it. If 'webhook.pending_inputs' is still non-empty, ask the user for those values and submit
+            them via 'external-data-sources-update-webhook-inputs-create'. Use this for revenue (Stripe), CRM (Hubspot,
+            Salesforce), support tickets (Zendesk), e-commerce (Shopify), and your own databases (Postgres, MySQL,
+            BigQuery, Snowflake). Discover required credential fields per source_type with
             'external-data-sources-wizard'. Prefer references over raw secrets in the payload: pass {'credential_id':
             '<uuid>'} referencing the connection details the user stored via the 'data-warehouse-source-connect-link'
             page (discover ids with 'data-warehouse-stored-credentials-list'); stored credentials are deleted once the
