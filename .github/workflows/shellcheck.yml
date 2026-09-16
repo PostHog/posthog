@@ -44,6 +44,14 @@ jobs:
                   shellcheck .github/scripts/prepare-product-junit-for-trunk.sh .github/scripts/prepare-product-junit-for-trunk.test.sh
                   bash .github/scripts/prepare-product-junit-for-trunk.test.sh
 
+            - name: Check Trunk ownership map script
+              run: |
+                  # An open PR that has not rebased onto this commit does not carry these
+                  # scripts, so the step skips rather than failing before its own tests run.
+                  [ -f .github/scripts/trunk-codeowners.test.sh ] || exit 0
+                  shellcheck .github/scripts/trunk-codeowners.sh .github/scripts/trunk-codeowners.test.sh
+                  bash .github/scripts/trunk-codeowners.test.sh
+
             - name: Check commit-time warning scripts
               run: |
                   # An open PR that has not rebased onto this commit does not carry these
