@@ -26,29 +26,33 @@ export function videoTimestampsFromFrames(
     // reads every moment inside as later than it is. Hold those two edges to what was captured.
     const firstSampleS = frameSessionMs[0] / 1000
     const lastSampleS = frameSessionMs[frameSessionMs.length - 1] / 1000
+    // Periods run in order and samples never go backwards, so one cursor walks both. Rescanning the
+    // samples per period would be quadratic, and a long recording with many activity changes has
+    // hundreds of thousands of each.
+    let cursor = 0
     return periods.map((period, index) => {
         const fromMs = period.ts_from_s * 1000
         const toMs = period.ts_to_s != null ? period.ts_to_s * 1000 : Number.POSITIVE_INFINITY
         // Half-open, so a frame sitting exactly on a boundary belongs to the period it starts, not the
         // one it ends. The last period takes its own end, or the final frame would belong to nothing.
         const owns = (t: number): boolean => t >= fromMs && (t < toMs || (index === lastPeriod && t <= toMs))
+        while (cursor < frameSessionMs.length && frameSessionMs[cursor] < fromMs) {
+            cursor++
+        }
         let first = -1
         let last = -1
-        for (let i = 0; i < frameSessionMs.length; i++) {
-            if (owns(frameSessionMs[i])) {
-                if (first === -1) {
-                    first = i
-                }
-                last = i
-            } else if (first !== -1) {
-                break
+        while (cursor < frameSessionMs.length && owns(frameSessionMs[cursor])) {
+            if (first === -1) {
+                first = cursor
             }
+            last = cursor
+            cursor++
         }
         if (first === -1) {
-            // Never on screen: sit at the frame where playback resumed. The predicate matches ownership
-            // above, so the frame landing exactly on the period's end is found rather than stepped over.
-            const resumed = frameSessionMs.findIndex((t) => t >= toMs)
-            const at = videoTimeOf(resumed === -1 ? frameSessionMs.length : resumed)
+            // Never on screen: sit at the frame where playback resumed, which is where the cursor now
+            // rests. It stops on the first sample at or past this period's end, so the frame landing
+            // exactly on that end is taken rather than stepped over.
+            const at = videoTimeOf(cursor)
             return { ...period, recording_ts_from_s: at, recording_ts_to_s: at }
         }
         // Only the stretch the capture began in, and the one it ended in, can be cut by it.

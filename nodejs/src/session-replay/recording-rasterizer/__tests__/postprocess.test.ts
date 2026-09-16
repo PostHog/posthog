@@ -173,6 +173,33 @@ describe('videoTimestampsFromFrames', () => {
         expect(result[2].ts_from_s).toBe(5)
     })
 
+    it('keeps every stretch of a heavily cut recording in order', () => {
+        // One cursor walks periods and samples together. If it over-advances, later stretches are
+        // starved of their frames and collapse onto the end of the file.
+        const many: InactivityPeriod[] = []
+        const frames: number[] = []
+        for (let i = 0; i < 100; i++) {
+            const base = i * 100
+            many.push({ ts_from_s: base, ts_to_s: base + 10, active: true })
+            many.push({ ts_from_s: base + 10, ts_to_s: base + 100, active: false })
+            for (let f = 0; f < 30; f++) {
+                frames.push((base + f / 3) * 1000)
+            }
+        }
+
+        const result = videoTimestampsFromFrames(many, frames, 3)
+
+        const actives = result.filter((p) => p.active)
+        expect(actives).toHaveLength(100)
+        for (const period of actives) {
+            expect(period.recording_ts_to_s).toBeGreaterThan(period.recording_ts_from_s!)
+        }
+        for (let i = 1; i < result.length; i++) {
+            expect(result[i].recording_ts_from_s).toBeGreaterThanOrEqual(result[i - 1].recording_ts_from_s!)
+        }
+        expect(actives[99].recording_ts_to_s).toBeCloseTo(frames.length / 3)
+    })
+
     it('falls back to the predicted mapping when capture reported no timeline', () => {
         expect(videoTimestampsFromFrames(periods, [], 3)).toEqual(computeVideoTimestamps(periods))
     })
