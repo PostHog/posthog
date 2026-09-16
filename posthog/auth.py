@@ -19,6 +19,7 @@ from django.utils import timezone
 
 import jwt
 import structlog
+import posthoganalytics
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import authentication
@@ -947,7 +948,9 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                 # _validate_token converts its own failures, so anything reaching here is a
                 # bug in the authentication path, not a bad token. Record it before it is
                 # reported to the caller as one.
-                capture_exception(e)
+                with posthoganalytics.new_context():
+                    posthoganalytics.set_capture_exception_code_variables_context(False)
+                    capture_exception(e)
                 raise AuthenticationFailed(detail="Invalid access token.")
 
     def _authenticate_access_token(
