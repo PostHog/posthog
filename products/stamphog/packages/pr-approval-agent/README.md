@@ -1,36 +1,36 @@
 # PR approval agent
 
-The stamphog review engine.
-It runs deterministic safety gates, classifies the PR into a tier, then lets a Claude Agent SDK reviewer look for showstoppers.
+A Python package that reviews one pull request and returns a verdict.
+It runs deterministic safety gates over the changed files, classifies the PR into a tier, then lets a Claude Agent SDK reviewer look for showstoppers.
 
-Reviews run in the hosted stamphog product ([`products/stamphog/`](../../../stamphog/)): a GitHub App delivers the PR webhook, and the engine runs in an isolated sandbox through `review_local.py`.
+The package reads its policy from the `.stamphog/` directory of the checked-out tree it runs in.
+It writes nothing to GitHub.
+The verdict is the output, and the caller decides what to do with it.
 
-This directory is the source of truth for the hosted product.
-A change to the policy format must keep [`products/stamphog/backend/logic/policy_defaults/`](../../backend/logic/policy_defaults/) in step, because that is the base layer every hosted review overlays onto.
+Two entrypoints:
+
+- `review_pr.py` fetches the PR itself with the `gh` CLI and reviews it from the current checkout.
+- `review_local.py` reviews from a pre-fetched context JSON, with a checkout that is already at the PR head (`head_checkout=True`).
+
+The stamphog product in [`products/stamphog/`](../../../stamphog/) runs `review_local.py` in a sandbox.
 
 ## Verdicts
 
-| Verdict  | Meaning                                                 | Trigger label |
-| -------- | ------------------------------------------------------- | ------------- |
-| APPROVE  | No showstoppers found                                   | Kept          |
-| REFUSE   | A concrete issue was found                              | Removed       |
-| ESCALATE | Only a human can rule out a showstopper                 | Removed       |
-| WAIT     | No verdict yet: a reviewer bot or a CI check is pending | Kept, retries |
-| ERROR    | The run could not produce a verdict                     | Kept, retries |
-
-A repository either reviews every PR or waits for its trigger label, per its `review_mode`.
-On approval the trigger label stays, so it is visible which PRs were stamphog'd.
-Only a substantive non-approval removes the label, so it can be re-applied once the feedback is addressed.
+| Verdict  | Meaning                                                 |
+| -------- | ------------------------------------------------------- |
+| APPROVE  | No showstoppers found                                   |
+| REFUSE   | A concrete issue was found                              |
+| ESCALATE | Only a human can rule out a showstopper                 |
+| WAIT     | No verdict yet: a reviewer bot or a CI check is pending |
+| ERROR    | The run could not produce a verdict                     |
 
 `WAIT` means either that an allowlisted reviewer bot still had a review in flight (👀 reaction) after the polling budget, or that the `Migration risk` check had not reported yet.
-Neither is a verdict on the PR, so the next push retries automatically.
+Neither is a verdict on the PR, so the caller can retry unchanged.
 `ERROR` means the reviewer could not reach its LLM backend, through credentials, credit or an outage.
-A transient infra failure must not silently drop labels across every queued PR, so the label is kept and the review retries on the next push.
+It is an infrastructure failure, not a judgment on the PR.
 
-Approvals are posted as real PR reviews, because they must count toward branch protection.
-An approval is posted once, as the Stamphog app (`stamphog[bot]`), carrying the review body.
-The bot never posts request-changes.
-Every other verdict goes into a single sticky comment that is updated in place on each run, with a counter of how many verdicts the comment has carried (failure notes append without bumping it), so repeated refusals do not stack up as separate review comments on the PR.
+How a verdict reaches GitHub, and what happens to a trigger label, is the caller's concern.
+For the hosted product see [`products/stamphog/README.md`](../../README.md#what-a-pr-author-sees).
 
 ## Local review
 
@@ -48,15 +48,13 @@ uv run products/stamphog/packages/pr-approval-agent/review_pr.py 46594 --output-
 uv run products/stamphog/packages/pr-approval-agent/review_pr.py 46594 -v
 ```
 
-`review_pr.py` is the manual entrypoint: it fetches everything over the network with `gh` and reviews a PR from your own checkout.
-The hosted runtime never uses it, running `review_local.py` against a pre-fetched context instead, with no GitHub token inside the sandbox.
-Requires the `gh` CLI authenticated and `ANTHROPIC_API_KEY` in your environment.
-Uses PEP 723 inline metadata so `uv run` handles dependencies automatically.
+`review_pr.py` requires the `gh` CLI authenticated and `ANTHROPIC_API_KEY` in your environment.
+It uses PEP 723 inline metadata, so `uv run` handles dependencies automatically.
 
 ## How it works
 
 ```text
-review triggered (every PR, or the trigger label)
+review requested
   │
   ▼
 Prerequisites (hard gate)
@@ -78,7 +76,7 @@ Size ceiling (hard gate)
     denied-yet-merged-unchanged PRs sits at 500-750 substantive lines, and past
     ~800 the merged-unchanged rate collapses, so escalation is genuinely right)
   - A folder's AGENT_APPROVALS.md can raise either ceiling for its own files,
-    within the `overrides` contract in policy.yml (see .stamphog/README.md)
+    within the `overrides` contract in policy.yml (see "Policy files" below)
   - The whole PR still has to fit the most generous ceiling in play, so
     per-scope budgets never sum. With no folder grant that roof is the global
     ceiling above, so the gate keeps measuring the PR size these limits were
@@ -102,11 +100,11 @@ Tier classification
   ▼
 Wait for in-flight bot reviews (skipped when gates already denied)
   - Reviewer bots (greptile, hex-security, codex) put 👀 on the PR while
-    reviewing and swap it for a verdict reaction minutes later; stamphog is
+    reviewing and swap it for a verdict reaction minutes later; the review is
     triggered at the same moment, so an 👀 at fetch time is a race, not a
     lasting state
   - Polls until allowlisted-bot 👀 reactions clear (up to 5 min); if one
-    remains, verdict is WAIT; label kept, next push retries
+    remains, the verdict is WAIT
   - Bot 👀 older than ~45 min is a crashed reviewer, not an in-flight one:
     ignored, so a wedged bot can't stall every review (reactions never
     expire and humans can't remove another app's reaction)
@@ -147,37 +145,138 @@ LLM Review
   - Gates are authoritative: the LLM can tighten but never loosen
   │
   ▼
-Final verdict → GitHub review (approve) or sticky comment (everything else)
+Final verdict returned to the caller
 ```
+
+## Policy files
+
+The engine reads four files from the checked-out tree.
+The repo root is resolved from the package's own location, never from the working directory, so the policy always comes from the same tree the engine reviews.
+
+### `policy.yml`
+
+Required, at `.stamphog/policy.yml`.
+The machine policy, loaded and validated by a strict loader: a malformed or incomplete file hard-fails at load rather than reviewing under a half-loaded policy.
+
+Top-level sections:
+
+| Section       | What it declares                                                     |
+| ------------- | -------------------------------------------------------------------- |
+| `version`     | The policy schema version                                            |
+| `deny`        | The T2 categories and the title/path patterns that match them        |
+| `allow`       | The path patterns and extensions that make a PR eligible for T0      |
+| `size_gate`   | The global `max_lines` and `max_files` ceilings                      |
+| `tiers`       | The T1 sub-class thresholds                                          |
+| `overrides`   | The keys a folder file may override, and each key's ceiling          |
+| `familiarity` | The author-familiarity bands, a judgment input and never a gate      |
+| `ownership`   | The ownership sources that feed the reviewer's advisory team context |
+
+A rule may carry a `rationale`.
+It records why the rule became what it is, which false positives drove an exclusion and when.
+Treat it as historical justification like a commit message, not as a claim about the present.
+
+The `deny` section must keep a `stamphog_policy` category matching the policy files and the engine itself.
+The loader hard-fails without it, so the gate can never be configured to approve edits to its own policy or engine.
+
+The loader ignores top-level keys it does not know, so a caller may carry its own configuration in the same file.
+
+### `review-guidance.md`
+
+The trusted review-norms prose, injected into the reviewer's system prompt.
+Ordinary markdown.
+Editing it changes the reviewer's behavior directly, so update it deliberately.
+
+### `steering.md`
+
+Optional, and there is no default.
+When present, it is appended to the review guidance under a "Repository-specific steering" section, so a repository can add its own advisory norms without replacing the whole guidance file.
+An absent file leaves the prompt unchanged.
+
+### `AGENT_APPROVALS.md`
+
+A folder anywhere in the tree may carry an `AGENT_APPROVALS.md` with a `stamphog:` frontmatter block plus advisory prose.
+
+Resolution:
+
+- Every `AGENT_APPROVALS.md` at or above a changed file governs it.
+  Guidance accumulates outermost first, and a child file adds to its ancestors rather than replacing them.
+- For a delegated key, the nearest file on the chain with a valid grant wins for its files, within the contract ceiling.
+  Each key resolves on its own.
+  A folder that grants only one key leaves its files to the nearest ancestor grant of the other key, or to the global pool when no ancestor grants it.
+  Files whose chain grants nothing belong to the global pool.
+- The frontmatter is a positive allow-list.
+  Only keys named in the `overrides` contract in `policy.yml` are read, within their ceilings.
+  Anything else invalidates the whole file, frontmatter and prose: an unknown key, an out-of-bounds value, or unparseable frontmatter.
+  An invalid file contributes nothing itself, but it does not cancel its ancestors.
+  Files under it still ride an ancestor's grant, or fall to the global pool if the chain grants nothing.
+  Treating invalid as absent grants no extra power, because an author who can write an invalid file could equally delete it.
+- The prose is untrusted advisory guidance.
+  It is sanitized, length-capped, and injected inside the reviewer prompt's untrusted region.
+  It can never override the deny rules or the refusal criteria.
+
+#### Mixed PRs get mixed leniency
+
+Each scope's files are counted against that scope's own ceiling.
+A grant covers exactly the files that resolve to it, which is the nearest valid grant of that key on their chain, and nothing else.
+
+Example: with a folder ceiling of 50 files and a global ceiling of 20, a PR changing 30 files under that folder plus 19 files elsewhere passes, because each budget fits.
+Add a 21st global file and the PR is denied for the global budget, however much headroom the folder still has.
+
+Files whose chain grants nothing count against the global budget, so splitting files across pseudo-scopes can never inflate the allowance.
+That covers a missing folder file, a prose-only file, and a file with only invalid grants.
+Lines follow the same rule: a scope's substantive lines count against that scope's own line ceiling, and the global pool's lines against the global line ceiling.
+The two ceilings are budgeted separately.
+A folder that raises only the line ceiling still counts its files against the one global file budget, which keeps a one-key grant from opening a second budget for the key it never asked for.
+
+#### The roof bounds the whole PR
+
+Per-scope budgets alone would let a PR's total grow with the number of scopes it touches.
+A folder granting 1000 lines next to an 800-line global pool would allow 1800, and every further granting folder would add its own budget on top.
+So each ceiling also carries a roof over the whole PR: the most generous ceiling in play for that key.
+A PR touching a folder that grants 1000 lines gets a 1000-line roof, whatever else it touches.
+
+The roof needs no separate number in `policy.yml`.
+Every grant is validated at or under the contract ceiling, and the global pool is always a scope, so the roof stays between the global default and the contract ceiling.
+With no grant in play it equals the global default.
+
+The roof takes no headroom away from a scope.
+The per-scope budgets still hold, so the extra lines a folder's grant unlocks are only spendable inside that folder.
+
+#### Delegation contract
+
+The `overrides` section of `policy.yml` names the delegable keys and each key's ceiling.
+Today the engine delegates `size_gate.max_files` and `size_gate.max_lines`.
+
+A ceiling bounds two things: the largest value a folder may grant, and the highest a PR's roof can ever go for that key.
+It is not the limit every PR gets.
+A PR whose files reach no grant keeps the lower global roof.
+The loader rejects a ceiling under its own global default, which would otherwise bound nothing.
+
+`deny`, `allow`, `dismiss` and `tiers` are non-delegable by construction.
+They are absent from the contract and cannot be granted from a folder file.
 
 ## Stacked PRs (Graphite / git stacks)
 
 A stacked PR targets its parent branch, not the repo's default branch, and depends on code the parent introduces but hasn't merged yet.
 `PRData.stacked` (`base_ref != default_branch`, so repos whose trunk is `main` work too) drives the handling; the reviewer prompt tells the agent it is looking at a stacked PR.
-Two parts make stamphog correct on these:
 
-- **Exploration sees the post-stack tree.**
-  The LLM reviewer's `Read`/`Grep`/`Glob` must run over a tree that already contains the parent PRs' code, so symbols from a not-yet-merged parent resolve and aren't flagged as broken imports.
-  The diff itself is still computed `base_sha...head_sha`, so the review is scoped to exactly this PR's changes.
-  How the head tree is materialized differs per entrypoint:
-  - **Hosted:** the sandbox clones and checks out the PR head for every review, so nothing extra is needed. `review_local.py` runs the pipeline with `head_checkout=True` and no worktree is created.
-  - **Manual local run:** `review_pr.py` reviews from your own checkout, which is not the PR head, so it creates a detached **worktree at the PR head** for stacked PRs.
-    If the worktree cannot be created, stamphog returns `ERROR` and retains the label rather than reviewing against the wrong source tree.
-    Symbolic links the PR adds or repoints fail closed, so a PR path cannot resolve outside the worktree.
-  - **Security (both):** the explored tree is PR-authored content.
-    The reviewer runs the Agent SDK with `setting_sources=[]` (isolation mode) plus `strict_mcp_config`, so it does **not** load `.claude/settings.json` hooks (command execution), `CLAUDE.md` (injected instructions), or `.mcp.json` from the tree.
-    Those files are still readable as untrusted _content_ under the anti-injection notice, never as configuration.
-    The diff scratch file is created with `mkstemp` under an unpredictable name, so a tracked symlink in the tree cannot redirect the write.
+**Exploration sees the post-stack tree.**
+The LLM reviewer's `Read`/`Grep`/`Glob` must run over a tree that already contains the parent PRs' code, so symbols from a not-yet-merged parent resolve and aren't flagged as broken imports.
+The diff itself is still computed `base_sha...head_sha`, so the review is scoped to exactly this PR's changes.
+How the head tree is materialized differs per entrypoint:
 
-- **Base retarget dismisses the stale approval.**
-  When a stack's parent merges, the child PR is retargeted from the parent branch onto the default branch, changing its effective diff **without a push**, so no `synchronize` fires and the normal push-dismiss path is skipped.
-  Under the master ruleset (`dismiss_stale_reviews_on_push=false`), a prior bot approval would silently carry onto the new base.
-  The hosted runtime retracts from the webhook (`_retract_approvals_on_base_retarget`, then a fresh run), and `post_verdict` rechecks the live base ref and SHA against the reviewed ones before posting.
+- `review_local.py` runs the pipeline with `head_checkout=True`, because the checkout is already at the PR head. No worktree is created.
+- `review_pr.py` reviews from the current checkout, which is not the PR head, so it creates a detached **worktree at the PR head** for stacked PRs.
+  If the worktree cannot be created, the verdict is `ERROR` rather than a review against the wrong source tree.
+  Symbolic links the PR adds or repoints fail closed, so a PR path cannot resolve outside the worktree.
 
-The base commit of a stacked PR is its parent branch tip.
-The hosted sandbox fetches the base SHA explicitly during the clone, and `github.ensure_commits` fetches it for a manual local run.
+**The explored tree is PR-authored content.**
+The reviewer runs the Agent SDK with `setting_sources=[]` (isolation mode) plus `strict_mcp_config`, so it does **not** load `.claude/settings.json` hooks (command execution), `CLAUDE.md` (injected instructions), or `.mcp.json` from the tree.
+Those files are still readable as untrusted _content_ under the anti-injection notice, never as configuration.
+The diff scratch file is created with `mkstemp` under an unpredictable name, so a tracked symlink in the tree cannot redirect the write.
 
-Known limitation: a parent branch force-push or rebase without restacking the child emits no child PR event, so the child's approval is only revalidated once the child is restacked or pushed.
+The base commit of a stacked PR is its parent branch tip, which the checkout does not necessarily carry.
+`github.ensure_commits` fetches it for `review_pr.py`, and `review_local.py` expects the caller to have fetched it during the clone.
 
 ## Tiers
 
@@ -188,7 +287,7 @@ The extension and path lists live under `allow:` in `policy.yml`.
 
 ### T1 - agent-reviewed
 
-Sub-classified by risk to calibrate scrutiny:
+Sub-classified by risk to calibrate scrutiny, from `tiers:` in `policy.yml`:
 
 | Sub-tier    | Lines       | Files | Breadth           |
 | ----------- | ----------- | ----- | ----------------- |
@@ -201,6 +300,7 @@ Sub-classified by risk to calibrate scrutiny:
 
 Deny-listed categories where even a small diff can have high blast radius.
 The patterns for each category, and the `rationale` behind them, live under `deny:` in `policy.yml`.
+The categories the shipped policy defines:
 
 | Category            | What it covers                                       |
 | ------------------- | ---------------------------------------------------- |
@@ -214,7 +314,7 @@ The patterns for each category, and the `rationale` behind them, live under `den
 | **stamphog_policy** | Stamphog's own policy files, engine, and gate inputs |
 
 Some words are absent on purpose, calibrated against deny-listed PRs over 120 days.
-`subscription` means scheduled insight deliveries in this repository, not payments.
+`subscription` means scheduled insight deliveries in the PostHog monorepo, not payments.
 `routing` only ever matched app-level DRF routing, never infrastructure.
 The bare word `deploy` matches deploy-timing docs and unrelated code, so narrow literals like `bin/deploy` and `deploy.sh` cover real deployment artifacts instead.
 
@@ -227,21 +327,21 @@ And the reviewer prompt must REFUSE on execution-bearing changes the scan can't 
 Manifest and lockfile pairing is per-ecosystem, from the `DEPENDENCY_ECOSYSTEMS` table in `gates.py`, which is the single source the deny patterns and helpers derive from.
 So a Cargo.lock bump hard-denies on its own but doesn't silence the scripts guard on an unrelated package.json edit in the same PR.
 
-Data warehouse connector sources (`products/warehouse_sources/.../sources/`) are exempt from the **auth** and **billing** categories, because connector code legitimately does OAuth and talks to the Stripe API without touching PostHog's auth system or its billing.
+A deny category may carry `exempt_path_prefixes`, for code that legitimately looks like a sensitive domain without touching one.
 
 The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe).
-The check is published by `analyze_migration_risk` in `ci-backend.yml` and is the same signal humans see in the PR's Checks tab.
-See `migration_risk.py` for how stamphog reads it.
+The check is the same signal humans see in the PR's Checks tab.
+See `migration_risk.py` for how the engine reads it.
 
-If the check hasn't reported yet when stamphog runs, the hosted runtime returns `WAIT` rather than a verdict.
-The deny-list only matched because the engine could not tell a safe migration from a risky one, and a refusal would cost a trigger-label strip, and a ReviewHog handoff on a self-driving PR, over a race with CI.
-The label is kept and the next push reviews against the now-classified head commit.
+If the check hasn't reported yet, the pipeline returns `WAIT` rather than a verdict.
+The deny-list only matched because the engine could not tell a safe migration from a risky one, so a refusal would be a verdict on a race with CI rather than on the PR.
+A retry against the now-classified head commit reviews it properly.
 
 ### Ownership
 
 Ownership context for the LLM, not a hard gate.
-The sources are declared in `policy.yml` under `ownership:` and read from the repository's default branch: a `hogli-resolver` source that resolves ownership through the shared hogli resolver over the distributed `owners.yaml` / `product.yaml` files.
-A file's owning teams are the union across all sources, so stamphog sees the same merged view the reviewer auto-assigner builds.
+The sources are declared in `policy.yml` under `ownership:` and read from the checked-out tree: a `hogli-resolver` source that resolves ownership through the shared hogli resolver over the distributed `owners.yaml` / `product.yaml` files.
+A file's owning teams are the union across all sources.
 Cross-team typo, test and comment fixes are fine, as are small well-tested behavioral fixes (T1a/T1b) with no outstanding reviewer concerns.
 API contract, data model, and larger behavioral changes get escalated.
 
@@ -254,7 +354,7 @@ Policy data edits don't need a bump; they're tracked by the policy sha shown nex
 
 ## Evidence bundle
 
-Every run produces a JSON evidence bundle (`--output-json` locally) containing:
+Every run produces a JSON evidence bundle (`--output-json` on `review_pr.py`) containing:
 
 - Stamphog version and PR metadata (number, author, title)
 - Classification (tier, sub-tier, breadth, commit type, deny categories, ownership)
@@ -262,12 +362,10 @@ Every run produces a JSON evidence bundle (`--output-json` locally) containing:
 - Reviewer output (verdict, reasoning, risk, issues)
 - Final verdict
 
-The hosted runtime persists it on the `ReviewRun` row, readable through the stamphog API.
-
 ## Architecture
 
-- `review_pr.py` - pipeline orchestrator (fetch → classify → gates → LLM), and the manual local entrypoint
-- `review_local.py` - the entrypoint the hosted sandbox runs, consuming a pre-fetched context
+- `review_pr.py` - pipeline orchestrator (fetch → classify → gates → LLM), and the `gh`-fetching entrypoint
+- `review_local.py` - the entrypoint that reviews from a pre-fetched context JSON
 - `policy.py` - policy loader, resolver, and the untrusted-text sanitizer
 - `gates.py` - deterministic classification and deny-list logic
 - `github.py` - GitHub data fetching via `gh` CLI
