@@ -375,6 +375,11 @@ function splitBatchedCommands(command: string): string[] | undefined {
             continue
         }
         const head = trimmed.slice(start, match.index).trim()
+        // `search` takes the rest of its line as the pattern, so `search (a; b)`
+        // is one command. Only a newline ends one.
+        if (match[0] !== '\n' && firstToken(head) === 'search') {
+            continue
+        }
         if (!isCompleteCommand(head)) {
             continue
         }
@@ -394,16 +399,16 @@ function splitBatchedCommands(command: string): string[] | undefined {
     return commands
 }
 
+function summarizeCommand(command: string): string {
+    const flattened = command.replace(/\s+/g, ' ')
+    return flattened.length > MAX_LISTED_BATCH_COMMAND_LENGTH
+        ? `${flattened.slice(0, MAX_LISTED_BATCH_COMMAND_LENGTH)}...`
+        : flattened
+}
+
 function listCommands(commands: string[]): string[] {
     const listed = commands.slice(0, MAX_LISTED_BATCH_COMMANDS)
-    const lines = listed.map((entry) => {
-        const flattened = entry.replace(/\s+/g, ' ')
-        const shown =
-            flattened.length > MAX_LISTED_BATCH_COMMAND_LENGTH
-                ? `${flattened.slice(0, MAX_LISTED_BATCH_COMMAND_LENGTH)}...`
-                : flattened
-        return `- ${shown}`
-    })
+    const lines = listed.map((entry) => `- ${summarizeCommand(entry)}`)
     const more = commands.length - listed.length
     if (more > 0) {
         lines.push(`- ...and ${more} more`)
@@ -463,8 +468,9 @@ async function runBatchedCommands(
                 .content.map((part) => (part.type === 'text' ? part.text : ''))
                 .join('')
         }
-        used += body.length
-        sections.push(`$ ${command}\n${body}`)
+        const section = `$ ${summarizeCommand(command)}\n${body}`
+        used += section.length
+        sections.push(section)
     }
     return { output: sections.join('\n\n'), errorCount }
 }

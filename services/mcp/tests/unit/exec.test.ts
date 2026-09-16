@@ -1285,10 +1285,21 @@ describe('exec tool', () => {
             await expect(exec.handler(mockContext, { command })).resolves.toBeDefined()
         })
 
-        it('keeps a separator inside a search pattern as one command', async () => {
+        it.each([
+            ['a bare separator', 'search mock-tool;x'],
+            ['a grouped pattern holding a verb', 'search (mock-tool; info other)'],
+            ['a chained pattern holding a verb', 'search mock-tool && info other'],
+        ])('keeps %s as one search command', async (_label, command) => {
             const exec = createExec([makeMockTool(), makeMockTool({ name: 'other-tool' })])
-            const result = (await exec.handler(mockContext, { command: 'search mock-tool;x' })) as string
+            const result = (await exec.handler(mockContext, { command })) as string
             expect(JSON.parse(result).matches).toEqual([])
+        })
+
+        it('still ends a search at a newline', async () => {
+            const exec = createExec([makeMockTool(), makeMockTool({ name: 'other-tool' })])
+            const result = (await exec.handler(mockContext, { command: 'search mock\ninfo other-tool' })) as string
+            expect(result).toContain('$ search mock')
+            expect(result).toContain('name: other-tool')
         })
     })
 
@@ -1944,7 +1955,7 @@ describe('exec tool', () => {
         // loses the verbs — the exact blind spot this pair exists to prevent.
         it.each([
             ['info execute-sql\ninfo query-trends', 'info', 'execute-sql+query-trends'],
-            ['search query- && schema query-trends series', 'schema+search', 'query-trends'],
+            ['info execute-sql && schema query-trends series', 'info+schema', 'execute-sql+query-trends'],
         ])('describes the batch "%s" as verb=%s target=%s', (command, expectedVerb, expectedTarget) => {
             expect(describeExecCommand(command, isKnownToolName)).toEqual({
                 verb: expectedVerb,
