@@ -607,6 +607,12 @@ export function HogFunctionFilters({
         </div>
     )
 
+    // Mapping-level matchers have their own editor and persistence model. The global filter tool cannot safely edit
+    // them, so do not offer it here until it has a mapping-specific contract.
+    if (useMapping) {
+        return mainContent
+    }
+
     return (
         <MaxTool
             identifier="create_hog_function_filters"
