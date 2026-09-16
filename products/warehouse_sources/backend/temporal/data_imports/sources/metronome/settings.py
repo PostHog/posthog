@@ -39,24 +39,31 @@ USAGE_HOURLY_HISTORY = timedelta(days=30)
 # size, and depth is the only lever over how long that sync takes. The daily table is labelled in
 # months because that is the grain people reason about it in; twelve months is 365 days, which is
 # what this source shipped with.
-USAGE_HOURLY_HISTORY_DAYS: dict[str, int] = {"3": 3, "7": 7, "14": 14, "30": 30}
-USAGE_DAILY_HISTORY_DAYS: dict[str, int] = {"1": 30, "3": 91, "6": 182, "12": 365, "24": 730}
-DEFAULT_USAGE_HOURLY_HISTORY = "30"
-DEFAULT_USAGE_DAILY_HISTORY = "12"
+DEFAULT_USAGE_HOURLY_HISTORY_DAYS = 30
+DEFAULT_USAGE_DAILY_HISTORY_MONTHS = 12
+# Upper bounds, because a depth the endpoint cannot get through in one sync leaves the table empty
+# rather than shallow, which reads to the user as broken rather than as a setting they chose.
+MAX_USAGE_HOURLY_HISTORY_DAYS = 30
+MAX_USAGE_DAILY_HISTORY_MONTHS = 24
+# A month has no fixed length. This is the average that keeps twelve months at the 365 days this
+# source shipped with, so an unset daily depth reads exactly the window it read before.
+DAYS_PER_MONTH = 365 / 12
 
 
-def usage_history_window(schema_name: str, hourly: str | None, daily: str | None) -> timedelta | None:
-    """How far back a first sync of one bucketed usage table reaches.
+def _bounded(value: int | None, default: int, highest: int) -> int:
+    """An unset depth reads the default; one outside the range is held to it rather than dropped."""
+    if value is None:
+        return default
+    return max(1, min(value, highest))
 
-    An unset or unrecognised choice falls back to the default, so a value left over from an older
-    option list widens or narrows nothing on its own.
-    """
+
+def usage_history_window(schema_name: str, hourly_days: int | None, daily_months: int | None) -> timedelta | None:
+    """How far back a first sync of one bucketed usage table reaches."""
     if schema_name == "usage_hourly":
-        days = USAGE_HOURLY_HISTORY_DAYS.get(hourly or "", USAGE_HOURLY_HISTORY_DAYS[DEFAULT_USAGE_HOURLY_HISTORY])
-        return timedelta(days=days)
+        return timedelta(days=_bounded(hourly_days, DEFAULT_USAGE_HOURLY_HISTORY_DAYS, MAX_USAGE_HOURLY_HISTORY_DAYS))
     if schema_name == "usage_daily":
-        days = USAGE_DAILY_HISTORY_DAYS.get(daily or "", USAGE_DAILY_HISTORY_DAYS[DEFAULT_USAGE_DAILY_HISTORY])
-        return timedelta(days=days)
+        months = _bounded(daily_months, DEFAULT_USAGE_DAILY_HISTORY_MONTHS, MAX_USAGE_DAILY_HISTORY_MONTHS)
+        return timedelta(days=months * DAYS_PER_MONTH)
     return None
 
 

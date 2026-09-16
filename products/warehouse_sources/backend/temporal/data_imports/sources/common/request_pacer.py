@@ -8,7 +8,10 @@ from typing import Optional, ParamSpec, TypeVar
 _P = ParamSpec("_P")
 _T = TypeVar("_T")
 
-# How long a 429 keeps the pool at a reduced rate when the vendor sends no Retry-After.
+# Fallback hold when a 429 carries no Retry-After, and the quiet window the rate doubles back over.
+# No vendor documents it: it is a conservative guess, kept at the value the Stripe invoice walker
+# shipped with. A vendor whose limit is per second clears far sooner than this, so pass a shorter
+# hold rather than inheriting one sized for a header that vendor never sends.
 RATE_LIMIT_HOLD_SECONDS = 30.0
 
 
@@ -43,11 +46,13 @@ class RequestPacer:
         per_second: float,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        hold_seconds: float = RATE_LIMIT_HOLD_SECONDS,
     ) -> None:
         self._base_interval = 1.0 / per_second
         self._interval = self._base_interval
         self._clock = clock
         self._sleep = sleep
+        self._hold_seconds = hold_seconds
         self._lock = threading.Lock()
         self._next_start = 0.0
         self._hold_until = 0.0
@@ -70,7 +75,7 @@ class RequestPacer:
             now = self._clock()
             if self._recover_at is not None and now >= self._recover_at:
                 self._interval = max(self._interval / 2, self._base_interval)
-                self._recover_at = None if self._interval == self._base_interval else now + RATE_LIMIT_HOLD_SECONDS
+                self._recover_at = None if self._interval == self._base_interval else now + self._hold_seconds
             start = max(now, self._next_start)
             self._next_start = start + self._interval
             return start
@@ -81,7 +86,7 @@ class RequestPacer:
             if now < self._hold_until:
                 # Requests already in flight when the first 429 landed report the same throttle.
                 return
-            hold = retry_after if retry_after is not None and retry_after > 0 else RATE_LIMIT_HOLD_SECONDS
+            hold = retry_after if retry_after is not None and retry_after > 0 else self._hold_seconds
             self._interval = min(self._interval * 2, self._base_interval * 16)
             if retry_after is not None and retry_after > 0:
                 self._hold_until = now + retry_after

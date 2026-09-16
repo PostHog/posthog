@@ -72,6 +72,10 @@ USAGE_COALESCE_ROWS = 20_000
 # on the same account, so take well under it and leave the rest for the account's other syncs.
 USAGE_CUSTOMER_CONCURRENCY = 4
 USAGE_REQUESTS_PER_SECOND = 5.0
+# Metronome documents its limit per second and documents no Retry-After, so a throttled pool only
+# has to stand down for a second or two, and it has to decide that for itself. The pacer's own
+# default is sized for a vendor that sends the header and falls back rarely.
+USAGE_RATE_LIMIT_HOLD_SECONDS = 5.0
 # Caps a batch when an account's customers are small enough that the row cap never trips.
 USAGE_CUSTOMERS_PER_BATCH = 100
 
@@ -704,7 +708,9 @@ def metronome_source(
             ),
         )
         json_body = cast(dict[str, Any], usage_resource["endpoint"]).get("json", {})
-        clients = _PacedClients(api_key, RequestPacer(USAGE_REQUESTS_PER_SECOND))
+        clients = _PacedClients(
+            api_key, RequestPacer(USAGE_REQUESTS_PER_SECOND, hold_seconds=USAGE_RATE_LIMIT_HOLD_SECONDS)
+        )
 
         def commit_usage_checkpoint(parent_cursor: Optional[str], completed: tuple[str, ...]) -> None:
             # Nothing to resume to once the customer list is exhausted and its last page is written.

@@ -7,8 +7,6 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    SourceFieldSelectConfigOption,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -30,8 +28,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     validate_credentials as validate_metronome_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.settings import (
-    DEFAULT_USAGE_DAILY_HISTORY,
-    DEFAULT_USAGE_HOURLY_HISTORY,
+    DEFAULT_USAGE_DAILY_HISTORY_MONTHS,
+    DEFAULT_USAGE_HOURLY_HISTORY_DAYS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     METRONOME_ENDPOINTS,
@@ -156,30 +154,21 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
                         placeholder="",
                         secret=True,
                     ),
-                    SourceFieldSelectConfig(
+                    SourceFieldInputConfig(
                         name="usage_hourly_history_days",
-                        label="Hourly usage history",
+                        label="Hourly usage history (days)",
+                        type=SourceFieldInputConfigType.NUMBER,
                         required=False,
-                        defaultValue=DEFAULT_USAGE_HOURLY_HISTORY,
-                        options=[
-                            SourceFieldSelectConfigOption(label="3 days", value="3"),
-                            SourceFieldSelectConfigOption(label="7 days", value="7"),
-                            SourceFieldSelectConfigOption(label="14 days", value="14"),
-                            SourceFieldSelectConfigOption(label="30 days", value="30"),
-                        ],
+                        placeholder=str(DEFAULT_USAGE_HOURLY_HISTORY_DAYS),
+                        secret=False,
                     ),
-                    SourceFieldSelectConfig(
+                    SourceFieldInputConfig(
                         name="usage_daily_history_months",
-                        label="Daily usage history",
+                        label="Daily usage history (months)",
+                        type=SourceFieldInputConfigType.NUMBER,
                         required=False,
-                        defaultValue=DEFAULT_USAGE_DAILY_HISTORY,
-                        options=[
-                            SourceFieldSelectConfigOption(label="1 month", value="1"),
-                            SourceFieldSelectConfigOption(label="3 months", value="3"),
-                            SourceFieldSelectConfigOption(label="6 months", value="6"),
-                            SourceFieldSelectConfigOption(label="12 months", value="12"),
-                            SourceFieldSelectConfigOption(label="24 months", value="24"),
-                        ],
+                        placeholder=str(DEFAULT_USAGE_DAILY_HISTORY_MONTHS),
+                        secret=False,
                     ),
                 ],
             ),
