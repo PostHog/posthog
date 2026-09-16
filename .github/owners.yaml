@@ -15,8 +15,7 @@ rules:
           - '/workflows/update-ai-costs.yml'
       owners: [team-devex, team-ai-gateway]
     - match:
-          - '/workflows/desktop-*.yml'
           - '/workflows/ci-agent-proxy.yml'
           - '/workflows/cd-agent-proxy-image.yml'
           - '/workflows/cd-tasks-golden-snapshot.yml'
-      owners: team-posthog-desktop
+      owners: team-agent-infrastructure
