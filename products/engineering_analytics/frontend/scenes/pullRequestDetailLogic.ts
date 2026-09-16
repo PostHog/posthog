@@ -632,14 +632,15 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             (authoredRuns: WorkflowRunDetailApi[]): number =>
                 authoredRuns.filter((run) => (run.run_attempt ?? 1) > 1).length,
         ],
-        // Each push at the start of its first CI run. Merge queue runs stay out: the queue pushed those, not the author.
+        // Each push at the start of its first CI run. Merge queue runs stay out: the queue pushed those, not the
+        // author. Re-runs stay out too: the runs read is capped, so a push can survive only through a later re-run.
         timelinePushes: [
             (s) => [s.authoredRuns],
             (authoredRuns: WorkflowRunDetailApi[]): TimelinePush[] => {
                 const firstStart = new Map<string, string>()
                 for (const run of authoredRuns) {
                     const current = firstStart.get(run.head_sha)
-                    if (run.run_started_at && (!current || run.run_started_at < current)) {
+                    if (run.run_attempt === 1 && run.run_started_at && (!current || run.run_started_at < current)) {
                         firstStart.set(run.head_sha, run.run_started_at)
                     }
                 }
