@@ -1,13 +1,3 @@
-"""
-Tests for the generic expiry refresh sweep.
-
-Covers:
-- The optional routing hook, which lets one cache hand its rebuilds to another builder
-- The successful/failed/enqueued counts a run reports
-- Pacing of routed teams
-- The expiry backlog gauge
-"""
-
 import time
 
 from unittest.mock import MagicMock, patch

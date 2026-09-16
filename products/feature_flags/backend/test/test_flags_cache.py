@@ -997,10 +997,6 @@ class TestServiceFlagsKafkaRouting(BaseTest):
 
 
 class TestRefreshRoutingHook(SimpleTestCase):
-    """The hourly sweep's routing hook. It gates on its own flag, produces a refresh
-    invalidation when the gate is open, reports a produce failure to the sweep, and
-    never falls back to building in Python."""
-
     TEAM_ID = 11
 
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
