@@ -611,6 +611,7 @@ class TestUserPinAndCapOverride:
             ("signals_implementation", "20"),
             ("signals_inbox", "75"),
             ("signals_chat", "30"),
+            ("slack_app", "75"),
             ("signals_scout_suggestions", "10"),
         ],
     )
@@ -699,6 +700,12 @@ class TestSlackAppMint:
         env, mint = self._env(mint_settings, over_quota=True)
         assert "AI_GATEWAY_TOKEN" not in env
         mint.assert_not_called()
+
+    # The provenance gate is only as strong as PATCH protection on the key it reads.
+    def test_provenance_key_is_patch_protected(self):
+        from products.tasks.backend.facade.api import _PROTECTED_RUN_STATE_KEYS
+
+        assert "interaction_origin" in _PROTECTED_RUN_STATE_KEYS
 
     def test_slack_gates_leave_other_products_alone(self):
         assert mint_refusal("review_hog", team_id=2, state=None, model="zai-org/glm-5.3", runtime="pi") is None
