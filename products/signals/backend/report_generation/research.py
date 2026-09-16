@@ -1028,6 +1028,9 @@ async def run_multi_turn_research(
         # (confirmed unchanged); persistence writes the new list, reusing the old.
         old_artefacts: list[ResearchArtefactContent] = []
         new_artefacts: list[ResearchArtefactContent] = []
+        # A degraded signal still lands a report, so the run has to say how many turns it lost.
+        # Without it a degrade path that starts firing often reads as a healthy fleet.
+        unusable_reply_count = 0
 
         first_finding, first_is_new = _resolve_finding_response(first_response, first_previous, signals[0].signal_id)
         (new_artefacts if first_is_new else old_artefacts).append(first_finding)
@@ -1060,8 +1063,17 @@ async def run_multi_turn_research(
                 # validates but carries no finding, so keep the loss to this signal: drop its
                 # finding, or keep the previous one. A dead session (empty turn, poll timeout) is a
                 # RuntimeError and still ends the run, since no later turn can succeed either.
+                unusable_reply_count += 1
                 logger.warning(
-                    "research: signal %d of %d returned no usable finding (%s)", i, total, _rejection_reason(e)
+                    "research: signal %d of %d returned no usable finding (%s)",
+                    i,
+                    total,
+                    _rejection_reason(e),
+                    extra={
+                        "research_task_id": str(session.task.id),
+                        "team_id": context.team_id,
+                        "report_id": signal_report_id,
+                    },
                 )
                 if previous_finding is not None:
                     old_artefacts.append(previous_finding)
@@ -1174,7 +1186,18 @@ async def run_multi_turn_research(
     total_finding_count = new_finding_count + sum(
         1 for artefact in old_artefacts if isinstance(artefact, SignalFinding)
     )
-    logger.info("multi_turn_research: completed with %d findings (%d new)", total_finding_count, new_finding_count)
+    logger.info(
+        "multi_turn_research: completed with %d findings (%d new), %d of %d signal replies unusable",
+        total_finding_count,
+        new_finding_count,
+        unusable_reply_count,
+        total,
+        extra={
+            "research_task_id": str(session.task.id),
+            "team_id": context.team_id,
+            "report_id": signal_report_id,
+        },
+    )
     return ReportResearchOutput(
         title=presentation_result.title,
         summary=presentation_result.summary,

@@ -1,6 +1,7 @@
 import json
 import random
 import asyncio
+import logging
 from datetime import UTC, datetime
 
 import pytest
@@ -1137,7 +1138,7 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("has_previous_finding", [False, True])
-async def test_run_multi_turn_research_keeps_the_report_when_one_signal_reply_is_invalid(has_previous_finding):
+async def test_run_multi_turn_research_keeps_the_report_when_one_signal_reply_is_invalid(has_previous_finding, caplog):
     """One signal's unusable reply must not cost the whole report."""
     signals = _build_signals()
     with pytest.raises(ValidationError) as exc_info:
@@ -1182,10 +1183,17 @@ async def test_run_multi_turn_research_keeps_the_report_when_one_signal_reply_is
             AsyncMock(return_value=(session, first_finding)),
         ),
         patch("products.signals.backend.task_run_artefacts.aappend_task_run_artefact", new_callable=AsyncMock),
+        caplog.at_level(logging.INFO),
     ):
         result = await run_multi_turn_research(
             signals, Mock(team_id=1), signal_report_id="report-id", previous_report_research=previous_research
         )
+
+    # A report that landed a turn short has to say so, or a degrade path that starts firing often
+    # reads as a healthy fleet.
+    completion = next(record for record in caplog.records if "multi_turn_research: completed" in record.getMessage())
+    assert "1 of 2 signal replies unusable" in completion.getMessage()
+    assert completion.report_id == "report-id"
 
     # Signal 2 contributes nothing new, but a finding the report already had is kept rather than lost.
     expected = [first_finding, previous_finding] if has_previous_finding else [first_finding]
