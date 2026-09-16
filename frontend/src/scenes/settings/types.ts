@@ -215,6 +215,7 @@ export type SettingId =
     | 'logs-pii-scrub'
     | 'logs-retention'
     | 'logs-retention-rules'
+    | 'logs-sources'
     | 'logs-session-id-attribute-keys'
     | 'marketing-settings'
     | 'mcp-hints'
