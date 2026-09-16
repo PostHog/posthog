@@ -3820,6 +3820,10 @@ snapshots:
         hash: v1.k794b7964.19da2f0798f02f14299933be9c3b20ef5884499ec72a894dd0128192ad0d8207.Q521iOqPCqWv9TaDBgIatKH6nFWs566jUYhc5M0goJA
     lemon-ui-lemon-banner--success--light:
         hash: v1.k794b7964.6dd73a667992a7e07145890a09b7c8bcdabf4074d7913e651e81610f622db7ea.z5RzXLIwlcBN-ce7iH6MUsEzq7oZ6ozdikDnSmZ0ecE
+    lemon-ui-lemon-banner--tall-content-top-aligned--dark:
+        hash: v1.k794b7964.9eddf2d08667c8a7cdef3387ef9f7040a8f164000cf4408503d512a552e3abe8.4qAVt7fcwCPgr9w9OuN5tzUKGB7ozyVbtA_ERiqAxnQ
+    lemon-ui-lemon-banner--tall-content-top-aligned--light:
+        hash: v1.k794b7964.a522c6504e8f5706ce5d0b90f6877da747f73e0162d5a7f44dbf0d4ae7f02b3b.Ye5GxRJnH_m_wEZDcHz6UEjrecm3jbdLS2GeofeVGx0
     lemon-ui-lemon-banner--warning--dark:
         hash: v1.k794b7964.ccd6919f26c9235fa5717d91865ea67120254e854af051082a47fce9bd05ed2f.y33wBGkS4iEkK_ZO_XiVBYXzh2fECsAKG4T0ZANpiyU
     lemon-ui-lemon-banner--warning--light:
