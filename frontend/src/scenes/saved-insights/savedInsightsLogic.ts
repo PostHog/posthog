@@ -809,7 +809,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             // The insight editor may have written or cleared a draft since this logic mounted
             actions.loadDraftQuery()
 
-            const hasFilterParams = Object.keys(cleanFilters({})).some((key) => key in searchParams)
+            const hasFilterParams = Object.keys(cleanFilters({})).some((key) => key !== 'page' && key in searchParams)
             if (!hasFilterParams && values.rawFilters !== null) {
                 actions.loadInsights(false)
                 return

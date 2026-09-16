@@ -197,6 +197,12 @@ describe('savedInsightsLogic', () => {
         await expectLogic(logic)
             .toDispatchActions(['loadInsightsSuccess'])
             .toMatchValues({ filters: partial({ createdBy: [1], tags: ['marketing'] }) })
+
+        // Page-only navigation should also preserve non-page filters
+        router.actions.push(urls.savedInsights(), { page: '2' })
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsightsSuccess'])
+            .toMatchValues({ filters: partial({ createdBy: [1], tags: ['marketing'] }) })
     })
 
     it('makes a direct ID query if searching for a number', async () => {
