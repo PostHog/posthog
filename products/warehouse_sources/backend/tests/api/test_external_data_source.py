@@ -12312,7 +12312,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
         hog_function = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook", deleted=False)
         assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_upfront"
 
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.ensure_person_join")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.ensure_person_join")
     @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
