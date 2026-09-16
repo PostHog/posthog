@@ -127,6 +127,10 @@ def get_safe_ticket_emoji(settings_dict: dict) -> str:
 TICKET_CONFIRM_ACTION_OPEN = "supporthog_open_ticket_confirm"
 TICKET_CONFIRM_ACTION_DISMISS = "supporthog_open_ticket_dismiss"
 
+# "View ticket" button on a ticket confirmation. The URL stays out of the message because
+# Slack has no message that only part of a channel can see (see _post_ticket_link).
+TICKET_VIEW_ACTION = "supporthog_view_ticket"
+
 
 def _get_team_id(team: Team) -> int:
     team_id = getattr(team, "id", None)
@@ -138,6 +142,36 @@ def _get_team_id(team: Team) -> int:
 def ticket_created_text(ticket: "Ticket | None") -> str:
     """Copy for message to confirm creation of ticket."""
     return f":ticket: Ticket #{ticket.ticket_number} created" if ticket else ":ticket: Ticket created"
+
+
+def ticket_deep_link(ticket: "Ticket", team: Team) -> str:
+    """App URL for a ticket. The detail scene is addressed by ticket number, not by UUID."""
+    return f"{settings.SITE_URL}/project/{_get_team_id(team)}/support/tickets/{ticket.ticket_number}"
+
+
+def ticket_created_blocks(ticket: "Ticket | None", team: Team) -> list[dict]:
+    """Blocks for the ticket confirmation, carrying a "View ticket" button when there is a ticket.
+
+    The button holds the ticket number rather than the link, so the channel never shows the URL.
+    Without a ticket there is nothing to view, so the section stands alone.
+    """
+    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": ticket_created_text(ticket)}}]
+    if ticket is None:
+        return blocks
+    blocks.append(
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "action_id": TICKET_VIEW_ACTION,
+                    "text": {"type": "plain_text", "text": "View ticket", "emoji": True},
+                    "value": json.dumps({"ticket_number": ticket.ticket_number}),
+                }
+            ],
+        }
+    )
+    return blocks
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
@@ -598,15 +632,7 @@ def create_or_update_slack_ticket(
             "channel": slack_channel_id,
             "thread_ts": thread_ts,
             "text": f"Ticket #{ticket.ticket_number} created.",
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": ticket_created_text(ticket),
-                    },
-                },
-            ],
+            "blocks": ticket_created_blocks(ticket, team),
         }
         bot_display_name = support_settings.get("slack_bot_display_name")
         bot_icon_url = support_settings.get("slack_bot_icon_url")
@@ -855,10 +881,10 @@ def nudge_event_properties(
     }
 
 
-def capture_nudge_event(team: Team, event: str, properties: dict[str, Any]) -> None:
-    """Internal product analytics for the nudge funnel, attributed to the team like
-    report_team_action — but through a scoped client, since both call sites run in
-    Celery tasks where the global client's flush can be lost."""
+def capture_support_event(team: Team, event: str, properties: dict[str, Any]) -> None:
+    """Internal product analytics attributed to the team like report_team_action — but through
+    a scoped client, since every call site runs in a Celery task where the global client's
+    flush can be lost."""
     with ph_scoped_capture() as capture:
         capture(
             distinct_id=str(team.uuid),
@@ -866,6 +892,11 @@ def capture_nudge_event(team: Team, event: str, properties: dict[str, Any]) -> N
             properties=properties,
             groups=groups(team=team),
         )
+
+
+def capture_nudge_event(team: Team, event: str, properties: dict[str, Any]) -> None:
+    """Internal product analytics for the nudge funnel."""
+    capture_support_event(team, event, properties)
 
 
 def _is_nudge_classifier_flag_enabled(team: Team) -> bool:

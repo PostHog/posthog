@@ -87,6 +87,14 @@ class ActiveDreamRunSerializer(serializers.Serializer):
     started_at = serializers.DateTimeField(help_text="When the active dream task was created.")
 
 
+class UnpublishedDreamRunSerializer(serializers.Serializer):
+    task_url = serializers.URLField(help_text="Task URL in its project for the unpublished dream outcome and logs.")
+    run_status = serializers.CharField(
+        help_text="The terminal task-run state, such as completed, failed, or cancelled."
+    )
+    started_at = serializers.DateTimeField(help_text="When the unpublished dream task was created.")
+
+
 class DreamRunListSerializer(serializers.Serializer):
     """Response shape for the wiki's dream run listing."""
 
@@ -94,6 +102,10 @@ class DreamRunListSerializer(serializers.Serializer):
     active_run = ActiveDreamRunSerializer(
         allow_null=True,
         help_text="The organization's active dreaming task, or null when no dream is running.",
+    )
+    unpublished_run = UnpublishedDreamRunSerializer(
+        allow_null=True,
+        help_text="The latest finished dream when no update was published after it started, or null otherwise.",
     )
     dreams = DreamRunSerializer(many=True, help_text="Every landed dream run, newest first.")
 

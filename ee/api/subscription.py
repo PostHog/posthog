@@ -1,6 +1,6 @@
 import uuid
 import asyncio
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any, ClassVar, Optional
 
 from django.conf import settings
@@ -1530,6 +1530,21 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
     )
 
 
+class StableOrderingFilter(filters.OrderingFilter):
+    """`OrderingFilter` that appends `id` to every ordering, so tied rows keep one fixed position.
+
+    Limit-offset pagination runs a separate query for each page. No sortable column here is unique:
+    one creator owns many subscriptions, titles repeat, and unscheduled rows share a null delivery
+    date. Without a unique last key, Postgres can put a tied row on two pages, or on no page at all.
+    """
+
+    def get_ordering(self, request, queryset, view) -> Sequence[str] | None:
+        ordering = super().get_ordering(request, queryset, view)
+        if not ordering:
+            return ordering
+        return [*ordering, "-id" if ordering[-1].startswith("-") else "id"]
+
+
 @extend_schema_view(
     list=extend_schema(
         extensions={"x-product": "subscriptions"},
@@ -1610,7 +1625,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     scope_object = "subscription"
     queryset = Subscription.objects.all()
     serializer_class = SubscriptionSerializer
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [filters.SearchFilter, StableOrderingFilter]
     search_fields = [
         "title",
         "insight__name",
