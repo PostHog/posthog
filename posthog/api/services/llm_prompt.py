@@ -353,6 +353,15 @@ def duplicate_prompt(
 
 def archive_prompt(team: Team, prompt_name: str, *, user: User | None = None) -> list[int]:
     with transaction.atomic():
+        # Label rows lock before version rows everywhere (set_prompt_label,
+        # reference validation, here), so an archive racing a label write
+        # queues instead of deadlocking on opposite lock orders.
+        list(
+            LLMPromptLabel.objects.select_for_update()
+            .filter(team=team, prompt_name=prompt_name)
+            .order_by("name")
+            .values_list("id", flat=True)
+        )
         prompt_versions = list(
             LLMPrompt.objects.select_for_update()
             .filter(team=team, name=prompt_name, deleted=False)
@@ -437,7 +446,7 @@ def set_prompt_label(
         # row, so a publish that is about to reference this label either
         # commits its dependency row first (the guard sees it) or waits.
         existing = (
-            LLMPromptLabel.objects.select_for_update()
+            LLMPromptLabel.objects.select_for_update(of=("self",))
             .select_related("prompt")
             .filter(team=team, prompt_name=prompt_name, name=label_name)
             .first()
