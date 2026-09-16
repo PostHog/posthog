@@ -998,7 +998,8 @@ class TestServiceFlagsKafkaRouting(BaseTest):
 
 class TestRefreshRoutingHook(SimpleTestCase):
     """The hourly sweep's routing hook. It gates on its own flag, produces a refresh
-    invalidation when the gate is open, and never falls back to building in Python."""
+    invalidation when the gate is open, reports a produce failure to the sweep, and
+    never falls back to building in Python."""
 
     TEAM_ID = 11
 
@@ -1045,13 +1046,16 @@ class TestRefreshRoutingHook(SimpleTestCase):
 
     @patch("products.feature_flags.backend.flags_cache.producer_scope")
     @patch("products.feature_flags.backend.flags_cache.feature_enabled_or_false", return_value=True)
-    def test_a_produce_failure_does_not_fall_back_to_building_in_python(self, mock_gate, mock_producer_scope):
+    def test_a_produce_failure_is_reported_rather_than_counted_as_enqueued(self, mock_gate, mock_producer_scope):
         mock_producer_scope.side_effect = RuntimeError("kafka cluster unreachable")
 
-        # Still True, so the sweep skips its own build and counts the team as enqueued.
-        # The two paths are mutually exclusive so a broken Kafka path shows up as a
-        # stale cache rather than being masked by Python quietly building it anyway.
-        assert route_refresh_to_kafka(self.TEAM_ID) is True
+        # Never True: the sweep counts a team as enqueued from this returning True, so
+        # returning it here would report a hand-off that never happened for every team
+        # of a run whose producer is down. The sweep turns the error into a failed team
+        # and still skips its own Python build, which the hook contract test in
+        # posthog/storage/test/test_cache_expiry_manager.py pins.
+        with pytest.raises(RuntimeError, match="kafka cluster unreachable"):
+            route_refresh_to_kafka(self.TEAM_ID)
 
 
 class TestShadowInvalidationPublishing(SimpleTestCase):

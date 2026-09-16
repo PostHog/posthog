@@ -1205,17 +1205,22 @@ def route_refresh_to_kafka(team_id: int) -> bool:
     Returns True when the team's refresh was raised as a Kafka invalidation, which
     makes the sweep skip its own build and count the team as enqueued.
 
-    There is no Celery fallback when the produce fails, for the reason
+    A produce failure propagates instead of returning True, so the sweep counts the
+    team as failed. The enqueued count is what the ramp is read from, and a run that
+    counted a lost message as enqueued would report a clean hand-off while the producer
+    was down.
+
+    A propagated error is still not a Celery fallback, for the reason
     `_enqueue_invalidation` gives: the two paths are mutually exclusive so a broken
     Kafka path shows up as a stale cache instead of being masked by Python quietly
-    building the team anyway. A team whose message is lost stays inside the expiry
-    window, so the next hourly run raises it again, and the verifier repairs it in the
-    meantime.
+    building the team anyway. The sweep skips its own build for a team whose hook
+    failed. A team whose message is lost stays inside the expiry window, so the next
+    hourly run raises it again, and the verifier repairs it in the meantime.
     """
     if not _route_refresh_to_kafka(team_id):
         return False
 
-    _produce_invalidation(team_id, source="refresh")
+    _produce_invalidation(team_id, source="refresh", raise_on_error=True)
     return True
 
 
@@ -1310,8 +1315,14 @@ def publish_shadow_invalidation(team_id: int) -> None:
         _produce_invalidation(team_id, shadow=True)
 
 
-def _produce_invalidation(team_id: int, shadow: bool = False, source: Literal["edit", "refresh"] = "edit") -> None:
-    """Produce a single invalidation message; swallow Kafka errors.
+def _produce_invalidation(
+    team_id: int,
+    shadow: bool = False,
+    source: Literal["edit", "refresh"] = "edit",
+    raise_on_error: bool = False,
+) -> None:
+    """Produce a single invalidation message; log Kafka errors, and propagate them
+    only for a caller that reports them.
 
     A produce failure must not raise out of a signal handler and is deliberately
     not retried via Celery (see `_enqueue_invalidation`). The `except` below only
@@ -1329,6 +1340,11 @@ def _produce_invalidation(team_id: int, shadow: bool = False, source: Literal["e
     source identically and uses the value to attribute builds and latency, so a wrong
     value costs a reading and never a build. See flags_cache_messages for why a region
     whose builder predates the field must not be sent anything but the default.
+
+    `raise_on_error` belongs to the caller, not to the wire: it says whether a caller
+    is there to report the failure. The refresh sweep sets it so a lost message counts
+    as a failed team instead of a hand-off that never happened. Signal handlers leave
+    it off, because a flag edit has nothing to report a produce failure to.
     """
     try:
         msg = FlagsCacheInvalidation(team_id=team_id, emitted_at=datetime.now(UTC), shadow=shadow, source=source)
@@ -1349,6 +1365,8 @@ def _produce_invalidation(team_id: int, shadow: bool = False, source: Literal["e
             error=str(e),
             exc_info=True,
         )
+        if raise_on_error:
+            raise
 
 
 def _enqueue_invalidation(team_id: int) -> None:
