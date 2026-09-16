@@ -1777,6 +1777,15 @@ def team_api_test_factory():
             self.assertEqual(call_args[1]["properties"]["field"], "access_control")
             self.assertEqual(call_args[1]["properties"]["value"], "True")
             self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
+            self.assertEqual(call_args[1]["properties"]["team_id"], self.team.id)
+            self.assertEqual(
+                call_args[1]["properties"]["$exception_fingerprint"],
+                "team_api.deprecated_access_control_field",
+            )
+            self.assertEqual(
+                call_args[1]["groups"],
+                {"organization": str(self.team.organization_id), "project": str(self.team.id)},
+            )
 
         @patch("posthoganalytics.capture_exception")
         def test_access_control_field_deprecated_with_other_valid_fields(self, mock_capture_exception):

@@ -1706,14 +1706,29 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             request = self.context.get("request")
             user = request.user if request else None
 
+            # A Project id is the id of its first environment, so both instance types give a team id.
+            team_id = getattr(self.instance, "id", None) or getattr(user, "current_team_id", None)
+            organization_id = getattr(self.instance, "organization_id", None) or getattr(
+                user, "current_organization_id", None
+            )
+
+            groups: dict[str, str] = {}
+            if organization_id:
+                groups["organization"] = str(organization_id)
+            if team_id:
+                groups["project"] = str(team_id)
+
             posthoganalytics.capture_exception(
                 Exception("Deprecated access control field used"),
                 properties={
                     "field": "access_control",
                     "value": str(value),
                     "user_id": user.id if user else None,
-                    "team_id": getattr(user, "team_id", None) if user else None,
+                    "team_id": team_id,
+                    # The artificial traceback moves with every deploy, so pin the fingerprint.
+                    "$exception_fingerprint": "team_api.deprecated_access_control_field",
                 },
+                groups=groups or None,
             )
 
             raise exceptions.ValidationError(
