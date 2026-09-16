@@ -5587,11 +5587,14 @@ async fn test_initial_property_population_respects_db_values(
     let context = TestContext::new(None).await;
     context.insert_new_team(Some(team.id)).await.unwrap();
 
-    // Insert person with specified DB properties
-    context
-        .insert_person(team.id, distinct_id.clone(), db_properties)
-        .await
-        .unwrap();
+    // `None` writes no person row, so the distinct_id has no person at all.
+    // `insert_person` substitutes its own default properties for `None`, which is a row.
+    if let Some(properties) = db_properties {
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(properties))
+            .await
+            .unwrap();
+    }
 
     // Create a flag that checks $initial_browser = "Safari"
     let flag_json = json!([
