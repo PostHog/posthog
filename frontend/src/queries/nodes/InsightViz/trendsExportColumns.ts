@@ -5,7 +5,9 @@ import { TrendResult } from '~/types'
 // step with the trends branch of _convert_response_to_csv_data in
 // products/exports/backend/tasks/csv_exporter.py — a name that drifts exports as an empty column.
 export function trendsExportColumns(results: TrendResult[], breakdownFilter?: BreakdownFilter | null): string[] {
-    if (results.length === 0) {
+    // Every insight derives these, and some vizzes hold an object here rather than a list of
+    // series: a time-to-convert funnel stores its bins that way.
+    if (!Array.isArray(results) || results.length === 0) {
         return []
     }
 

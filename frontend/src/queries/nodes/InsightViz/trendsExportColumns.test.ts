@@ -42,4 +42,11 @@ describe('trendsExportColumns', () => {
     it('returns nothing when there are no results', () => {
         expect(trendsExportColumns([])).toEqual([])
     })
+
+    it('returns nothing when the result is not a list of series', () => {
+        // A time-to-convert funnel stores its result as an object, and every insight runs this.
+        const timeToConvert = { bins: [[0, 5]], average_conversion_time: 42, median_conversion_time: 40 }
+
+        expect(trendsExportColumns(timeToConvert as unknown as TrendResult[])).toEqual([])
+    })
 })
