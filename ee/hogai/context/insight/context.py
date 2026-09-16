@@ -1,9 +1,8 @@
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import cast
 
 from pydantic import BaseModel
-from pydantic.main import IncEx
 
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.apply_dashboard_filters import (
@@ -25,23 +24,21 @@ from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticMod
 
 from .prompts import INSIGHT_RESULT_TEMPLATE
 
+type _ResponseExclusions = (
+    set[int] | set[str] | Mapping[int, bool | _ResponseExclusions] | Mapping[str, bool | _ResponseExclusions]
+)
 
-def _response_exclusions(value: object) -> IncEx:
+
+def _response_exclusions(value: object) -> _ResponseExclusions:
     if isinstance(value, BaseModel):
-        return cast(
-            IncEx,
-            {
-                name: True if name == "response" else _response_exclusions(getattr(value, name))
-                for name in type(value).model_fields
-            },
-        )
+        return {
+            name: True if name == "response" else _response_exclusions(getattr(value, name))
+            for name in type(value).model_fields
+        }
     if isinstance(value, (list, tuple)):
-        return cast(IncEx, {index: _response_exclusions(item) for index, item in enumerate(value)})
+        return {index: _response_exclusions(item) for index, item in enumerate(value)}
     if isinstance(value, dict):
-        return cast(
-            IncEx,
-            {key: _response_exclusions(item) for key, item in value.items() if isinstance(key, (str, int))},
-        )
+        return {key: _response_exclusions(item) for key, item in value.items() if isinstance(key, str)}
     return {}
 
 

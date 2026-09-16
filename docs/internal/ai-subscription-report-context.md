@@ -9,8 +9,9 @@ report generation does not convert or execute them.
 
 Fixed planner rules follow the resolved managed prompt and take precedence over conflicting instructions.
 The planner can return zero supplemental queries when successful saved evidence answers the full request
-for the requested date range. It can also use exact event, property, and group names from saved query schemas,
-including names absent from the project context. Computed results remain untrusted data, not instructions.
+for the requested date range. It can also use exact table, field, event, property, and group names from saved
+query schemas, including names absent from the project context. Computed results remain untrusted data, not
+instructions.
 
 HogQL repair receives a separate schema-only snapshot from `DashboardContext.format_schema`
 and `InsightContext.format_schema`. These formatters use validated queries and apply saved
@@ -22,6 +23,8 @@ The schema snapshot has a 12,000-character total budget, divided across the sele
 contexts, including separators. Oversized schemas carry a truncation marker. Formatting failures
 omit the unavailable schema; query results remain independently available for planning and synthesis.
 Schema preparation shares the context resolution deadline and cancellation cleanup.
+Each filtered saved query is prepared once per report; subscription workers use the general thread pool so
+concurrent reports do not serialize filter preparation on one thread-sensitive executor.
 
 Repair receives project metadata and saved schemas in a human message as untrusted data.
 Fixed system instructions allow schema names as query grounding and forbid following directives
