@@ -7508,6 +7508,14 @@ snapshots:
         hash: v1.k794b7964.df91ee73eb9c7f851f7c987ff3d06f975e6187267e898a2a8b3a3a1f898dee7a.ieTfJEFpcuil3f4uqJ1jp_tg64ChsB81jLF3Rf9SeFM
     scenes-app-engineering-analytics-lead-time-box-plot--horizontal-log-scale--light:
         hash: v1.k794b7964.bc3a9455717626ef2f9541e03740bd0027c89139cd54ba4eb57a883d0e222667.OlAdmRvrHHSpGH8a2jHqV60Z957X8hIrNlcY9Duvv9A
+    scenes-app-engineering-analytics-pull-request--merged--dark:
+        hash: v1.k794b7964.80a2b728c5e0678bea85d723674691f871ef76948e3b6337b3483f14c883c139.eMeYeAcy8Hnc3_sf3F4zLyiktYufQrJL1CWlIr2HI-Y
+    scenes-app-engineering-analytics-pull-request--merged--light:
+        hash: v1.k794b7964.3defacb7f88f122971276608b2e5b6e3dc4e93a0d37d8a215fb790e9e9bb3694.S2THK6gGwY8V7wCKjc3xyQRz76khLRw7zXUwsybiaNQ
+    scenes-app-engineering-analytics-pull-request--out-of-the-merge-queue--dark:
+        hash: v1.k794b7964.b926894fba6585b7a88815232f7571095c49f7703c904c79aa772c98c500ed0e.PfbMVTD7emKKRe5TnvI1fvMqlmABOMZVCTqw-6j1hBA
+    scenes-app-engineering-analytics-pull-request--out-of-the-merge-queue--light:
+        hash: v1.k794b7964.344b2260c74f8fc6c56d783086a4864638fbaabd9f7173a0e223531ae1c573d6.PcDGFYzOXeeR91tJZQQDUBnivX-Tk8pXQ5_jhILqQ4M
     scenes-app-engineering-analytics-repo-overview--repo-overview--dark:
         hash: v1.k794b7964.1a470083e7a94ff46652f4368277eae5d35c927d65b58685e43ce34881e1e728.SEm3E8XvqrTHtJNRhVGX-9aaaw6xdWyzTNb_mw6c380
     scenes-app-engineering-analytics-repo-overview--repo-overview--light:
@@ -7520,6 +7528,14 @@ snapshots:
         hash: v1.k794b7964.7f17c5ac7c6862493f7c4d59e6e3c3146c42e3d7b08908ee1716d387c129ba64.lPsE9KrOSZee9wJq8zjqYnvk09numvEFWOn4mdCOgJE
     scenes-app-engineering-analytics-run-activity-chart--default--light:
         hash: v1.k794b7964.f63752ff3ebf3bbee3be4ddc83d1ff657d9cdd11ee71e7283c30ce5a1aefde72.yTb8kpRqcG51TbM2CqgRmC5YvgE7-6pV1Trc7y5wuto
+    scenes-app-engineering-analytics-team--team--dark:
+        hash: v1.k794b7964.8ab9a14d00c57a179d6ae23a4f318527a125e1a886eb5eec4739e83204ca91d6.nCHqHNwOO6d0m-LoBUv-3mlTDU45SqaZAvg_0XRWqF4
+    scenes-app-engineering-analytics-team--team--light:
+        hash: v1.k794b7964.ce702b43b3812be57a316311450f1f60264f12969ea5b89a1f229bb24c1f5ade.wQYkNs1KtELeBKDCbvAdMTIKf1gCKinpoO2DqlxtTjk
+    scenes-app-engineering-analytics-team--team-without-membership--dark:
+        hash: v1.k794b7964.3c3142b9a3a6bb141701854805597465f6f823106746e7b20c381f3d610eaddb.E0-u2Sj4HAj2xqSq6Z4Jh3fQz9gagK4K0Z-3hegKbkE
+    scenes-app-engineering-analytics-team--team-without-membership--light:
+        hash: v1.k794b7964.22b8a8a0e228d1af6ef2ee6ccd6790bdd39da67113cf04c9c4dccf349c280fa0.5ydsnSNLbc1Kym8S7J7u-e8YQS8iFYBHS-0g-1Q0VkU
     scenes-app-engineering-analytics-teams--team-ci-health-roster--dark:
         hash: v1.k794b7964.d2d7578360ba54b7fc61f23ee770a6874cf52b5a5cabd288bc1a28431e964263.YrKgeAKxWLMc3r7KjVvcYQ7QF9liZE7jBm9y_Z94k0A
     scenes-app-engineering-analytics-teams--team-ci-health-roster--light:
