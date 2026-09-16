@@ -1784,7 +1784,7 @@ def team_api_test_factory():
             )
             self.assertEqual(
                 call_args[1]["groups"],
-                {"organization": str(self.team.organization_id), "project": str(self.team.id)},
+                {"organization": str(self.team.organization_id), "project": str(self.team.uuid)},
             )
 
         @patch("posthoganalytics.capture_exception")
