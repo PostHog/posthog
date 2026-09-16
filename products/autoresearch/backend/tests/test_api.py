@@ -467,6 +467,8 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
         resp = self.client.get(f"{self.base_url}/{pipeline_b.id}/{resource}/{row_id}/")
         assert resp.status_code == status.HTTP_404_NOT_FOUND
+        resp = self.client.get(f"{self.base_url}/{pipeline_a.id}/{resource}/not-a-uuid/")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
         resp = self.client.get(f"{self.base_url}/{pipeline_a.id}/{resource}/{row_id}/")
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["id"] == str(row_id)

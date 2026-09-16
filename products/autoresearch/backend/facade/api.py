@@ -203,24 +203,30 @@ def _pipeline_row(team_id: int, pipeline_id: str | UUID, *, live_only: bool = Fa
     a refusal that admits it exists. Routes nested under a pipeline id keep seeing archived rows,
     so they can explain why the write is refused.
     """
+    pipeline_uuid = _as_uuid(pipeline_id)
+    if pipeline_uuid is None:
+        raise PipelineNotFound("Pipeline not found.")
     qs = AutoresearchPipeline.objects.for_team(team_id)
     if live_only:
         qs = qs.exclude(status=AutoresearchPipeline.Status.ARCHIVED)
     try:
-        return qs.get(pk=str(pipeline_id))
-    except (AutoresearchPipeline.DoesNotExist, ValueError, TypeError):
+        return qs.get(pk=pipeline_uuid)
+    except AutoresearchPipeline.DoesNotExist:
         raise PipelineNotFound("Pipeline not found.")
 
 
 def _training_run_row(
     team_id: int, training_run_id: str | UUID, *, pipeline_id: str | UUID | None = None
 ) -> AutoresearchTrainingRun:
+    training_run_uuid = _as_uuid(training_run_id)
+    if training_run_uuid is None:
+        raise TrainingRunNotFound("Training run not found.")
     qs = AutoresearchTrainingRun.objects.for_team(team_id).select_related("pipeline").prefetch_related("iterations")
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
     try:
-        return qs.get(pk=str(training_run_id))
-    except (AutoresearchTrainingRun.DoesNotExist, ValueError, TypeError):
+        return qs.get(pk=training_run_uuid)
+    except AutoresearchTrainingRun.DoesNotExist:
         raise TrainingRunNotFound("Training run not found.")
 
 
@@ -433,7 +439,10 @@ def list_models(team_id: int, *, pipeline_id: str | UUID | None, offset: int, li
 
 
 def get_model(team_id: int, model_id: str | UUID, *, pipeline_id: str | UUID | None = None) -> Model | None:
-    qs = AutoresearchModel.objects.for_team(team_id).filter(pk=str(model_id))
+    model_uuid = _as_uuid(model_id)
+    if model_uuid is None:
+        return None
+    qs = AutoresearchModel.objects.for_team(team_id).filter(pk=model_uuid)
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
     row = qs.first()
@@ -452,7 +461,10 @@ def list_runs(team_id: int, *, pipeline_id: str | UUID | None, offset: int, limi
 
 
 def get_run(team_id: int, run_id: str | UUID, *, pipeline_id: str | UUID | None = None) -> Run | None:
-    qs = AutoresearchRun.objects.for_team(team_id).filter(pk=str(run_id))
+    run_uuid = _as_uuid(run_id)
+    if run_uuid is None:
+        return None
+    qs = AutoresearchRun.objects.for_team(team_id).filter(pk=run_uuid)
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
     row = qs.first()
