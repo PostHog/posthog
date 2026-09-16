@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
@@ -37,6 +38,7 @@ export function AccountRelatedUsersExpansion({
     const { membersResponse, membersResponseLoading, page, searchTerm, levels, sorting } = useValues(logic)
     const { user } = useValues(userLogic)
     const { setPage, setSearchTerm, setLevels, setSorting } = useActions(logic)
+    const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
 
     const columns: LemonTableColumns<AccountOrganizationMember> = [
         {
@@ -113,16 +115,22 @@ export function AccountRelatedUsersExpansion({
 
     return (
         <div className="flex flex-col gap-2">
-            <LemonInput
-                type="search"
-                value={searchTerm}
-                onChange={setSearchTerm}
-                placeholder="Search users by name or email..."
-                maxLength={200}
-                size="small"
-                className="min-w-64"
-                data-attr="customer-analytics-account-users-search"
-            />
+            <div
+                className="flex flex-wrap items-center justify-between gap-2"
+                data-attr="customer-analytics-account-users-toolbar"
+            >
+                <LemonInput
+                    type="search"
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    placeholder="Search users by name or email..."
+                    maxLength={200}
+                    size="small"
+                    className="min-w-64 max-w-80 grow"
+                    data-attr="customer-analytics-account-users-search"
+                />
+                <div ref={setBulkBarTarget} className="flex items-center empty:hidden" />
+            </div>
             <LemonTable<AccountOrganizationMember>
                 key={externalId}
                 size="small"
@@ -151,6 +159,7 @@ export function AccountRelatedUsersExpansion({
                     rowAriaLabel: (member) =>
                         `Select user ${fullName(member.user) || member.user.email || 'without an email address'}`,
                     headerAriaLabel: 'Select all users on this page',
+                    barPortalTarget: bulkBarTarget,
                     renderActions: (context) => (
                         <LemonButton
                             type="secondary"

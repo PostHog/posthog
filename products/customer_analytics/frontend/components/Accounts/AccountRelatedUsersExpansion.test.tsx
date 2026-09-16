@@ -94,7 +94,11 @@ describe('AccountRelatedUsersExpansion', () => {
         expect(await screen.findByText('Owner')).toBeInTheDocument()
         fireEvent.click(screen.getByLabelText('Select user Alex Mercer'))
         fireEvent.click(screen.getByLabelText('Select user Jordan Bell'))
-        fireEvent.click(screen.getByText('Copy email addresses'))
+        const copyButton = screen.getByText('Copy email addresses')
+        expect(document.querySelector('[data-attr="customer-analytics-account-users-toolbar"]')).toContainElement(
+            copyButton
+        )
+        fireEvent.click(copyButton)
 
         expect(copyToClipboard).toHaveBeenCalledWith('alex+eu@example.com\njordan+eu@example.com', 'email addresses')
     })
