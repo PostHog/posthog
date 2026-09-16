@@ -254,7 +254,7 @@ IMPRESSIONS_COLUMNS = (
 # is 1-based, so anything below 1 is malformed; anything above int32 would raise on the Parquet
 # conversion and fail the whole fleet-wide labels asset. Both are nulled out, and the impression
 # still counts toward the impression/user counts.
-_IMPRESSION_RANK = (
+IMPRESSION_RANK_SQL = (
     "if(JSONExtractInt(imp, 'rank') >= 1 AND JSONExtractInt(imp, 'rank') <= 2147483647, "
     "JSONExtractInt(imp, 'rank'), NULL)"
 )
@@ -264,8 +264,8 @@ SELECT
     min(timestamp) AS first_impressed_at,
     count() AS impression_unit_count,
     uniq(distinct_id) AS impressed_user_count,
-    argMinIf({_IMPRESSION_RANK}, timestamp, {_IMPRESSION_RANK} IS NOT NULL) AS first_impression_rank,
-    min({_IMPRESSION_RANK}) AS best_impression_rank,
+    argMinIf({IMPRESSION_RANK_SQL}, timestamp, {IMPRESSION_RANK_SQL} IS NOT NULL) AS first_impression_rank,
+    min({IMPRESSION_RANK_SQL}) AS best_impression_rank,
     argMax(JSONExtract(imp, 'source_products', 'Array(String)'), timestamp) AS source_products
 FROM events
 ARRAY JOIN JSONExtractArrayRaw(properties, 'impressions') AS imp
