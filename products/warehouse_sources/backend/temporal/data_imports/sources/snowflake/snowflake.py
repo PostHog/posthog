@@ -67,11 +67,14 @@ __all__ = [
 SNOWFLAKE_RESULT_CAP_MARKER = "Information schema query returned too much data"
 
 # The Schema field is the only control that narrows the scan, and its placeholder ("Leave blank to
-# import all schemas") steers people onto the widest path by default.
+# import all schemas") steers people onto the widest path by default. One schema can still hold more
+# columns than the cap allows, and no narrower control exists, so that case ends at support rather
+# than at the same instruction again.
 SNOWFLAKE_TOO_WIDE_MESSAGE = (
     "This Snowflake database has too many tables for PostHog to list in one go. "
     "Enter a single schema name in the Schema field to list only that schema, then try again. "
-    "You can connect the other schemas as separate sources."
+    "You can connect the other schemas as separate sources. "
+    "If you already entered a schema, contact support so we can help you connect this account."
 )
 
 
