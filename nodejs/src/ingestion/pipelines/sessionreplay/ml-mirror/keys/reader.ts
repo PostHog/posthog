@@ -1,4 +1,4 @@
-import { KEY_READ_LEASE_MS, MlDataKey, MlKeyEncryption } from './crypto'
+import { MlDataKey, MlKeyEncryption } from './crypto'
 import { MlKeyDynamoDB } from './dynamodb'
 import { MlKeyIdentity, TableKey, tableKeyString, teamBlockId } from './schema'
 
@@ -9,7 +9,6 @@ export class MlKeyReader {
     ) {}
 
     public async read(keys: TableKey[]): Promise<Map<string, MlDataKey>> {
-        const decryptUntil = performance.now() + KEY_READ_LEASE_MS
         const stored = await this.db.read(keys)
         const identities = new Map<string, MlKeyIdentity>()
         for (const [id, item] of stored) {
@@ -35,10 +34,7 @@ export class MlKeyReader {
                 if (state.has(tableKeyString(teamBlockId(identity.teamId)))) {
                     return
                 }
-                result.set(id, {
-                    ...(await this.encryption.decrypt(identity, Buffer.from(stored.get(id)!.wrapped_key.B!))),
-                    decryptUntil,
-                })
+                result.set(id, await this.encryption.decrypt(identity, Buffer.from(stored.get(id)!.wrapped_key.B!)))
             })
         )
         return result
