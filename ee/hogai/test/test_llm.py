@@ -22,6 +22,7 @@ from posthog.settings import BASE_DIR
 from ee.hogai.llm import (
     AI_GATEWAY_FALLBACK_COUNTER,
     AI_GATEWAY_SERVED_KEY,
+    AI_GATEWAY_TIMEOUT,
     BILLING_SKIPPED_COUNTER,
     PROJECT_ORG_USER_CONTEXT_PROMPT,
     MaxChatAnthropic,
@@ -688,6 +689,7 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
                 "thread_id": "conversation-1",
                 "distinct_id": "distinct-1",
                 "ai_product": "posthog_ai",
+                "privacy_mode": False,
                 "is_agent_billable": True,
                 **configurable,
             }
@@ -756,6 +758,8 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
     async def test_calls_for_other_products_go_direct(self):
         cases: list[tuple[str, dict, dict | None]] = [
             ("mcp conversation", self._config(ai_product="mcp"), None),
+            ("privacy mode", self._config(privacy_mode=True), None),
+            ("privacy mode unknown", self._config(privacy_mode=None), None),
             ("outside a posthog_ai run", self._config(ai_product=None), None),
             ("product override", self._config(), {"ai_product": "alert_investigation_agent"}),
         ]
@@ -856,6 +860,16 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
             await model.agenerate([[HumanMessage(content="hello")]])
 
         self.assertEqual(calls, ["gateway"])
+
+    def test_gateway_client_has_a_bounded_timeout(self):
+        model = MaxChatAnthropic.via_ai_gateway(self.gateway, model="claude-sonnet-4-6", user=self.user, team=self.team)
+        twin = model.ai_gateway_fallback
+        assert twin is not None
+
+        for client in (model._client, model._async_client):
+            self.assertEqual(client.timeout, AI_GATEWAY_TIMEOUT)
+            self.assertEqual(client._client.timeout, AI_GATEWAY_TIMEOUT)
+        self.assertIsNone(twin._client_params["timeout"])
 
     def test_token_counting_uses_the_direct_twin(self):
         model = MaxChatAnthropic.via_ai_gateway(self.gateway, model="claude-sonnet-4-6", user=self.user, team=self.team)

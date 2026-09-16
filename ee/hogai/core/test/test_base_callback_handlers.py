@@ -386,3 +386,22 @@ class TestRunnerAIGatewayProduct(BaseTest):
                 handler = runner._callback_handlers[0]
                 assert isinstance(handler, MaxCallbackHandler)
                 self.assertEqual((handler._properties or {}).get("ai_product"), expected_product)
+
+    @patch("ee.hogai.core.runner.is_cloud", return_value=True)
+    @patch("ee.hogai.core.runner.get_instance_region", return_value="US")
+    @patch("ee.hogai.core.runner.get_client", return_value=Mock())
+    def test_config_carries_the_privacy_mode_the_handler_redacts_with(
+        self, _mock_get_client, _mock_region, _mock_is_cloud
+    ):
+        conversation = Conversation.objects.create(team=self.team, user=self.user, type=Conversation.Type.ASSISTANT)
+        for enabled in (True, False):
+            with (
+                self.subTest(privacy_mode=enabled),
+                patch("ee.hogai.core.runner.is_privacy_mode_enabled", return_value=enabled),
+            ):
+                runner = ChatAgentRunner(team=self.team, conversation=conversation, user=self.user)
+
+                self.assertIs(runner._get_config()["configurable"]["privacy_mode"], enabled)
+                handler = runner._callback_handlers[0]
+                assert isinstance(handler, MaxCallbackHandler)
+                self.assertIs(handler._privacy_mode, enabled)

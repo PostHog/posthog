@@ -11,6 +11,7 @@ from typing import Any, ClassVar, cast
 from django.conf import settings
 
 import pytz
+import httpx
 import anthropic
 import structlog
 from asgiref.sync import sync_to_async
@@ -43,6 +44,9 @@ AI_GATEWAY_FALLBACK_COUNTER = Counter(
     "PostHog AI model calls that fell back from the Go ai-gateway to the direct provider",
     ["reason"],
 )
+
+AI_GATEWAY_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
+"""Gateway-leg client timeout. The read bound sits just above the gateway's own 290s upstream header wait."""
 
 AI_GATEWAY_SERVED_KEY = "ai_gateway_served"
 """generation_info flag on a generation the Go ai-gateway served and captured itself."""
@@ -346,6 +350,14 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         )
 
     @cached_property
+    def _client_params(self) -> dict[str, Any]:
+        params = cast(dict[str, Any], ChatAnthropic._client_params.func(self))  # type: ignore[attr-defined]
+        if self.ai_gateway_fallback is not None:
+            # A stalled gateway must raise a timeout, or the call never reaches the direct twin.
+            params["timeout"] = AI_GATEWAY_TIMEOUT
+        return params
+
+    @cached_property
     def _client(self) -> anthropic.Client:
         if not self.bypass_proxy:
             # Defer to upstream so the lru_cache'd httpx client and default proxy behavior are preserved.
@@ -390,6 +402,8 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         configurable = ensure_config().get("configurable") or {}
         return (
             configurable.get("ai_product") == POSTHOG_AI_PRODUCT
+            # The gateway captures prompts and outputs unredacted, so privacy mode stays direct.
+            and configurable.get("privacy_mode") is False
             and (self.posthog_properties or {}).get("ai_product", POSTHOG_AI_PRODUCT) == POSTHOG_AI_PRODUCT
         )
 

@@ -146,6 +146,7 @@ class BaseAgentRunner(ABC):
     _resume_payload: Optional[dict[str, Any]]
     _event_source: EventSource
     _ai_product: Optional[str]
+    _privacy_mode: Optional[bool]
 
     def __init__(
         self,
@@ -191,6 +192,7 @@ class BaseAgentRunner(ABC):
         self._graph = graph
 
         self._callback_handlers = []
+        self._privacy_mode = None
         if callback_handler:
             self._callback_handlers.append(callback_handler)
             # A caller's handler would capture gateway-served generations again, so these runs stay direct.
@@ -199,6 +201,9 @@ class BaseAgentRunner(ABC):
             self._ai_product = "mcp" if self._conversation.type == Conversation.Type.TOOL_CALL else POSTHOG_AI_PRODUCT
 
             def init_handler(client: posthoganalytics.Client):
+                # Evaluated only here: the flag call creates a default client when there is none.
+                if self._privacy_mode is None:
+                    self._privacy_mode = is_privacy_mode_enabled(team)
                 callback_properties = {
                     "conversation_id": str(self._conversation.id),
                     "$ai_session_id": str(self._conversation.id),
@@ -217,7 +222,7 @@ class BaseAgentRunner(ABC):
                         distinct_id=user.distinct_id if user else None,
                         properties=callback_properties,
                         trace_id=trace_id,
-                        privacy_mode=is_privacy_mode_enabled(team),
+                        privacy_mode=self._privacy_mode,
                         parent_span_id=parent_span_id,
                     )
                 return MaxCallbackHandler(
@@ -225,7 +230,7 @@ class BaseAgentRunner(ABC):
                     distinct_id=user.distinct_id if user else None,
                     properties=callback_properties,
                     trace_id=trace_id,
-                    privacy_mode=is_privacy_mode_enabled(team),
+                    privacy_mode=self._privacy_mode,
                 )
 
             # flush_at=1 flushes each event immediately so traces deliver before short runs end;
@@ -554,8 +559,9 @@ class BaseAgentRunner(ABC):
                 "is_subagent": not self._use_checkpointer,
                 "slack_thread_context": self._slack_thread_context,
                 "is_agent_billable": self._is_agent_billable,
-                # The root model routes through the Go ai-gateway only for posthog_ai.
+                # The root model routes through the Go ai-gateway only for posthog_ai without privacy mode.
                 "ai_product": self._ai_product,
+                "privacy_mode": self._privacy_mode,
                 "event_source": self._event_source,
                 # Metadata to be sent to PostHog SDK (error tracking, etc).
                 "sdk_metadata": {
