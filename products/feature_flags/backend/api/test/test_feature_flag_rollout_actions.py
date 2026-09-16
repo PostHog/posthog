@@ -16,7 +16,14 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
-from products.feature_flags.backend.api.feature_flag import FeatureFlagViewSet, FlagRolloutWriteRequest
+from products.approvals.backend.services import ChangeRequestService
+from products.feature_flags.backend.api.feature_flag import (
+    FeatureFlagViewSet,
+    FlagActionErrorSerializer,
+    FlagApprovalConflictSerializer,
+    FlagDeletedRejectionSerializer,
+    FlagRolloutWriteRequest,
+)
 from products.feature_flags.backend.facade.api import update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -69,6 +76,24 @@ ROLLOUT_ACTIONS = [
     ("set_release_condition_rollout", {"condition_index": 0, "rollout_percentage": 25}),
     ("roll_out_to_everyone", {"variant_key": "test"}),
 ]
+
+
+def rolled_out(action: str, filters: dict[str, Any]) -> dict[str, Any]:
+    """What the ROLLOUT_ACTIONS body for `action` makes of `filters`."""
+    if action == "set_release_condition_rollout":
+        groups = list(filters["groups"])
+        groups[0] = {**groups[0], "rollout_percentage": 25}
+        return {**filters, "groups": groups}
+    return {
+        **filters,
+        "groups": [{"properties": [], "rollout_percentage": 100}, *filters["groups"]],
+        "multivariate": {
+            "variants": [
+                {"key": "control", "rollout_percentage": 0, "name": "Control"},
+                {"key": "test", "rollout_percentage": 100},
+            ]
+        },
+    }
 
 
 class TestFeatureFlagRolloutActions(APIBaseTest):
@@ -198,6 +223,9 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "control, test" in response.json()["detail"]
+        # The declared shape reaches the generated clients and the MCP tools, where a key that is
+        # not there is read as missing rather than as a schema error.
+        assert set(response.json()) == set(FlagActionErrorSerializer().fields)
         flag.refresh_from_db()
         assert flag.filters == TARGETING
 
@@ -219,6 +247,34 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
         assert expected_message in response.json()["detail"]
         flag.refresh_from_db()
         assert flag.filters == original
+
+    def test_roll_out_to_everyone_refuses_a_flag_gated_on_early_access_enrollment(self):
+        # The matcher answers from `$feature_enrollment/<key>` before it reads the release
+        # conditions, so a catch-all condition would report a rollout that nobody who saw the
+        # opt-in receives. The indexed action makes no such promise, so it is not refused.
+        flag = self._flag(filters={**BOOLEAN_TARGETING, "feature_enrollment": True})
+
+        response = self._act(flag, "roll_out_to_everyone", {"version": flag.version})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "early access enrollment" in response.json()["detail"]
+        flag.refresh_from_db()
+        assert flag.filters["groups"] == BOOLEAN_TARGETING["groups"]
+
+    def test_indexed_rollout_is_allowed_on_a_flag_gated_on_early_access_enrollment(self):
+        # The refusal above belongs to `roll_out_to_everyone`, which promises everyone the flag.
+        # Changing one condition's percentage makes no such promise, so it goes through.
+        gated = {**BOOLEAN_TARGETING, "feature_enrollment": True}
+        flag = self._flag(filters=gated)
+
+        response = self._act(
+            flag, "set_release_condition_rollout", {"condition_index": 0, "rollout_percentage": 25, "version": 1}
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        flag.refresh_from_db()
+        assert flag.filters == persisted(rolled_out("set_release_condition_rollout", gated))
+        assert flag.filters["feature_enrollment"] is True
 
     @parameterized.expand(ROLLOUT_ACTIONS)
     def test_rollout_action_refuses_a_version_that_is_no_longer_current(self, action, body):
@@ -250,7 +306,7 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         flag.refresh_from_db()
-        assert flag.filters != TARGETING
+        assert flag.filters == persisted(rolled_out(action, TARGETING))
         assert flag.name == "renamed"
 
     @parameterized.expand(ROLLOUT_ACTIONS)
@@ -276,6 +332,7 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "has been deleted" in response.json()["error"]
+        assert set(response.json()) == set(FlagDeletedRejectionSerializer().fields)
 
     @parameterized.expand(ROLLOUT_ACTIONS)
     def test_rollout_action_requires_the_feature_flag_write_scope(self, action, body):
@@ -306,13 +363,37 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
         response = self._act(flag, action, {**body, "version": flag.version})
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        assert set(response.json()) == set(FlagApprovalConflictSerializer().fields)
         change_request = ChangeRequest.objects.get(team=self.team)
         assert change_request.resource_id == str(flag.id)
-        # A fallback to the request body would open a change request carrying no filters, which
-        # approving would then apply as no change at all.
-        assert change_request.intent["full_request_data"]["filters"] != TARGETING
+        # Approving replays these filters verbatim, so anything short of the exact transform
+        # here — the wrong condition, a dropped `multivariate`, a fallback to the empty request
+        # body — ships a change request that applies something the caller never asked for.
+        assert change_request.intent["full_request_data"]["filters"] == persisted(rolled_out(action, TARGETING))
         flag.refresh_from_db()
         assert flag.filters == TARGETING
+
+    @parameterized.expand(ROLLOUT_ACTIONS)
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_approving_a_rollout_change_request_applies_the_same_change(self, action, body, _mock_enabled):
+        # The replay rebuilds the write from the intent rather than from the request, so the
+        # cleanup exemption has to travel in the intent. Without it the approved write drops
+        # `super_groups` and `holdout_groups`, and the direct-write tests above stay green.
+        self._gate_flag_updates_on_approval()
+        legacy = {
+            **TARGETING,
+            "holdout_groups": [{"properties": [], "rollout_percentage": 5, "variant": "holdout-1"}],
+            "super_groups": [{"properties": [], "rollout_percentage": 15}],
+        }
+        flag = self._flag(filters=legacy)
+
+        assert self._act(flag, action, {**body, "version": flag.version}).status_code == status.HTTP_409_CONFLICT
+        change_request = ChangeRequest.objects.get(team=self.team)
+
+        assert ChangeRequestService(change_request, self.user).approve().status == "applied"
+
+        flag.refresh_from_db()
+        assert flag.filters == persisted(rolled_out(action, legacy))
 
     @parameterized.expand(ROLLOUT_ACTIONS)
     @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
@@ -343,6 +424,8 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
         response = self._act(flag, action, {**body, "version": None})
 
         assert response.status_code == status.HTTP_200_OK, response.content
+        flag.refresh_from_db()
+        assert flag.filters == persisted(rolled_out(action, TARGETING))
 
     @parameterized.expand(ROLLOUT_ACTIONS)
     def test_rollout_action_preserves_legacy_filter_keys(self, action, body):
@@ -363,6 +446,32 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
         flag.refresh_from_db()
         assert flag.filters["holdout_groups"] == legacy["holdout_groups"]
         assert flag.filters["super_groups"] == legacy["super_groups"]
+
+    def test_a_rollout_is_refused_when_the_flag_is_deleted_after_it_was_read(self):
+        # A bulk delete leaves `version` untouched, so the version precondition cannot see one
+        # that landed since the read. Both actions run the same body, so one covers the window:
+        # the delete lands between the pre-lock check and the lock.
+        flag = self._flag()
+        original = FeatureFlagViewSet._rollout_precondition
+        fired: list[bool] = []
+
+        def precondition(view, feature_flag, version):
+            original(view, feature_flag, version)
+            if not fired:
+                fired.append(True)
+                FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)
+
+        with patch.object(FeatureFlagViewSet, "_rollout_precondition", precondition):
+            response = self._act(
+                flag,
+                "set_release_condition_rollout",
+                {"condition_index": 0, "rollout_percentage": 25, "version": flag.version},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "has been deleted" in response.json()["error"]
+        flag.refresh_from_db()
+        assert flag.filters == TARGETING
 
     def test_a_no_op_rollout_is_refused_when_the_flag_changed_after_it_was_read(self):
         # The requested state already matches the copy the caller read, so the transform is a

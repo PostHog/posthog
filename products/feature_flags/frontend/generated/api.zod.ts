@@ -1061,9 +1061,8 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
  *
  * This changes targeting only. A disabled flag still serves nobody, and a holdout is
  * evaluated before release conditions, so users in one keep getting the holdout variant
- * instead of the rollout. Early access enrollment is evaluated before release conditions
- * too, so on a flag with `feature_enrollment` a user who carries the enrollment property
- * keeps the answer that property gives, whether or not they opted in.
+ * instead of the rollout. A flag gated on early access enrollment is refused, because that
+ * gate is evaluated before release conditions too and no targeting change gets past it.
  *
  * A multivariate flag needs `variant_key`, and every other flag rejects it. A release
  * condition decides who the flag serves, not which variant they get, so rolling a

@@ -183,6 +183,22 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
         assert refreshed.deleted is True
         assert refreshed.name == "renamed"
 
+    def test_update_leaves_the_instance_it_was_given_current(self):
+        # The write applies to the row read under the lock, not to the object the caller passed.
+        # Callers keep their own reference and re-serialize it, so it has to come back carrying
+        # what was written rather than what the write replaced.
+        flag = self._create_flag()
+
+        update_flag(
+            flag,
+            {"name": "renamed", "filters": {"groups": [{"properties": [], "rollout_percentage": 40}]}},
+            team=self.team,
+            user=self.user,
+        )
+
+        assert flag.name == "renamed"
+        assert flag.filters["groups"][0]["rollout_percentage"] == 40
+
     def test_system_create_logs_system_activity(self):
         with self.captureOnCommitCallbacks(execute=True):
             flag = create_flag(
@@ -852,21 +868,20 @@ class TestReleaseConditionTransforms:
 
     @parameterized.expand(
         [
-            ("condition_matches_the_flag", 3, 3, 1),
-            ("group_condition_on_a_person_flag", None, 3, 2),
-            ("person_condition_on_a_group_flag", 3, None, 2),
+            ("condition_matches_the_flag", 3, {"aggregation_group_type_index": 3}, 1),
+            ("group_condition_on_a_person_flag", None, {"aggregation_group_type_index": 3}, 2),
+            ("person_condition_on_a_group_flag", 3, {"aggregation_group_type_index": None}, 2),
+            ("condition_omits_the_key_on_a_group_flag", 3, {}, 1),
         ]
     )
     def test_roll_out_to_everyone_prepends_unless_the_leading_condition_covers_the_flag(
         self, _name, flag_aggregation, condition_aggregation, expected_groups
     ):
         # The matcher skips a condition whose group type the evaluation does not supply, so one
-        # aggregating differently from the flag serves only part of the population.
-        filters: dict[str, Any] = {
-            "groups": [
-                {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": condition_aggregation}
-            ]
-        }
+        # aggregating differently from the flag serves only part of the population. The schema
+        # keeps an absent key distinct from a null one, so a stored condition can carry either,
+        # and only the absent form falls back to the flag's own value.
+        filters: dict[str, Any] = {"groups": [{"properties": [], "rollout_percentage": 100, **condition_aggregation}]}
         if flag_aggregation is not None:
             filters["aggregation_group_type_index"] = flag_aggregation
 
