@@ -57,7 +57,17 @@ class WIPAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
     legacy_configuration_id = models.UUIDField(null=True, blank=True, unique=True)
 
     class Meta:
-        indexes = [models.Index(fields=["next_check_at"], name="wip_alert_config_due_idx")]
+        indexes = [
+            # Discovery: enabled rows ordered by due time. Partial, because a disabled
+            # configuration is never discovered and does not belong in the index.
+            models.Index(
+                fields=["next_check_at", "id"],
+                name="wip_alert_config_due_idx",
+                condition=models.Q(enabled=True),
+            ),
+            # One batch key's read, mirroring the shape the logs configuration already uses.
+            models.Index(fields=["team_id", "next_check_at", "enabled"], name="wip_alert_config_batch_idx"),
+        ]
 
 
 class WIPAlert(TeamScopedRootMixin, UUIDTModel):
