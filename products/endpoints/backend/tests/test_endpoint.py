@@ -1609,6 +1609,14 @@ class TestExtractColumns(ClickhouseTestMixin, APIBaseTest):
                     {"name": "cnt", "type": "integer"},
                 ],
             ),
+            (
+                "persons_query_with_variable_limit",
+                {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT properties.email AS email FROM persons LIMIT {variables.row_limit}",
+                },
+                [{"name": "email", "type": "string"}],
+            ),
         ]
     )
     def test_extract_columns(self, _name: str, query: dict, expected: list[dict]):

@@ -25,10 +25,19 @@ logger = logging.getLogger(__name__)
 
 
 class _ReplacePlaceholdersWithDummies(CloningVisitor):
-    """Replace all {variables.foo} placeholders with empty string constants."""
+    """Replace all {variables.foo} placeholders with dummy constants: 0 in a LIMIT or OFFSET, otherwise an empty string."""
 
     def visit_placeholder(self, node: ast.Placeholder) -> ast.Constant:
         return ast.Constant(value="")
+
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        new_node = super().visit_select_query(node)
+        # Query optimizations do arithmetic on these values, so a string dummy raises a TypeError.
+        if isinstance(node.limit, ast.Placeholder):
+            new_node.limit = ast.Constant(value=0)
+        if isinstance(node.offset, ast.Placeholder):
+            new_node.offset = ast.Constant(value=0)
+        return new_node
 
 
 _PLACEHOLDER_REPLACER = _ReplacePlaceholdersWithDummies()

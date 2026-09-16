@@ -96,6 +96,10 @@ def _is_virtual_field_requiring_join(expr: ast.Expr) -> bool:
     return False
 
 
+def _is_integer_constant(expr: ast.Expr | None) -> bool:
+    return isinstance(expr, ast.Constant) and isinstance(expr.value, int)
+
+
 def select_from_persons_table(
     join_or_table: LazyJoinToAdd | LazyTableToAdd,
     context: HogQLContext,
@@ -182,6 +186,8 @@ def select_from_persons_table(
         # e.g. `SELECT count() FROM persons` at the page size instead of counting the whole team.
         # HAVING, QUALIFY, ARRAY JOIN, LIMIT BY, and WITH TIES / PERCENT also filter or reshape
         # rows after deduplication, so they need the full person set as well.
+        # The push-down does arithmetic on the LIMIT and OFFSET, so a value that is not an integer
+        # constant -- a placeholder, or an expression -- skips it.
         can_push_to_inner = (
             node.select_from
             and node.select_from.type
@@ -189,7 +195,8 @@ def select_from_persons_table(
             and node.select_from.type.table
             and isinstance(node.select_from.type.table, PersonsTable)
             and not node.group_by  # TODO: support group_by
-            and node.limit
+            and _is_integer_constant(node.limit)
+            and (node.offset is None or _is_integer_constant(node.offset))
             and not node.where
             and not node.prewhere
             and not node.having
@@ -220,10 +227,9 @@ def select_from_persons_table(
                         order_by_without_virtual_fields.append(order_by)
                 right_select.order_by = order_by_without_virtual_fields
 
-            node_limit = cast(ast.Constant, node.limit)
-            node_offset = cast(ast.Constant, node.offset)
-            effective_limit = node_limit.value + (node_offset.value if node.offset else 0) + 1
-            right_select.limit = ast.Constant(value=effective_limit)
+            limit_value = cast(ast.Constant, node.limit).value
+            offset_value = cast(ast.Constant, node.offset).value if node.offset else 0
+            right_select.limit = ast.Constant(value=limit_value + offset_value + 1)
             right_select.offset = ast.Constant(value=0)
 
         for field_name, field_chain in join_or_table.fields_accessed.items():

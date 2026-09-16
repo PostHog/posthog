@@ -30,9 +30,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.persons import _is_virtual_field_requiring_join
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -260,6 +262,21 @@ class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
         assert response.clickhouse is not None
         assert "in(tuple(person.id, person.version)" in response.clickhouse
         assert pushed_down_limit not in response.clickhouse
+
+    def test_v2_non_integer_limit_does_not_push_limit_down(self):
+        query = parse_select("SELECT id FROM persons LIMIT 1")
+        assert isinstance(query, ast.SelectQuery)
+        # An endpoint that uses a {variables.x} placeholder as its LIMIT reaches here as a string constant.
+        query.limit = ast.Constant(value="")
+
+        printed, _ = prepare_and_print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=self._v2_modifiers()),
+            "clickhouse",
+        )
+        assert "in(tuple(person.id, person.version)" in printed
+        # Only the outer LIMIT is printed: the inner deduplication subquery gets none.
+        assert printed.count("LIMIT") == 1
 
     @parameterized.expand(
         [
