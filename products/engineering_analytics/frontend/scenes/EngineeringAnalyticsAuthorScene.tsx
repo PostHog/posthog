@@ -3,10 +3,8 @@ import { combineUrl } from 'kea-router'
 
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
-import { dateMapping } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -14,22 +12,19 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
+import { PullRequestDayView } from '../components/PullRequestDayView'
+import { RedTimeByCauseCard } from '../components/RedTimeByCauseCard'
 import { formatCost, formatMinutes } from '../components/runTables'
-import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
+import { DELIVERY_DATE_OPTIONS, RepoScopeChip, ScopeBar, ScopeDateFilter } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
 import { AuthorLogicProps, authorLogic } from './authorLogic'
 import { DeliverySections } from './DeliverySections'
 import { deliverySummaryLogic } from './deliverySummaryLogic'
-import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { pullRequestTimelinesLogic } from './pullRequestTimelinesLogic'
-
-// Relative presets only: the backend caps a window at a year, and every preset here stays inside it.
-const AUTHOR_DATE_OPTIONS = dateMapping.filter(({ key }) =>
-    ['Last 7 days', 'Last 14 days', 'Last 30 days', 'Last 90 days', 'Last 180 days', 'This year'].includes(key)
-)
 
 export const scene: SceneExport<AuthorLogicProps> = {
     component: EngineeringAnalyticsAuthorScene,
@@ -43,11 +38,18 @@ export const scene: SceneExport<AuthorLogicProps> = {
 export function EngineeringAnalyticsAuthorScene(): JSX.Element {
     const { handle, sourceId, deliveryScope, workflowCosts, workflowCostsLoading } = useValues(authorLogic)
     const { summary, summaryLoading } = useValues(deliverySummaryLogic({ scope: deliveryScope, sourceId }))
-    const { timelines, timelinesLoading, repoSlugs } = useValues(
-        pullRequestTimelinesLogic({ scope: deliveryScope, sourceId })
-    )
-    const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
-    const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
+    const timelinesLogic = pullRequestTimelinesLogic({ scope: deliveryScope, sourceId })
+    const {
+        timelines,
+        timelinesLoading,
+        timelinesFailed,
+        repoSlugs,
+        dayViewAlignment,
+        dayViewGroups,
+        dayViewAxisDays,
+        redTime,
+    } = useValues(timelinesLogic)
+    const { loadTimelines, setDayViewAlignment } = useActions(timelinesLogic)
 
     const hubUrl = combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url
     const avatarUrl = timelines?.items[0]?.author.avatar_url
@@ -96,17 +98,32 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                 authors with each other (SPEC §2). */}
             <ScopePanel
                 busy={summaryLoading || timelinesLoading || workflowCostsLoading}
-                controls={
-                    <DateFilter
-                        dateFrom={dateFrom}
-                        dateTo={dateTo}
-                        onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
-                        dateOptions={AUTHOR_DATE_OPTIONS}
-                        size="small"
-                    />
-                }
+                controls={<ScopeDateFilter dateOptions={DELIVERY_DATE_OPTIONS} />}
             >
                 <DeliverySections scope={deliveryScope} scopeLabel="This author" sourceId={sourceId} />
+
+                <Section id="delivery-pull-requests" title="Pull requests">
+                    {timelinesFailed ? (
+                        <CIAnalyticsLoadError onRetry={loadTimelines} />
+                    ) : (
+                        <div className="flex flex-col gap-2">
+                            <RedTimeByCauseCard
+                                redTime={redTime}
+                                loading={timelinesLoading && !timelines}
+                                jobsAvailable={!!timelines?.jobs_available}
+                            />
+                            <PullRequestDayView
+                                timelines={timelines}
+                                groups={dayViewGroups}
+                                days={dayViewAxisDays}
+                                alignment={dayViewAlignment}
+                                onAlignmentChange={setDayViewAlignment}
+                                loading={timelinesLoading}
+                                sourceId={sourceId}
+                            />
+                        </div>
+                    )}
+                </Section>
 
                 <Section id="author-cost" title="Where their CI minutes go">
                     {workflowCostsLoading ? (
