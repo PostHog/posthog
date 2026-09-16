@@ -335,6 +335,7 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
+                              |SignalReportCheck
                               |SignalReportGithubComment
                               |SignalReportPullRequest
                               |SignalReportAssignment
@@ -358,6 +359,7 @@ rules:
                               |SourceGroupLease
                               |StreamlitApp
                               |Subscription
+                              |SubscriptionContext
                               |SubscriptionDelivery
                               |Survey
                               |SurveyResponseArchive
@@ -739,6 +741,7 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
+                        |SignalReportCheck
                         |SignalReportGithubComment
                         |SignalReportPullRequest
                         |SignalReportAssignment
@@ -762,6 +765,7 @@ rules:
                         |SourceGroupLease
                         |StreamlitApp
                         |Subscription
+                        |SubscriptionContext
                         |SubscriptionDelivery
                         |Survey
                         |SurveyResponseArchive

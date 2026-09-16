@@ -257,7 +257,7 @@ export const ConversationsTicketsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod
         tags: zod
             .array(zod.string().max(conversationsTicketsBulkUpdateTagsCreateBodyTagsItemMax))
             .max(conversationsTicketsBulkUpdateTagsCreateBodyTagsMax)
-            .describe('Tag names to add, remove, or set.'),
+            .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
     })
     .describe('Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).')
 

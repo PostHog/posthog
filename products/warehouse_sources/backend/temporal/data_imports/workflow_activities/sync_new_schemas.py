@@ -120,6 +120,21 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             raise
 
         schemas_to_sync = {s.name: s.label for s in schemas}
+
+        try:
+            server_metadata = new_source.get_server_metadata(config, inputs.team_id)
+            if isinstance(server_metadata, dict) and server_metadata:
+                # `source` was read before schema discovery, which is a network call of its own, so
+                # the merge re-reads the row under a lock rather than trusting that snapshot.
+                source.merge_connection_metadata(server_metadata)
+        except Exception:
+            # Recording the version is incidental to schema discovery, and both steps here can fail
+            # on their own: the probe opens a connection to the customer's server, and the merge
+            # waits on a row lock that the backfill command can hold. Neither says anything about
+            # the schemas already discovered above, so a pass that otherwise succeeded stays
+            # successful. A real connection fault still reaches the user through the per-schema sync
+            # path, which has its own reporting.
+            logger.warning("Could not record source server metadata", exc_info=True)
     else:
         raise ValueError(f"Source type missing from SourceRegistry: {source.source_type}")
 
