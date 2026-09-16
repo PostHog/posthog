@@ -110,38 +110,13 @@ def _validate_proportion(stat: ProportionStatistic) -> list[str]:
     return errors
 
 
-def check_sample_size_adequacy(treatment_stat: AnyStatistic, control_stat: AnyStatistic, min_size: int = 30) -> None:
-    """
-    Check if sample sizes are adequate for statistical testing.
-
-    Args:
-        treatment_stat: Treatment group statistic
-        control_stat: Control group statistic
-        min_size: Minimum required sample size
-
-    Raises:
-        StatisticError: If sample sizes are too small
-    """
-    treatment_n = get_sample_size(treatment_stat)
-    control_n = get_sample_size(control_stat)
-
-    if treatment_n < min_size:
-        raise StatisticError(f"Treatment sample size ({treatment_n}) below minimum ({min_size})")
-
-    if control_n < min_size:
-        raise StatisticError(f"Control sample size ({control_n}) below minimum ({min_size})")
-
-
-def validate_test_inputs(
-    treatment_stat: AnyStatistic, control_stat: AnyStatistic, check_sample_size: bool = False
-) -> None:
+def validate_test_inputs(treatment_stat: AnyStatistic, control_stat: AnyStatistic) -> None:
     """
     Comprehensive validation of test inputs.
 
     Args:
         treatment_stat: Treatment group statistic
         control_stat: Control group statistic
-        check_sample_size: Whether to enforce minimum sample size requirements
 
     Raises:
         StatisticError: If validation fails
@@ -158,7 +133,3 @@ def validate_test_inputs(
     # Check compatibility
     if type(treatment_stat) is not type(control_stat):
         raise StatisticError("Treatment and control statistics must be the same type")
-
-    # Additional checks (optional for different methods)
-    if check_sample_size:
-        check_sample_size_adequacy(treatment_stat, control_stat)

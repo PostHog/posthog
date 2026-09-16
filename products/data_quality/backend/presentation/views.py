@@ -9,7 +9,6 @@ a suite-run handle to poll.
 
 from collections import defaultdict
 from collections.abc import Callable, Sequence
-from dataclasses import replace
 from functools import cached_property
 from typing import TYPE_CHECKING, ClassVar, cast
 from uuid import UUID
@@ -20,7 +19,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
-from rest_framework.exceptions import APIException, NotFound, PermissionDenied
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -32,11 +31,12 @@ from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission, TeamMemberAccessPermission, get_authenticator_scopes
+from posthog.rate_limit import HogQLQueryThrottle
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 from ..facade import api
-from ..facade.enums import CheckRunStatus, SubjectStatus, SubjectType, SuiteRunTrigger
+from ..facade.enums import CheckRunStatus, SubjectStatus, SubjectType
 from ..facade.flags import is_data_quality_checks_enabled
 from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .serializers import (
@@ -46,6 +46,8 @@ from .serializers import (
     DataQualityCheckScheduleUpdateSerializer,
     DataQualityCheckSerializer,
     DataQualityGateConfigSerializer,
+    DataQualityMetricSubjectSerializer,
+    DataQualityOutputSchemaSerializer,
     DataQualityOverviewCheckSerializer,
     DataQualityRunRequestSerializer,
     DataQualitySuiteRunSerializer,
@@ -585,7 +587,16 @@ class MetricCheckViewSet(_BaseCheckViewSet):
     scope_object = "data_catalog"
     subject_type = SubjectType.METRIC
     subject_field = "metric"
-    QUERY_GATED_ACTIONS = _BaseCheckViewSet.QUERY_GATED_ACTIONS | {"schedule"}
+    QUERY_GATED_ACTIONS = _BaseCheckViewSet.QUERY_GATED_ACTIONS | {"output_schema", "schedule"}
+
+    @extend_schema(request=None, responses={200: DataQualityOutputSchemaSerializer})
+    @action(methods=["GET"], detail=False, pagination_class=None, throttle_classes=[HogQLQueryThrottle])
+    def output_schema(self, request: Request, **kwargs) -> Response:
+        try:
+            columns = api.metric_output_schema(self.team, self.subject_uuid, cast(User, request.user))
+        except (api.CheckConfigError, api.SubjectUnresolvableError) as error:
+            raise ValidationError({"metric": str(error)})
+        return Response(DataQualityOutputSchemaSerializer({"columns": columns}).data)
 
     @extend_schema(methods=["GET"], request=None, responses={200: DataQualityCheckScheduleSerializer})
     @extend_schema(
@@ -597,45 +608,34 @@ class MetricCheckViewSet(_BaseCheckViewSet):
     def schedule(self, request: Request, **kwargs) -> Response:
         if not self._subject_checks().exists():
             raise NotFound("Add a check to create this metric's schedule.")
+        authorization_context = self._denial_context() if self._can_be_object_denied() else None
         if request.method == "PATCH":
             self._require_enabled_check_access()
             serializer = DataQualityCheckScheduleUpdateSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
+        schedule: api.MetricCheckSchedule | None
         try:
-            before = api.get_schedule(self.team_id, self.subject_type, self.subject_uuid)
-            if before is None:
-                raise api.ScheduleUnavailableError()
             if request.method == "PATCH":
-                api.set_schedule(self.team_id, self.subject_type, self.subject_uuid, **serializer.validated_data)
-            schedule = (
-                api.get_schedule(self.team_id, self.subject_type, self.subject_uuid)
-                if request.method == "PATCH"
-                else before
-            )
+                schedule = api.update_schedule(
+                    self.team_id,
+                    self.subject_type,
+                    self.subject_uuid,
+                    user=cast(User, request.user),
+                    authorization_context=authorization_context,
+                    **serializer.validated_data,
+                )
+            else:
+                schedule = api.get_schedule_with_history(
+                    self.team_id, self.subject_type, self.subject_uuid, authorization_context
+                )
             if schedule is None:
                 raise api.ScheduleUnavailableError()
         except api.ScheduleUnavailableError as error:
             raise ScheduleUnavailableAPIError() from error
-        if request.method == "PATCH":
-            api.log_metric_schedule_change(self.team_id, self.subject_uuid, before, schedule, cast(User, request.user))
-        return Response(DataQualityCheckScheduleSerializer(self._with_schedule_history(schedule)).data)
+        return Response(DataQualityCheckScheduleSerializer(schedule).data)
 
     def _subject_checks(self) -> QuerySet[DataQualityCheck]:
         return DataQualityCheck.objects.for_team(self.team_id).filter(metric_id=self.subject_uuid)
-
-    def _with_schedule_history(self, schedule: api.MetricCheckSchedule) -> api.MetricCheckSchedule:
-        suites = DataQualitySuiteRun.objects.for_team(self.team_id).filter(
-            subject_type=self.subject_type, subject_uuid=self.subject_uuid, trigger=SuiteRunTrigger.SCHEDULED
-        )
-        if self._can_be_object_denied():
-            context = self._denial_context()
-            suites = suites.exclude(api.unreadable_suites_q(context)).exclude(
-                api.suites_backing_unreadable_runs_q(self.team_id, context)
-            )
-        last_suite = suites.order_by("-started_at", "-id").first()
-        if last_suite is None:
-            return schedule
-        return replace(schedule, last_run_at=last_suite.started_at, last_suite_run=last_suite.id)
 
 
 class _BaseSuiteRunViewSet(
@@ -749,9 +749,25 @@ class DataQualityCheckOverviewViewSet(
     still happens against the subject that owns the check.
     """
 
-    QUERY_GATED_ACTIONS = frozenset({"list", "health"})
+    QUERY_GATED_ACTIONS = frozenset({"list", "health", "metric_subjects"})
     serializer_class = DataQualityOverviewCheckSerializer
     queryset = DataQualityCheck.objects.unscoped()
+
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str]:
+        if getattr(view, "action", None) == "metric_subjects":
+            return ["data_catalog:read", "query:read"]
+        return super().dangerously_get_required_scopes(request, view)
+
+    @extend_schema(request=None, responses={200: DataQualityMetricSubjectSerializer(many=True)})
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def metric_subjects(self, request: Request, **kwargs) -> Response:
+        if not self.user_access_control.check_access_level_for_resource("data_catalog", "viewer"):
+            raise PermissionDenied("You need data catalog access to create checks on metrics.")
+        metrics = api.testable_metric_subjects(self.team_id)
+        if self._can_be_object_denied():
+            readable_ids = self._denial_context().readable.metric_ids
+            metrics = [metric for metric in metrics if metric.id in readable_ids]
+        return Response(DataQualityMetricSubjectSerializer(metrics, many=True).data)
 
     def safely_get_queryset(self, queryset: QuerySet[DataQualityCheck]) -> QuerySet[DataQualityCheck]:
         # Orphans are excluded: their subject is gone, so there is no page to link to, nothing to

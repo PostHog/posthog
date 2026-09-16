@@ -10,11 +10,11 @@ from rest_framework import status
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-SNUFFLE_SETTINGS = {
-    "SNUFFLE_URL": "http://snuffle.test:9091/",
-    "SNUFFLE_USER": "reader",
-    "SNUFFLE_PASSWORD": "secret",
-    "SNUFFLE_TIMEOUT_SECONDS": 12,
+SNUFFLE_APM_SETTINGS = {
+    "SNUFFLE_APM_URL": "http://snuffle.test:9091/",
+    "SNUFFLE_APM_USER": "reader",
+    "SNUFFLE_APM_PASSWORD": "secret",
+    "SNUFFLE_APM_TIMEOUT_SECONDS": 12,
 }
 
 
@@ -26,7 +26,7 @@ def _upstream(status_code: int = 200, body: bytes = b'{"status":"success","data"
     return response
 
 
-@override_settings(**SNUFFLE_SETTINGS)
+@override_settings(**SNUFFLE_APM_SETTINGS)
 class TestLokiQueryApi(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -106,7 +106,7 @@ class TestLokiQueryApi(APIBaseTest):
         assert response.json()["status"] == "error"
         self.request_mock.assert_not_called()
 
-    @override_settings(SNUFFLE_URL="")
+    @override_settings(SNUFFLE_APM_URL="")
     def test_unconfigured_returns_501(self):
         response = self.client.get(f"{self.base}/query", {"query": '{a="b"}'})
 
