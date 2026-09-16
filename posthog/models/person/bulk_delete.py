@@ -1,7 +1,7 @@
 import uuid as uuid_lib
 import asyncio
 import builtins
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import cast
@@ -20,6 +20,7 @@ from posthog.models.person.util import (
     _batched_get_distinct_ids_for_persons,
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
+    _paginated_get_distinct_ids_for_person,
     delete_person,
     delete_persons_from_postgres,
 )
@@ -69,7 +70,7 @@ def delete_persons_profile(
 ) -> PersonProfileDeletionResult:
     """Run ClickHouse Kafka tombstones, then a single Postgres batch delete.
 
-    Activity logging is performed only when both ``request`` and ``organization_id``
+    Activity logging is performed only when both ``organization_id`` and ``actor``
     are provided (i.e. from a DRF endpoint). Dagster ops should leave them as None.
     """
     from posthog.personhog_client.client import personhog_call
@@ -78,8 +79,6 @@ def delete_persons_profile(
         queue_person_training_deletion(
             team_id, [distinct_id for person in persons for distinct_id in person.distinct_ids]
         )
-    deleted: builtins.list[Person] = []
-    errors: builtins.list[uuid_lib.UUID] = []
     # A missing map entry (or a failed batch fetch) passes None below, making delete_person
     # fall back to its own per-person lookup so failure isolation is preserved.
     distinct_ids_by_person: dict[int, builtins.list[DistinctIdForPerson]] = {}
@@ -91,16 +90,85 @@ def delete_persons_profile(
         )
     except Exception:
         logger.exception("Batched distinct-id fetch failed, falling back to per-person lookups")
+
+    return _tombstone_and_delete_persons(
+        team_id,
+        persons,
+        lambda person: distinct_ids_by_person.get(person.pk),
+        actor=actor,
+        was_impersonated=is_impersonated(request),
+        organization_id=organization_id,
+    )
+
+
+# Page size for the keyset walk over a person's distinct IDs. Each page is one bounded RPC, so a
+# person with hundreds of thousands of distinct IDs no longer hits the personhog request timeout.
+ASYNC_DELETION_DISTINCT_ID_PAGE_SIZE = 5000
+
+
+def delete_persons_profile_by_uuids(
+    team_id: int,
+    person_uuids: builtins.list[str],
+    *,
+    actor: User | None,
+    was_impersonated: bool,
+    organization_id: uuid_lib.UUID | None,
+) -> PersonProfileDeletionResult:
+    """Background variant of ``delete_persons_profile`` that re-resolves persons by UUID.
+
+    Persons already removed (for example by an earlier attempt of the same task) resolve to
+    nothing and are skipped, so a retry only touches what is left. Distinct IDs are fetched
+    per person with keyset pagination and there is no unbounded fallback: a failed fetch is
+    reported as an error for that person so the caller can retry it.
+    """
+    from posthog.personhog_client.client import personhog_call
+
+    persons = personhog_call(
+        "resolve_persons_for_async_deletion",
+        lambda: _fetch_persons_by_uuids_via_personhog(team_id, person_uuids, distinct_id_limit=0),
+        caller_tag="persons/deletion-resolve",
+    )
+
+    def _fetch_distinct_ids(person: Person) -> builtins.list[DistinctIdForPerson]:
+        return personhog_call(
+            "get_distinct_ids_for_deletion_paginated",
+            lambda: _paginated_get_distinct_ids_for_person(
+                team_id, person.pk, page_size=ASYNC_DELETION_DISTINCT_ID_PAGE_SIZE
+            ),
+            caller_tag="persons/deletion-distinct-ids",
+        )
+
+    return _tombstone_and_delete_persons(
+        team_id,
+        persons,
+        _fetch_distinct_ids,
+        actor=actor,
+        was_impersonated=was_impersonated,
+        organization_id=organization_id,
+    )
+
+
+def _tombstone_and_delete_persons(
+    team_id: int,
+    persons: builtins.list[Person],
+    distinct_ids_for: Callable[[Person], builtins.list[DistinctIdForPerson] | None],
+    *,
+    actor: User | None,
+    was_impersonated: bool,
+    organization_id: uuid_lib.UUID | None,
+) -> PersonProfileDeletionResult:
+    """Tombstone each person in ClickHouse, log the deletions, then batch-delete the survivors from Postgres."""
+    deleted: builtins.list[Person] = []
+    errors: builtins.list[uuid_lib.UUID] = []
     for person in persons:
         try:
-            delete_person(person=person, distinct_ids=distinct_ids_by_person.get(person.pk))
+            delete_person(person=person, distinct_ids=distinct_ids_for(person))
             deleted.append(person)
         except Exception:
             logger.exception("Failed to delete person", person_uuid=str(person.uuid))
             errors.append(person.uuid)
 
-    if request is not None and organization_id is not None and actor is not None:
-        was_impersonated = is_impersonated(request)
+    if organization_id is not None and actor is not None:
         bulk_log_activity(
             [
                 LogActivityEntry(

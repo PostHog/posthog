@@ -74,6 +74,7 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateTh
 from posthog.renderers import SafeJSONRenderer
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
+from posthog.tasks.delete_persons import queue_person_profile_deletion
 from posthog.tasks.split_person import split_person
 from posthog.utils import (
     format_query_params_absolute_url,
@@ -279,7 +280,12 @@ class PersonBulkDeleteRequestSerializer(serializers.Serializer):
 class PersonBulkDeleteResponseSerializer(serializers.Serializer):
     persons_found = serializers.IntegerField(help_text="Number of persons matched by the provided IDs or distinct IDs.")
     persons_deleted = serializers.IntegerField(
-        help_text="Number of person records deleted from the database. 0 if keep_person was true."
+        help_text="Number of person records deleted from the database during this request. "
+        "0 if keep_person was true or if the deletion was queued (see persons_queued_for_deletion)."
+    )
+    persons_queued_for_deletion = serializers.IntegerField(
+        help_text="Number of persons queued for deletion in the background. Their person records and "
+        "distinct IDs are removed shortly after the request completes. 0 if keep_person was true."
     )
     events_queued_for_deletion = serializers.BooleanField(
         help_text="Whether event deletion was requested for the matched persons. "
@@ -898,8 +904,17 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         persons_deleted = 0
+        persons_queued = 0
         errors: builtins.list[dict[str, str]] = []
-        if not keep_person:
+        if not keep_person and settings.PERSON_BULK_DELETE_ASYNC:
+            persons_queued = queue_person_profile_deletion(
+                self.team_id,
+                persons,
+                actor=cast(User, request.user),
+                request=request,
+                organization_id=self.organization.id,
+            )
+        elif not keep_person:
             result = delete_persons_profile(
                 self.team_id,
                 persons,
@@ -921,6 +936,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return {
             "persons_found": len(persons),
             "persons_deleted": persons_deleted,
+            "persons_queued_for_deletion": persons_queued,
             "events_queued_for_deletion": delete_events and len(persons) > 0,
             "recordings_queued_for_deletion": delete_recordings and len(persons) > 0,
             "deletion_errors": errors,

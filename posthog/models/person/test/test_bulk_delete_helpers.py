@@ -1,17 +1,22 @@
+from uuid import uuid4
+
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person
 from posthog.models.person.bulk_delete import (
     _start_recording_workflows,
     delete_persons_profile,
+    delete_persons_profile_by_uuids,
     queue_person_event_deletion,
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
 )
+from posthog.personhog_client.fake_client import get_active_fake
 from posthog.test.persons import create_person
 
 
@@ -114,6 +119,73 @@ class DeletePersonsProfileTests(BaseTest):
         assert result.deleted_count == 1
         assert [str(e) for e in result.errors] == [str(p2.uuid)]
         pg_delete.assert_called_once_with(self.team.pk, [p1])
+
+
+class DeletePersonsProfileByUuidsTests(BaseTest):
+    def test_walks_every_page_of_distinct_ids_and_logs_activity(self):
+        p = create_person(team=self.team, distinct_ids=["a", "b", "c", "d", "e"], properties={})
+        fake = get_active_fake()
+        with (
+            patch("posthog.models.person.bulk_delete.ASYNC_DELETION_DISTINCT_ID_PAGE_SIZE", 2),
+            patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
+            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
+        ):
+            result = delete_persons_profile_by_uuids(
+                self.team.pk,
+                [str(p.uuid)],
+                actor=self.user,
+                was_impersonated=True,
+                organization_id=self.organization.id,
+            )
+        assert result.deleted_count == 1
+        assert result.errors == []
+        assert sorted(d.id for d in ch_delete.call_args.kwargs["distinct_ids"]) == ["a", "b", "c", "d", "e"]
+        assert fake is not None
+        fake.assert_called("get_distinct_ids_for_person", times=3)
+        pg_delete.assert_called_once()
+        assert [person.uuid for person in pg_delete.call_args.args[1]] == [p.uuid]
+        log = ActivityLog.objects.get(team_id=self.team.pk, scope="Person", item_id=str(p.pk))
+        assert log.activity == "deleted"
+        assert log.was_impersonated is True
+
+    def test_skips_persons_that_no_longer_exist(self):
+        with (
+            patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
+            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
+        ):
+            result = delete_persons_profile_by_uuids(
+                self.team.pk,
+                [str(uuid4())],
+                actor=self.user,
+                was_impersonated=False,
+                organization_id=self.organization.id,
+            )
+        assert result.deleted_count == 0
+        assert result.errors == []
+        ch_delete.assert_not_called()
+        pg_delete.assert_not_called()
+
+    def test_failed_page_fetch_is_an_error_not_an_unbounded_fallback(self):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        with (
+            patch(
+                "posthog.models.person.bulk_delete._paginated_get_distinct_ids_for_person",
+                side_effect=RuntimeError("personhog down"),
+            ),
+            patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
+            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
+        ):
+            result = delete_persons_profile_by_uuids(
+                self.team.pk,
+                [str(p.uuid)],
+                actor=self.user,
+                was_impersonated=False,
+                organization_id=self.organization.id,
+            )
+        assert result.deleted_count == 0
+        assert result.errors == [p.uuid]
+        ch_delete.assert_not_called()
+        pg_delete.assert_not_called()
 
 
 class QueueRecordingDeletionTests(BaseTest):

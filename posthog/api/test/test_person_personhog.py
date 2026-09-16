@@ -7,6 +7,8 @@ person deletion — extracted from test_person.py.
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
+from django.test import override_settings
+
 from rest_framework import status
 
 from posthog.models import Organization, Team
@@ -387,6 +389,7 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         data = resp.json()
         assert data["persons_found"] == 2
         assert data["persons_deleted"] == 2
+        assert data["persons_queued_for_deletion"] == 0
         assert data["deletion_errors"] == []
         assert data["events_queued_for_deletion"] is False
         assert data["recordings_queued_for_deletion"] is False
@@ -395,6 +398,30 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         if calls:
             assert calls[0].request.team_id == self.team.pk
             assert set(calls[0].request.person_uuids) == {str(p1.uuid), str(p2.uuid)}
+
+    @override_settings(PERSON_BULK_DELETE_ASYNC=True)
+    def test_bulk_delete_async_queues_persons_and_deletes_in_background(self):
+        p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
+        p2 = self._seed_person(team=self.team, distinct_ids=["did-2"])
+
+        resp = self.client.post(
+            "/api/person/bulk_delete/",
+            {"ids": [str(p1.uuid), str(p2.uuid)]},
+        )
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        data = resp.json()
+        assert data["persons_found"] == 2
+        assert data["persons_deleted"] == 0
+        assert data["persons_queued_for_deletion"] == 2
+        assert data["deletion_errors"] == []
+
+        # Celery runs eagerly in tests, so the queued task has already deleted the persons.
+        calls = self._assert_personhog_called("delete_persons")
+        if calls:
+            assert set(calls[0].request.person_uuids) == {str(p1.uuid), str(p2.uuid)}
+        assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is None
+        assert get_person_by_uuid(self.team.pk, str(p2.uuid)) is None
 
     def test_bulk_delete_by_distinct_ids(self):
         p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])

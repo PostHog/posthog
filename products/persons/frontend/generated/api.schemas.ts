@@ -317,8 +317,10 @@ export type PersonBulkDeleteResponseApiDeletionErrorsItem = { [key: string]: unk
 export interface PersonBulkDeleteResponseApi {
     /** Number of persons matched by the provided IDs or distinct IDs. */
     persons_found: number
-    /** Number of person records deleted from the database. 0 if keep_person was true. */
+    /** Number of person records deleted from the database during this request. 0 if keep_person was true or if the deletion was queued (see persons_queued_for_deletion). */
     persons_deleted: number
+    /** Number of persons queued for deletion in the background. Their person records and distinct IDs are removed shortly after the request completes. 0 if keep_person was true. */
+    persons_queued_for_deletion: number
     /** Whether event deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
     events_queued_for_deletion: boolean
     /** Whether recording deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
