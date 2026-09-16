@@ -160,6 +160,30 @@ func (b Bindings) Len() int {
 	return len(b.relations)
 }
 
+func (b Bindings) CTENames(prefix string) iter.Seq[catalog.Entry] {
+	return func(yield func(catalog.Entry) bool) {
+		seen := map[string]bool{}
+		prefix = foldedFieldName(prefix)
+		for scope := b.scope; scope != nil; scope = scope.parent {
+			ctes := scope.visibleCTEs(b.position)
+			for index := len(ctes) - 1; index >= 0; index-- {
+				name := ctes[index].name
+				if !scope.budget.lookup(len(name) + 1) {
+					return
+				}
+				folded := foldedFieldName(name)
+				if seen[folded] {
+					continue
+				}
+				seen[folded] = true
+				if strings.HasPrefix(folded, prefix) && !yield(catalog.Entry{Name: name, Type: "CTE"}) {
+					return
+				}
+			}
+		}
+	}
+}
+
 func (b Bindings) Relation(name string) (Relation, bool) {
 	relation, ok := b.relations[strings.ToLower(name)]
 	return relation, ok
