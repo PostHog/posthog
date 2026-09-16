@@ -16,6 +16,7 @@ marker that CONCURRENTLY index builds need.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from django.conf import settings
@@ -43,6 +44,16 @@ TRACKING_TABLE = "_persons_migrations_applied"
 # Postgres rejects CREATE/DROP INDEX CONCURRENTLY there. Same convention as the sqlx
 # runners that read these files in Rust.
 NO_TRANSACTION_MARKER = "-- no-transaction"
+
+# The index a concurrent build names, so the invalid-index guard below can look at that index
+# alone. Postgres does not accept a schema-qualified name here: the index lands in the table's
+# schema.
+CONCURRENT_INDEX_CREATE = re.compile(
+    r"""^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+
+        (?:IF\s+NOT\s+EXISTS\s+)?
+        (?P<name>"[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)\s+ON\b""",
+    re.IGNORECASE | re.VERBOSE,
+)
 
 
 def _ensure_tracking_table(cursor) -> None:
@@ -108,17 +119,40 @@ def _holds_multiple_statements(sql_content: str) -> bool:
     return len(statements) > 1
 
 
-def _invalid_indexes(cursor) -> list[str]:
-    cursor.execute("""
+def _concurrent_index_target(sql_content: str) -> str | None:
+    """Return the index name a concurrent build creates, or None for any other statement.
+
+    A concurrent drop returns None on purpose. Its target is often the invalid index itself,
+    so the guard below must let it run.
+    """
+    match = CONCURRENT_INDEX_CREATE.match(sqlparse.format(sql_content, strip_comments=True).strip())
+    if not match:
+        return None
+    name = match.group("name")
+    return name[1:-1] if name.startswith('"') else name.lower()
+
+
+def _invalid_indexes_named(cursor, index_name: str) -> list[str]:
+    """Return the qualified names of invalid indexes that carry ``index_name``.
+
+    The connected database can hold indexes this runner does not own: hobby deploys keep the
+    persons tables in the main PostHog database. Match the one name the migration is about to
+    build, so an unrelated interrupted build does not stop the queue.
+    """
+    cursor.execute(
+        """
         SELECT n.nspname, c.relname
         FROM pg_index i
         JOIN pg_class c ON c.oid = i.indexrelid
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE NOT i.indisvalid
           AND c.relkind = 'i'
+          AND c.relname = %s
           AND n.nspname NOT IN ('pg_catalog', 'information_schema')
         ORDER BY n.nspname, c.relname
-    """)
+        """,
+        [index_name],
+    )
     return [f"{schema}.{name}" for schema, name in cursor.fetchall()]
 
 
@@ -129,7 +163,7 @@ def _apply_without_transaction(cursor, filename: str, sql_content: str) -> None:
     can leave the statement applied and unrecorded. A rerun of a CONCURRENTLY build is
     harmless, except when the interruption left the index INVALID: IF NOT EXISTS then skips
     the rebuild and the migration is recorded over a broken index. Refuse the run instead,
-    and name the index to drop.
+    and name the index to drop. Only the index this file builds is checked.
     """
     if _holds_multiple_statements(sql_content):
         raise CommandError(
@@ -138,12 +172,13 @@ def _apply_without_transaction(cursor, filename: str, sql_content: str) -> None:
             "CONCURRENTLY rejects. Give each statement its own migration file."
         )
 
-    invalid_indexes = _invalid_indexes(cursor)
+    target = _concurrent_index_target(sql_content)
+    invalid_indexes = _invalid_indexes_named(cursor, target) if target else []
     if invalid_indexes:
         drops = "\n".join(f"  DROP INDEX CONCURRENTLY {index};" for index in invalid_indexes)
         raise CommandError(
-            f"Cannot apply {filename}: the persons database holds INVALID index(es) left by an "
-            f"interrupted CONCURRENTLY build. Drop them, then re-run the migrations:\n{drops}"
+            f"Cannot apply {filename}: the index it builds is INVALID, left by an interrupted "
+            f"CONCURRENTLY build. Drop it, then re-run the migrations:\n{drops}"
         )
 
     cursor.execute(sql_content)
