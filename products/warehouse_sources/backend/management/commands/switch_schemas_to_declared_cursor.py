@@ -5,6 +5,7 @@ from django.core.management.base import BaseCommand, CommandError
 import structlog
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -95,7 +96,11 @@ class Command(BaseCommand):
                 skipped += 1
                 continue
 
-            last_value = schema.table.get_max_value_for_column(declared["field"]) if schema.table else None
+            # The warehouse holds the column snake_cased, while the connector declares the vendor's
+            # own spelling (`processedAt`). The config keeps the declared name, which every data-side
+            # reader normalizes for itself.
+            cursor_column = NamingConvention.normalize_identifier(declared["field"])
+            last_value = schema.table.get_max_value_for_column(cursor_column) if schema.table else None
             if last_value is None and not allow_reimport:
                 self.stdout.write(
                     f"  skip schema={schema.id} team={schema.team_id}: no value to start the cursor from, "

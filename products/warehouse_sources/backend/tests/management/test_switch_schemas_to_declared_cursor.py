@@ -140,6 +140,32 @@ class TestSwitchSchemasToDeclaredCursor:
         # a revision and the first-imported numbers stay frozen.
         assert schema.sync_type_config["incremental_field_lookback_seconds"] == 60 * 60 * 24
 
+    def test_seeds_from_a_cursor_the_warehouse_stores_snake_cased(self, team):
+        schema = _create_full_refresh_schema(
+            team,
+            source_type="CultureAmp",
+            job_inputs={"client_id": "id", "client_secret": "secret", "account_id": "account"},
+            schema_name="performance_cycles",
+        )
+
+        def max_value(column):
+            # The connector declares `processedAt`, and the warehouse holds only `processed_at`.
+            return 1758000000 if column == "processed_at" else None
+
+        with patch.object(DataWarehouseTable, "get_max_value_for_column", side_effect=max_value):
+            call_command(
+                "switch_schemas_to_declared_cursor",
+                source_type="CultureAmp",
+                schema_name="performance_cycles",
+                live_run=True,
+            )
+
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+        # The config keeps the declared spelling, which the pipeline normalizes when it reads.
+        assert schema.sync_type_config["incremental_field"] == "processedAt"
+        assert schema.sync_type_config["incremental_field_last_value"] == 1758000000
+
     def test_dry_run_changes_nothing(self, team):
         schema = _create_full_refresh_schema(team)
 
