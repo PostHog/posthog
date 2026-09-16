@@ -527,13 +527,14 @@ async def test_run_steps_repairs_clickhouse_user_errors_without_forwarding_raw_t
 
 
 @pytest.mark.parametrize(
-    "capacity_error",
+    "capacity_error,expected_attempts",
     [
-        pytest.param(ClickHouseAtCapacity(), id="clickhouse_at_capacity"),
-        pytest.param(ClickHouseClusterMemoryLimitExceeded(), id="cluster_memory_limit"),
-        pytest.param(CHQueryErrorS3Error("S3 error", code=499), id="s3_error"),
+        pytest.param(ClickHouseAtCapacity(), 3, id="clickhouse_at_capacity"),
+        pytest.param(ClickHouseClusterMemoryLimitExceeded(), 3, id="cluster_memory_limit"),
+        pytest.param(CHQueryErrorS3Error("S3 error", code=499), 3, id="s3_error"),
         pytest.param(
             CHQueryErrorTableIsReadOnly("Table is read-only", code=242),
+            3,
             id="table_is_read_only",
         ),
         pytest.param(
@@ -542,6 +543,7 @@ async def test_run_steps_repairs_clickhouse_user_errors_without_forwarding_raw_t
                 error_code=None,
                 error_category=QueryErrorCategory.RATE_LIMITED,
             ),
+            1,
             id="async_rate_limited_status",
         ),
         pytest.param(
@@ -551,6 +553,7 @@ async def test_run_steps_repairs_clickhouse_user_errors_without_forwarding_raw_t
                 error_category=None,
                 error_retryable=True,
             ),
+            1,
             id="async_retryable_status",
         ),
     ],
@@ -563,6 +566,7 @@ async def test_run_steps_bounds_transient_capacity_retries_without_invalidating_
     mock_fix: AsyncMock,
     _mock_sleep: AsyncMock,
     capacity_error: BaseException,
+    expected_attempts: int,
 ) -> None:
     error = MaxToolRetryableError("Query temporarily unavailable")
     error.__context__ = capacity_error
@@ -573,7 +577,7 @@ async def test_run_steps_bounds_transient_capacity_retries_without_invalidating_
     )
 
     assert execution.plan_invalidating_failed_count == 0
-    assert mock_executor_cls.return_value.arun_format_and_capture.await_count == 3
+    assert mock_executor_cls.return_value.arun_format_and_capture.await_count == expected_attempts
     mock_fix.assert_not_awaited()
 
 
@@ -746,11 +750,38 @@ def test_query_repair_decision_preserves_transient_tool_error_without_typed_caus
     assert decision.retry_unchanged is True
 
 
-def test_async_polling_keeps_only_a_small_status_classification_margin() -> None:
-    margin_seconds = _HOGQL_STEP_TIMEOUT_SECONDS - _HOGQL_ASYNC_QUERY_POLL_TIMEOUT_SECONDS
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_async_polling_has_time_to_return_typed_retry_metadata(
+    mock_executor_cls: MagicMock, mock_fix: AsyncMock
+) -> None:
+    scale = 0.01
+    poll_timeout = _HOGQL_ASYNC_QUERY_POLL_TIMEOUT_SECONDS * scale
+    step_timeout = _HOGQL_STEP_TIMEOUT_SECONDS * scale
+    pending = _query_status_error(
+        error_message=None,
+        error_code=None,
+        error_category=QueryErrorCategory.RATE_LIMITED,
+        error_retryable=True,
+        query_pending=True,
+    )
 
-    assert _HOGQL_ASYNC_QUERY_POLL_TIMEOUT_SECONDS > 50
-    assert 0 < margin_seconds <= 5
+    async def _return_typed_status_after_cleanup(*_args: object, **_kwargs: object) -> FormattedQueryResult:
+        await asyncio.sleep(poll_timeout + 0.1)
+        raise _wrap(MaxToolRetryableError("pending query"), cause=pending)
+
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=_return_typed_status_after_cleanup)
+
+    with (
+        patch(f"{_RP}._HOGQL_ASYNC_QUERY_POLL_TIMEOUT_SECONDS", poll_timeout),
+        patch(f"{_RP}._HOGQL_STEP_TIMEOUT_SECONDS", step_timeout),
+    ):
+        execution = await _run_steps(_spec_with_window_placeholder(), MagicMock(), MagicMock(), _test_window(), None)
+
+    assert execution.failed_count == 1
+    assert execution.plan_invalidating_failed_count == 0
+    mock_executor_cls.return_value.arun_format_and_capture.assert_awaited_once()
+    mock_fix.assert_not_awaited()
 
 
 def test_query_repair_decision_treats_remembered_bytes_limit_as_performance_failure() -> None:
@@ -1179,6 +1210,30 @@ async def test_pending_retryable_query_does_not_start_a_duplicate_retry(mock_exe
     mock_executor_cls.return_value.arun_format_and_capture.assert_awaited_once()
 
 
+@patch(f"{_RP}.asyncio.sleep", new_callable=AsyncMock)
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_transient_and_structural_retries_share_one_query_attempt_budget(
+    mock_executor_cls: MagicMock,
+    mock_fix: AsyncMock,
+    _mock_sleep: AsyncMock,
+) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        side_effect=[
+            MaxToolTransientError("temporary failure"),
+            ExposedHogQLError("bad query"),
+            MaxToolTransientError("temporary failure"),
+            FormattedQueryResult(formatted="formatted table", fallback_used=False, response=_RESPONSE),
+        ]
+    )
+    mock_fix.return_value = "SELECT uniq(person_id) FROM events WHERE {{date_range}}"
+
+    execution = await _run_steps(_spec_with_window_placeholder(), MagicMock(), MagicMock(), _test_window(), None)
+
+    assert execution.failed_count == 1
+    assert mock_executor_cls.return_value.arun_format_and_capture.await_count == 3
+
+
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_executor_cls: MagicMock) -> None:
     # The frozen HogQL keeps the {{date_range}} placeholder; the executor substitutes THIS run's bounds.
@@ -1478,6 +1533,50 @@ async def test_only_a_spec_invalid_chart_drop_blocks_freezing(
         assert result.plan_to_persist is not None
     else:
         assert result.plan_to_persist is None
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}._synthesize", new_callable=AsyncMock, return_value="# Report")
+@patch(f"{_RP}.render_charts", new_callable=AsyncMock, return_value=([], []))
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_frozen_prompt")
+async def test_reused_plan_is_preserved_after_a_chart_only_validation_failure(
+    mock_frozen: MagicMock,
+    mock_run: AsyncMock,
+    _mock_render: AsyncMock,
+    _mock_synthesize: AsyncMock,
+    _capture: MagicMock,
+) -> None:
+    mock_frozen.return_value = _charted_spec()
+    mock_run.return_value = _charted_run(chart_dropped_reason=ChartFailureReason.MISSING_COLUMNS)
+
+    result = await generate_ai_report(
+        team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), ai_query_plan=_frozen_plan()
+    )
+
+    assert result.plan_to_persist is None
+    assert result.clear_persisted_plan is False
+    assert result.query_plan_status == AIQueryPlanStatus.FROZEN
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}._synthesize", new_callable=AsyncMock, return_value="# Report")
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock, return_value=_OK_RUN)
+@patch(f"{_RP}.build_frozen_prompt")
+async def test_reused_windowless_plan_is_still_cleared(
+    mock_frozen: MagicMock,
+    _mock_run: AsyncMock,
+    _mock_synthesize: AsyncMock,
+    _capture: MagicMock,
+) -> None:
+    mock_frozen.return_value = _spec(steps=1)
+
+    result = await generate_ai_report(
+        team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), ai_query_plan=_frozen_plan()
+    )
+
+    assert result.plan_to_persist is None
+    assert result.clear_persisted_plan is True
 
 
 @parameterized.expand(

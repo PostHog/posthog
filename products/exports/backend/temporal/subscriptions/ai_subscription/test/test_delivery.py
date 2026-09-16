@@ -725,6 +725,7 @@ class TestPersistAiQueryPlan(APIBaseTest):
             self.team.id,
             "original prompt?",
             plan,
+            expected_plan=None,
             expected_include_images=expected_include_images,
         )
 
@@ -875,6 +876,7 @@ class TestFreezePlanPersistence:
             sub.team_id,
             sub.prompt,
             fresh_plan,
+            expected_plan=None,
             expected_include_images=expected_include_images,
         )
         assert returned.query_plan_status == AIQueryPlanStatus.FROZEN
@@ -920,6 +922,34 @@ class TestFreezePlanPersistence:
             returned = await build_ai_subscription_report(sub)
 
         assert returned.query_plan_status == AIQueryPlanStatus.NOT_FROZEN
+
+    async def test_repaired_reused_plan_is_persisted_against_the_original_plan(self) -> None:
+        frozen = {"version": 6, "plan": {"overall_intent": "i", "steps": [{"hogql": "SELECT broken"}]}}
+        repaired = {"version": 6, "plan": {"overall_intent": "i", "steps": [{"hogql": "SELECT fixed"}]}}
+        sub = self._subscription(ai_query_plan=frozen)
+        result = AiReportResult(
+            markdown="# R",
+            diagnostics=(),
+            window_end_utc="2026-06-29T16:00:00+00:00",
+            plan_to_persist=repaired,
+            query_plan_status=AIQueryPlanStatus.FROZEN,
+        )
+        with (
+            patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(f"{_DELIVERY}.generate_ai_report", new=AsyncMock(return_value=result)),
+            patch(f"{_DELIVERY}._persist_ai_query_plan", return_value=True) as mock_persist,
+        ):
+            returned = await build_ai_subscription_report(sub)
+
+        mock_persist.assert_called_once_with(
+            sub.id,
+            sub.team_id,
+            sub.prompt,
+            repaired,
+            expected_plan=frozen,
+            expected_include_images=True,
+        )
+        assert returned.query_plan_status == AIQueryPlanStatus.FROZEN
 
     async def test_reused_run_does_not_persist(self) -> None:
         frozen = {"overall_intent": "i", "steps": [{"description": "d", "query_type": "hogql", "hogql": "SELECT 1"}]}
@@ -973,6 +1003,30 @@ class TestFreezePlanPersistence:
 
         mock_clear.assert_called_once_with(sub.id, sub.team_id, sub.prompt, frozen)
         assert returned.query_plan_status == AIQueryPlanStatus.NOT_FROZEN
+
+    @patch(f"{_DELIVERY}.Subscription.objects.filter")
+    def test_persist_matches_the_plan_read_at_generation_start(self, mock_filter: MagicMock) -> None:
+        frozen = {"version": 6, "plan": {"overall_intent": "i", "steps": []}}
+        repaired = {"version": 6, "plan": {"overall_intent": "i", "steps": [{"hogql": "SELECT 1"}]}}
+        mock_filter.return_value.filter.return_value.update.return_value = 1
+
+        persisted = _persist_ai_query_plan(
+            42,
+            7,
+            "how are exports doing?",
+            repaired,
+            expected_plan=frozen,
+            expected_include_images=True,
+        )
+
+        mock_filter.assert_called_once_with(
+            id=42,
+            team_id=7,
+            prompt="how are exports doing?",
+            ai_query_plan=frozen,
+        )
+        mock_filter.return_value.filter.return_value.update.assert_called_once_with(ai_query_plan=repaired)
+        assert persisted is True
 
     @patch(f"{_DELIVERY}.Subscription.objects.filter")
     def test_clear_matches_the_plan_read_at_generation_start(self, mock_filter: MagicMock) -> None:

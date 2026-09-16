@@ -83,7 +83,9 @@ logger = structlog.get_logger(__name__)
 # activity timeout for scheduled, request timeout for ad-hoc) is the ultimate cap; these prevent a
 # single slow upstream from soaking it.
 _SYNTHESIS_LLM_TIMEOUT_SECONDS = 90.0
-_HOGQL_STEP_TIMEOUT_SECONDS = 60.0
+# Leave enough time after the executor's poll budget for a saturated enqueue, the final retry-metadata
+# read, and formatting. Otherwise the outer timeout erases the typed retry result this pipeline needs.
+_HOGQL_STEP_TIMEOUT_SECONDS = 75.0
 _HOGQL_ASYNC_QUERY_POLL_TIMEOUT_SECONDS = 55.0
 # Backstop length cap on a single step's formatted results before they enter the synthesis prompt.
 # The executor already truncates; this is defense-in-depth against a giant value.
@@ -107,6 +109,9 @@ QUERY_FAILED_PREFIX = "Query failed to run"
 # because it may also mean the query itself is chronically too slow.
 _MAX_QUERY_FIX_RETRIES = 2
 _MAX_TRANSIENT_QUERY_RETRIES = 2
+# Transient retries and structural repairs share this ceiling. Keeping independent counters allows a
+# single step to run five queries, which can outlive the enclosing scheduled-delivery activity.
+_MAX_QUERY_ATTEMPTS = 3
 _TRANSIENT_QUERY_RETRY_BASE_DELAY_SECONDS = 5.0
 _FIX_LLM_TIMEOUT_SECONDS = 30.0
 
@@ -149,6 +154,7 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
     has_retryable_error = False
     has_self_recoverable_error = False
     has_pending_retryable_query = False
+    has_terminal_query_status = False
     has_unknown_query_status_error = False
     has_unclassified_error = False
     has_internal_hogql_error = False
@@ -162,6 +168,8 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
                 has_self_recoverable_error = True
             if current.query_pending:
                 has_pending_retryable_query = True
+            else:
+                has_terminal_query_status = True
             if current.error_category is None:
                 if not current.error_retryable:
                     has_unknown_query_status_error = True
@@ -195,8 +203,7 @@ def _query_repair_hint_and_plan_invalidation(exc: BaseException) -> QueryRepairD
         return QueryRepairDecision(
             repair_hint=None,
             invalidates_plan=False,
-            # Celery already retries pending queries, so another copy would amplify capacity pressure.
-            retry_unchanged=not has_pending_retryable_query,
+            retry_unchanged=not (has_pending_retryable_query or has_terminal_query_status),
         )
     # Exposed ClickHouse errors are user-safe, so their server text reaches `safe_message`. Check them
     # first to keep query-derived identifiers out of the repair prompt.
@@ -438,7 +445,10 @@ async def generate_ai_report(
             clear_persisted_plan = True
         elif failed_count == 0:
             if eligible_plan is None:
-                clear_persisted_plan = True
+                # A chart validation failure says nothing about the query plan. Preserve an existing,
+                # bounded plan rather than entering permanent planner churn; fresh plans still remain
+                # unfrozen until every query and chart spec is green. Windowless plans remain unsafe.
+                clear_persisted_plan = not (chart_spec_failures and _plan_has_window_placeholders(spec.plan))
             elif eligible_plan != ai_query_plan:
                 plan_to_persist = eligible_plan
         query_plan_status = resolve_ai_query_plan_status(
@@ -503,7 +513,7 @@ def _plan_to_freeze(
             chart_failure_count=chart_failure_count,
         )
         return None
-    if not all(any(token in step.hogql for token in WINDOW_PLACEHOLDERS) for step in plan.steps):
+    if not _plan_has_window_placeholders(plan):
         logger.warning(
             "ai_report.plan_missing_window_placeholder_not_frozen",
             trace_correlation_id=trace_correlation_id,
@@ -513,6 +523,10 @@ def _plan_to_freeze(
     # relevant_events travels with the plan so the reuse path rebuilds the same property-aware
     # context_blob the fixer relies on (an events-only blob makes the fixer schema-blind).
     return {"version": AI_QUERY_PLAN_VERSION, "plan": plan.model_dump(), "relevant_events": list(relevant_events)}
+
+
+def _plan_has_window_placeholders(plan: QueryPlan) -> bool:
+    return all(any(token in step.hogql for token in WINDOW_PLACEHOLDERS) for step in plan.steps)
 
 
 async def _plan(
@@ -650,10 +664,12 @@ async def _run_steps(
         had_plan_invalidating_failure = False
         query_fix_attempts = 0
         transient_query_retries = 0
+        query_attempts = 0
         # planner output — strip framing markers so it can't break the <query_results> envelope
         safe_description = strip_llm_framing_markers(step.description, max_len=500)
 
         while True:
+            query_attempts += 1
             executable_hogql = window.render_window_filter(current_hogql)
             try:
                 query = AssistantHogQLQuery(query=executable_hogql)
@@ -696,7 +712,7 @@ async def _run_steps(
                 repair_decision = _query_repair_hint_and_plan_invalidation(exc)
                 had_plan_invalidating_failure = had_plan_invalidating_failure or repair_decision.invalidates_plan
                 if repair_decision.retry_unchanged:
-                    if transient_query_retries >= _MAX_TRANSIENT_QUERY_RETRIES:
+                    if transient_query_retries >= _MAX_TRANSIENT_QUERY_RETRIES or query_attempts >= _MAX_QUERY_ATTEMPTS:
                         break
                     max_delay = _TRANSIENT_QUERY_RETRY_BASE_DELAY_SECONDS * (2**transient_query_retries)
                     delay = random.uniform(max_delay / 2, max_delay)
@@ -712,7 +728,11 @@ async def _run_steps(
                     )
                     await asyncio.sleep(delay)
                     continue
-                if repair_decision.repair_hint is None or query_fix_attempts >= _MAX_QUERY_FIX_RETRIES:
+                if (
+                    repair_decision.repair_hint is None
+                    or query_fix_attempts >= _MAX_QUERY_FIX_RETRIES
+                    or query_attempts >= _MAX_QUERY_ATTEMPTS
+                ):
                     break
                 query_fix_attempts += 1
                 logger.info(

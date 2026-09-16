@@ -200,6 +200,7 @@ def _persist_ai_query_plan(
     prompt: str | None,
     plan: dict,
     *,
+    expected_plan: dict | None,
     expected_include_images: bool,
 ) -> bool:
     image_state = Q(delivery_config__include_images=expected_include_images)
@@ -208,9 +209,13 @@ def _persist_ai_query_plan(
         image_state |= ~Q(delivery_config__has_key="include_images")
 
     # Targeted update, never a full save() — that would re-emit the activity-log/analytics signals.
-    # Matching both planning inputs prevents a concurrent edit from restoring an invalidated plan.
     return bool(
-        Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt)
+        Subscription.objects.filter(
+            id=subscription_id,
+            team_id=team_id,
+            prompt=prompt,
+            ai_query_plan=expected_plan,
+        )
         .filter(image_state)
         .update(ai_query_plan=plan)
     )
@@ -256,6 +261,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
                 subscription.team_id,
                 subscription.prompt,
                 result.plan_to_persist,
+                expected_plan=ai_query_plan,
                 expected_include_images=include_images,
             )
         except Exception as exc:
