@@ -61,6 +61,10 @@ def compute_error_tracking_recommendation(recommendation_id: str, team_id: int) 
 @shared_task(
     name="products.error_tracking.backend.tasks.dispatch_error_tracking_alert_deliveries",
     ignore_result=True,
+    # Acked after the starts, and requeued if the worker dies mid-flight: every start
+    # is idempotent on its notification id, so redelivery is safe and loss is not.
+    acks_late=True,
+    reject_on_worker_lost=True,
     autoretry_for=(Exception,),
     max_retries=5,
     retry_backoff=True,

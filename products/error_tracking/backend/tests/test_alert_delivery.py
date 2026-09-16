@@ -311,6 +311,12 @@ class TestAlertDeliveryDispatch(AlertTestMixin):
         ):
             self._dispatch()
 
+    def test_celery_task_survives_worker_death(self):
+        # Acked only after the starts and requeued on worker loss; redelivery is safe
+        # because starts are idempotent on the notification id.
+        assert dispatch_error_tracking_alert_deliveries.acks_late is True
+        assert dispatch_error_tracking_alert_deliveries.reject_on_worker_lost is True
+
     def test_celery_task_rebuilds_inputs_and_starts_the_batch(self):
         notifications = [
             dataclasses.asdict(self._inputs("$error_tracking_issue_resolved", notification_id="n-1")),

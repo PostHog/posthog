@@ -640,6 +640,35 @@ class TestErrorTracking(APIBaseTest):
         issue.refresh_from_db()
         assert issue.status == ErrorTrackingIssue.Status.RESOLVED
 
+    def test_issue_bulk_assign_queues_one_dispatch_task_per_transaction(self):
+        issues = [self.create_issue() for _ in range(3)]
+        self._enable_alerts()
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            patch(
+                "products.error_tracking.backend.tasks.tasks.dispatch_error_tracking_alert_deliveries.delay"
+            ) as mock_dispatch,
+            patch("products.error_tracking.backend.logic.issue_mutations.send_error_tracking_issue_assigned"),
+            patch("products.error_tracking.backend.logic.issue_mutations.dispatch_issue_assigned_realtime"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
+                data={
+                    "ids": [issue.id for issue in issues],
+                    "action": "assign",
+                    "assignee": {"id": self.user.id, "type": "user"},
+                },
+            )
+
+        assert response.status_code == 200, response.json()
+        assert mock_produce.call_count == 3
+        mock_dispatch.assert_called_once()
+        notifications = mock_dispatch.call_args.kwargs["notifications"]
+        assert {n["event"] for n in notifications} == {"$error_tracking_issue_assigned"}
+        assert {n["issue_id"] for n in notifications} == {str(issue.id) for issue in issues}
+
     def test_issue_status_update_queues_nothing_for_teams_without_alerts(self):
         issue = self.create_issue()
 
