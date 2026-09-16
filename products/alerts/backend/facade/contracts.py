@@ -7,6 +7,7 @@ contract check watches this file to decide whether they must retest.
 
 from __future__ import annotations
 
+from dataclasses import field
 from enum import StrEnum
 from typing import Any, Final, NotRequired, TypedDict
 from uuid import UUID
@@ -26,7 +27,11 @@ class DemandDiscoveryInputs:
 
 @frozen
 class AlertDemand:
+    """Due configuration IDs per source, bounded so the payload stays small. `omitted_by_source` counts
+    what discovery left out; that work is due again next tick."""
+
     configuration_ids_by_source: dict[SourceKind, list[str]]
+    omitted_by_source: dict[SourceKind, int] = field(default_factory=dict)
 
 
 @frozen
@@ -66,6 +71,7 @@ class OrchestrateInputs:
     page: int = 0
     demand: dict[SourceKind, list[str]] | None = None
     pages: list[TickPage] | None = None
+    omitted: int = 0  # due work discovery left out of the bounded manifest; counted as remaining
 
 
 @frozen

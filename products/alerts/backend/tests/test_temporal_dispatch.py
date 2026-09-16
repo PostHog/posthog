@@ -106,10 +106,12 @@ DiscoverActivity = Callable[[DemandDiscoveryInputs], Awaitable[AlertDemand]]
 GateActivity = Callable[[list[str]], Awaitable[None]]
 
 
-def demand_activity(demand: dict[SourceKind, list[str]]) -> DiscoverActivity:
+def demand_activity(
+    demand: dict[SourceKind, list[str]], omitted: dict[SourceKind, int] | None = None
+) -> DiscoverActivity:
     @activity.defn(name="alerts_product_discover_demand_activity")
     async def discover(inputs: DemandDiscoveryInputs) -> AlertDemand:
-        return AlertDemand(configuration_ids_by_source=demand)
+        return AlertDemand(configuration_ids_by_source=demand, omitted_by_source=omitted or {})
 
     return discover
 
@@ -206,6 +208,19 @@ async def test_tick_with_real_dispatchers_is_one_page(environment: WorkflowEnvir
         result = await run_tick(client, tick_id)
     assert [(page.page, page.dispatched, page.remaining) for page in result.pages] == [(0, 4, 0)]
     assert result == OrchestrateResult(pages=result.pages, remaining=0, deadline_reached=False)
+
+
+async def test_tick_counts_omitted_demand_as_remaining(environment: WorkflowEnvironment) -> None:
+    """Discovery bounds its manifest. What it left out is still due, so the tick reports it as remaining."""
+    client = environment.client
+    tick_id = f"tick-{uuid.uuid4()}"
+    orchestration, evaluation = workers(
+        client, demand_activity({SourceKind.LOGS: ["l1"]}, omitted={SourceKind.LOGS: 5}), paging=False
+    )
+    async with orchestration, evaluation:
+        result = await run_tick(client, tick_id)
+    assert [(page.page, page.dispatched, page.remaining) for page in result.pages] == [(0, 1, 0)]
+    assert result.remaining == 5 and not result.deadline_reached
 
 
 async def test_tick_pages_until_demand_is_exhausted(environment: WorkflowEnvironment) -> None:

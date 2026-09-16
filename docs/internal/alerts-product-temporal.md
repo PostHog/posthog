@@ -130,6 +130,8 @@ Scheduled runs use `TemporalScheduledStartTime`; manual runs use the workflow st
 Activity retries retain the same cutoff rather than reading the activity's clock.
 The activity returns an `AlertDemand` containing configuration IDs grouped by the shared `SourceKind` enum (`logs` and `insight`).
 Only nonempty groups are returned. Discovery does not reserve or claim IDs.
+Each source is bounded to `DISCOVERY_LIMIT_PER_SOURCE` IDs (1,000) so the manifest stays near 40 KB per source, under the repository's 256 KB rule for Temporal payload fields.
+`omitted_by_source` counts the due IDs left out. The tick adds that count to its `remaining` result, and the next tick discovers that work again.
 
 For now, `logic/demand.py` supplies deterministic synthetic configurations relative to that cutoff:
 two eligible logs configurations and one eligible insight configuration, plus future and disabled configurations that are excluded.

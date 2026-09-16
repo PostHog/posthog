@@ -458,6 +458,21 @@ def test_discovery_rejects_invalid_cutoff(cutoff: str) -> None:
         demand.discover_synthetic_demand(cutoff)
 
 
+def test_discovery_bounds_ids_per_source_and_counts_the_rest() -> None:
+    cutoff = dt.datetime(2026, 9, 16, 10, tzinfo=dt.UTC).isoformat()
+    bounded = demand.discover_synthetic_demand(cutoff, limit_per_source=1)
+    assert bounded == AlertDemand(
+        configuration_ids_by_source={
+            SourceKind.LOGS: ["00000000-0000-4000-8000-000000000001"],
+            SourceKind.INSIGHT: ["00000000-0000-4000-8000-000000000003"],
+        },
+        omitted_by_source={SourceKind.LOGS: 1},
+    )
+    assert demand.discover_synthetic_demand(cutoff).omitted_by_source == {}
+    with pytest.raises(ValueError):
+        demand.discover_synthetic_demand(cutoff, limit_per_source=0)
+
+
 @pytest.mark.parametrize("scheduled", [False, True])
 async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) -> None:
     tick_time = dt.datetime(2026, 9, 16, 10, tzinfo=dt.UTC)

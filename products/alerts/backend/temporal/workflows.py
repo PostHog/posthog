@@ -192,6 +192,7 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             demand = discovered.configuration_ids_by_source
+            inputs = replace(inputs, omitted=sum(discovered.omitted_by_source.values()))
         else:
             demand = inputs.demand
 
@@ -204,7 +205,7 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
             page_timeout = min(SOURCE_DISPATCH_TIMEOUT, hard_deadline - now - SOURCE_DISPATCH_HEADROOM)
             if (pages and now >= deadline) or page_timeout < SOURCE_DISPATCH_HEADROOM:
                 workflow.logger.info("Tick dispatch budget spent with work remaining; the next tick takes it")
-                remaining = sum(len(ids) for ids in demand.values())
+                remaining = sum(len(ids) for ids in demand.values()) + inputs.omitted
                 return OrchestrateResult(pages=pages, remaining=remaining, deadline_reached=True)
             handles = [
                 await workflow.start_child_workflow(
@@ -236,7 +237,7 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
             if demand and _should_continue_as_new():
                 workflow.continue_as_new(replace(inputs, page=page, demand=demand, pages=pages))
 
-        return OrchestrateResult(pages=pages, remaining=0, deadline_reached=False)
+        return OrchestrateResult(pages=pages, remaining=inputs.omitted, deadline_reached=False)
 
 
 SHARED_ORCHESTRATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductOrchestrateWorkflow]
