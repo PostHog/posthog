@@ -6,16 +6,13 @@ project viewset (access_control_settings.py).
 """
 
 from typing import TYPE_CHECKING, cast
-from uuid import UUID
 
-from drf_spectacular.types import OpenApiTypes
 from rest_framework import exceptions, serializers
 from rest_framework.decorators import action
-from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.api.documentation import OpenApiParameter, extend_schema
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.models import Organization, OrganizationMembership, User
 
 from products.access_control.backend.facade.member_project_access import member_project_access
@@ -65,23 +62,19 @@ class MemberProjectAccessResponseSerializer(serializers.Serializer):
     results = MemberProjectAccessSerializer(many=True, help_text="One entry per visible organization member.")
 
 
+class MemberProjectAccessQuerySerializer(serializers.Serializer):
+    member_id = serializers.UUIDField(required=False, help_text="Narrow the list to one organization membership id.")
+
+
 class OrganizationMemberProjectAccessViewSetMixin(_GenericViewSet):
-    @extend_schema(
+    @validated_request(
+        query_serializer=MemberProjectAccessQuerySerializer,
         description="Every visible member's access to every project the caller can reach, with the rule behind it.",
-        parameters=[
-            OpenApiParameter(
-                name="member_id",
-                type=OpenApiTypes.UUID,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Narrow the list to one organization membership id.",
-            )
-        ],
         responses={200: MemberProjectAccessResponseSerializer},
         extensions={"x-product": "access_control"},
     )
     @action(methods=["GET"], detail=False, url_path="project_access", required_scopes=["organization_member:read"])
-    def project_access(self, request: Request, *args: object, **kwargs: object) -> Response:
+    def project_access(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
         organization = cast(Organization, self.organization)  # type: ignore[attr-defined]
         user = cast(User, request.user)
         requester = (
@@ -92,18 +85,8 @@ class OrganizationMemberProjectAccessViewSetMixin(_GenericViewSet):
         if requester is None:
             raise exceptions.NotFound()
 
-        member_id = self._parse_member_id(request)
+        member_id = request.validated_query_data.get("member_id")
         results = member_project_access(organization, requester, user, member_id=member_id)
         if member_id is not None and not results:
             raise exceptions.NotFound()
         return Response(MemberProjectAccessResponseSerializer({"results": results}).data)
-
-    @staticmethod
-    def _parse_member_id(request: Request) -> UUID | None:
-        raw = request.query_params.get("member_id")
-        if not raw:
-            return None
-        try:
-            return UUID(raw)
-        except ValueError:
-            raise exceptions.ValidationError({"member_id": "Must be a UUID."})
