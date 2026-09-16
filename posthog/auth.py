@@ -902,13 +902,12 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 def _record_agent_attribution(request: Union[HttpRequest, Request], access_token: OAuthAccessToken) -> None:
     """Record the sandbox task bound to the token, and the intent the agent claims.
 
-    Any caller can send the intent header, so it is read only behind the token binding.
+    Intent is self-reported. Only the token binding can supply a verified task id.
     Attribution is extra detail on an audit row, so an error here must not fail the request.
     """
     try:
-        if access_token.sandbox_task_id is None:
-            return
-        activity_storage.set_agent_task_id(str(access_token.sandbox_task_id))
+        if access_token.sandbox_task_id is not None:
+            activity_storage.set_agent_task_id(str(access_token.sandbox_task_id))
         intent = request.headers.get(ACTIVITY_LOG_INTENT_HEADER, "").strip()[:ACTIVITY_LOG_INTENT_MAX_LENGTH]
         if intent:
             activity_storage.set_agent_intent(intent)

@@ -173,7 +173,7 @@ class TestActivityLogModel(BaseTest):
         assert log.detail is not None
         self.assertEqual(log.detail["trigger"]["job_type"], "hog_flow")
 
-    def test_an_intent_without_a_task_binding_writes_no_trigger(self) -> None:
+    def test_an_intent_without_a_task_binding_writes_no_task_id(self) -> None:
         activity_storage.set_agent_intent("Disabling the flag per an incident runbook")
         try:
             log_activity(
@@ -191,7 +191,14 @@ class TestActivityLogModel(BaseTest):
 
         log: ActivityLog = ActivityLog.objects.latest("id")
         assert log.detail is not None
-        self.assertIsNone(log.detail["trigger"])
+        self.assertEqual(
+            log.detail["trigger"],
+            {
+                "job_type": "agent",
+                "job_id": "",
+                "payload": {"intent": "Disabling the flag per an incident runbook"},
+            },
+        )
 
     def test_a_failing_agent_trigger_still_writes_the_row(self) -> None:
         with patch(
@@ -605,7 +612,26 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
                     "payload": {"intent": "Repairing a tile that hit the query row limit"},
                 },
             ),
-            ("ignores the header on a token with no task", None, False, None),
+            (
+                "records intent without a task binding",
+                None,
+                False,
+                {
+                    "job_type": "agent",
+                    "job_id": "",
+                    "payload": {"intent": "Repairing a tile that hit the query row limit"},
+                },
+            ),
+            (
+                "records delegated intent without a task binding",
+                None,
+                True,
+                {
+                    "job_type": "agent",
+                    "job_id": "",
+                    "payload": {"intent": "Repairing a tile that hit the query row limit"},
+                },
+            ),
         ]
     )
     def test_agent_write(
@@ -617,12 +643,16 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
             f"/api/projects/{self.team.id}/dashboards/",
             {"name": "Weekly signups"},
             HTTP_X_POSTHOG_INTENT="Repairing a tile that hit the query row limit",
+            HTTP_X_POSTHOG_CLIENT="mcp",
+            HTTP_X_POSTHOG_TASK_ID="019f4c2a-0000-7000-8000-0000000000bb",
         )
         self.assertEqual(response.status_code, 201, response.content)
 
         log = ActivityLog.objects.filter(scope="Dashboard").latest("id")
         assert log.detail is not None
         self.assertEqual(log.detail["trigger"], expected_trigger)
+        self.assertEqual(log.user_id, self.user.id)
+        self.assertEqual(log.client, "mcp")
 
     def test_a_failing_attribution_loses_the_intent_and_nothing_else(self) -> None:
         task_id = UUID("019f4c2a-0000-7000-8000-0000000000aa")
