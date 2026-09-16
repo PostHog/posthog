@@ -13,7 +13,7 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 - A preview without dataframe inputs runs immediately when its automated review found no potential issues. Previews with dataframe access, flagged reviews, and legacy unreviewed versions require exact-build consent at a gate that links to the source.
 - Every ready build exposes the SHA-256 of its frozen Canvas artifact manifest. Choosing “Run widget” at a gate records consent for that exact hash. A later gated build with different artifact contents requires a new decision. A build with identical contents reuses the earlier consent.
 - “View source” remains available before a widget runs and reads the source belonging to the selected historical version.
-- Every dataframe must have a completed run before generation. Each preview load pins permission-checked pages to one run and reads at most 5,000 rows per connected dataframe without sending values to the model. Across all its dataframes, one preview reads at most 200 pages and 32 MiB of response data.
+- Generation uses dataframes with completed runs and skips cells that have not run. Each preview load pins permission-checked pages to one run and reads at most 5,000 rows per connected dataframe without sending values to the model. Across all its dataframes, one preview reads at most 200 pages and 32 MiB of response data.
 - Notebook-managed Canvas artifacts use a restricted source policy. Signed artifact URLs can render them, but the ordinary Canvas API cannot list or edit them.
 - `<Widget>` is the only notebook markdown tag for generated widgets.
 - Widget previews allow pointer lock for interactive controls such as games. Both the iframe and artifact CSP permit `allow-pointer-lock`; the preview URL varies to refresh previously cached CSP headers.
@@ -89,6 +89,9 @@ The SQL and insight dataframe name rows are visible when either `revamped-py-not
 The widget flag enables HogQL dataframe preparation. Python, kernel-backed SQL, and direct connections require `revamped-py-notebooks`.
 Insights that expose SQL have the same dataframe name field below their results, starting with `insight_df` (with a numeric suffix when needed).
 An editor prepares the insight's dataframe when a SQL or Python cell first references it, before generating a widget, or when rerunning a widget's data dependencies.
+Widget generation continues with the available dataframes if an embedded insight cannot be prepared.
+Refreshing a widget prepares only its connected insight dataframes; SQL and Python cells prepare any insights they reference when they run.
+An insight preparation failure still stops a cell or widget refresh that depends on that insight.
 Widgets that use only insight dataframes refresh after preparation without requiring a SQL or Python cell.
 Opening a notebook, renaming a dataframe, or refreshing an insight's display does not prepare dataframes or save preparation metadata.
 Preparation uses the insight query cache and saves the run reference and column metadata only after the SQL run completes.
@@ -119,7 +122,7 @@ Generation also requires the organization's AI data processing consent and the `
 
 An agent inserts a `Widget` component through `notebooks-add-cell`, then calls `notebooks-widget-generate` with its returned `node_id`.
 Markdown editing can also insert `<Widget nodeId="widget-example" prompt="Show an interactive chart" />` into a saved notebook.
-All notebook SQL and Python dataframes must have completed runs before generation.
+Only notebook SQL and Python dataframes with completed runs are available to generation; unrun cells do not block it.
 Inserting the tag does not start a generation job.
 The agent polls status and directs the user to the notebook for review and execution consent.
 MCP responses for widget generation, status, and attachment omit the preview URL so previews open through the notebook's existing consent flow.

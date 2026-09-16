@@ -329,6 +329,8 @@ def inspect_widget_inputs(
     inputs: list[str],
     authorize_run: Callable[[NotebookNodeRun], None],
     node_id: str | None = None,
+    *,
+    skip_unready: bool = False,
 ) -> WidgetInputInspection:
     normalized_inputs = normalize_widget_inputs(inputs)
     if node_id is not None:
@@ -347,7 +349,7 @@ def inspect_widget_inputs(
     )
     runs = {run.node_id: run for run in run_queryset.defer("envelope")}
     unresolved = [name for name in normalized_inputs if owners[name] not in runs]
-    if unresolved:
+    if unresolved and not skip_unready:
         raise WidgetConflictError(
             f'Run the cell that creates "{unresolved[0]}" before generating this widget.',
             "input_not_ready",

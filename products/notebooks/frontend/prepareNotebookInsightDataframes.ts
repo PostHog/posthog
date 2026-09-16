@@ -74,7 +74,8 @@ export async function prepareNotebookInsightDataframes(
         const unmount = logic.mount()
         try {
             await logic.asyncActions.syncDataframe()
-            if (logic.values.error && (!logic.values.unsupported || names)) {
+            // Discovery can use the remaining dataframes; explicit dependencies must be available.
+            if (logic.values.error && names) {
                 throw new Error(logic.values.error)
             }
         } finally {

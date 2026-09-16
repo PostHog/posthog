@@ -971,6 +971,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             logic.actions.runDataDependencies()
             expect(logic.values.dataRefreshInFlight).toBe(true)
             expect(prepareInsightDataframes).toHaveBeenCalledTimes(1)
+            expect(prepareInsightDataframes).toHaveBeenCalledWith(['insight_df'])
             expect(notebooksWidgetStatus).toHaveBeenCalledTimes(1)
 
             finishPreparation()

@@ -610,14 +610,25 @@ class TestWidgetData(APIBaseTest):
         assert version is not None
         return version
 
-    def test_inspection_uses_latest_successful_run_and_authorizes_it(self) -> None:
+    @parameterized.expand([("all_ready", False), ("unrun_sibling", True)])
+    def test_inspection_uses_latest_successful_run_and_authorizes_it(self, _name: str, unrun_sibling: bool) -> None:
         self._run(value=1)
         latest = self._run(value=2)
         authorize = MagicMock()
+        inputs = [self.INPUT_NAME]
+        if unrun_sibling:
+            self.notebook.content = markdown_content(
+                f'<PythonV2 nodeId="source" returnVariable="{self.INPUT_NAME}" />\n\n'
+                '<SQLV2 nodeId="unrun" code="SELECT 1" returnVariable="unrun_df" />'
+            )
+            inputs.append("unrun_df")
+            with self.assertRaises(WidgetError) as error:
+                inspect_widget_inputs(self.notebook, inputs, authorize)
+            assert error.exception.code == "input_not_ready"
 
-        inspection = inspect_widget_inputs(self.notebook, [self.INPUT_NAME], authorize)
+        inspection = inspect_widget_inputs(self.notebook, inputs, authorize, skip_unready=unrun_sibling)
 
-        assert inspection.resolved_inputs[0].run == latest
+        assert [(item.name, item.run) for item in inspection.resolved_inputs] == [(self.INPUT_NAME, latest)]
         assert inspection.contract[0]["columns"] == [
             {"name": "lat", "type": "float64"},
             {"name": "label", "type": "string"},
@@ -1015,8 +1026,16 @@ class TestWidgetData(APIBaseTest):
             version_id=version.canvas_source_version_id,
         )
 
-    def test_generate_endpoint_infers_available_dataframes(self) -> None:
+    @parameterized.expand([("all_ready", False), ("unrun_sibling", True)])
+    def test_generate_endpoint_infers_available_dataframes(self, _name: str, unrun_sibling: bool) -> None:
         latest = self._run()
+        if unrun_sibling:
+            self.notebook.content = markdown_content(
+                f'<PythonV2 nodeId="source" returnVariable="{self.INPUT_NAME}" />\n\n'
+                f'<Widget nodeId="{self.NODE_ID}" prompt="Render a globe" />\n\n'
+                '<SQLV2 nodeId="unrun" code="SELECT 1" returnVariable="unrun_df" />'
+            )
+            self.notebook.save(update_fields=["content"])
         url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/generate/"
         result = WidgetStatus(
             lifecycle_status="building",
@@ -1045,7 +1064,8 @@ class TestWidgetData(APIBaseTest):
             )
 
         assert response.status_code == 202
-        assert generate.call_args.kwargs["inspection"].resolved_inputs[0].run == latest
+        inputs = generate.call_args.kwargs["inspection"].resolved_inputs
+        assert [(item.name, item.run) for item in inputs] == [(self.INPUT_NAME, latest)]
         assert generate.call_args.kwargs["operation"] == "regenerate"
 
     @parameterized.expand(

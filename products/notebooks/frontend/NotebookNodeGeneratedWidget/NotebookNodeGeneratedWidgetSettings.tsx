@@ -47,7 +47,7 @@ export function NotebookNodeGeneratedWidgetSettings({
         prompt: attributes.prompt ?? '',
         model: attributes.model ?? DEFAULT_WIDGET_MODEL,
         isEditable,
-        prepareInsightDataframes: () => prepareNotebookInsightDataframes(notebookLogic),
+        prepareInsightDataframes: (names) => prepareNotebookInsightDataframes(notebookLogic, names),
         persistNotebook: async (): Promise<void> => {
             await notebookLogic.asyncActions.saveNotebook({
                 content: notebookLogic.values.content,

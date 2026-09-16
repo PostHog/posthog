@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { collectNotebookFrameNodes } from 'scenes/notebooks/Nodes/notebookNodeContent'
 import { collectSqlV2Refs } from 'scenes/notebooks/Nodes/notebookNodeSQLV2Logic'
 import { buildMarkdownNotebookContent } from 'scenes/notebooks/Notebook/markdownNotebookV2'
@@ -16,6 +17,7 @@ import type { InsightLogicProps } from '~/types'
 
 import { notebookCodeCellLogic } from './notebookCodeCellLogic'
 import { InsightDataframeAttributes, notebookInsightDataframeLogic } from './notebookInsightDataframeLogic'
+import { prepareNotebookInsightDataframes } from './prepareNotebookInsightDataframes'
 
 describe('insight dataframes', () => {
     let notebook: ReturnType<typeof notebookLogic.build>
@@ -142,6 +144,41 @@ describe('insight dataframes', () => {
             expect.objectContaining({ name: 'daily_df', hasRun: true, columns: [['count', 'Int64']] }),
         ])
     })
+
+    it.each(['missing', 'failed'])(
+        'continues discovering widget dataframes after a %s insight, but rejects an explicit dependency',
+        async (failure) => {
+            const lookup = jest.spyOn(insightsApi, 'getByShortId')
+            if (failure === 'missing') {
+                lookup.mockResolvedValue(null)
+            } else {
+                lookup.mockRejectedValue(new Error('Could not load insight'))
+            }
+            jest.spyOn(queries, 'performQuery').mockResolvedValue(response)
+            notebook.actions.setLocalContent(
+                buildMarkdownNotebookContent(
+                    '<Insight nodeId="unavailable" id="missing-insight" returnVariable="unavailable_df" />\n\n' +
+                        `<Query nodeId="source" query={${JSON.stringify(insightProps.query)}} returnVariable="available_df" />\n\n` +
+                        '<SQLV2 nodeId="sql" code="SELECT 1" returnVariable="sql_df" runId="sql-run" result={{"columns":["value"],"row_count":1}} />'
+                )
+            )
+
+            await prepareNotebookInsightDataframes(notebook)
+
+            expect(collectNotebookFrameNodes(notebook.values.content)).toEqual([
+                expect.objectContaining({ name: 'available_df', hasRun: true }),
+                expect.objectContaining({ name: 'sql_df', hasRun: true }),
+            ])
+            await expect(prepareNotebookInsightDataframes(notebook, ['unavailable_df'])).rejects.toThrow(
+                failure === 'missing'
+                    ? 'The insight query is unavailable. Try again after the insight loads.'
+                    : 'Could not load insight'
+            )
+            lookup.mockClear()
+            await prepareNotebookInsightDataframes(notebook, ['sql_df'])
+            expect(lookup).not.toHaveBeenCalled()
+        }
+    )
 
     it('retries a failed preparation without creating another cell', async () => {
         jest.mocked(api.notebooks.sqlV2Run).mockRejectedValueOnce(new Error('Temporary query failure'))

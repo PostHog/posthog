@@ -82,7 +82,7 @@ function ExpandedWidget({
         prompt,
         model,
         isEditable,
-        prepareInsightDataframes: () => prepareNotebookInsightDataframes(notebookLogic),
+        prepareInsightDataframes: (names?: string[]) => prepareNotebookInsightDataframes(notebookLogic, names),
         persistNotebook: async (): Promise<void> => {
             await notebookLogic.asyncActions.saveNotebook({
                 content: notebookLogic.values.content,

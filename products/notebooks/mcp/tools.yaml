@@ -477,8 +477,9 @@ tools:
             First insert a Widget component with notebooks-add-cell: cell_type="component", tag_name="Widget",
             props={"prompt":"Describe the visualization"}, and a short title. If using markdown editing instead, insert
             <Widget nodeId="a-stable-unique-id" prompt="Describe the visualization" /> into a saved markdown notebook.
-            Insertion alone does not start generation. Run all notebook SQL and Python dataframes first, then call this
-            tool with the notebook short_id, the inserted node_id, prompt, and a fresh UUID generation_id. Reuse that
+            Insertion alone does not start generation. Run the SQL and Python cells the widget should use first;
+            unrelated unrun cells are skipped. Then call this tool with the notebook short_id, the inserted node_id,
+            prompt, and a fresh UUID generation_id. Reuse that
             UUID when retrying the same request. Use generation_operation="initial" for a new widget, "regenerate" to
             replace it, or "improve" with expected_current_version_id to change the current version. Generation uses AI
             credits. Poll notebooks-widget-status until lifecycle_status is ready or failed; notebooks-widget-cancel
