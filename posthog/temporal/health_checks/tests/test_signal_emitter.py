@@ -196,6 +196,7 @@ class TestSeamEmitsSignalsOnFiringOnly(SimpleTestCase):
             ),
             patch("posthog.temporal.health_checks.processing.emit_health_check_alert"),
             patch("posthog.temporal.health_checks.processing.emit_health_check_signals") as emit_signals,
+            patch("posthog.temporal.health_checks.processing.HealthCheckRun"),
         ):
             _process_batch_detection([42], "k", lambda team_ids: {}, dry_run=dry_run)
 

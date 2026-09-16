@@ -10,6 +10,8 @@ export interface HealthCheckAction {
 
 export interface HealthCheck {
     id: HealthCheckId
+    /** The backend check kind behind this row, e.g. 'reverse_proxy'. */
+    kind: string
     category: HealthCheckCategory
     title: string
     description: string
