@@ -1801,6 +1801,10 @@ def claim_and_fail_stranded_cloud_run(
     it, so a row that moved since the scan matches nothing and the claim is lost instead.
     Intentionally cross-team (janitor sweep).
     """
+    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 (keep temporalio off the api import path)
+        handle_loop_run_terminal,
+    )
+
     claimed = TaskRun.objects.filter(
         id=run_id,
         status=TaskRun.Status.IN_PROGRESS,
@@ -1812,6 +1816,13 @@ def claim_and_fail_stranded_cloud_run(
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
     if run is not None:
         run.mark_failed(error, error_type=error_type)
+        # A run whose workflow died never reaches the update_task_run_status activity, so loop
+        # bookkeeping (consecutive_failures, auto-pause, notifications) must hook in here too.
+        # Swallowed so a bookkeeping failure never undoes the reap that already landed.
+        try:
+            handle_loop_run_terminal(run, error_type=error_type)
+        except Exception:
+            logger.warning("Failed loop terminal bookkeeping for reaped run %s", run_id, exc_info=True)
         resume_workflow_step_for_run(run)
     return True
 

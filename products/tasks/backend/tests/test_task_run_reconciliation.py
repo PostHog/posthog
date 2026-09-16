@@ -11,7 +11,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Loop, Task, TaskRun
 from products.tasks.backend.task_run_reconciliation import (
     REAP_MESSAGE,
     STALE_AFTER,
@@ -32,6 +32,7 @@ class TestReconcileStaleInProgressTaskRuns(TestCase):
         status=TaskRun.Status.IN_PROGRESS,
         environment=TaskRun.Environment.CLOUD,
         age=None,
+        extra_state=None,
     ) -> TaskRun:
         task = Task.objects.create(
             team=self.team,
@@ -40,7 +41,7 @@ class TestReconcileStaleInProgressTaskRuns(TestCase):
             description="d",
             origin_product=Task.OriginProduct.USER_CREATED,
         )
-        run = task.create_run(mode="background", environment=environment)
+        run = task.create_run(mode="background", environment=environment, extra_state=extra_state)
         run.status = status
         run.save(update_fields=["status", "updated_at"])
         if age is not None:
@@ -82,6 +83,31 @@ class TestReconcileStaleInProgressTaskRuns(TestCase):
         run.refresh_from_db()
         self.assertEqual(outcomes.get(expected_outcome), 1)
         self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
+
+    def test_reaped_loop_run_drives_loop_bookkeeping(self):
+        loop = Loop(
+            team=self.team,
+            created_by=self.user,
+            name="Daily digest",
+            instructions="Summarize open PRs across the team's repos",
+            runtime_adapter="claude",
+            model="claude-sonnet-4-5",
+            enabled=True,
+        )
+        loop.save()
+        run = self.create_run(age=STALE_AFTER + timedelta(minutes=1), extra_state={"loop_id": str(loop.id)})
+
+        outcomes = self.reconcile("gone")
+
+        run.refresh_from_db()
+        loop.refresh_from_db()
+        self.assertEqual(outcomes.get("reaped"), 1)
+        self.assertEqual(run.status, TaskRun.Status.FAILED)
+        # Without this the loop surface keeps stale state and the auto-pause counter never
+        # moves, so a loop whose runs keep dying is never paused.
+        self.assertEqual(loop.last_run_status, TaskRun.Status.FAILED)
+        self.assertEqual(loop.last_error, REAP_MESSAGE)
+        self.assertEqual(loop.consecutive_failures, 1)
 
     @parameterized.expand(
         [
