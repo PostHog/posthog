@@ -36,6 +36,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.schema.spans import TraceSpansTable
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -151,8 +152,13 @@ def _normalise_status_code_values(values: list) -> list[str]:
     return normalised
 
 
-class UnknownSpanFilterKeyError(ValueError):
-    """A `type: "span"` filter names a key that is not a span column."""
+class UnknownSpanFilterKeyError(QueryError):
+    """A `type: "span"` filter names a key that is not a span column.
+
+    A `QueryError` so both surfaces that reach the runner answer 400: the generic `/query/`
+    endpoint, which turns every `ExposedHogQLError` into a validation error, and
+    `SpansViewSet.handle_exception`.
+    """
 
 
 # Keys a `type: "span"` filter may use: every top-level span column, plus the `duration` alias that
