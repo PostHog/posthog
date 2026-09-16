@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { actionToUrl } from 'kea-router'
+import { actionToUrl, router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -69,6 +69,7 @@ export type NativeSourceHierarchyStatus = {
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
     AD_PERFORMANCE = 'ad-performance',
+    PAGE_VISIBILITY = 'page-visibility',
     ATTRIBUTION = 'attribution',
     RETENTION = 'retention',
     // Still the tab key when Setup's flag is off, which is everywhere until it rolls
@@ -1286,6 +1287,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     }),
     actionToUrl(({ values }) => {
         const buildUrl = (): [string, string] => {
+            if (values.activeTab === MarketingAnalyticsTab.PAGE_VISIBILITY) {
+                const searchParams = new URLSearchParams(router.values.location.search)
+                searchParams.set('tab', MarketingAnalyticsTab.PAGE_VISIBILITY)
+                searchParams.delete('section')
+                return [router.values.location.pathname, searchParams.toString()]
+            }
             const searchParams = new URLSearchParams()
 
             // Tab

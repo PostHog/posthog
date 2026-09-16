@@ -5,6 +5,7 @@
     },
     "dependencies": {
         "kea": "catalog:",
+        "kea-router": "catalog:",
         "kea-subscriptions": "catalog:"
     },
     "peerDependencies": {

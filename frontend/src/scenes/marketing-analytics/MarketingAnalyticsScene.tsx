@@ -27,6 +27,7 @@ import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics
 import { MarketingDashboard } from 'products/marketing_analytics/frontend/dashboard/MarketingDashboard'
 import { marketingDashboardLogic } from 'products/marketing_analytics/frontend/dashboard/marketingDashboardLogic'
 import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
+import { PageVisibility } from 'products/marketing_analytics/frontend/PageVisibility'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { LegacyOAuthReconnectBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/LegacyOAuthReconnectBanner'
@@ -316,6 +317,11 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                           </>
                       ),
                   },
+                  {
+                      key: MarketingAnalyticsTab.PAGE_VISIBILITY,
+                      label: 'Page visibility',
+                      content: <PageVisibility />,
+                  },
               ]
             : []),
         // Untouched by Setup: the explorer compares attribution models against each
@@ -386,6 +392,8 @@ const MarketingAnalyticsContent = (): JSX.Element => {
 }
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
+    [MarketingAnalyticsTab.PAGE_VISIBILITY]:
+        'Explore page traffic, Google search visibility, AI referrals, crawler activity, and conversions.',
     [MarketingAnalyticsTab.AD_PERFORMANCE]:
         'Compare ad spend, clicks, conversions and return on ad spend across your connected platforms.',
     [MarketingAnalyticsTab.DASHBOARD]:

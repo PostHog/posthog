@@ -10,6 +10,7 @@ The `new-marketing-analytics-dashboard` flag replaces the Dashboard tab with a w
 - Conversion: the existing Attribution explorer, model comparison, and conversion paths.
 - Revenue: the existing attribution table restricted to valid event/action goals marked as revenue. Select one goal at a time to avoid double-counting overlapping goals. Warehouse goals remain in Ad performance.
 - Ad performance: existing campaign table, cost chart, and overview. Include conversion goals defaults on and controls displayed goal metrics. It does not delete goals or bypass their backend computations.
+- Page visibility: reuses Web Analytics Page performance, including page metrics, Google search, AI referrals, crawler activity, and conversion breakdowns. It sits between Ad performance and Setup.
 - Setup: existing suggestions, integrations, goals, mapping, and attribution settings.
 
 The new dashboard is accessible without ad integrations. Missing integrations are explained inline; Ad performance links to setup. Existing explorer URLs select the corresponding dashboard section.
@@ -32,9 +33,10 @@ Verify acquisition totals and breakdowns, date comparison, engagement, cohort re
 
 ## Follow-up implementation order
 
+Page visibility is available at `/marketing?tab=page-visibility` under the same preview flag. Its filters are stored separately from Web Analytics, while shared URLs restore Marketing-specific filters.
+
 1. Add pages per session and richer engagement metrics, reusing Web Analytics queries and keeping definitions explicit.
 2. Create 1-3 initial conversion goals from observed eligible events, with idempotency and no duplication of existing goals. Reuse setup suggestions for cases where events are missing or ambiguous.
 3. Extend revenue to warehouse goals and common spend/attribution breakdowns before adding blended ROAS.
-4. Treat Page visibility as a separate feature, with its own data sources, definitions, and verification.
 
-Automatic goal creation and Page visibility are not part of this preview. New-visitor counts and richer engagement measures remain follow-up work.
+Automatic goal creation is not part of this preview. New-visitor counts and richer engagement measures remain follow-up work.

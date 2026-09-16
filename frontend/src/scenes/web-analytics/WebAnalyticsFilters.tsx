@@ -37,7 +37,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyMathType, PropertyOperat
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
-import { INITIAL_DATE_FROM, INITIAL_DATE_TO, ProductTab, faviconUrl } from './common'
+import { DeviceType, INITIAL_DATE_FROM, INITIAL_DATE_TO, ProductTab, faviconUrl } from './common'
 import { webAnalyticsDateMapping } from './constants'
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { TableSortingIndicator } from './TableSortingIndicator'
@@ -279,19 +279,27 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
     return children
 }
 
-export const WebAnalyticsDomainSelector = (): JSX.Element => {
+export const WebAnalyticsDomainSelector = ({
+    value,
+    onChange,
+}: {
+    value?: string | null
+    onChange?: (domain: string | null) => void
+} = {}): JSX.Element => {
     const { validatedDomainFilter, hasHostFilter, authorizedDomains, showProposedURLForm } =
         useValues(webAnalyticsLogic)
     const { setDomainFilter } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const selectedDomain = value === undefined ? validatedDomainFilter : value
+    const changeDomain = onChange ?? setDomainFilter
 
     return (
         <LemonSelect
             className="grow md:grow-0"
             size="small"
-            value={hasHostFilter ? 'host' : (validatedDomainFilter ?? 'all')}
+            value={value === undefined && hasHostFilter ? 'host' : (selectedDomain ?? 'all')}
             icon={<IconGlobe />}
-            onChange={(value) => setDomainFilter(value)}
+            onChange={(value) => changeDomain(value)}
             menu={{ closeParentPopoverOnClickInside: !showProposedURLForm }}
             options={[
                 {
@@ -441,10 +449,18 @@ export const WebAnalyticsLiveReferrerSelector = ({ suggestions = [] }: { suggest
     )
 }
 
-export const WebAnalyticsDeviceToggle = (): JSX.Element => {
-    const { deviceTypeFilter } = useValues(webAnalyticsLogic)
-    const { setDeviceTypeFilter } = useActions(webAnalyticsLogic)
+export const WebAnalyticsDeviceToggle = ({
+    value,
+    onChange,
+}: {
+    value?: DeviceType | null
+    onChange?: (deviceType: DeviceType | null) => void
+} = {}): JSX.Element => {
+    const { deviceTypeFilter: logicDeviceTypeFilter } = useValues(webAnalyticsLogic)
+    const { setDeviceTypeFilter: logicSetDeviceTypeFilter } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const deviceTypeFilter = value === undefined ? logicDeviceTypeFilter : value
+    const setDeviceTypeFilter = onChange ?? logicSetDeviceTypeFilter
 
     // Device toggle shortcuts (Web Analytics-specific)
     useShortcut({

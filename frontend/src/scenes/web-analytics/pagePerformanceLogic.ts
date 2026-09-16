@@ -1,12 +1,15 @@
 import {
+    LogicWrapper,
     MakeLogicType,
     actions,
     afterMount,
     connect,
     isBreakpoint,
     kea,
+    key,
     listeners,
     path,
+    props,
     reducers,
     selectors,
 } from 'kea'
@@ -100,6 +103,22 @@ export interface PagePerformanceWindow {
     previousFrom: dayjs.Dayjs | null
     previousTo: dayjs.Dayjs | null
     timezone: string
+}
+
+export type PagePerformanceSource = 'web-analytics' | 'marketing-analytics'
+
+export interface PagePerformanceFiltersState {
+    dateFilter: DateFilterState
+    compareFilter: CompareFilter
+    conversionGoal: WebAnalyticsConversionGoal | null
+    filterTestAccounts: boolean
+    isPathCleaningEnabled: boolean
+    webAnalyticsFilters: WebAnalyticsPropertyFilters
+}
+
+export interface PagePerformanceLogicProps {
+    source: PagePerformanceSource
+    filters?: PagePerformanceFiltersState
 }
 
 export interface OverviewTotals {
@@ -680,6 +699,12 @@ export interface pagePerformanceLogicValues {
     filterTestAccounts: boolean
     isPathCleaningEnabled: boolean
     webAnalyticsFilters: WebAnalyticsPropertyFilters
+    webCompareFilter: CompareFilter
+    webConversionGoal: WebAnalyticsConversionGoal | null
+    webDateFilter: DateFilterState
+    webFilterTestAccounts: boolean
+    webIsPathCleaningEnabled: boolean
+    webPropertyFilters: WebAnalyticsPropertyFilters
     aiSectionQueries: AiSectionQueries
     breakdownModal: PagePerformanceBreakdownState | null
     breakdownQuery: DataTableNode | null
@@ -824,23 +849,25 @@ export interface pagePerformanceLogicMeta {
 export type pagePerformanceLogicType = MakeLogicType<
     pagePerformanceLogicValues,
     pagePerformanceLogicActions,
-    Record<string, any>,
+    PagePerformanceLogicProps,
     pagePerformanceLogicMeta
 >
 
-export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
-    path(['scenes', 'webAnalytics', 'pagePerformanceLogic']),
+export const pagePerformanceLogic: LogicWrapper<pagePerformanceLogicType> = kea<pagePerformanceLogicType>([
+    props({ source: 'web-analytics' } as PagePerformanceLogicProps),
+    key((props) => props.source),
+    path((key) => ['scenes', 'webAnalytics', 'pagePerformanceLogic', key]),
     connect(() => ({
         actions: [dataNodeCollectionLogic({ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }), ['reloadAll']],
         values: [
             webAnalyticsLogic,
             [
-                'dateFilter',
-                'shouldFilterTestAccounts as filterTestAccounts',
-                'compareFilter',
-                'conversionGoal',
-                'isPathCleaningEnabled',
-                'webAnalyticsFilters',
+                'dateFilter as webDateFilter',
+                'shouldFilterTestAccounts as webFilterTestAccounts',
+                'compareFilter as webCompareFilter',
+                'conversionGoal as webConversionGoal',
+                'isPathCleaningEnabled as webIsPathCleaningEnabled',
+                'webAnalyticsFilters as webPropertyFilters',
             ],
             teamLogic,
             ['currentTeam'],
@@ -929,6 +956,40 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
         ],
     }),
     selectors(() => ({
+        dateFilter: [
+            (s) => [s.webDateFilter, (_, props) => props.filters],
+            (webDateFilter: DateFilterState, filters?: PagePerformanceFiltersState): DateFilterState =>
+                filters?.dateFilter ?? webDateFilter,
+        ],
+        filterTestAccounts: [
+            (s) => [s.webFilterTestAccounts, (_, props) => props.filters],
+            (webFilterTestAccounts: boolean, filters?: PagePerformanceFiltersState): boolean =>
+                filters?.filterTestAccounts ?? webFilterTestAccounts,
+        ],
+        compareFilter: [
+            (s) => [s.webCompareFilter, (_, props) => props.filters],
+            (webCompareFilter: CompareFilter, filters?: PagePerformanceFiltersState): CompareFilter =>
+                filters?.compareFilter ?? webCompareFilter,
+        ],
+        conversionGoal: [
+            (s) => [s.webConversionGoal, (_, props) => props.filters],
+            (
+                webConversionGoal: WebAnalyticsConversionGoal | null,
+                filters?: PagePerformanceFiltersState
+            ): WebAnalyticsConversionGoal | null => (filters ? filters.conversionGoal : webConversionGoal),
+        ],
+        isPathCleaningEnabled: [
+            (s) => [s.webIsPathCleaningEnabled, (_, props) => props.filters],
+            (webIsPathCleaningEnabled: boolean, filters?: PagePerformanceFiltersState): boolean =>
+                filters?.isPathCleaningEnabled ?? webIsPathCleaningEnabled,
+        ],
+        webAnalyticsFilters: [
+            (s) => [s.webPropertyFilters, (_, props) => props.filters],
+            (
+                webPropertyFilters: WebAnalyticsPropertyFilters,
+                filters?: PagePerformanceFiltersState
+            ): WebAnalyticsPropertyFilters => filters?.webAnalyticsFilters ?? webPropertyFilters,
+        ],
         window: [
             (s) => [s.dateFilter, s.compareFilter, s.currentTeam],
             (
