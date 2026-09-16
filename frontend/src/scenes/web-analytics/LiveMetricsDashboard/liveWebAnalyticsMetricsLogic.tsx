@@ -2,6 +2,7 @@ import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import type { DisposablesManager } from 'kea-disposables'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -79,6 +80,19 @@ const TRANSIENT_QUERY_STATUSES = new Set([502, 503, 504])
 
 type BotQueryStatus = 'idle' | 'loading' | 'loaded' | 'error'
 
+// One key per backfill query, and one loading state per key: cards read the keys they depend on.
+const ALL_LIVE_QUERY_KEYS = [
+    'usersPageviews',
+    'device',
+    'browser',
+    'paths',
+    'referrer',
+    'geo',
+    'recentUsers',
+    'city',
+] as const
+export type LiveQueryKey = (typeof ALL_LIVE_QUERY_KEYS)[number]
+
 // Bound live-dashboard query fan-out to protect ClickHouse capacity.
 const liveQueryConcurrency = new ConcurrencyController(LIVE_QUERY_CONCURRENCY)
 
@@ -148,9 +162,9 @@ export interface liveWebAnalyticsMetricsLogicValues {
     hasActiveFilters: boolean
     hasBotQueryError: boolean
     isBotLoading: boolean
-    isLoading: boolean
     isRefreshing: boolean
     liveFilters: WebAnalyticsPropertyFilter[]
+    loadingQueries: Set<LiveQueryKey>
     liveUserCount: number
     pathCleaningFilters: PathCleaningFilter[]
     recentEvents: LiveEvent[]
@@ -186,6 +200,19 @@ export interface liveWebAnalyticsMetricsLogicActions {
     addGeoEvents: (events: LiveGeoEvent[]) => {
         events: LiveGeoEvent[]
     }
+    applyInitialData: (
+        buckets: {
+            bucket: SlidingWindowBucket
+            timestamp: number
+        }[],
+        replaceWindow: boolean
+    ) => {
+        buckets: {
+            bucket: SlidingWindowBucket
+            timestamp: number
+        }[]
+        replaceWindow: boolean
+    }
     clearFilteredLiveUsers: () => {
         value: true
     }
@@ -218,21 +245,14 @@ export interface liveWebAnalyticsMetricsLogicActions {
     setBotQueryStatus: (status: BotQueryStatus) => {
         status: BotQueryStatus
     }
-    setInitialData: (
-        buckets: {
-            bucket: SlidingWindowBucket
-            timestamp: number
-        }[],
-        recentUsersByLastSeen: [string, number][]
-    ) => {
-        buckets: {
-            bucket: SlidingWindowBucket
-            timestamp: number
-        }[]
+    setRecentUsersByLastSeen: (recentUsersByLastSeen: [string, number][]) => {
         recentUsersByLastSeen: [string, number][]
     }
-    setIsLoading: (loading: boolean) => {
-        loading: boolean
+    setLoadingQueries: (keys: LiveQueryKey[]) => {
+        keys: LiveQueryKey[]
+    }
+    markQueryLoaded: (key: LiveQueryKey) => {
+        key: LiveQueryKey
     }
     setIsRefreshing: (refreshing: boolean) => {
         refreshing: boolean
@@ -324,13 +344,15 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             pathCleaningFilters,
         }),
         addGeoEvents: (events: LiveGeoEvent[]) => ({ events }),
-        setInitialData: (
-            buckets: { timestamp: number; bucket: SlidingWindowBucket }[],
-            recentUsersByLastSeen: [string, number][]
-        ) => ({ buckets, recentUsersByLastSeen }),
+        applyInitialData: (buckets: { timestamp: number; bucket: SlidingWindowBucket }[], replaceWindow: boolean) => ({
+            buckets,
+            replaceWindow,
+        }),
+        setRecentUsersByLastSeen: (recentUsersByLastSeen: [string, number][]) => ({ recentUsersByLastSeen }),
+        setLoadingQueries: (keys: LiveQueryKey[]) => ({ keys }),
+        markQueryLoaded: (key: LiveQueryKey) => ({ key }),
         setBotData: (buckets: { timestamp: number; bucket: SlidingWindowBucket }[]) => ({ buckets }),
         setBotQueryStatus: (status: BotQueryStatus) => ({ status }),
-        setIsLoading: (loading: boolean) => ({ loading }),
         setIsRefreshing: (refreshing: boolean) => ({ refreshing }),
         loadInitialData: (isBackground: boolean = false) => ({ isBackground }),
         scheduleReload: true,
@@ -347,13 +369,13 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         slidingWindow: [
             new LiveMetricsSlidingWindow(BUCKET_WINDOW_MINUTES),
             {
-                setInitialData: (_, { buckets }) => {
-                    const freshWindow = new LiveMetricsSlidingWindow(BUCKET_WINDOW_MINUTES)
+                applyInitialData: (window, { buckets, replaceWindow }) => {
+                    const target = replaceWindow ? new LiveMetricsSlidingWindow(BUCKET_WINDOW_MINUTES) : window
                     for (const { timestamp, bucket } of buckets) {
-                        freshWindow.extendBucketData(timestamp / 1000, bucket)
+                        target.extendBucketData(timestamp / 1000, bucket)
                     }
-                    freshWindow.prune()
-                    return freshWindow
+                    target.prune()
+                    return target
                 },
                 setBotData: (window, { buckets }) => {
                     for (const { timestamp, bucket } of buckets) {
@@ -460,7 +482,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         eventsVersion: [
             0,
             {
-                setInitialData: (v) => v + 1,
+                applyInitialData: (v) => v + 1,
                 setBotData: (v) => v + 1,
                 addEvents: (v) => v + 1,
                 tickCurrentMinute: (v) => v + 1,
@@ -469,7 +491,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         recentUsersByLastSeen: [
             new Map<string, number>(),
             {
-                setInitialData: (_, { recentUsersByLastSeen }) => new Map(recentUsersByLastSeen),
+                setRecentUsersByLastSeen: (_, { recentUsersByLastSeen }) => new Map(recentUsersByLastSeen),
                 addEvents: (state, { events, newerThan }) =>
                     upsertRecentUsersByLastSeenFromEvents(state, events, newerThan),
                 tickLiveUserCount: (state) => pruneRecentUsersByLastSeen(state, Date.now() / 1000),
@@ -479,14 +501,19 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         geoVersion: [
             0,
             {
-                setInitialData: (v) => v + 1,
+                applyInitialData: (v) => v + 1,
                 addGeoEvents: (v) => v + 1,
             },
         ],
-        isLoading: [
-            true,
+        loadingQueries: [
+            new Set<LiveQueryKey>(ALL_LIVE_QUERY_KEYS),
             {
-                setIsLoading: (_, { loading }) => loading,
+                setLoadingQueries: (_, { keys }) => new Set(keys),
+                markQueryLoaded: (state, { key }) => {
+                    const remaining = new Set(state)
+                    remaining.delete(key)
+                    return remaining
+                },
             },
         ],
         isRefreshing: [
@@ -724,9 +751,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             const { signal } = abortController
 
             const isColdLoad = !cache.hasLoadedData || !isBackground
-            if (isColdLoad) {
-                actions.setIsLoading(true)
-            } else {
+            if (!isColdLoad) {
                 actions.setIsRefreshing(true)
             }
 
@@ -742,7 +767,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 actions.updateConnection()
                 actions.updateGeoConnection()
 
-                const data = await loadQueryData({
+                const jobs = buildLiveQueryJobs({
                     dateFrom,
                     dateTo: handoff,
                     filters: values.liveFilters,
@@ -750,41 +775,75 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     includeCity: !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN],
                     filtersEnabled: true,
                     doPathCleaning: values.pathCleaningFilters.length > 0,
-                    abortController,
+                })
+                const jobKeys = jobs.map((job) => job.key)
+                if (isColdLoad) {
+                    actions.setLoadingQueries(jobKeys)
+                }
+                if (!jobKeys.includes('recentUsers')) {
+                    actions.setRecentUsersByLastSeen([])
+                }
+
+                const loadStart = performance.now()
+                let firstCardAt: number | null = null
+                // The first response replaces the window, later ones extend it, so the backfill
+                // still lands as one coherent 30-minute view however the responses interleave.
+                let hasReplacedWindow = false
+                // A refresh still holds its responses back to the end: the cards already show the
+                // previous window, and swapping them one query at a time would flash empty cards.
+                const heldBuckets = isColdLoad ? null : new Map<number, SlidingWindowBucket>()
+                const bucketEntries = (
+                    bucketMap: Map<number, SlidingWindowBucket>
+                ): { timestamp: number; bucket: SlidingWindowBucket }[] =>
+                    [...bucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket }))
+
+                const { allFailed, failedQueries } = await runLiveQueryJobs(jobs, abortController, (key, response) => {
+                    if (signal.aborted) {
+                        return
+                    }
+                    firstCardAt ??= performance.now()
+                    if (key === 'recentUsers') {
+                        actions.setRecentUsersByLastSeen(
+                            response ? getRecentUsersByLastSeenEntries(response as HogQLQueryResponse) : []
+                        )
+                    } else if (heldBuckets) {
+                        fillBucketsForQuery(key, response, heldBuckets)
+                    } else {
+                        const bucketMap = new Map<number, SlidingWindowBucket>()
+                        fillBucketsForQuery(key, response, bucketMap)
+                        actions.applyInitialData(bucketEntries(bucketMap), !hasReplacedWindow)
+                        hasReplacedWindow = true
+                    }
+                    actions.markQueryLoaded(key)
                 })
 
                 if (signal.aborted) {
                     return
                 }
 
-                if (data.allFailed) {
+                // pinned: analytics event name - renaming breaks the live dashboard load-time insights
+                posthog.capture('web_analytics_live_dashboard_loaded', {
+                    duration_ms: Math.round(performance.now() - loadStart),
+                    time_to_first_card_ms: firstCardAt === null ? null : Math.round(firstCardAt - loadStart),
+                    is_background_refresh: !isColdLoad,
+                    query_count: jobs.length,
+                    failed_query_count: failedQueries.length,
+                })
+
+                if (allFailed) {
                     lemonToast.error('Failed to load initial data')
                     return
                 }
 
-                const bucketMap = new Map<number, SlidingWindowBucket>()
-
-                addUserDataToBuckets(data.usersPageviews, bucketMap)
-                addBreakdownDataToBuckets(data.device, bucketMap, (b) => b.devices)
-                addBreakdownDataToBuckets(data.browser, bucketMap, (b) => b.browsers)
-                addPathDataToBuckets(data.paths, bucketMap)
-                addReferrerDataToBuckets(data.referrer, bucketMap)
-                addGeoDataToBuckets(data.geo, bucketMap)
-                addCityDataToBuckets(data.city, bucketMap)
-
-                actions.setInitialData(
-                    [...bucketMap.entries()].map(([timestamp, bucket]) => ({ timestamp, bucket })),
-                    data.recentUsers ? getRecentUsersByLastSeenEntries(data.recentUsers) : []
-                )
+                if (heldBuckets) {
+                    actions.applyInitialData(bucketEntries(heldBuckets), true)
+                }
                 cache.hasLoadedData = true
 
                 if (values.shouldLoadBots) {
                     actions.setBotQueryStatus('loading')
                 }
-                actions.setIsLoading(false)
                 actions.setIsRefreshing(false)
-
-                const failedQueries = [...data.failedQueries]
 
                 if (values.shouldLoadBots) {
                     const botResponse = await loadBotQueryData({
@@ -826,7 +885,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     cache.loadAbortController = null
                 }
                 if (!signal.aborted) {
-                    actions.setIsLoading(false)
+                    actions.setLoadingQueries([])
                     actions.setIsRefreshing(false)
                 }
                 cache.hasInitialized = true
@@ -1076,20 +1135,10 @@ const startFlushInterval = (cache: FlushCache, actions: FlushActions): void => {
     }, 'flushInterval')
 }
 
-interface LiveQueryData {
-    usersPageviews: HogQLQueryResponse | null
-    device: HogQLQueryResponse | null
-    browser: HogQLQueryResponse | null
-    paths: TrendsQueryResponse | null
-    referrer: HogQLQueryResponse | null
-    geo: HogQLQueryResponse | null
-    recentUsers: HogQLQueryResponse | null
-    city: HogQLQueryResponse | null
-    allFailed: boolean
-    failedQueries: string[]
+interface LiveQueryJob {
+    key: LiveQueryKey
+    query: HogQLQuery | TrendsQuery
 }
-
-type LiveQueryKey = Exclude<keyof LiveQueryData, 'allFailed' | 'failedQueries'>
 
 const LIVE_QUERY_LABELS: Record<LiveQueryKey, string> = {
     usersPageviews: 'visitors and pageviews',
@@ -1137,7 +1186,7 @@ const buildLiveQueryContext = ({
     return { whereClause, queryParams, botEligibleEventsTuple }
 }
 
-const loadQueryData = async ({
+const buildLiveQueryJobs = ({
     dateFrom,
     dateTo,
     filters,
@@ -1145,7 +1194,6 @@ const loadQueryData = async ({
     includeCity,
     filtersEnabled,
     doPathCleaning,
-    abortController,
 }: {
     dateFrom: Date
     dateTo: Date
@@ -1154,9 +1202,7 @@ const loadQueryData = async ({
     includeCity: boolean
     filtersEnabled: boolean
     doPathCleaning: boolean
-    abortController: AbortController
-}): Promise<LiveQueryData> => {
-    const { signal } = abortController
+}): LiveQueryJob[] => {
     const { whereClause, queryParams, botEligibleEventsTuple } = buildLiveQueryContext({
         dateFrom,
         dateTo,
@@ -1347,7 +1393,7 @@ const loadQueryData = async ({
               }
             : null
 
-    const jobs: { key: LiveQueryKey; query: HogQLQuery | TrendsQuery }[] = [
+    const jobs: LiveQueryJob[] = [
         { key: 'usersPageviews', query: usersPageviewsQuery },
         { key: 'device', query: deviceQuery },
         { key: 'browser', query: browserQuery },
@@ -1361,46 +1407,40 @@ const loadQueryData = async ({
     if (cityQuery) {
         jobs.push({ key: 'city', query: cityQuery })
     }
+    return jobs
+}
 
-    const settled = await Promise.allSettled(
-        jobs.map((job) =>
-            liveQueryConcurrency.run({
-                fn: () => performLiveQuery(job.query, signal),
-                abortController,
-                debugTag: job.key,
-            })
-        )
+// Hands each response to the caller as it lands instead of collecting them, so a card renders
+// on its own query rather than waiting for the slowest one in the fan-out.
+const runLiveQueryJobs = async (
+    jobs: LiveQueryJob[],
+    abortController: AbortController,
+    onSettled: (key: LiveQueryKey, response: HogQLQueryResponse | TrendsQueryResponse | null) => void
+): Promise<{ allFailed: boolean; failedQueries: string[] }> => {
+    const { signal } = abortController
+    const failedQueries: string[] = []
+
+    await Promise.all(
+        jobs.map(async ({ key, query }) => {
+            try {
+                const response = await liveQueryConcurrency.run({
+                    fn: () => performLiveQuery(query, signal),
+                    abortController,
+                    debugTag: key,
+                })
+                onSettled(key, response as HogQLQueryResponse | TrendsQueryResponse)
+            } catch (error) {
+                if (isAbortedRequest(error)) {
+                    return
+                }
+                failedQueries.push(LIVE_QUERY_LABELS[key])
+                console.error(`Live query "${query.tags?.name ?? key}" failed:`, error)
+                onSettled(key, null)
+            }
+        })
     )
 
-    const data: LiveQueryData = {
-        usersPageviews: null,
-        device: null,
-        browser: null,
-        paths: null,
-        referrer: null,
-        geo: null,
-        recentUsers: null,
-        city: null,
-        allFailed: false,
-        failedQueries: [],
-    }
-
-    settled.forEach((result, index) => {
-        const { key, query } = jobs[index]
-        if (result.status === 'fulfilled') {
-            if (key === 'paths') {
-                data.paths = result.value as TrendsQueryResponse
-            } else {
-                data[key] = result.value as HogQLQueryResponse
-            }
-        } else if (!isAbortedRequest(result.reason)) {
-            data.failedQueries.push(LIVE_QUERY_LABELS[key])
-            console.error(`Live query "${query.tags?.name ?? key}" failed:`, result.reason)
-        }
-    })
-
-    data.allFailed = jobs.length > 0 && data.failedQueries.length === jobs.length
-    return data
+    return { allFailed: jobs.length > 0 && failedQueries.length === jobs.length, failedQueries }
 }
 
 const loadBotQueryData = async ({
@@ -1612,6 +1652,37 @@ const addCityDataToBuckets = (
             }
             bucket.cities.set(cityKey, cityUsers)
         }
+    }
+}
+
+const fillBucketsForQuery = (
+    key: Exclude<LiveQueryKey, 'recentUsers'>,
+    response: HogQLQueryResponse | TrendsQueryResponse | null,
+    bucketMap: Map<number, SlidingWindowBucket>
+): void => {
+    const hogQLResponse = response as HogQLQueryResponse | null
+    switch (key) {
+        case 'usersPageviews':
+            addUserDataToBuckets(hogQLResponse, bucketMap)
+            break
+        case 'device':
+            addBreakdownDataToBuckets(hogQLResponse, bucketMap, (b) => b.devices)
+            break
+        case 'browser':
+            addBreakdownDataToBuckets(hogQLResponse, bucketMap, (b) => b.browsers)
+            break
+        case 'paths':
+            addPathDataToBuckets(response as TrendsQueryResponse | null, bucketMap)
+            break
+        case 'referrer':
+            addReferrerDataToBuckets(hogQLResponse, bucketMap)
+            break
+        case 'geo':
+            addGeoDataToBuckets(hogQLResponse, bucketMap)
+            break
+        case 'city':
+            addCityDataToBuckets(hogQLResponse, bucketMap)
+            break
     }
 }
 

@@ -47,7 +47,7 @@ import { LiveTopPathsTable } from './LiveTopPathsTable'
 import { LiveTopReferrersTable } from './LiveTopReferrersTable'
 import { liveWebAnalyticsLayoutLogic } from './liveWebAnalyticsLayoutLogic'
 import { BotEventsPerMinuteChart, UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
-import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
+import { LiveQueryKey, liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
 import {
     BrowserBreakdownItem,
     buildCityKey,
@@ -288,7 +288,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         liveUserCount,
         hasActiveFilters,
         hasBotQueryError,
-        isLoading,
+        loadingQueries,
         isBotLoading,
         recentEvents,
         unstreamableTestAccountFilterCount,
@@ -366,6 +366,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
 
     const timezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])
     const displayedLiveUserCount = hasActiveFilters ? liveUserCount : allDomainsLiveUserCount
+    const isQueryLoading = (...keys: LiveQueryKey[]): boolean => keys.some((key) => loadingQueries.has(key))
 
     const sensors = useSensors(
         useSensor(PointerSensor, {
@@ -380,7 +381,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     <LiveStatCard
                         label="Users online"
                         value={displayedLiveUserCount}
-                        isLoading={hasActiveFilters ? isLoading : undefined}
+                        isLoading={hasActiveFilters ? isQueryLoading('recentUsers') : undefined}
                         tooltip="People active on your site right now."
                     />
                 )
@@ -389,7 +390,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     <LiveStatCard
                         label="Unique visitors"
                         value={totalUniqueVisitors}
-                        isLoading={isLoading}
+                        isLoading={isQueryLoading('usersPageviews')}
                         tooltip="Distinct visitors in the last 30 minutes."
                     />
                 )
@@ -398,7 +399,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     <LiveStatCard
                         label="Pageviews"
                         value={totalPageviews}
-                        isLoading={isLoading}
+                        isLoading={isQueryLoading('usersPageviews')}
                         tooltip="Total pages viewed in the last 30 minutes."
                     />
                 )
@@ -413,19 +414,25 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         title="Active users per minute"
                         subtitle={timezone}
                         subtitleTooltip="Metrics are shown in your local timezone"
-                        isLoading={isLoading}
+                        isLoading={isQueryLoading('usersPageviews')}
                         contentClassName="h-64 md:h-80"
                     >
                         <UsersPerMinuteChart data={chartData} timezone={timezone} />
                     </LiveChartCard>
                 )
             case 'top_paths':
-                return <LiveTopPathsTable paths={topPaths} isLoading={isLoading} totalPageviews={totalPageviews} />
+                return (
+                    <LiveTopPathsTable
+                        paths={topPaths}
+                        isLoading={isQueryLoading('paths')}
+                        totalPageviews={totalPageviews}
+                    />
+                )
             case 'top_referrers':
                 return (
                     <LiveTopReferrersTable
                         referrers={topReferrers}
-                        isLoading={isLoading}
+                        isLoading={isQueryLoading('referrer')}
                         totalPageviews={totalPageviews}
                     />
                 )
@@ -438,7 +445,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         getLabel={getDeviceLabel}
                         emptyMessage="No device data"
                         statLabel="unique devices"
-                        isLoading={isLoading}
+                        isLoading={isQueryLoading('device')}
                         onItemClick={onDeviceRowClick}
                     />
                 )
@@ -453,7 +460,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         emptyMessage="No browser data"
                         statLabel="unique browsers"
                         totalCount={totalBrowsers}
-                        isLoading={isLoading}
+                        isLoading={isQueryLoading('browser')}
                         onItemClick={onBrowserRowClick}
                     />
                 )
@@ -468,7 +475,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                             renderIcon={renderCountryIcon}
                             emptyMessage="No country data"
                             statLabel="unique visitors"
-                            isLoading={isLoading}
+                            isLoading={isQueryLoading('geo')}
                             onItemClick={onCountryRowClick}
                         />
                     )
@@ -477,7 +484,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     <LiveLocationsCard
                         countryData={topCountryBreakdown}
                         cityData={topCityBreakdown}
-                        isLoading={isLoading}
+                        isLoading={isQueryLoading('geo', 'city')}
                         onCountryClick={onCountryRowClick}
                         onCityClick={onCityRowClick}
                     />
@@ -491,7 +498,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         title="Bot requests per minute"
                         subtitle={timezone}
                         subtitleTooltip="Metrics are shown in your local timezone"
-                        isLoading={isLoading || isBotLoading}
+                        isLoading={isQueryLoading('usersPageviews') || isBotLoading}
                         errorMessage={
                             hasBotQueryError ? "Couldn't load bot traffic. Refresh the page to try again." : undefined
                         }
@@ -509,7 +516,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         data={botBreakdown}
                         totalBotEvents={totalBotEvents}
                         totalEvents={totalBotEligibleEvents}
-                        isLoading={isLoading || isBotLoading}
+                        isLoading={isQueryLoading('usersPageviews') || isBotLoading}
                         errorMessage={
                             hasBotQueryError ? "Couldn't load bot traffic. Refresh the page to try again." : undefined
                         }
@@ -520,7 +527,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     return null
                 }
                 return (
-                    <LiveChartCard title="Countries" isLoading={isLoading} contentClassName="">
+                    <LiveChartCard title="Countries" isLoading={isQueryLoading('geo')} contentClassName="">
                         <LiveWorldMap
                             data={countryBreakdown}
                             totalEvents={countryBreakdown.reduce((sum, c) => sum + c.count, 0)}

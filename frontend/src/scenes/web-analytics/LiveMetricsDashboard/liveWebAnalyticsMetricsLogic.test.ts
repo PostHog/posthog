@@ -116,7 +116,7 @@ describe('liveWebAnalyticsMetricsLogic', () => {
     })
 
     it('does not run the expensive bot query while bot analysis is disabled', async () => {
-        await expectLogic(logic).toDispatchActions(['setInitialData'])
+        await expectLogic(logic).toDispatchActions(['applyInitialData'])
 
         expect(getLiveQueryNames()).not.toContain('live_bots')
     })
@@ -127,7 +127,7 @@ describe('liveWebAnalyticsMetricsLogic', () => {
         logic = liveWebAnalyticsMetricsLogic()
         logic.mount()
 
-        await expectLogic(logic).toDispatchActions(['setInitialData', 'setBotData'])
+        await expectLogic(logic).toDispatchActions(['applyInitialData', 'setBotData'])
 
         expect(getLiveQueryNames()).toContain('live_bots')
         expect(logic.values).toMatchObject({ hasBotQueryError: false, isBotLoading: false })
@@ -149,7 +149,7 @@ describe('liveWebAnalyticsMetricsLogic', () => {
 
         await expectLogic(logic)
             .toDispatchActions([
-                'setInitialData',
+                'applyInitialData',
                 (action) => action.type === logic.actionTypes.setBotQueryStatus && action.payload.status === 'error',
             ])
             .toMatchValues({ hasBotQueryError: true, isBotLoading: false })
