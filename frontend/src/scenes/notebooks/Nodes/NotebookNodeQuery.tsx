@@ -29,6 +29,9 @@ import {
 } from '~/queries/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
+import { NotebookInsightDataframe } from 'products/notebooks/frontend/NotebookInsightDataframe'
+import type { InsightDataframeAttributes } from 'products/notebooks/frontend/notebookInsightDataframeLogic'
+
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import {
     getSqlEditorSourceQuery,
@@ -103,6 +106,10 @@ const Component = ({
         : {
               dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
           }
+    const dataframeInsightProps: InsightLogicProps =
+        query.kind === NodeKind.SavedInsightNode
+            ? insightLogicProps
+            : { dashboardItemId: `new-AdHoc.notebook.${notebookLogic.props.shortId}.${nodeId}`, query }
     const { insightName } = useValues(insightLogic(insightLogicProps))
     const isOutputPaneOpen = componentPanelState?.showViewPanel ?? expanded
     const showSqlOutputToolbar = getNotebookSqlOutputToolbarVisibility({
@@ -233,6 +240,7 @@ const Component = ({
         <Query
             uniqueKey={nodeId + '-component'}
             query={modifiedQuery}
+            context={isInsightVizNode(modifiedQuery) ? { insightProps: dataframeInsightProps } : undefined}
             attachTo={notebookLogic}
             setQuery={(t) => {
                 updateAttributes({
@@ -257,12 +265,19 @@ const Component = ({
                         {queryComponent}
                     </ScrollableShadows>
                 )}
+                {isInsightViz ? (
+                    <NotebookInsightDataframe
+                        insightProps={dataframeInsightProps}
+                        attributes={attributes}
+                        updateAttributes={updateAttributes}
+                    />
+                ) : null}
             </BindLogic>
         </div>
     )
 }
 
-type NotebookNodeQueryAttributes = {
+type NotebookNodeQueryAttributes = InsightDataframeAttributes & {
     query: QuerySchema
     id?: InsightShortId
     view?: string
@@ -475,6 +490,13 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         outputTab: {
             default: OutputTab.Results,
         },
+        nodeId: {},
+        returnVariable: {},
+        dataframeSource: {},
+        dataframeQuery: {},
+        runId: {},
+        result: {},
+        runStatus: {},
     },
     href: (attributes) => {
         const query = getResolvedNotebookQuery(attributes)
