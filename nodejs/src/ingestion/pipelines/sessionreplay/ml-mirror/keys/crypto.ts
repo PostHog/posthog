@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from 'node:util'
 import pLimit from 'p-limit'
 
 import { parseJSON } from '~/common/utils/json-parse'
-import { MlMirrorMetrics, MlPrivacyRequest } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
+import { MlKeyRequest, MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 
 import { MlKeyIdentity, wrappingContext } from './schema'
 
@@ -36,10 +36,10 @@ export class MlKeyEncryption {
     constructor(
         private readonly kms: Pick<KMSClient, 'send'>,
         private readonly masterKeyArn: string,
-        maxKeys = 10_000,
-        cacheLifetimeMs = 60_000,
+        maxKeys = 100_000,
+        cacheLifetimeMs = 1_800_000,
         concurrency = 8,
-        private readonly requestsPerSecond = 100
+        private readonly requestsPerSecond = 150
     ) {
         this.cache = new LRUCache({ max: maxKeys, ttl: cacheLifetimeMs })
         this.concurrency = pLimit(concurrency)
@@ -52,7 +52,7 @@ export class MlKeyEncryption {
         await sodium.ready
     }
 
-    private async request<T>(kind: MlPrivacyRequest, operation: () => Promise<T>): Promise<T> {
+    private async request<T>(kind: MlKeyRequest, operation: () => Promise<T>): Promise<T> {
         return this.concurrency(async () => {
             const queuedAt = performance.now()
             const now = Date.now()
@@ -62,11 +62,11 @@ export class MlKeyEncryption {
                 await new Promise((resolve) => setTimeout(resolve, scheduledAt - now))
             }
             const sentAt = performance.now()
-            MlMirrorMetrics.observeMlPrivacyRequest('kms_wait', sentAt - queuedAt)
+            MlMirrorMetrics.observeMlKeyRequest('kms_wait', sentAt - queuedAt)
             try {
                 return await operation()
             } finally {
-                MlMirrorMetrics.observeMlPrivacyRequest(kind, performance.now() - sentAt)
+                MlMirrorMetrics.observeMlKeyRequest(kind, performance.now() - sentAt)
             }
         })
     }

@@ -3,7 +3,7 @@ import { ParquetReader } from '@dsnp/parquetjs'
 import sodium from 'libsodium-wrappers'
 
 import { parseJSON } from '~/common/utils/json-parse'
-import { MlDataKey, decryptEnvelope } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/crypto'
+import { MlDataKey, decryptEnvelope } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/crypto'
 
 import { ImageShardStore } from './image-shard-store'
 

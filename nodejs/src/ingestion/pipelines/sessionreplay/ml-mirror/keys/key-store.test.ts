@@ -17,9 +17,9 @@ import { BlockMetadataParquetStore } from '~/ingestion/pipelines/sessionreplay/m
 import { toBlockMetadataRow } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-row'
 import { createNoopBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 
-import { MlPrivacyBatchController } from './batch-controller'
+import { MlKeyBatchController } from './batch-controller'
 import { MlKeyEncryption } from './crypto'
-import { DynamoItem, MlPrivacyDynamoDB, encodeKey } from './dynamodb'
+import { DynamoItem, MlKeyDynamoDB, encodeKey } from './dynamodb'
 import { MlSessionKeyStore } from './key-store'
 import { MlKeyReader } from './reader'
 import { MlSessionIdentity, imageKeyId, monthKeyIndexId, sessionKeyId, tableKeyString, teamBlockId } from './schema'
@@ -30,7 +30,7 @@ const session: MlSessionIdentity = {
     organizationId: 'organization-test',
     sessionId: '01994569-4380-7000-8000-000000000007',
 }
-const table = 'ml-privacy-test'
+const table = 'ml-keys-test'
 
 function transientError(name: string): Error {
     return Object.assign(new Error(name), { name })
@@ -98,7 +98,7 @@ describe('ML session key batches', () => {
             1_000_000_000
         )
         await encryption.start()
-        const db = new MlPrivacyDynamoDB(boundary as unknown as DynamoDBClient, table)
+        const db = new MlKeyDynamoDB(boundary as unknown as DynamoDBClient, table)
         store = new MlSessionKeyStore(db, encryption)
         reader = new MlKeyReader(db, encryption)
     })
@@ -334,9 +334,9 @@ describe('ML session key batches', () => {
         expect(generated).toBe(2)
     })
 
-    it('publishes only after privacy writes commit and hands delivery acks to the scheduler', async () => {
+    it('publishes only after key writes commit and hands delivery acks to the scheduler', async () => {
         const identity = { ...session, sessionId: '01a0a4f0-3200-7000-8000-000000000001' }
-        const controller = new MlPrivacyBatchController(store, encryption)
+        const controller = new MlKeyBatchController(store, encryption)
         await controller.prepare([identity])
         let release!: () => void
         const delivery = new Promise<void>((resolve) => {
@@ -368,7 +368,7 @@ describe('ML session key batches', () => {
 
     it('waits for delivery acks itself when no scheduler owns them', async () => {
         const identity = { ...session, sessionId: '01a0a4f0-3200-7000-8000-000000000002' }
-        const controller = new MlPrivacyBatchController(store, encryption)
+        const controller = new MlKeyBatchController(store, encryption)
         await controller.prepare([identity])
         let release!: () => void
         const delivery = new Promise<void>((resolve) => {
@@ -459,7 +459,7 @@ describe('ML session key batches', () => {
             const rejected = await register.getSingleMetric('ml_mirror_parquet_sink_rows_rejected_total')!.get()
             expect(rejected.values).toEqual(
                 expect.arrayContaining([
-                    expect.objectContaining({ labels: { reason: 'privacy' }, value: 1 }),
+                    expect.objectContaining({ labels: { reason: 'key_missing' }, value: 1 }),
                     expect.objectContaining({ labels: { reason: 'invalid_envelope' }, value: 1 }),
                 ])
             )

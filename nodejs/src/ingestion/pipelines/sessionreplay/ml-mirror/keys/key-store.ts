@@ -2,7 +2,7 @@ import { logger } from '~/common/utils/logger'
 import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 
 import { MlDataKey, MlKeyEncryption } from './crypto'
-import { DynamoItem, MlPrivacyDynamoDB } from './dynamodb'
+import { DynamoItem, MlKeyDynamoDB } from './dynamodb'
 import {
     MlKeyIdentity,
     MlSessionIdentity,
@@ -15,7 +15,7 @@ import {
     teamBlockId,
 } from './schema'
 
-// Commits retry transient DynamoDB and KMS failures; the budget counts the re-reads as well as the waits and stays under the consumer's 60 s loop stall threshold.
+// Commits retry transient DynamoDB and KMS failures; the budget counts the re-reads as well as the waits and stays under the consumer's loop stall threshold.
 const COMMIT_ATTEMPTS = 10
 const COMMIT_BUDGET_MS = 45_000
 const COMMIT_BACKOFF_BASE_MS = 100
@@ -64,7 +64,7 @@ function storedKeyId(identity: MlKeyIdentity): TableKey {
 
 export class MlSessionKeyStore {
     constructor(
-        private readonly db: MlPrivacyDynamoDB,
+        private readonly db: MlKeyDynamoDB,
         private readonly encryption: MlKeyEncryption
     ) {}
 
@@ -90,7 +90,7 @@ export class MlKeyBatch {
     private committed = false
 
     constructor(
-        private readonly db: MlPrivacyDynamoDB,
+        private readonly db: MlKeyDynamoDB,
         private readonly encryption: MlKeyEncryption,
         private readonly identities: MlSessionIdentity[]
     ) {}
