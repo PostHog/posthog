@@ -12201,15 +12201,40 @@ class TestExternalDataSourceSetup(APIBaseTest):
             category=[],
         )
 
-    def _setup_stripe(self):
+    def _setup_stripe(self, **extra):
         return self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/setup/",
             data={
                 "source_type": "Stripe",
                 "prefix": "stripe_webhook_test",
                 "payload": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+                **extra,
             },
+            format="json",
         )
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
+        return_value=WebhookCreationResult(success=True, pending_inputs=["signing_secret"]),
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_stores_webhook_inputs_sent_with_the_request(
+        self, _mock_validate, _mock_create_webhook, _mock_sync_views, _mock_person_join
+    ):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+        self._create_stripe_webhook_template()
+        response = self._setup_stripe(webhook_inputs={"signing_secret": "whsec_upfront"})
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        assert response.json()["webhook"]["pending_inputs"] == []
+        hog_function = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook", deleted=False)
+        assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_upfront"
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.ensure_person_join")
     @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")

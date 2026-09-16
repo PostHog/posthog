@@ -86339,6 +86339,11 @@ export namespace Schemas {
      */
     export type SourceSetupPayload = { [key: string]: unknown };
 
+    /**
+     * Webhook credentials the vendor does not return on create, keyed by webhookFields name (e.g. Mailgun's 'signing_secret'). Stored before the webhook is registered, so it never runs without them.
+     */
+    export type SourceSetupWebhookInputs = {[key: string]: string};
+
     export interface SourceSetup {
       /** The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot').
        *
@@ -87699,6 +87704,8 @@ export namespace Schemas {
       description?: string | null;
       /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
       direct_query_enabled?: boolean;
+      /** Webhook credentials the vendor does not return on create, keyed by webhookFields name (e.g. Mailgun's 'signing_secret'). Stored before the webhook is registered, so it never runs without them. */
+      webhook_inputs?: SourceSetupWebhookInputs;
     }
 
     export interface SourceSetupWebhook {
@@ -87714,7 +87721,7 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
-      /** Webhook input names the user still needs to provide (e.g. a signing secret the external API did not return on create). Submit them via the update_webhook_inputs endpoint. */
+      /** Webhook input names the user still needs to provide (e.g. a signing secret the external API did not return on create and the request did not carry in webhook_inputs). Submit them via the update_webhook_inputs endpoint. */
       pending_inputs: string[];
     }
 

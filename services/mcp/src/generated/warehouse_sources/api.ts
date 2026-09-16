@@ -3747,6 +3747,12 @@ export const ExternalDataSourcesSetupCreateBody = () => zod.object({
         .describe(
             'Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources.'
         ),
+    webhook_inputs: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Webhook credentials the vendor does not return on create, keyed by webhookFields name (e.g. Mailgun's 'signing_secret'). Stored before the webhook is registered, so it never runs without them."
+        ),
 })
 
 /**

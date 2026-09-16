@@ -1746,6 +1746,14 @@ class SourceSetupSerializer(serializers.Serializer):
             "Defaults to false; ignored for pure direct-query sources."
         ),
     )
+    webhook_inputs = serializers.DictField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Webhook credentials the vendor does not return on create, keyed by webhookFields name "
+            "(e.g. Mailgun's 'signing_secret'). Stored before the webhook is registered, so it never runs without them."
+        ),
+    )
 
 
 class SourceSetupWebhookSerializer(serializers.Serializer):
@@ -1766,7 +1774,8 @@ class SourceSetupWebhookSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text=(
             "Webhook input names the user still needs to provide (e.g. a signing secret the external API did not "
-            "return on create). Submit them via the update_webhook_inputs endpoint."
+            "return on create and the request did not carry in webhook_inputs). Submit them via the "
+            "update_webhook_inputs endpoint."
         ),
     )
 
@@ -3708,7 +3717,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         if response.status_code == status.HTTP_201_CREATED and isinstance(source, WebhookSource):
             webhook_result = self._auto_register_webhook(
-                source, source_config, str(response.data["id"]), source_schemas, permission_errors=setup_permissions
+                source,
+                source_config,
+                str(response.data["id"]),
+                source_schemas,
+                permission_errors=setup_permissions,
+                webhook_inputs=serializer.validated_data.get("webhook_inputs") or {},
             )
             if webhook_result is not None:
                 response.data["webhook"] = webhook_result
@@ -3866,6 +3880,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_id: str,
         source_schemas: list[SourceSchema],
         permission_errors: Mapping[str, str | None] | None = None,
+        webhook_inputs: dict[str, str] | None = None,
     ) -> dict | None:
         """Best-effort webhook auto-registration for one-shot setup.
 
@@ -3915,6 +3930,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if hog_fn_result.error or hog_fn_result.hog_function_id is None:
                 return failure(hog_fn_result.error)
 
+            webhook_field_names = {f.name for f in (source.get_source_config.webhookFields or [])}
+            unknown = sorted(set(webhook_inputs or {}) - webhook_field_names)
+            if unknown:
+                return failure(f"Unknown webhook inputs: {', '.join(unknown)}")
+            if webhook_inputs:
+                store_webhook_extra_inputs(hog_fn_result.hog_function_id, self.team_id, webhook_inputs)
             registration = create_and_register_webhook(
                 source,
                 source_config,
@@ -3954,7 +3975,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             "success": True,
             "webhook_url": registration.webhook_url,
             "error": None,
-            "pending_inputs": list(registration.pending_inputs),
+            "pending_inputs": [name for name in registration.pending_inputs if name not in (webhook_inputs or {})],
         }
 
     def _validate_source_config_and_credentials(

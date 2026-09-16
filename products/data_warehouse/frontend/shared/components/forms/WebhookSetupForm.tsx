@@ -112,7 +112,9 @@ export function WebhookSetupForm({
                     {autoCreationBlockedReason ||
                         (manualOnly
                             ? `We'll generate a webhook URL. You'll need to register it manually in your ${sourceName} app settings.`
-                            : `We'll automatically register the webhook on your ${sourceName} account. No manual configuration is needed.`)}
+                            : fieldsBeforeCreate
+                              ? `We'll register the webhook on your ${sourceName} account with the details below.`
+                              : `We'll automatically register the webhook on your ${sourceName} account. No manual configuration is needed.`)}
                 </LemonBanner>
                 {sourceConfig?.docsUrl && (
                     <p className="text-sm text-muted">

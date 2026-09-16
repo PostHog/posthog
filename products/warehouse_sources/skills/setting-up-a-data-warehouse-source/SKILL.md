@@ -103,7 +103,9 @@ Notes specific to this path:
   setup response: on success, webhook-capable tables sync in real time and webhook-only tables (e.g. Stripe Discount)
   are enabled too; on failure (e.g. the API key can't create webhooks), tables keep the polling defaults and
   webhook-only tables stay disabled — relay the `webhook.error` to the user and offer Step 6 to register manually.
-  If `webhook.pending_inputs` is non-empty, collect those values and submit via
+  When a source's `webhookFields` include a credential the vendor never returns (Mailgun's `signing_secret`),
+  collect it before setup and pass it as `webhook_inputs`, so the webhook is verified from its first delivery.
+  If `webhook.pending_inputs` is still non-empty, collect those values and submit via
   `external-data-sources-update-webhook-inputs-create`. CDC is never chosen automatically; use the advanced flow +
   CDC steps for near-real-time Postgres.
 - Inline credentials in `payload` still work for headless/automation, but prefer the connect-link handoff above.
