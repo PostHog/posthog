@@ -148,6 +148,8 @@ import {
   normalizeTaskRunArtifact,
   normalizeTaskRunResponse,
   type TaskRunArtifactDTO,
+  type TaskSummariesResponse,
+  type TaskSummaryDTO,
 } from "./task-normalization";
 
 interface HogQLGrid {
@@ -3070,7 +3072,7 @@ export class PostHogAPIClient {
 
     const fetchPage = async (
       offset: number,
-    ): Promise<Schemas.PaginatedTaskSummaryDTOList> => {
+    ): Promise<TaskSummariesResponse> => {
       const urlPath = `${basePath}?limit=${PAGE_LIMIT}&offset=${offset}`;
       const response = await this.api.fetcher.fetch({
         method: "post",
@@ -3085,11 +3087,11 @@ export class PostHogAPIClient {
           `Failed to fetch task summaries: ${response.statusText}`,
         );
       }
-      return (await response.json()) as Schemas.PaginatedTaskSummaryDTOList;
+      return (await response.json()) as TaskSummariesResponse;
     };
 
     const first = await fetchPage(0);
-    const all: Schemas.TaskSummaryDTO[] = [...first.results];
+    const all: TaskSummaryDTO[] = [...first.results];
     const capped = Math.min(first.count, PAGE_LIMIT * MAX_PAGES);
     if (first.count > PAGE_LIMIT * MAX_PAGES) {
       log.warn(
