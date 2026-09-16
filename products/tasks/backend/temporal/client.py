@@ -11,6 +11,7 @@ from django.utils import timezone as django_timezone
 
 import posthoganalytics
 from asgiref.sync import sync_to_async
+from celery.exceptions import SoftTimeLimitExceeded
 from temporalio.api.errordetails.v1 import NamespaceNotFoundFailure
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -610,6 +611,11 @@ def describe_task_run_workflow_liveness(workflow_ids: Sequence[str]) -> dict[str
                     )
                     break
                 results[workflow_id] = "gone" if e.status == RPCStatusCode.NOT_FOUND else "unknown"
+            except SoftTimeLimitExceeded:
+                # The sweep's own deadline, not an answer about this workflow. Let it unwind the
+                # task instead of recording it as one id Temporal could not answer for and then
+                # issuing the rest of the batch's calls past the deadline.
+                raise
             except Exception as e:
                 logger.warning("task_run_liveness_describe_failed", extra={"workflow_id": workflow_id, "error": str(e)})
                 results[workflow_id] = "unknown"

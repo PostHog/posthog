@@ -31,6 +31,7 @@ from django.utils import timezone as django_timezone
 
 import structlog
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.exceptions_capture import capture_exception
 from posthog.scoping_audit import skip_team_scope_audit
@@ -114,6 +115,10 @@ def reconcile_stale_in_progress_task_runs(
                 run.id, REAP_MESSAGE, error_type=REAP_ERROR_TYPE, expected_updated_at=run.updated_at
             )
             record("reaped" if claimed else "claim_lost")
+        except SoftTimeLimitExceeded:
+            # The sweep ran out of time; let the limit unwind the task rather than misrecording
+            # it as this run having failed to reconcile.
+            raise
         except Exception as exc:  # noqa: BLE001 - one run must not block the sweep
             record("error")
             capture_exception(exc)

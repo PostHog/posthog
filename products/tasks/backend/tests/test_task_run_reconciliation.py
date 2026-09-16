@@ -5,6 +5,7 @@ from unittest.mock import patch
 from django.test import TestCase
 from django.utils import timezone as django_timezone
 
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
 from posthog.models.organization import Organization
@@ -83,6 +84,18 @@ class TestReconcileStaleInProgressTaskRuns(TestCase):
         run.refresh_from_db()
         self.assertEqual(outcomes.get(expected_outcome), 1)
         self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
+
+    def test_sweep_deadline_is_not_recorded_as_a_per_run_failure(self):
+        self.create_run(age=STALE_AFTER + timedelta(minutes=1))
+
+        with patch(
+            "products.tasks.backend.facade.api.claim_and_fail_stranded_cloud_run",
+            side_effect=SoftTimeLimitExceeded(),
+        ):
+            # The sweep ran out of time; that is not this run failing to reconcile, and the
+            # metric this sweep feeds must not gain a phantom failure for it.
+            with self.assertRaises(SoftTimeLimitExceeded):
+                self.reconcile("gone")
 
     def test_reaped_loop_run_drives_loop_bookkeeping(self):
         loop = Loop(

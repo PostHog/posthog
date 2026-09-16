@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from asgiref.sync import async_to_sync
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 from temporalio.api.common.v1 import GrpcStatus
 from temporalio.api.errordetails.v1 import NamespaceNotFoundFailure
@@ -630,6 +631,15 @@ class TestDescribeTaskRunWorkflowLiveness(SimpleTestCase):
         # collected survives the budget, so the sweep still reaps on it; the two ids left out
         # read as `unknown`.
         self.assertEqual(result, {"wf-1": "running"})
+
+    def test_sweep_deadline_is_not_reported_as_a_workflow_verdict(self):
+        client = self._client([WorkflowExecutionStatus.RUNNING, SoftTimeLimitExceeded()])
+
+        with patch("products.tasks.backend.temporal.client.sync_connect", return_value=client):
+            # Celery's deadline says nothing about any workflow, so it must unwind the task
+            # instead of reading as one id Temporal could not answer for.
+            with self.assertRaises(SoftTimeLimitExceeded):
+                describe_task_run_workflow_liveness(["wf-1", "wf-2"])
 
     def test_connect_failure_reports_every_workflow_unknown(self):
         with patch("products.tasks.backend.temporal.client.sync_connect", side_effect=RuntimeError("no temporal")):
