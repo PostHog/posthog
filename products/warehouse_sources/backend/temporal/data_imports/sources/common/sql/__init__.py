@@ -69,8 +69,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 
 __all__ = [
-    "MISSING_INCREMENTAL_FIELD_MATCH",
-    "MISSING_INCREMENTAL_FIELD_MESSAGE",
     "AnsiIdentifierQuoter",
     "BacktickIdentifierQuoter",
     "BracketIdentifierQuoter",
@@ -79,8 +77,10 @@ __all__ = [
     "ColumnTypeCategory",
     "IdentifierQuoter",
     "IncrementalFieldFilter",
-    "MissingIncrementalFieldError",
     "InvalidIdentifierError",
+    "MISSING_INCREMENTAL_FIELD_MATCH",
+    "MISSING_INCREMENTAL_FIELD_MESSAGE",
+    "MissingIncrementalFieldError",
     "ParamStyle",
     "RowFilter",
     "RowFilterValidationError",
