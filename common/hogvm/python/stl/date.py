@@ -18,9 +18,14 @@ def to_hog_date(year: int, month: int, day: int):
 
 def to_hog_datetime(timestamp: int | float | dict, zone: Optional[str] = None):
     if isinstance(timestamp, dict) and is_hog_date(timestamp):
-        dt = pytz.timezone(zone or "UTC").localize(
-            datetime.datetime(year=timestamp["year"], month=timestamp["month"], day=timestamp["day"]), is_dst=True
-        )
+        timezone = pytz.timezone(zone or "UTC")
+        midnight = datetime.datetime(year=timestamp["year"], month=timestamp["month"], day=timestamp["day"])
+        try:
+            dt = timezone.localize(midnight, is_dst=None)
+        except pytz.AmbiguousTimeError:
+            dt = min(timezone.localize(midnight, is_dst=True), timezone.localize(midnight, is_dst=False))
+        except pytz.NonExistentTimeError as error:
+            raise ValueError(f"Midnight does not exist on {midnight.date()} in {zone}") from error
         return {
             "__hogDateTime__": True,
             "dt": dt.timestamp(),

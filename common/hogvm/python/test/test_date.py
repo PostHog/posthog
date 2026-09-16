@@ -6,13 +6,16 @@ import unittest
 
 from parameterized import parameterized
 
+from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.date import (
     date_string_to_seconds,
+    formatDateTime,
     to_hog_date,
     to_hog_datetime,
     toDate,
     toDateTime,
     toUnixTimestamp,
+    toUnixTimestampMilli,
 )
 
 # The shared date-like grammar. The canonical spec lives above `parse_datetime_to_seconds` in
@@ -117,8 +120,29 @@ class TestDateLikeGrammar(unittest.TestCase):
     )
     def test_hog_date_uses_the_timezone_offset_for_its_date(self, month: int, zone: str, expected: int) -> None:
         date = to_hog_date(2024, month, 1)
-        self.assertEqual(to_hog_datetime(date, zone)["dt"], expected)
+        converted = to_hog_datetime(date, zone)
+        self.assertEqual(converted["dt"], expected)
+        self.assertEqual(converted["zone"], zone)
+        self.assertEqual(formatDateTime(converted, "%Y-%m-%d %H:%i:%S"), f"2024-{month:02d}-01 00:00:00")
         self.assertEqual(toUnixTimestamp(date, zone), expected)
+        self.assertEqual(STL["toUnixTimestamp"].fn([date, zone], None, [], 1), expected)
+        self.assertEqual(STL["toUnixTimestampMilli"].fn([date, zone], None, [], 1), expected * 1000)
+
+    @parameterized.expand(
+        [
+            (2011, 12, 30, "Pacific/Apia"),
+            (2018, 11, 4, "America/Sao_Paulo"),
+        ]
+    )
+    def test_hog_date_rejects_nonexistent_midnight(self, year: int, month: int, day: int, zone: str) -> None:
+        date = to_hog_date(year, month, day)
+        for convert in (to_hog_datetime, toUnixTimestamp, toUnixTimestampMilli):
+            with self.subTest(convert=convert.__name__), self.assertRaisesRegex(ValueError, "Midnight does not exist"):
+                convert(date, zone)
+
+    def test_hog_date_uses_first_occurrence_of_ambiguous_midnight(self) -> None:
+        date = to_hog_date(2024, 11, 3)
+        self.assertEqual(toUnixTimestamp(date, "America/Havana"), 1730606400)
 
     def test_number_passes_through_as_epoch_seconds_without_parsing(self):
         self.assertEqual(toDateTime(1700000000)["dt"], 1700000000)
