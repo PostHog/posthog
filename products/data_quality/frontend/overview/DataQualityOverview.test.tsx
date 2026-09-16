@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
@@ -8,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 import {
     dataQualityChecksHealthList,
     dataQualityChecksList,
+    dataQualityChecksMetricSubjectsList,
     dataQualityRunsCreate,
     dataQualityRunsRetrieve,
     warehouseSavedQueriesChecksCheckTypesList,
@@ -53,6 +54,7 @@ jest.mock('./DataQualityGateToggle', () => ({ DataQualityGateToggle: () => null 
 jest.mock('products/data_quality/frontend/generated/api', () => ({
     dataQualityChecksList: jest.fn(),
     dataQualityChecksHealthList: jest.fn(),
+    dataQualityChecksMetricSubjectsList: jest.fn(),
     dataQualityRunsCreate: jest.fn(),
     dataQualityRunsRetrieve: jest.fn(),
     warehouseSavedQueriesChecksRunsList: jest.fn(),
@@ -124,6 +126,7 @@ describe('DataQualityOverview', () => {
             failingHealth('orders'),
             failingHealth('customers'),
         ])
+        ;(dataQualityChecksMetricSubjectsList as jest.Mock).mockResolvedValue([])
         ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue({
             id: 'suite-1',
             status: 'running',
@@ -195,6 +198,7 @@ describe('DataQualityOverview', () => {
         await waitFor(() => expect(runSubjectButtons()).toHaveLength(1))
 
         const disclosure = queryAll('[data-attr="data-quality-subject-disclosure"]')[0]
+        expect(within(disclosure.parentElement!).getByText('Failing')).toBeTruthy()
         // Suffix match: the rendered href carries the /project/:id prefix, so an exact match on the
         // path would find nothing and the assertion below would pass on a null link.
         const link = document.querySelector('a[href$="/models/node-1/tests"]')
@@ -222,11 +226,13 @@ describe('DataQualityOverview', () => {
         expect(document.querySelector('[data-attr="data-quality-overview-new-check"]')).not.toBeNull()
         expect(document.querySelector('[data-attr="data-quality-overview-browse"]')).toBeNull()
         expect(document.querySelector('[data-attr="data-quality-overview-empty-state"] img')).not.toBeNull()
+        expect(screen.queryByPlaceholderText('Search checks')).toBeNull()
+        expect(document.querySelector('[data-attr="data-quality-overview-run-all"]')).toBeNull()
 
         fireEvent.click(document.querySelector('[data-attr="data-quality-overview-first-check"]')!)
 
-        expect(await screen.findByText('Table or view')).toBeTruthy()
-        expect(document.querySelector('.ReactModal__Content')?.textContent).toContain('Connect a source or')
+        expect(await screen.findByText('Table, view, or metric')).toBeTruthy()
+        expect(document.querySelector('.ReactModal__Content')?.textContent).toContain('Browse tables and views')
     })
 
     it('keeps the existing subject-scoped editor free of a subject picker', async () => {
@@ -236,7 +242,7 @@ describe('DataQualityOverview', () => {
         fireEvent.click(await screen.findByText('Edit'))
 
         expect(await screen.findByText('Check type')).toBeTruthy()
-        expect(screen.queryByText('Table or view')).toBeNull()
+        expect(screen.queryByText('Table, view, or metric')).toBeNull()
     })
 
     it('shows a retry when the subject picker catalog cannot load', async () => {

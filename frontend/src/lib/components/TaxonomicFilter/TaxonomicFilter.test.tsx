@@ -1517,6 +1517,9 @@ describe('TaxonomicFilter', () => {
             await userEvent.click(await screen.findByTestId('taxonomic-category-rail-toggle'))
 
             expect(await screen.findByText('Categories')).toBeInTheDocument()
+            await waitFor(() => {
+                expect(screen.queryByTestId('taxonomic-category-rail-toggle')).not.toBeInTheDocument()
+            })
             expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toHaveClass('hidden')
 
             await userEvent.click(screen.getByTestId('taxonomic-category-rail-unpin'))

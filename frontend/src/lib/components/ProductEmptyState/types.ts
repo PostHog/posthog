@@ -158,11 +158,28 @@ export interface ProductEmptyStateConfig {
      * has nothing to reveal and the primary action is the only next step.
      */
     skippable?: boolean
+    /**
+     * Overrides applied while a feature flag is on, to roll out a change to this screen (a new
+     * wizard subcommand, a different call to action) without a second config. Each field
+     * replaces the base value, so `primaryAction: undefined` removes the action. `text` merges
+     * per mode, so a field left out keeps its base value. When several flags are on, later
+     * entries win.
+     */
+    featureFlagOverrides?: Partial<Record<FeatureFlagKey, ProductEmptyStateOverride>>
+}
+
+/** Per-mode text fields to replace; fields left out keep the base value. */
+export type ProductEmptyStateTextOverride = Partial<Record<ProductEmptyStateMode, Partial<ProductEmptyStateText>>>
+
+export type ProductEmptyStateOverride = Partial<
+    Omit<ProductEmptyStateConfig, 'productKey' | 'text' | 'featureFlagOverrides'>
+> & {
+    text?: ProductEmptyStateTextOverride
 }
 
 /**
  * Declared on a scene's `SceneExport` to opt into the app-shell empty-state gate.
- * Both fields live in the scene's lazy chunk, so heavy assets (hedgehog PNGs,
+ * These fields live in the scene's lazy chunk, so heavy assets (hedgehog PNGs,
  * preview widgets) never enter the eager graph.
  */
 export interface SceneProductEmptyState {
@@ -191,6 +208,12 @@ export interface SceneProductEmptyState {
      * a person may well configure before a first workflow exists.
      */
     scenes?: GatedScene[]
+    /**
+     * Rendered under the product header whenever the gate is up (setup screen or its spinner).
+     * The gate replaces the scene, so tab bars declared inside the scene never appear. Put
+     * sibling-tab nav here so those surfaces stay reachable before the product has data.
+     */
+    SceneNav?: ComponentType
 }
 
 /**

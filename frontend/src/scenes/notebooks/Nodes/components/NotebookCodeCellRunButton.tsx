@@ -10,12 +10,11 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 
+import { notebookCodeCellLogic } from 'products/notebooks/frontend/notebookCodeCellLogic'
+
 import { notebookLogic } from '../../Notebook/notebookLogic'
-import {
-    type NotebookNodeSQLV2LogicProps,
-    type RunNodeOverrides,
-    notebookNodeSQLV2Logic,
-} from '../notebookNodeSQLV2Logic'
+import type { NotebookNodeSQLV2Result } from '../NotebookNodeSQLV2'
+import { type NotebookNodeSQLV2LogicProps, type RunNodeOverrides } from '../notebookNodeSQLV2Logic'
 import { getNotebookSqlEditorTabId } from './NotebookSQLEditor'
 
 /**
@@ -37,14 +36,15 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
         [updateProps]
     )
 
-    const dataLogic = notebookNodeSQLV2Logic({
+    const dataLogic = notebookCodeCellLogic(
         nodeId,
-        notebookShortId: mountedNotebookLogic.props.shortId,
-        updateAttributes,
-        runId: typeof node.props.runId === 'string' ? node.props.runId : null,
-        hasResult: !!node.props.result,
-        getContent: () => mountedNotebookLogic.values.content ?? null,
-    })
+        mountedNotebookLogic,
+        {
+            runId: typeof node.props.runId === 'string' ? node.props.runId : null,
+            result: node.props.result as NotebookNodeSQLV2Result | undefined,
+        },
+        updateAttributes
+    )
     const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
     const { runNode, interruptRun } = useActions(dataLogic)
 

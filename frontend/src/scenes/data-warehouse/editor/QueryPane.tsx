@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
 
@@ -28,6 +29,23 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
     const { queryPaneHeight, queryPaneDesiredSize, queryPaneResizerProps } = useValues(editorSizingLogic)
     const { onAcceptSuggestedQueryInput, onRejectSuggestedQueryInput } = useActions(sqlEditorLogic)
     const { acceptText, rejectText, diffShowRunButton } = useValues(sqlEditorLogic)
+    const editorOptions = useMemo<CodeEditorProps['options']>(
+        () => ({
+            minimap: {
+                enabled: false,
+            },
+            wordWrap: 'on',
+            scrollBeyondLastLine: !!props.originalValue,
+            automaticLayout: true,
+            fixedOverflowWidgets: true,
+            glyphMargin: true,
+            suggest: {
+                showInlineDetails: true,
+            },
+            quickSuggestionsDelay: 300,
+        }),
+        [props.originalValue]
+    )
     // Without an output pane beneath it the editor owns its column, so it takes whatever height the
     // database tree gives the row rather than leaving dead space next to the schema list.
     const fillsColumn = props.constrainHeight === false
@@ -71,20 +89,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                         enableVimMode={props.editorVimModeEnabled}
                                         autoFocus={true}
                                         {...props.codeEditorProps}
-                                        options={{
-                                            minimap: {
-                                                enabled: false,
-                                            },
-                                            wordWrap: 'on',
-                                            scrollBeyondLastLine: !!props.originalValue,
-                                            automaticLayout: true,
-                                            fixedOverflowWidgets: true,
-                                            glyphMargin: true,
-                                            suggest: {
-                                                showInlineDetails: true,
-                                            },
-                                            quickSuggestionsDelay: 300,
-                                        }}
+                                        options={editorOptions}
                                     />
                                 ) : null
                             }

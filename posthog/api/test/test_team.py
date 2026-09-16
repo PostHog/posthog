@@ -21,6 +21,7 @@ from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
     TeamSerializer,
+    TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _reset_default_data_color_theme_id_cache,
 )
@@ -46,6 +47,7 @@ from posthog.utils import get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 
 def team_api_test_factory():
@@ -1136,6 +1138,55 @@ def team_api_test_factory():
             # and the existing second level nesting is not preserved
             self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
 
+        def test_workflow_task_limits_are_writable_and_clearable(self) -> None:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {
+                    "workflows_config": {
+                        "workflow_task_rate_limit_per_day": 250,
+                        "workflow_task_team_rate_limit_per_day": 1000,
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            self.team.refresh_from_db()
+            assert self.team.workflows_config.workflow_task_rate_limit_per_day == 250
+            assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"workflows_config": {"workflow_task_rate_limit_per_day": None}},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            self.team.refresh_from_db()
+            assert self.team.workflows_config.workflow_task_rate_limit_per_day is None
+            assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
+
+        def test_support_raised_limit_survives_an_echoed_update(self) -> None:
+            TeamWorkflowsConfig.objects.update_or_create(
+                team=self.team, defaults={"workflow_task_rate_limit_per_day": 600}
+            )
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {
+                    "workflows_config": {
+                        "capture_workflows_engagement_events": True,
+                        "workflow_task_rate_limit_per_day": 600,
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            row = TeamWorkflowsConfig.objects.get(team=self.team)
+            assert row.workflow_task_rate_limit_per_day == 600
+            assert row.capture_workflows_engagement_events is True
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"workflows_config": {"workflow_task_rate_limit_per_day": 700}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+
         def test_modifiers_are_merged_on_patch(self) -> None:
             # Set initial modifiers with personsOnEventsMode
             response = self.client.patch(
@@ -1952,6 +2003,52 @@ def team_api_test_factory():
                 )
                 assert "retention_days must be one of" in response.json()["detail"]
 
+        @parameterized.expand(
+            [
+                (" app.context ", "app.context"),
+                ("", ""),
+                (" " + "a" * 200 + " ", "a" * 200),
+                (" \t" + "😀" * 200 + "\n ", "😀" * 200),
+                ("\u001c\u001d\u001e\u001f\u0085" + "😀" * 200 + "\u3000\u00a0", "😀" * 200),
+                ("\ufeff" + "a" * 199, "\ufeff" + "a" * 199),
+            ]
+        )
+        def test_logs_settings_json_attribute_key(self, key, expected):
+            existing_settings = {
+                "retention_days": 14,
+                "json_parse_logs": False,
+                "pii_scrub_logs": True,
+                "future_setting": {"enabled": True},
+            }
+            self.team.logs_settings = existing_settings
+            self.team.save()
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {**existing_settings, "json_parse_logs_attribute_key": key}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            self.team.refresh_from_db()
+            expected_settings = {**existing_settings, "json_parse_logs_attribute_key": expected}
+            assert self.team.logs_settings == expected_settings
+            assert response.json()["logs_settings"] == expected_settings
+
+        @parameterized.expand([(123,), ("😀" * 201,), ("\ufeff" + "a" * 200,)])
+        def test_logs_settings_invalid_json_attribute_key(self, key):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"json_parse_logs_attribute_key": key}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "json_parse_logs_attribute_key must be a string" in response.json()["detail"]
+
+        def test_logs_settings_must_be_an_object(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": "json_parse_logs_attribute_key"},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "logs_settings must be an object" in response.json()["detail"]
+
         def test_logs_settings_retention_requires_matching_feature(self):
             response = self.client.patch(
                 "/api/environments/@current/",
@@ -2009,6 +2106,7 @@ def team_api_test_factory():
                         "logs_settings": {
                             "retention_days": 14,  # Same retention
                             "json_parse_logs": True,
+                            "json_parse_logs_attribute_key": "context",
                         }
                     },
                 )
@@ -3672,6 +3770,24 @@ _TOO_MANY_WILDCARDS = ["https://*.*.*.*.*.*.example.com"]
 
 
 class TestTeamSerializerValidationNoDB(SimpleTestCase):
+    @parameterized.expand([(None,), (True,), (123,), ([],), ({},), ("a" * 201,)])
+    def test_invalid_logs_json_attribute_key(self, key):
+        self._assert_field_error(
+            "logs_settings",
+            {"json_parse_logs_attribute_key": key},
+            "invalid",
+            "json_parse_logs_attribute_key must be a string of at most 200 characters. "
+            "Use an empty string to disable parsing.",
+        )
+
+    @parameterized.expand(
+        [("context", "context"), (" app.context ", "app.context"), ("  ", ""), (" " + "a" * 200 + " ", "a" * 200)]
+    )
+    def test_normalize_logs_json_attribute_key(self, key, expected):
+        assert TeamSerializer().validate_logs_settings({"json_parse_logs_attribute_key": key}) == {
+            "json_parse_logs_attribute_key": expected
+        }
+
     # Field-level input validation runs inside `is_valid()` (in `to_internal_value`),
     # before the object-level `validate()` that needs request context — so these never
     # touch the DB. `.errors` carries DRF's raw code (`invalid`); the HTTP envelope's
@@ -3847,6 +3963,25 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         # widget_domains rides in on a raw JSONField, so entries reach validation untyped.
         serializer = TeamSerializer(data={"conversations_settings": {"widget_domains": [entry]}}, partial=True)
         assert not serializer.is_valid()
+
+    @parameterized.expand(
+        [
+            ["per workflow above the ceiling", "workflow_task_rate_limit_per_day", 501, False],
+            ["per workflow at the ceiling", "workflow_task_rate_limit_per_day", 500, True],
+            ["per workflow negative", "workflow_task_rate_limit_per_day", -1, False],
+            ["per workflow paused", "workflow_task_rate_limit_per_day", 0, True],
+            ["per project above the ceiling", "workflow_task_team_rate_limit_per_day", 2501, False],
+            ["per project at the ceiling", "workflow_task_team_rate_limit_per_day", 2500, True],
+        ]
+    )
+    def test_workflow_task_limit_ceiling(self, _name: str, field: str, value: int, expected_valid: bool) -> None:
+        # The ceiling is the only thing between this settings input and an unbounded daily
+        # spend on agent runs. Support raises a project past it in Django admin, which does
+        # not use this serializer. Asserted on the nested serializer, which is what
+        # `validate_workflows_config` builds, because a value the ceiling accepts goes on to
+        # TeamSerializer's object-level `validate()` and its request context.
+        serializer = TeamWorkflowsConfigSerializer(data={field: value})
+        assert serializer.is_valid() == expected_valid, serializer.errors
 
     def test_invalid_autocapture_exceptions_opt_in_not_a_boolean(self) -> None:
         # `autocapture_exceptions_errors_to_ignore` is deliberately not here: its validation

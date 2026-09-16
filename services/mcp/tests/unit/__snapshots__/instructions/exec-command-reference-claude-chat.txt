@@ -20,7 +20,7 @@ Load all matching topics in one `learn` command first. Topics are cumulative.
 - urls: Load before writing any PostHog app link or URL.
 - feedback: Send feedback about PostHog.
 
-**Metrics & SQL trust**: for any metric question (business or operational), inspect the complete governed catalog with `metric-list` before insights, domain tools, or raw SQL. Use `metric-describe` for a candidate's definition, including HogQL or SQL, before adapting it. Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins. State the catalog outcome in query context.
+**Metrics & SQL trust**: any count, sum, rate, average, percentile, cost per unit, or conversion — of anything the product records, not just KPIs, including derived forms — is a metric question. Inspect the complete governed catalog with `metric-list` before `read-data-schema`, insights, domain tools, or raw SQL. Use `metric-describe` for a candidate's definition, including HogQL or SQL, before adapting it. Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins. State the catalog outcome in query context.
 
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
 
@@ -39,16 +39,16 @@ For query tools, you will typically need:
 
 **For multiple tools:** Run `info` for ALL tools first, then make your `call` commands.
 
-**Data discovery:** Before any analytical `call` that touches collected data (`query-*`,
-`execute-sql` against `events`/`persons`/`sessions`), confirm the event/property exists via
-`call read-data-schema`. Applies to canonical-looking names like `$pageview` too — they vary
+**Data discovery:** After the metric check, before any analytical `call` that touches
+collected data (`query-*`, `execute-sql` against `events`/`persons`/`sessions`), confirm
+the event/property exists via `call read-data-schema`. Applies to canonical-looking names like `$pageview` too — they vary
 per team. If the event isn't in the schema, tell the user instead of querying a guessed name.
 
 Always run `info read-data-schema` first — the recipes below are common cases, not the full schema.
 
 - Events: `call read-data-schema {"query": {"kind": "events"}}` (paginate with `limit`/`offset` if needed). Actions come from `actions-get-all` instead.
 - Event properties: `call read-data-schema {"query": {"kind": "event_properties", "event_name": "<event>"}}`
-- Person, session, and group properties: `call read-data-schema {"query": {"kind": "entity_properties", "entity": "<entity>"}}` (`entity` is `person`, `session`, or a group type name)
+- Person, session, and group properties: `call read-data-schema {"query": {"kind": "entity_properties", "entity": "<entity>"}}` (`entity` is `person`, `session` for the columns of the `sessions` table, or a group type name)
 - Values: `call read-data-schema {"query": {"kind": "event_property_values", "event_name": "<event>", "property_name": "<prop>"}}`
 
 **CORRECT usage pattern:**
@@ -63,7 +63,9 @@ Assistant: This needs analytics and visualization guidance, so I'll load both fi
 User: How many weekly active users do we have?
 Assistant: This needs analytics and visualization guidance, so I'll load both before any other command.
 [Runs `posthog:exec({"command":"learn analytics visualizations"})`]
-Assistant: I need the query and data schema tools.
+Assistant: A weekly count is a governed shape, so the catalog comes first.
+[Runs `posthog:exec({"command":"call metric-list {\"limit\":100}"})`]
+Assistant: No approved metric matches, so I fall through to the query tools.
 [Runs `posthog:exec({"command":"search query-trends"})` and `posthog:exec({"command":"search read-data"})` in parallel]
 Assistant: I'll inspect both schemas.
 [Runs `posthog:exec({"command":"info query-trends"})` and `posthog:exec({"command":"info read-data-schema"})` in parallel]
@@ -96,12 +98,6 @@ WRONG: Run `info feature-flag-get-all` first.
 </bad-example>
 
 <bad-example>
-User: Query our events
-Assistant: [Loads analytics, then calls three tools without inspecting them]
-WRONG: Run `info` for all tools before any `call` commands.
-</bad-example>
-
-<bad-example>
 User: Show me a trends chart of signups
 Assistant: [Runs `learn analytics visualizations`, then runs `info query-trends` and guesses the hinted series structure]
 WRONG: Run `schema query-trends series` before populating a field with a drill-down hint.
@@ -131,8 +127,6 @@ IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for an
 
 If you get errors due to permissions being denied, check that you have the correct active project and that the user has access to the required project.
 
-If you cannot answer the user's PostHog related request or question using other available tools in this MCP, use the 'docs-search' tool to provide information from the documentation to guide user how they can do it themselves - when doing so provide condensed instructions with links to sources.
-
 ### Tool search
 
 **Always prefer `search` over `tools`** — `tools` returns every tool and wastes tokens. Use `search <query>` to find what you need.
@@ -154,7 +148,7 @@ Only fall back to `tools` if you have no idea which domain to search, or if `sea
 
 PostHog tools have lowercase kebab-case naming. Tools are organized by category:
 
-dashboard|execute-sql|feature-flag|query
+business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|query
 Typical action names: list/retrieve/get/create/update/delete/query.
 Example tool names: execute-sql, experiment-create, feature-flag-get-all.
 

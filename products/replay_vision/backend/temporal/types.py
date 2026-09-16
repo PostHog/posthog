@@ -9,7 +9,7 @@ from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
-from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput, MonitorVerdict
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
 from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
 from products.replay_vision.backend.temporal.snapshots import (
@@ -23,11 +23,25 @@ AnyScannerOutput = Annotated[
 ]
 
 
+class VerificationRecord(BaseModel, frozen=True):
+    """Audit of the extra draws taken to verify a monitor `yes` verdict. Absent when no verdict was verified."""
+
+    mode: str
+    # Verdicts in draw order; the first entry is the pass that triggered verification.
+    draws: list[MonitorVerdict]
+    # The verdict verification settled on: the first pass when the second draw agrees, else the dissent.
+    # `served_verdict` is what `model_output` carries: the same value under `enforce`, the first draw under `shadow`.
+    resolved_verdict: MonitorVerdict
+    served_verdict: MonitorVerdict
+    skipped_reason: str | None = None
+
+
 class ScannerResult(BaseModel, frozen=True):
     """Result data of a completed observation, persisted into `ReplayObservation.scanner_result`."""
 
     model_output: AnyScannerOutput
     signals_count: int = Field(default=0, ge=0)
+    verification: VerificationRecord | None = None
 
 
 class ApplyScannerInputs(BaseModel, frozen=True):
@@ -236,6 +250,8 @@ class UploadedVideo(BaseModel, frozen=True):
 class CallScannerProviderInputs(BaseModel, frozen=True):
     team_id: int
     observation_id: UUID  # locates the ScannerLlmInputs blob in Redis AND the scanner_snapshot on the row
+    # The rendered asset behind `file_uri`; its export context carries the map for converting cited moments.
+    exported_asset_id: int
     file_uri: str
     mime_type: str
     # When set, replaces the observation row's snapshot (evaluations re-run rated sessions with the suggested prompt).
@@ -248,6 +264,7 @@ class ScannerCallOutput(BaseModel, frozen=True):
     model_output: AnyScannerOutput
     # Extracted from the LLM response before `finalize` so per-type output mapping can't drop them.
     signals: list[SignalFinding] = Field(default_factory=list)
+    verification: VerificationRecord | None = None
 
 
 class CleanupGeminiFileInputs(BaseModel, frozen=True):

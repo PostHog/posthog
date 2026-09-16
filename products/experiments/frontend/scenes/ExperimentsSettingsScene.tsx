@@ -63,9 +63,8 @@ export function ExperimentsSettingsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     // The cleanup PR runs as a PostHog Desktop task, so the setting is only relevant with
-    // Code access on top of the rollout flag (same gate as the end-experiment modal checkbox).
-    const cleanupPrAvailable =
-        !!featureFlags[FEATURE_FLAGS.EXPERIMENT_FLAG_CLEANUP_PR] && !!featureFlags[FEATURE_FLAGS.TASKS]
+    // Code access (same gate as the end-experiment modal checkbox).
+    const cleanupPrAvailable = !!featureFlags[FEATURE_FLAGS.TASKS]
 
     if (experimentsConfigLoading && !experimentsConfig) {
         return <SpinnerOverlay sceneLevel />

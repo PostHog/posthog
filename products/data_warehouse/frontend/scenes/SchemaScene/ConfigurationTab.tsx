@@ -18,9 +18,7 @@ import {
 
 import api from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -102,7 +100,6 @@ export function ConfigurationTab({
     const { isProjectTime, refreshingSchemas, resyncingSchema, supportsRowFilters } = useValues(logic)
     const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, refreshSchemas } =
         useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     switch (section) {
         case 'details':
@@ -148,12 +145,7 @@ export function ConfigurationTab({
                 />
             )
         case 'descriptions':
-            // Deep-link guard: the section nav already hides this when the flag is off.
-            return featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SEMANTIC_ENRICHMENT] ? (
-                <DescriptionsSection schema={schema} />
-            ) : (
-                <></>
-            )
+            return <DescriptionsSection schema={schema} />
         case 'danger-zone':
             return (
                 <DangerZoneSection

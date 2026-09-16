@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  type MarkdownBlockSplit,
   markOpenLinkDestination,
   maskOpenLinkDestination,
   parseOpenFence,
   splitMarkdownBlocks,
-  splitMarkdownBlocksFrom,
 } from "./splitMarkdownBlocks";
 
 describe("splitMarkdownBlocks", () => {
@@ -72,31 +70,6 @@ describe("splitMarkdownBlocks", () => {
     const blocks = splitMarkdownBlocks(md);
     expect(blocks[blocks.length - 1]).toContain("const b = 2;");
     expect(blocks.join("")).toBe(md);
-  });
-});
-
-describe("splitMarkdownBlocksFrom", () => {
-  it.each([
-    "para one\n\npara two\n\npara three",
-    "a\n\n\n\nb\n\nc",
-    "# Heading\n\nText with **bold**.\n\n- a\n- b\n",
-    "Intro\n\n```ts\nconst x = 1;\n\nconst y = 2;\n```\n\nOutro\n\n",
-    "```ts\ndone\n```\ntext\n```ts\npartial\n\nstill open",
-  ])(
-    "matches a full split at every prefix of a streamed message: %j",
-    (message) => {
-      let previous: MarkdownBlockSplit | null = null;
-      for (let end = 1; end <= message.length; end++) {
-        const src = message.slice(0, end);
-        previous = splitMarkdownBlocksFrom(src, previous);
-        expect(previous.blocks).toEqual(splitMarkdownBlocks(src));
-      }
-    },
-  );
-
-  it("falls back to a full split when the message is replaced", () => {
-    const previous = splitMarkdownBlocksFrom("old\n\nmessage", null);
-    expect(splitMarkdownBlocksFrom("new", previous).blocks).toEqual(["new"]);
   });
 });
 

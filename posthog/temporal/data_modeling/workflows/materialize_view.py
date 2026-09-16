@@ -92,10 +92,6 @@ CDP_VIEW_TRIGGER_PATCH = "cdp-data-warehouse-view-trigger-2026-08"
 # Histories recorded before this marker must keep passing only the team ID to the activity.
 DUCKGRES_SHADOW_TRANSLATION_GATE_PATCH = "duckgres-shadow-translation-gate-2026-09"
 
-# Deprecated. The marker is still written so histories that recorded it keep replaying; the branch it
-# used to guard is gone. Delete once no execution started before 2026-09-12 is open.
-MANAGED_WAREHOUSE_NAMING_PATCH = "managed-warehouse-data-modeling-names-2026-09"
-
 # these indicate problems with the query or data, not transient issues
 NON_RETRYABLE_ERRORS = [
     "CHQueryErrorMemoryLimitExceeded",
@@ -196,7 +192,6 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         parent_workflow_id = parent_info.workflow_id if parent_info else None
         job_id = None
         managed_warehouse_job_id = None
-        temporalio.workflow.deprecate_patch(MANAGED_WAREHOUSE_NAMING_PATCH)
         managed_warehouse_only = inputs.managed_warehouse_only
 
         if temporalio.workflow.patched(DUCKGRES_SHADOW_TRANSLATION_GATE_PATCH):

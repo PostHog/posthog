@@ -14,16 +14,16 @@ if TYPE_CHECKING:
 SCHEDULE_ID = "alerts-product-check-due-schedule"
 
 
-async def create_alerts_product_check_due_schedule(client: "Client") -> None:
+async def create_alerts_product_tick_schedule(client: "Client") -> None:
     if settings.CLOUD_DEPLOYMENT != "DEV":
         return
 
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
-            "alerts-product-check-due",
+            "alerts-product-orchestrate",
             {},
             id=SCHEDULE_ID,
-            task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+            task_queue=settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE,
             execution_timeout=dt.timedelta(seconds=50),
             retry_policy=RetryPolicy(maximum_attempts=1),
         ),
@@ -33,6 +33,7 @@ async def create_alerts_product_check_due_schedule(client: "Client") -> None:
 
     if await a_schedule_exists(client, SCHEDULE_ID):
         description = await client.get_schedule_handle(SCHEDULE_ID).describe()
+        # nosemgrep: insight-alert-state-direct-mutation (Temporal schedule state, not an alert)
         schedule.state = description.schedule.state
         await a_update_schedule(client, SCHEDULE_ID, schedule)
     else:
