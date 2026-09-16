@@ -13,6 +13,7 @@ For a date range ending now, the first page fixes the time bounds for subsequent
 Late-arriving events within those bounds can still affect counts; the table is not a database snapshot.
 The query's `includeAllModels` option enables this ungrouped view; `limit` (1 to 100) and `offset` select a page, and `hasMore` indicates another page is available.
 Explore models opens a Trends table that trims model identifiers and groups missing or blank values under Unknown, with the dashboard's date range, property filters, and test-account exclusion preserved.
+The insight link wraps the Trends query in an `InsightVizNode` so the insight editor can render the table.
 The table can show up to 50 identifiers before grouping the remaining values.
 Identifiers come from client metadata or the agent's self-report; the identified percentage measures reporting coverage, not verified model identity.
 

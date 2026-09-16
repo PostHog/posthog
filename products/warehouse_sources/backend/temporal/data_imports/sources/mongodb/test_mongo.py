@@ -766,6 +766,35 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         assert collection.cursors[0].sorted_by == ["_id", 1]
         assert collection.cursors[1].sorted_by == ["_id", 1]
 
+    def test_execution_timeout_mid_stream_resumes_from_last_id(self):
+        # Regression: Atlas free/shared/flex tier clusters enforce a hard operation execution-time
+        # limit independent of no_cursor_timeout, so a getMore against a large collection can be
+        # killed with OperationFailure code 50 (MaxTimeMSExpired) partway through. The cursor is
+        # _id-ordered, so last_id is a safe resume point — resume instead of failing the whole sync.
+        collection = _FakeCollection(
+            [{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
+            error=OperationFailure("operation exceeded time limit, correlationID = 18d582877a9d2284f38efbb3", 50),
+            error_after=2,
+            fallback_docs=[{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
+        )
+
+        rows = self._run_get_rows(collection)
+
+        assert [row["_id"] for row in rows] == ["1", "2", "3"]
+        assert len(collection.find_calls) == 2
+        # Resume query picks up after the last document that was yielded.
+        assert collection.find_queries[1] == {"_id": {"$gt": "2"}}
+
+    def test_execution_timeout_without_progress_is_not_retried_forever(self):
+        # Resuming re-runs the same query, so a getMore that times out before yielding anything
+        # would hit the identical limit again — it must re-raise instead of looping forever.
+        collection = _FakeCollection([], error=OperationFailure("operation exceeded time limit", 50))
+
+        with self.assertRaises(OperationFailure):
+            self._run_get_rows(collection)
+
+        assert len(collection.find_calls) == 1
+
     @parameterized.expand(
         [
             (

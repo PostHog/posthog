@@ -62,6 +62,16 @@ function clampActorsLimit(value: unknown): number {
     return Math.min(Math.max(Math.trunc(value), 1), ACTORS_MAX_LIMIT)
 }
 
+/** The `detail` string from a drf-exceptions-hog error body, when the body carries one. */
+function parseErrorDetail(errorText: string): string | undefined {
+    try {
+        const detail = JSON.parse(errorText)?.detail
+        return typeof detail === 'string' && detail ? detail : undefined
+    } catch {
+        return undefined
+    }
+}
+
 function clampActorsOffset(value: unknown): number {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
         return 0
@@ -391,9 +401,81 @@ export class ApiClient {
      * The response body is read by the caller (SSE and JSON paths read it at
      * different points) and passed in as `errorText`.
      */
+    /**
+     * A 404 for a path that names an experiment, answered with DRF's generic detail, means the
+     * experiment itself is missing: `get_object()` fails the same way on the resource and on
+     * every lifecycle action under it. That gets the message naming the recovery path, typed as
+     * a 4xx so `handleToolError` treats it as agent-recoverable instead of capturing an exception
+     * per guessed id. A sub-resource that wrote its own detail (a missing recalculation run) is
+     * answering about itself and passes through untouched.
+     */
+    private buildExperimentNotFoundError(
+        response: Response,
+        errorText: string,
+        url: string,
+        method: string
+    ): PostHogApiError | undefined {
+        const experimentMatch = /\/experiments\/(\d+)(?:\/|$)/.exec(url.split('?')[0]!)
+        if (!experimentMatch) {
+            return undefined
+        }
+        let detail: unknown
+        try {
+            detail = JSON.parse(errorText)?.detail
+        } catch {
+            detail = undefined
+        }
+        if (detail !== undefined && detail !== 'Not found.') {
+            return undefined
+        }
+        const experimentId = experimentMatch[1]
+        console.error(`[API] Experiment ${experimentId} not found on ${method} ${url}`)
+        return new PostHogApiError({
+            status: response.status,
+            statusText: response.statusText,
+            body: errorText,
+            url,
+            method,
+            message:
+                `Experiment ${experimentId} not found in this project. ` +
+                `If the id is correct, the experiment may belong to a different project — ` +
+                `call experiment-list to see experiments accessible with your current API key and project, or switch-project first.`,
+        })
+    }
+
+    /**
+     * PostHog also answers 401 when the token is valid but the account state is not, so the
+     * bare sentinel told those callers to reconnect a credential that was never the problem.
+     * It stays at the front of the message because the re-auth path matches on it, and the
+     * server's reason and the status now ride along.
+     */
+    private buildUnauthorizedError(
+        response: Response,
+        errorText: string,
+        url: string,
+        method: string
+    ): PostHogApiError {
+        const detail = parseErrorDetail(errorText)
+        return new PostHogApiError({
+            status: response.status,
+            statusText: response.statusText,
+            body: errorText,
+            url,
+            method,
+            message: detail ? `${ErrorCode.INVALID_API_KEY}: ${detail}` : ErrorCode.INVALID_API_KEY,
+        })
+    }
+
     private buildApiError(response: Response, errorText: string, url: string, method: string): Error {
+        if (response.status === 404) {
+            const experimentNotFound = this.buildExperimentNotFoundError(response, errorText, url, method)
+            if (experimentNotFound) {
+                return experimentNotFound
+            }
+        }
+
         if (response.status === 401) {
-            return new Error(ErrorCode.INVALID_API_KEY)
+            return this.buildUnauthorizedError(response, errorText, url, method)
         }
 
         if (response.status === 429) {
@@ -503,19 +585,6 @@ export class ApiClient {
 
                 if (!response.ok) {
                     const errorText = await response.text()
-
-                    if (response.status === 404) {
-                        const experimentMatch = /\/experiments\/(\d+)/.exec(url)
-                        if (experimentMatch) {
-                            const experimentId = experimentMatch[1]
-                            console.error(`[API] Experiment ${experimentId} not found on ${method} ${url}`)
-                            throw new Error(
-                                `Experiment ${experimentId} not found in this project. ` +
-                                    `If the id is correct, the experiment may belong to a different project — ` +
-                                    `call experiment-list to see experiments accessible with your current API key and project, or switch-project first.`
-                            )
-                        }
-                    }
 
                     throw this.buildApiError(response, errorText, url, method)
                 }
