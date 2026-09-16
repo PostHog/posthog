@@ -18,3 +18,9 @@ Accepting an argument does not imply that Hog implements every HogQL option. For
 `round`, `floor`, `toString`, `now`, `position`, `positionCaseInsensitive`, `dateTrunc`,
 `toStartOfDay`, `toStartOfWeek`, `arraySort`, and `arrayReverseSort` accept and ignore trailing options.
 For example, `round(19.99, 2)` returns `20`; Hog does not apply the precision argument.
+
+## Python Hog date timezones
+
+`toDateTime(date, timezone)` and `toUnixTimestamp(date, timezone)` interpret a `HogDate` as midnight in the supplied timezone.
+The offset comes from that calendar date, including daylight saving time, rather than the zone's historical local mean time.
+Omitting the timezone uses UTC.

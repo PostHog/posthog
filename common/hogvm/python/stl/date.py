@@ -18,8 +18,8 @@ def to_hog_date(year: int, month: int, day: int):
 
 def to_hog_datetime(timestamp: int | float | dict, zone: Optional[str] = None):
     if isinstance(timestamp, dict) and is_hog_date(timestamp):
-        dt = datetime.datetime(
-            year=timestamp["year"], month=timestamp["month"], day=timestamp["day"], tzinfo=pytz.timezone(zone or "UTC")
+        dt = pytz.timezone(zone or "UTC").localize(
+            datetime.datetime(year=timestamp["year"], month=timestamp["month"], day=timestamp["day"]), is_dst=True
         )
         return {
             "__hogDateTime__": True,
@@ -44,9 +44,7 @@ def toUnixTimestamp(date, timezone: Optional[str] = None):
     if isinstance(date, dict) and is_hog_datetime(date):
         return date["dt"]
     if isinstance(date, dict) and is_hog_date(date):
-        return datetime.datetime(
-            year=date["year"], month=date["month"], day=date["day"], tzinfo=pytz.timezone(timezone or "UTC")
-        ).timestamp()
+        return to_hog_datetime(date, timezone)["dt"]
 
     # A naive string is anchored to `timezone` (UTC when unset), matching Rust's
     # `naive_to_seconds(s, zone)` and TypeScript's `fromISO(input, {zone})`. It used to be parsed

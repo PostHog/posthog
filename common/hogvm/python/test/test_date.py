@@ -6,7 +6,14 @@ import unittest
 
 from parameterized import parameterized
 
-from common.hogvm.python.stl.date import date_string_to_seconds, toDate, toDateTime, toUnixTimestamp
+from common.hogvm.python.stl.date import (
+    date_string_to_seconds,
+    to_hog_date,
+    to_hog_datetime,
+    toDate,
+    toDateTime,
+    toUnixTimestamp,
+)
 
 # The shared date-like grammar. The canonical spec lives above `parse_datetime_to_seconds` in
 # `rust/common/hogvm/src/stl.rs`; the same table is driven by `rust/common/hogvm/tests/datetime.rs`
@@ -100,6 +107,18 @@ class TestDateLikeGrammar(unittest.TestCase):
     def test_explicit_zone_applies_only_to_input_carrying_no_zone_of_its_own(self):
         self.assertEqual(toUnixTimestamp("2024-01-01 00:00:00", "America/New_York"), 1704085200)
         self.assertEqual(toUnixTimestamp("2024-01-01T00:00:00Z", "America/New_York"), 1704067200)
+
+    @parameterized.expand(
+        [
+            (1, "America/New_York", 1704085200),
+            (7, "America/New_York", 1719806400),
+            (1, "Asia/Kolkata", 1704047400),
+        ]
+    )
+    def test_hog_date_uses_the_timezone_offset_for_its_date(self, month: int, zone: str, expected: int) -> None:
+        date = to_hog_date(2024, month, 1)
+        self.assertEqual(to_hog_datetime(date, zone)["dt"], expected)
+        self.assertEqual(toUnixTimestamp(date, zone), expected)
 
     def test_number_passes_through_as_epoch_seconds_without_parsing(self):
         self.assertEqual(toDateTime(1700000000)["dt"], 1700000000)
