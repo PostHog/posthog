@@ -19,6 +19,7 @@ describe('posthog create task template', () => {
         skills: ['error-triage', 'db-runbook'],
         posthog_mcp_scopes: 'full',
         max_parallel_tasks: 3,
+        channel: '0198c9f1-bbbb-0000-0000-000000000001|growth',
     }
     // Mirrors the default event in createGlobals; the request must always carry the trigger event.
     const defaultEventBody = {
@@ -81,6 +82,7 @@ describe('posthog create task template', () => {
             skills: ['error-triage', 'db-runbook'],
             posthog_mcp_scopes: 'full',
             max_parallel_tasks: 3,
+            channel: '0198c9f1-bbbb-0000-0000-000000000001|growth',
             event: defaultEventBody,
             idempotency_key: `${invocation.id}:action_1:0`,
         })
@@ -106,6 +108,28 @@ describe('posthog create task template', () => {
             max_parallel_tasks: 5,
             event: defaultEventBody,
             idempotency_key: `${invocation.id}:action_1:0`,
+        })
+    })
+
+    it('asks the agent for the fields the output variables read from the output', async () => {
+        const hogFlow = {
+            ...workflowOptions.hogFlow,
+            actions: [
+                {
+                    id: 'action_1',
+                    output_variable: [
+                        { key: 'verdict', result_path: 'output.verdict' },
+                        { key: 'run', result_path: 'run_id' },
+                    ],
+                },
+            ],
+            variables: [{ key: 'verdict', type: 'string', label: 'Verdict', description: 'ship or hold' }],
+        } as any
+        const response = await tester.invoke({ prompt: 'Judge the PR' }, undefined, { ...workflowOptions, hogFlow })
+
+        expect(response.error).toBeUndefined()
+        expect(parseJSON((response.invocation.queueParameters as any).body).output_fields).toEqual({
+            verdict: 'string',
         })
     })
 

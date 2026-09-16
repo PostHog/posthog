@@ -3,10 +3,33 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 14 enabled ops
+ * PostHog API - MCP 17 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const ReusableWidgetsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ReusableWidgetsListQueryParams = () => zod.object({
+    limit: zod.number().optional(),
+    offset: zod.number().optional(),
+    search: zod.string().optional(),
+})
+
+export const ReusableWidgetsRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
@@ -63,7 +86,12 @@ export const notebooksCreateBodyVariablesItemNameMax = 200
 
 export const NotebooksCreateBody = () => zod.object({
     title: zod.string().max(notebooksCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown.'
+        ),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -137,7 +165,12 @@ export const notebooksPartialUpdateBodyVariablesItemNameMax = 200
 
 export const NotebooksPartialUpdateBody = () => zod.object({
     title: zod.string().max(notebooksPartialUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown.'
+        ),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -214,7 +247,9 @@ export const NotebooksKernelConfigCreateBody = () => zod.object({
     idle_timeout_seconds: zod
         .number()
         .optional()
-        .describe('Seconds of inactivity before the sandbox kernel shuts down.'),
+        .describe(
+            'Maximum lifetime of the sandbox kernel in seconds. It shuts down this long after it starts, even while in use. A running kernel keeps its current lifetime until it restarts.'
+        ),
 })
 
 /**
@@ -265,6 +300,39 @@ export const NotebooksSqlV2StateRetrieveParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     short_id: zod.string(),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const NotebooksWidgetAttachParams = () => zod.object({
+    node_id: zod.string().describe('Stable identifier of the generated widget node.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
+
+export const NotebooksWidgetAttachBody = () => zod.object({
+    widget_id: zod.string().describe('Reusable widget to place in this notebook node.'),
+    version_id: zod
+        .string()
+        .nullish()
+        .describe("Version to pin, or null to follow the reusable widget's latest version."),
+    input_bindings: zod
+        .record(
+            zod.string(),
+            zod.object({
+                source: zod.string(),
+                hog: zod.string().optional(),
+            })
+        )
+        .optional()
+        .describe(
+            'Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include pure Hog source for reshaping its rows.'
+        ),
 })
 
 /**

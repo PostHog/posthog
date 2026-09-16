@@ -5,7 +5,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest import mock
 
@@ -227,13 +227,13 @@ class TestRowTracking(BaseTest):
         with (
             override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
             self._setup_limits(limit),
-            freeze_time("2024-01-01 12:00:00"),
+            time_machine.travel("2024-01-01 12:00:00", tick=False),
         ):
             return await will_hit_billing_limit(team_id=self.team.pk, source=source, logger=self._logger())
 
     @sync_to_async
     def _create_source(self) -> ExternalDataSource:
-        with freeze_time(datetime(2023, 12, 1)):
+        with time_machine.travel(datetime(2023, 12, 1), tick=False):
             return ExternalDataSource.objects.create(team=self.team)
 
     @pytest.mark.asyncio

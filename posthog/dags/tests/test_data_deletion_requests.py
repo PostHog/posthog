@@ -141,6 +141,15 @@ def _adhoc_pending_uuids(team_id: int, client: Client) -> set:
     return {row[0] for row in result}
 
 
+def _adhoc_pending_request_ids(team_id: int, client: Client) -> set:
+    result = client.execute(
+        f"SELECT data_deletion_request_id FROM {ADHOC_EVENTS_DELETION_TABLE} FINAL "
+        "WHERE team_id = %(team_id)s AND is_deleted = 0",
+        {"team_id": team_id},
+    )
+    return {row[0] for row in result}
+
+
 @pytest.mark.django_db
 def test_load_deletion_request_transitions_to_in_progress():
     request = DataDeletionRequest.objects.create(
@@ -534,6 +543,8 @@ def test_full_job_event_deletion_deferred(cluster: ClickhouseCluster):
     assert cluster.any_host(partial(_count_events_by_name, DEFERRED_TEAM_ID, "$pageview")).result() == 15
     queued = cluster.any_host(partial(_adhoc_pending_uuids, DEFERRED_TEAM_ID)).result()
     assert queued == set(target_uuids)
+    request_ids = cluster.any_host(partial(_adhoc_pending_request_ids, DEFERRED_TEAM_ID)).result()
+    assert request_ids == {request.pk}
 
     request.refresh_from_db()
     assert request.status == RequestStatus.QUEUED

@@ -82,10 +82,13 @@ class TestResolveAgentRuntime:
                 runtime_adapter="codex", model="gpt-5.5", reasoning_effort=None, service_tier="flex"
             )
 
-    def test_non_string_service_tier_is_dropped_not_fatal(self) -> None:
+    @parameterized.expand([("non_string", True), ("unknown", "turbo"), ("typo", "flx")])
+    def test_bad_service_tier_is_dropped_not_fatal(self, _name: str, bad_tier: object) -> None:
+        # The agent server forwards the tier verbatim as the gateway's control header, which fails
+        # closed on an unknown value, so a payload typo would 400 every request of the run.
         payload = {
             "team_configs": {
-                "2": {"steps": {"research": {"runtime_adapter": "codex", "model": "gpt-5.5", "service_tier": True}}}
+                "2": {"steps": {"research": {"runtime_adapter": "codex", "model": "gpt-5.5", "service_tier": bad_tier}}}
             }
         }
         with patch(_READ_PATH, return_value=payload):

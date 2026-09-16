@@ -64,7 +64,7 @@ export interface AITriage {
     schema_version?: number
     status?: AITriageStatus
     result?: AITriageResult
-    ticket_type?: 'how_to' | 'diagnostic' | 'account_billing' | 'unactionable'
+    ticket_type?: 'how_to' | 'diagnostic' | 'account_billing' | 'bug' | 'unactionable'
     needs_diagnostics?: boolean
     diagnostics_allowed?: boolean
     confidence?: number
@@ -75,23 +75,14 @@ export interface AITriage {
     run_id?: string
     ai_trace_id?: string
     missing?: string[]
+    cost?: {
+        sandbox_seconds?: number
+        llm_calls?: number
+    }
+    human_outcome?: 'used' | 'edited' | 'ignored'
 }
 
 export type AiReplyFeedbackRating = 'good' | 'bad'
-
-export type GapSuggestionStatus = 'pending' | 'accepted' | 'dismissed'
-
-export interface KnowledgeGapSuggestion {
-    id: string
-    ticket_id: string
-    topic: string
-    normalized_topic: string
-    ticket_type: string
-    outcome: string
-    status: GapSuggestionStatus
-    resolved_source_id: string | null
-    created_at: string
-}
 
 /**
  * Canonical saved-view filter shape, generated from the backend's TicketViewFiltersSerializer.

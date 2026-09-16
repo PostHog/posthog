@@ -301,7 +301,8 @@
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
-         "posthog_taggeditem"."project_id"
+         "posthog_taggeditem"."project_id",
+         "posthog_taggeditem"."experiment_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -321,7 +322,8 @@
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
-         "posthog_taggeditem"."project_id"
+         "posthog_taggeditem"."project_id",
+         "posthog_taggeditem"."experiment_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -1224,7 +1226,8 @@
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
-         "posthog_taggeditem"."project_id"
+         "posthog_taggeditem"."project_id",
+         "posthog_taggeditem"."experiment_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -1244,7 +1247,8 @@
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
-         "posthog_taggeditem"."project_id"
+         "posthog_taggeditem"."project_id",
+         "posthog_taggeditem"."experiment_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''

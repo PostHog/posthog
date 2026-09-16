@@ -2,7 +2,7 @@ import os
 import json
 from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
@@ -602,7 +602,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, expected_status)
         return response.json() if expected_status == status.HTTP_200_OK else response
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_logs_integration_exact_limit(self):
         # query matches exactly 50 results from the test data
         query_params = {
@@ -617,7 +617,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(response["hasMore"])
         self.assertEqual(len(queries), 1)
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_logs_integration_one_more(self):
         # query matches exactly 51 results from the test data
         query_params = {
@@ -632,7 +632,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(response["hasMore"])
         self.assertEqual(len(queries), 1)
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_logs_slicing(self):
         # should slice the query, only return 100 results first time, then get the rest
         query_params = {
@@ -652,7 +652,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("naive", "2025-12-16T00:00:00"),
         ]
     )
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_live_tail_checkpoint_iso_string(self, _name, checkpoint):
         query_params = {
             "dateRange": {"date_from": "2025-12-16 09:32:36.178572Z", "date_to": None},
@@ -665,7 +665,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self._make_logs_api_request(query_params)
         self.assertGreater(len(response["results"]), 0)
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_resource_filters(self):
         query_params = {
             "dateRange": {"date_from": "2025-12-16 09:32:36.178572Z", "date_to": None},
@@ -700,7 +700,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(len(queries), 2)
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_resource_negative_filters(self):
         query_params = {
             "dateRange": {"date_from": "2025-12-16 09:32:36.178572Z", "date_to": None},
@@ -735,7 +735,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 0)
         self.assertEqual(len(queries), 2)
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_multiple_negative_resource_attribute_filters(self):
         # Two negative resource attribute filters on disjoint values (no log has both an envoy
         # container AND the kube-system namespace). The fix exists so a resource is excluded when
@@ -821,7 +821,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         return runner.calculate().results
 
     @parameterized.expand([(PropertyGroupsMode.OPTIMIZED,), (PropertyGroupsMode.DISABLED,)])
-    @freeze_time("2025-12-18T03:00:00Z")
+    @time_machine.travel("2025-12-18T03:00:00Z", tick=False)
     def test_log_attribute_filter_resolves_regardless_of_property_groups_mode(self, mode: PropertyGroupsMode):
         # The seed data has 1000 logs with logtag="F" and 11 without. A log-attribute filter must resolve the
         # type-suffixed key (logtag__str) to its physical Map column for every property-groups mode — otherwise an
@@ -838,7 +838,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(all(r["attributes"].get("logtag") == "F" for r in exact_results))
         self.assertEqual(len(exact_results), 1000)
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_resource_negative_attribute_filters(self):
         query_params = {
             "dateRange": {"date_from": "2025-12-16 09:00:36.178572Z", "date_to": None},
@@ -872,7 +872,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 99)
         self.assertEqual(len(queries), 2)
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_resource_number_filters(self):
         query_params = {
             "dateRange": {"date_from": "-2h", "date_to": "2025-12-16 09:10:36.178572Z"},
@@ -900,7 +900,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 10)
         self.assertEqual(len(queries), 2)
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_trace_and_span_ids_returned_as_hex(self):
         query_params = {
             "dateRange": {"date_from": "2025-12-16 09:01:22.139425Z", "date_to": "2025-12-16 09:01:22.139426Z"},
@@ -961,7 +961,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_resource_fingerprint_integration(self):
         """Integration test for resource fingerprint queries using actual test data"""
         # First, get logs with a specific resource attribute to identify a resource fingerprint
@@ -1030,7 +1030,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
         }
 
-    @freeze_time("2025-12-19T00:00:00Z")
+    @time_machine.travel("2025-12-19T00:00:00Z", tick=False)
     def test_time_bucket_single_day_no_boundary(self):
         """Query entirely within Dec 15 — should only return Dec 15 logs."""
         bodies = self._boundary_bodies(self._boundary_query("2025-12-15 00:00:00Z", "2025-12-16 00:00:00Z"))
@@ -1041,7 +1041,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("boundary-log-dec14-noon", bodies)
         self.assertNotIn("boundary-log-dec16-midnight-exact", bodies)
 
-    @freeze_time("2025-12-19T00:00:00Z")
+    @time_machine.travel("2025-12-19T00:00:00Z", tick=False)
     def test_time_bucket_cross_midnight_dec15_to_dec16(self):
         """Query spanning 23:59 Dec 15 → 00:01 Dec 16 crosses the day boundary."""
         bodies = self._boundary_bodies(self._boundary_query("2025-12-15 23:59:00Z", "2025-12-16 00:00:012Z"))
@@ -1055,7 +1055,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Earlier Dec 15 morning should NOT match (outside timestamp range)
         self.assertNotIn("boundary-log-dec15-morning", bodies)
 
-    @freeze_time("2025-12-19T00:00:00Z")
+    @time_machine.travel("2025-12-19T00:00:00Z", tick=False)
     def test_time_bucket_exactly_midnight_from(self):
         """date_from exactly at midnight — toStartOfDay still equals that day."""
         bodies = self._boundary_bodies(self._boundary_query("2025-12-16 00:00:00Z", "2025-12-16 00:00:012Z"))
@@ -1065,7 +1065,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Dec 15 logs should NOT appear (time_bucket Dec 15 < toStartOfDay(Dec 16))
         self.assertNotIn("boundary-log-dec15-2359", bodies)
 
-    @freeze_time("2025-12-19T00:00:00Z")
+    @time_machine.travel("2025-12-19T00:00:00Z", tick=False)
     def test_time_bucket_exactly_midnight_to(self):
         """date_to exactly at midnight Dec 17 — toStartOfDay(date_to) = Dec 17, so Dec 17 time_bucket included."""
         bodies = self._boundary_bodies(self._boundary_query("2025-12-17 00:00:00Z", "2025-12-17 00:00:00.000002Z"))
@@ -1074,7 +1074,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Dec 16 logs should NOT appear
         self.assertNotIn("boundary-log-dec16-midnight-exact", bodies)
 
-    @freeze_time("2025-12-19T00:00:00Z")
+    @time_machine.travel("2025-12-19T00:00:00Z", tick=False)
     def test_time_bucket_multi_day_span(self):
         """Query spanning Dec 14 noon → Dec 18 early should include all boundary logs."""
         bodies = self._boundary_bodies(self._boundary_query("2025-12-14 00:00:00Z", "2025-12-19 00:00:00Z"))
@@ -1093,7 +1093,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         }
         self.assertEqual(bodies, expected)
 
-    @freeze_time("2025-12-19T00:00:00Z")
+    @time_machine.travel("2025-12-19T00:00:00Z", tick=False)
     def test_time_bucket_narrow_window_around_midnight(self):
         """Very narrow window: last microsecond of Dec 15 → first microsecond of Dec 16.
         Both days' time_buckets must be scanned."""
@@ -1104,7 +1104,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("boundary-log-dec16-midnight-exact", bodies)
         self.assertIn("boundary-log-dec16-midnight-plus1us", bodies)
 
-    @freeze_time("2025-12-19T00:00:00Z")
+    @time_machine.travel("2025-12-19T00:00:00Z", tick=False)
     def test_time_bucket_excludes_outside_days(self):
         """Query for Dec 15 only — Dec 14 and Dec 16+ must not appear."""
         bodies = self._boundary_bodies(self._boundary_query("2025-12-15 00:00:00Z", "2025-12-16 00:00:00Z"))
@@ -1113,7 +1113,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("boundary-log-dec17-midnight-exact", bodies)
         self.assertNotIn("boundary-log-dec18-early", bodies)
 
-    @freeze_time("2025-12-19T00:00:00Z")
+    @time_machine.travel("2025-12-19T00:00:00Z", tick=False)
     def test_time_bucket_date_to_midday_does_not_leak_next_day(self):
         """date_to in the middle of Dec 17 — Dec 18 logs must NOT appear."""
         bodies = self._boundary_bodies(self._boundary_query("2025-12-17 00:00:00Z", "2025-12-17 15:00:00Z"))
@@ -1122,7 +1122,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("boundary-log-dec17-afternoon", bodies)
         self.assertNotIn("boundary-log-dec18-early", bodies)
 
-    @freeze_time("2025-12-18T12:00:00Z")
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_relative_date_from_keeps_exact_window(self):
         # "-1d" must mean exactly 24 hours back, not "since midnight yesterday": the count and
         # sparkline runners resolve day-level presets exactly, so a midnight-snapped list would
@@ -1157,7 +1157,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(LogsViewSet._normalize_filter_group(input_value), expected)
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_query_with_flat_filter_group(self):
         """The query endpoint normalizes flat filter arrays to nested PropertyGroupFilter."""
         query_params = {
@@ -1177,7 +1177,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         for result in response["results"]:
             self.assertIn("efs-csi-node", result["resource_attributes"].get("k8s.pod.name", ""))
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_query_with_empty_flat_filter_group(self):
         """Empty flat filter array should return results (no filtering)."""
         query_params = {

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
 from django.test import override_settings
@@ -35,7 +35,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_basic_retention_calculation(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -190,7 +190,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_window_boundaries(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -325,7 +325,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_first_seen_vs_last_seen(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -494,7 +494,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_with_conversion_window(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -635,7 +635,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_no_completion_events(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -743,7 +743,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_multiple_variants(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -894,7 +894,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_day_zero_same_day_as_start(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1053,7 +1053,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("first_seen_window_start_one_precomputed", True, StartHandling.FIRST_SEEN, 1, 1, 1, 0),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     def test_retention_same_start_and_completion_event_excludes_self(
         self,
         name,
@@ -1169,7 +1169,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_hour_based_same_hour(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1324,7 +1324,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2024-01-01T12:00:00Z")
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_multiple_completions_in_window(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1460,7 +1460,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_retention_start_event_before_exposure_not_excluded(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1616,7 +1616,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-25T12:00:00Z")
+    @time_machine.travel("2020-01-25T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_only_count_matured_users(self, name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
@@ -1764,7 +1764,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-25T12:00:00Z")
+    @time_machine.travel("2020-01-25T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_only_count_matured_users_without_conversion_window(self, name, use_precomputation):
         # Retention metrics should respect only_count_matured_users even when no
@@ -1904,7 +1904,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             ("precomputed", True),
         ]
     )
-    @freeze_time("2020-01-25T12:00:00Z")
+    @time_machine.travel("2020-01-25T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_only_count_matured_users_anchors_on_start_event(self, name, use_precomputation):
         # Maturity must be anchored on the user's start_event timestamp, not their

@@ -8,31 +8,31 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReplicaDiscoveryMode {
+pub enum DiscoveryMode {
     /// DNS mode: static channels to ClusterIP URL.
     Dns,
     /// K8s mode: EndpointSlice watcher with client-side p2c balancing.
     K8s,
 }
 
-impl fmt::Display for ReplicaDiscoveryMode {
+impl fmt::Display for DiscoveryMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ReplicaDiscoveryMode::Dns => write!(f, "dns"),
-            ReplicaDiscoveryMode::K8s => write!(f, "k8s"),
+            DiscoveryMode::Dns => write!(f, "dns"),
+            DiscoveryMode::K8s => write!(f, "k8s"),
         }
     }
 }
 
-impl FromStr for ReplicaDiscoveryMode {
+impl FromStr for DiscoveryMode {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "dns" => Ok(ReplicaDiscoveryMode::Dns),
-            "k8s" => Ok(ReplicaDiscoveryMode::K8s),
+            "dns" => Ok(DiscoveryMode::Dns),
+            "k8s" => Ok(DiscoveryMode::K8s),
             other => Err(format!(
-                "unknown replica discovery mode '{other}', expected 'dns' or 'k8s'"
+                "unknown discovery mode '{other}', expected 'dns' or 'k8s'"
             )),
         }
     }
@@ -91,7 +91,7 @@ pub struct Config {
     /// Discovery mode for replica endpoints: "dns" (default)
     /// or "k8s" (EndpointSlice watcher with client-side balancing)
     #[envconfig(default = "dns")]
-    pub replica_discovery_mode: ReplicaDiscoveryMode,
+    pub replica_discovery_mode: DiscoveryMode,
 
     /// Kubernetes service name to watch for replica endpoints (k8s mode only)
     #[envconfig(default = "personhog-replica")]
@@ -105,6 +105,41 @@ pub struct Config {
     /// gRPC port on replica pods (k8s mode only)
     #[envconfig(default = "50051")]
     pub replica_port: u16,
+
+    /// Forward identity and lifecycle RPCs to personhog-identity. Off, the
+    /// router answers those service names with UNIMPLEMENTED.
+    #[envconfig(default = "false")]
+    pub identity_enabled: bool,
+
+    /// URL of the personhog-identity backend (DNS mode only)
+    #[envconfig(default = "http://127.0.0.1:50055")]
+    pub identity_url: String,
+
+    /// Number of gRPC channels to open to the identity service (DNS mode only)
+    #[envconfig(default = "4")]
+    pub identity_channels: usize,
+
+    /// Discovery mode for identity endpoints: "dns" (default) or "k8s"
+    #[envconfig(default = "dns")]
+    pub identity_discovery_mode: DiscoveryMode,
+
+    /// Kubernetes service name to watch for identity endpoints (k8s mode only)
+    #[envconfig(default = "personhog-identity")]
+    pub identity_service_name: String,
+
+    /// Kubernetes namespace for identity endpoint discovery (k8s mode only).
+    /// If empty, reads from the service account mount.
+    #[envconfig(default = "")]
+    pub identity_service_namespace: String,
+
+    /// gRPC port on identity pods (k8s mode only)
+    #[envconfig(default = "50055")]
+    pub identity_port: u16,
+
+    /// Timeout for identity backend requests in milliseconds. Lifecycle RPCs
+    /// run their saga inline, so this sits well above the replica timeout.
+    #[envconfig(default = "30000")]
+    pub identity_timeout_ms: u64,
 
     /// Timeout for backend requests in milliseconds
     #[envconfig(default = "5000")]
@@ -582,20 +617,20 @@ mod tests {
         );
     }
 
-    // ── ReplicaDiscoveryMode ──────────────────────────────────────────────────
+    // ── DiscoveryMode ──────────────────────────────────────────────────
 
     #[test]
-    fn replica_discovery_mode_from_str_valid_variants() {
+    fn discovery_mode_from_str_valid_variants() {
         let cases = [
-            ("dns", ReplicaDiscoveryMode::Dns),
-            ("k8s", ReplicaDiscoveryMode::K8s),
+            ("dns", DiscoveryMode::Dns),
+            ("k8s", DiscoveryMode::K8s),
             // case-insensitive
-            ("DNS", ReplicaDiscoveryMode::Dns),
-            ("K8S", ReplicaDiscoveryMode::K8s),
-            ("Dns", ReplicaDiscoveryMode::Dns),
+            ("DNS", DiscoveryMode::Dns),
+            ("K8S", DiscoveryMode::K8s),
+            ("Dns", DiscoveryMode::Dns),
         ];
         for (input, expected) in cases {
-            let result: Result<ReplicaDiscoveryMode, _> = input.parse();
+            let result: Result<DiscoveryMode, _> = input.parse();
             assert_eq!(
                 result.unwrap(),
                 expected,
@@ -605,10 +640,10 @@ mod tests {
     }
 
     #[test]
-    fn replica_discovery_mode_from_str_invalid_returns_error() {
+    fn discovery_mode_from_str_invalid_returns_error() {
         let invalid_inputs = ["endpoint", "", "replica", "kubernetes", "k8s1"];
         for input in invalid_inputs {
-            let result: Result<ReplicaDiscoveryMode, _> = input.parse();
+            let result: Result<DiscoveryMode, _> = input.parse();
             assert!(result.is_err(), "'{input}' should be an error");
             let msg = result.unwrap_err();
             assert!(
@@ -619,16 +654,16 @@ mod tests {
     }
 
     #[test]
-    fn replica_discovery_mode_display() {
-        assert_eq!(ReplicaDiscoveryMode::Dns.to_string(), "dns");
-        assert_eq!(ReplicaDiscoveryMode::K8s.to_string(), "k8s");
+    fn discovery_mode_display() {
+        assert_eq!(DiscoveryMode::Dns.to_string(), "dns");
+        assert_eq!(DiscoveryMode::K8s.to_string(), "k8s");
     }
 
     #[test]
-    fn replica_discovery_mode_roundtrips() {
-        for mode in [ReplicaDiscoveryMode::Dns, ReplicaDiscoveryMode::K8s] {
+    fn discovery_mode_roundtrips() {
+        for mode in [DiscoveryMode::Dns, DiscoveryMode::K8s] {
             let s = mode.to_string();
-            let parsed: ReplicaDiscoveryMode = s.parse().unwrap();
+            let parsed: DiscoveryMode = s.parse().unwrap();
             assert_eq!(
                 parsed, mode,
                 "Display → FromStr roundtrip failed for {mode:?}"
@@ -687,6 +722,10 @@ mod tests {
 impl Config {
     pub fn backend_timeout(&self) -> Duration {
         Duration::from_millis(self.backend_timeout_ms)
+    }
+
+    pub fn identity_timeout(&self) -> Duration {
+        Duration::from_millis(self.identity_timeout_ms)
     }
 
     pub fn backend_connect_timeout(&self) -> Duration {
@@ -966,29 +1005,30 @@ impl Config {
 
     /// Resolve the replica service namespace from config or the service account mount.
     pub fn resolve_replica_namespace(&self) -> Result<String, String> {
-        if !self.replica_service_namespace.is_empty() {
-            return Ok(self.replica_service_namespace.clone());
-        }
-        std::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
-            .map(|s| s.trim().to_string())
-            .map_err(|e| {
-                format!(
-                    "replica_service_namespace not set and failed to read from service account: {e}"
-                )
-            })
+        namespace_or_service_account(&self.replica_service_namespace, "replica_service_namespace")
+    }
+
+    /// Resolve the identity service namespace from config or the service account mount.
+    pub fn resolve_identity_namespace(&self) -> Result<String, String> {
+        namespace_or_service_account(
+            &self.identity_service_namespace,
+            "identity_service_namespace",
+        )
     }
 
     /// Resolve the K8s namespace from config or the service account mount.
     pub fn resolve_k8s_namespace(&self) -> Result<String, String> {
-        if !self.k8s_namespace.is_empty() {
-            return Ok(self.k8s_namespace.clone());
-        }
-        std::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
-            .map(|s| s.trim().to_string())
-            .map_err(|e| {
-                format!("k8s_namespace not set and failed to read from service account: {e}")
-            })
+        namespace_or_service_account(&self.k8s_namespace, "k8s_namespace")
     }
+}
+
+fn namespace_or_service_account(configured: &str, field: &str) -> Result<String, String> {
+    if !configured.is_empty() {
+        return Ok(configured.to_string());
+    }
+    std::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+        .map(|s| s.trim().to_string())
+        .map_err(|e| format!("{field} not set and failed to read from service account: {e}"))
 }
 
 #[derive(Clone, Copy, Debug)]

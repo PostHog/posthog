@@ -6,13 +6,14 @@ import { TextMorph } from 'torph/react'
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonSnack, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { PropertyFilterType } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType } from '~/types'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
@@ -140,11 +141,26 @@ function pageValues(scanner: ReplayScanner): string[] {
     return property.value.map(String)
 }
 
-/** The names of the query's events or actions, whichever list is asked for. */
+/** Each event or action the scan watches, with its own property conditions appended.
+ *
+ * A bare event name reads as "every time this event fires", so an event carrying a sub-filter (for
+ * example "checkout clicked where country = US", or an `$exception` pinned to one issue) has to show
+ * that filter or the preview overstates what the scan matches. A HogQL condition renders by its
+ * trailing `-- comment` when it has one, which is how the issue filter shows the error name rather
+ * than a raw `issue_id = '...'`.
+ */
 function namedQueryEntities(scanner: ReplayScanner, key: 'events' | 'actions'): string[] {
     const query = scanner.query
     const entities = (query && key in query ? query[key] : null) ?? []
-    return entities.map((entity) => String(entity.name ?? entity.id)).filter(Boolean)
+    return entities
+        .map((entity) => {
+            const name = String(entity.name ?? entity.id)
+            const conditions = ((entity.properties ?? []) as AnyPropertyFilter[])
+                .map((property) => formatPropertyLabel(property, {}).trim())
+                .filter(Boolean)
+            return conditions.length > 0 ? `${name} where ${conditions.join(', ')}` : name
+        })
+        .filter(Boolean)
 }
 
 /** The cohorts the scan is limited to. The query carries only ids, so the name is looked up. */
@@ -154,12 +170,63 @@ function cohortValues(scanner: ReplayScanner, cohortNames?: Record<string, strin
         .map((property) => String(cohortNames?.[String(property.value)] ?? `Cohort ${property.value}`))
 }
 
+/** The row label for a top-level property filter, by the thing it narrows on: [singular, plural].
+ * A missing type falls through to a generic "Filter" so an unrecognized kind still shows rather
+ * than vanishing from the preview. */
+const TOP_LEVEL_PROPERTY_KIND: Partial<Record<PropertyFilterType, [singular: string, plural: string]>> = {
+    [PropertyFilterType.Person]: ['Person', 'Person'],
+    [PropertyFilterType.PersonMetadata]: ['Person', 'Person'],
+    [PropertyFilterType.DataWarehousePersonProperty]: ['Person', 'Person'],
+    [PropertyFilterType.Session]: ['Session', 'Session'],
+    [PropertyFilterType.Recording]: ['Recording', 'Recording'],
+    [PropertyFilterType.Group]: ['Group', 'Group'],
+    [PropertyFilterType.Element]: ['Element', 'Elements'],
+    [PropertyFilterType.DataWarehouse]: ['Warehouse', 'Warehouse'],
+    [PropertyFilterType.Event]: ['Event property', 'Event properties'],
+    [PropertyFilterType.EventMetadata]: ['Event property', 'Event properties'],
+    [PropertyFilterType.Feature]: ['Feature', 'Features'],
+    [PropertyFilterType.HogQL]: ['SQL', 'SQL'],
+}
+
+/** Top-level filters on the recording query itself — the session, person, and recording conditions
+ * that aren't attached to a specific event. Without these a scan narrowed by, say, "session browser
+ * is Chrome" would read as watching every recording. Pages and cohorts are excluded here because
+ * they have their own rows with their own value formatting; everything else is grouped by the kind
+ * it narrows on and rendered with the shared property formatter. */
+function topLevelPropertyGroups(scanner: ReplayScanner): EligibleFilterGroup[] {
+    const properties = (scanner.query?.properties ?? []) as AnyPropertyFilter[]
+    // Insertion-ordered so the rows appear in the order the filters were added.
+    const byKind = new Map<string, { singular: string; plural: string; values: string[] }>()
+    for (const property of properties) {
+        if (property.type === PropertyFilterType.Cohort) {
+            continue
+        }
+        if ('key' in property && property.key === 'visited_page') {
+            continue
+        }
+        const value = formatPropertyLabel(property, {}).trim()
+        if (!value) {
+            continue
+        }
+        const [singular, plural] = TOP_LEVEL_PROPERTY_KIND[property.type as PropertyFilterType] ?? ['Filter', 'Filters']
+        const group = byKind.get(singular) ?? { singular, plural, values: [] }
+        group.values.push(value)
+        byKind.set(singular, group)
+    }
+    return [...byKind.values()].map(({ singular, plural, values }) => ({
+        label: pluralize(values.length, singular, plural, false),
+        values,
+    }))
+}
+
 /** What the drafted scanner watches, grouped by the kind of filter each value came from.
  *
  * Each kind narrows differently. An experiment picks the people, a page picks where they went, an
- * event or an action picks what they did, and a cohort picks who they are. They also combine, so a
- * flat row of values leaves the reader to guess which value is which kind. The label is also the
- * only thing that makes an action or a cohort readable: neither value says what it is.
+ * event or an action picks what they did, a cohort picks who they are, and a session, person, or
+ * recording property narrows the recordings themselves. They also combine, so a flat row of values
+ * leaves the reader to guess which value is which kind. The label is also the only thing that makes
+ * an action or a cohort readable: neither value says what it is. Any filter that narrows the scan
+ * has to appear here, or the preview overstates what the scan matches.
  */
 export function eligibleFilterGroups(
     scanner: ReplayScanner,
@@ -172,12 +239,15 @@ export function eligibleFilterGroups(
         ['Action', 'Actions', namedQueryEntities(scanner, 'actions')],
         ['Cohort', 'Cohorts', cohortValues(scanner, cohortNames)],
     ]
-    return kinds
-        .filter(([, , values]) => values.length > 0)
-        .map(([singular, plural, values]) => ({
-            label: pluralize(values.length, singular, plural, false),
-            values,
-        }))
+    return [
+        ...kinds
+            .filter(([, , values]) => values.length > 0)
+            .map(([singular, plural, values]) => ({
+                label: pluralize(values.length, singular, plural, false),
+                values,
+            })),
+        ...topLevelPropertyGroups(scanner),
+    ]
 }
 
 /** The landing step after a goal-based draft: the whole drafted config, ordered by comprehension,

@@ -87,6 +87,7 @@ export function createHogFlowInvocation(
         state: {
             event: globals.event,
             actionStepCount: 0,
+            customerTaskIdempotencyVersion: 1,
             variables: mergedVariables,
             // Seeded at run start and persisted with the state, because the flow itself isn't: the
             // job is re-loaded by functionId on every resume, so by the time a conversion lands the
@@ -139,6 +140,14 @@ export class HogFlowExecutorService {
             'email',
             usageReporter
         )
+        const hogFunctionSmsHandler = new HogFunctionHandler(
+            hogFlowFunctionsService,
+            recipientPreferencesService,
+            emailValidationService,
+            'sms',
+            usageReporter,
+            options
+        )
         const hogFunctionPushHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
             recipientPreferencesService,
@@ -155,7 +164,7 @@ export class HogFlowExecutorService {
             wait_until_time_window: new WaitUntilTimeWindowHandler(),
             random_cohort_branch: new RandomCohortBranchHandler(),
             function: hogFunctionHandler,
-            function_sms: hogFunctionHandler,
+            function_sms: hogFunctionSmsHandler,
             function_push: hogFunctionPushHandler,
             function_email: hogFunctionEmailHandler,
             exit: new ExitHandler(),
@@ -595,13 +604,14 @@ export class HogFlowExecutorService {
                     hogExecutorOptions: options?.hogExecutorOptions,
                 })
 
-                if (handlerResult.error) {
-                    throw handlerResult.error instanceof Error ? handlerResult.error : new Error(handlerResult.error)
-                }
-
+                // Stored before the error so `on_error: continue` still sees what the step returned.
                 if (handlerResult.result) {
                     this.trackActionResult(result, currentAction, handlerResult.result)
                     result.execResult = handlerResult.result
+                }
+
+                if (handlerResult.error) {
+                    throw handlerResult.error instanceof Error ? handlerResult.error : new Error(handlerResult.error)
                 }
 
                 if (handlerResult.finished) {

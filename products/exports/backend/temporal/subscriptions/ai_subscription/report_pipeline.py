@@ -125,12 +125,14 @@ _GENERIC_QUERY_REPAIR_HINT = "The query failed with an adjusted-input error. Rew
 _SELF_RECOVERABLE_QUERY_ERROR_CATEGORIES = frozenset({QueryErrorCategory.RATE_LIMITED})
 
 
-def _all_queries_failed_notice(total_steps: int) -> str:
+def _all_queries_failed_notice(total_steps: int, *, include_manage_link: bool = True) -> str:
     noun = "the query" if total_steps == 1 else f"all {total_steps} queries"
-    return (
-        f"> ⚠️ This report could not be generated — {noun} the assistant wrote failed to run. "
-        "Use the Manage subscription link to review the generated queries and the errors they hit.\n\n"
-    )
+    notice = f"> ⚠️ This report could not be generated — {noun} the assistant wrote failed to run."
+    # Every channel renders this one markdown body, so a report whose recipients get no manage
+    # control must not tell them to use it.
+    if include_manage_link:
+        notice += " Use the Manage subscription link to review the generated queries and the errors they hit."
+    return notice + "\n\n"
 
 
 @frozen
@@ -307,6 +309,8 @@ async def generate_ai_report(
     window: ReportWindow,
     ai_query_plan: Optional[dict] = None,
     trace_correlation_id: Optional[Union[int, str]] = None,
+    include_charts: bool = True,
+    include_manage_link: bool = True,
 ) -> AiReportResult:
     if user is None:
         raise PromptRejectedError("AI report must have a user to run.")
@@ -343,7 +347,11 @@ async def generate_ai_report(
             else:
                 spec = await _plan(team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id)
                 freshly_planned = True
-            charts_enabled_for_team = await database_sync_to_async(charts_enabled, thread_sensitive=False)(team, user)
+            # A report that will not show its charts must not build or render them: each render is a
+            # headless PNG export holding a slot in a pool every concurrent report shares.
+            charts_enabled_for_team = include_charts and await database_sync_to_async(
+                charts_enabled, thread_sensitive=False
+            )(team, user)
             execution = await _execute_plan(
                 spec, team, user, window, trace_correlation_id, charts_enabled_for_team=charts_enabled_for_team
             )
@@ -410,7 +418,7 @@ async def generate_ai_report(
             # Every query failed, so the body is all "could not be computed" placeholders. Lead with a
             # deterministic notice (not left to the synthesis LLM) so the recipient gets a clear signal
             # instead of a confident-looking but empty report.
-            report = _all_queries_failed_notice(total_steps) + report
+            report = _all_queries_failed_notice(total_steps, include_manage_link=include_manage_link) + report
         eligible_plan = _plan_to_freeze(
             spec.plan,
             failed_count=failed_count,

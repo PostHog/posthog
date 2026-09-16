@@ -190,6 +190,11 @@ vi.mock("@posthog/ui/features/inbox/components/InboxScopeSelect", () => ({
   InboxScopeSelect: () => null,
 }));
 
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
+  useChannelsLayout: () => false,
+}));
+
+import { InboxTriagePane } from "./InboxTriagePane";
 import { ReportsInboxView } from "./ReportsInboxView";
 
 function archivedReport(id: string, title: string): SignalReport {
@@ -371,7 +376,7 @@ describe("ReportsInboxView", () => {
     ).toBe(true);
   });
 
-  it("returns to the same report in triage mode", () => {
+  it("resumes triage on the report it opened", () => {
     mocks.activeReports = [
       {
         ...activeReport("merge-report", "Merge report"),
@@ -385,7 +390,7 @@ describe("ReportsInboxView", () => {
       inboxTriageOrigin: { reportId: "second-report" },
     };
 
-    render(<ReportsInboxView />);
+    render(<InboxTriagePane />);
 
     expect(mocks.triageProps?.initialReportId).toBe("second-report");
     expect(mocks.triageProps?.reports.map((report) => report.id)).toEqual([

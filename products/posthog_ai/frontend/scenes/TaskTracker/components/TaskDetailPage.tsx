@@ -4,8 +4,6 @@ import { IconExternal, IconGithub, IconPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { isPiTaskRuntime } from '../../../types/taskTypes'
@@ -17,18 +15,16 @@ import { TaskRunSceneShell } from './TaskRunSceneShell'
 
 export interface TaskDetailPageProps {
     taskId: string
-    /** Mobile shows the single-column layout, where a back button is needed to return to the list. */
     isMobile: boolean
+    titleActions?: JSX.Element
 }
 
-export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.Element {
+export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
     const { task, taskNotFound, taskError, latestRun, selectedRun, isTaskPending, isHeaderLoading, runTaskInFlight } =
         useValues(sceneLogic)
     const { runTask, deleteTask, loadTask } = useActions(sceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { activeCreation, hasDesktopAccess } = useValues(taskTrackerSceneLogic)
-    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const isActiveCreation = activeCreation?.taskId === taskId
 
     if (taskNotFound && !task) {
@@ -44,13 +40,13 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
     const runButtonText = latestRun ? 'Retry task' : 'Run task'
 
     const prUrl = selectedRun?.output?.pr_url as string | undefined
-    const titleActions =
+    const taskActions =
         isHeaderLoading || !task ? (
             isActiveCreation ? undefined : (
                 <TaskHeaderActionsSkeleton />
             )
         ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
                 {hasDesktopAccess && (
                     <LemonButton
                         type="secondary"
@@ -99,14 +95,24 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
             task={task}
             selectedRun={selectedRun}
             isHeaderLoading={isHeaderLoading && !isActiveCreation}
-            titleActions={titleActions}
-            sceneMenuBarEnabled={sceneMenuBarEnabled}
+            titleActions={
+                <div className="flex flex-wrap items-center gap-2">
+                    {taskActions}
+                    {titleActions}
+                </div>
+            }
             onArchive={deleteTask}
             taskError={taskError}
             onRetry={loadTask}
             isMobile={isMobile}
         >
-            <TaskRunLog taskId={taskId} optimisticStreamKey={optimisticStreamKey} optimisticRunId={optimisticRunId} />
+            <TaskRunLog
+                taskId={taskId}
+                optimisticStreamKey={optimisticStreamKey}
+                optimisticRunId={optimisticRunId}
+                interactionKey={isActiveCreation ? activeCreation?.interactionKey : undefined}
+                autoFocus={isActiveCreation && activeCreation?.composerWasFocused}
+            />
         </TaskRunSceneShell>
     )
 }

@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import Mock, patch
 
@@ -141,7 +141,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
     def setUp(self):
         super().setUp()
-        with freeze_time("2025-01-20T12:00:00Z"):
+        with time_machine.travel("2025-01-20T12:00:00Z", tick=False):
             self.query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -870,7 +870,7 @@ class TestAssistantQueryExecutorAsync(NonAtomicBaseTest):
 
     def setUp(self):
         super().setUp()
-        with freeze_time("2025-01-20T12:00:00Z"):
+        with time_machine.travel("2025-01-20T12:00:00Z", tick=False):
             self.query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user)
 
     async def test_runs_in_async_context(self):
@@ -896,7 +896,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
 
     def setUp(self):
         super().setUp()
-        with freeze_time("2025-01-20T12:00:00Z"):
+        with time_machine.travel("2025-01-20T12:00:00Z", tick=False):
             self.query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")

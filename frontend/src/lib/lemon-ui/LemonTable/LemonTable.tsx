@@ -312,6 +312,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         getKey: resolveRowKey,
         isRowSelectable: bulkSelection?.isRowSelectable,
         initialSelectedKeys: bulkSelection?.initialSelectedKeys,
+        clearSelectionKey: bulkSelection?.clearSelectionKey,
     })
 
     const effectiveNoun = bulkSelection?.noun ?? nouns
@@ -467,7 +468,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                             <colgroup>
                                 {
                                     isRowExpansionToggleShown && (
-                                        <col style={{ width: '1%' }} />
+                                        <col style={{ width: tableLayout === 'fixed' ? '3rem' : '1%' }} />
                                     ) /* Expand/collapse column */
                                 }
                                 {columns
