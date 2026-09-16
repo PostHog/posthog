@@ -1,5 +1,10 @@
 # SQL editor schema tree
 
+The Sources tree starts with Popular, containing `events`, `groups`, `persons`, and `sessions`.
+PostHog follows with the full PostHog catalog, sorted by name and qualified with `posthog.`, including those four tables.
+Qualified entries use the same schema fields as their unqualified shortcuts.
+Search includes both categories, and table actions use the name shown in the tree.
+
 The SQL editor requests the database catalog with `DatabaseSchemaQuery.includeFields = false`.
 The response contains table names and source metadata, with empty field dictionaries.
 The sidebar does not mount source management or request the full external source list.

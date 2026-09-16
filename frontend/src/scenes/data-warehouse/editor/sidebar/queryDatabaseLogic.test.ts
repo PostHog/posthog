@@ -42,6 +42,8 @@ describe('queryDatabaseLogic', () => {
     describe('property definition targets', () => {
         test.each([
             ['event properties', 'events', 'properties', jsonField(), { type: 'event' }],
+            ['qualified event properties', 'posthog.events', 'properties', jsonField(), { type: 'event' }],
+            ['qualified person properties', 'posthog.persons', 'properties', jsonField(), { type: 'person' }],
             ['AI event properties', 'ai_events', 'properties', jsonField(), { type: 'event' }],
             ['person properties', 'persons', 'properties', jsonField(), { type: 'person' }],
             ['person properties joined to events', 'events', 'person.properties', jsonField(), { type: 'person' }],
@@ -116,7 +118,7 @@ describe('queryDatabaseLogic', () => {
         const propertyNode = (): NonNullable<(typeof logic.values.treeData)[number]> | undefined =>
             logic.values.treeData
                 .find((item) => item.record?.type === 'sources')
-                ?.children?.find((item) => item.name === 'PostHog')
+                ?.children?.find((item) => item.name === 'Popular')
                 ?.children?.find((item) => item.name === 'events')
                 ?.children?.find((item) => item.record?.type === 'property-field')
 
@@ -443,7 +445,7 @@ describe('queryDatabaseLogic', () => {
         logic.actions.locateTable('events')
 
         expect(logic.values.expandedFolders).toEqual(
-            expect.arrayContaining(['sources', 'source-posthog', 'table-events'])
+            expect.arrayContaining(['sources', 'source-Popular', 'table-events'])
         )
         expect(logic.values.tableToLocate).toEqual('events')
 
@@ -502,15 +504,53 @@ describe('queryDatabaseLogic', () => {
         })
     })
 
+    it('groups popular shortcuts and the qualified catalog in browsing and search', () => {
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        const names = ['sessions', 'events', 'groups', 'persons', 'logs', 'posthog.flag_evaluations']
+        databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({
+            tables: Object.fromEntries(names.map((name) => [name, { id: name, name, type: 'posthog', fields: {} }])),
+            joins: [],
+        })
+        const sources = logic.values.treeData.find((item) => item.id === 'sources')!.children!
+        expect(sources.map((item) => item.name)).toEqual(['Popular', 'PostHog'])
+        expect(sources[0].children?.map((item) => item.name)).toEqual(['events', 'groups', 'persons', 'sessions'])
+        expect(sources[1].children?.map((item) => item.name)).toEqual([
+            'posthog.events',
+            'posthog.flag_evaluations',
+            'posthog.groups',
+            'posthog.logs',
+            'posthog.persons',
+            'posthog.sessions',
+        ])
+        const tableIds = sources.flatMap((item) => item.children!.map((table) => table.id))
+        expect(new Set(tableIds).size).toBe(tableIds.length)
+        logic.actions.locateTable('posthog.logs')
+        expect(logic.values.expandedFolders).toEqual(
+            expect.arrayContaining(['sources', 'source-posthog', 'table-posthog.logs'])
+        )
+        logic.actions.setSearchTerm('events')
+        const searchSources = logic.values.searchTreeData.find((item) => item.record?.type === 'sources')!.children!
+        expect(searchSources.map((item) => item.name)).toEqual(['Popular', 'PostHog'])
+        expect(searchSources.flatMap((item) => item.children!.map((table) => table.name))).toEqual([
+            'events',
+            'posthog.events',
+        ])
+        logic.actions.setSearchTerm('posthog.flag_evaluations')
+        expect(logic.values.relevantPosthogTables.map(([table]) => table.name)).toContain('posthog.flag_evaluations')
+        logic.unmount()
+    })
+
     describe('lazy schema hydration', () => {
         let logic: ReturnType<typeof queryDatabaseLogic.build>
         let dbLogic: ReturnType<typeof databaseTableListLogic.build>
 
-        const findTableNode = (): any =>
+        const findTableNode = (name = 'events'): any =>
             logic.values.treeData
                 .find((item) => item.record?.type === 'sources')
-                ?.children?.find((child) => child.id === 'source-posthog')
-                ?.children?.find((child) => child.id === 'table-events')
+                ?.children?.flatMap((child) => child.children ?? [])
+                .find((child) => child.id === `table-${name}`)
 
         beforeEach(async () => {
             initKeaTests()
@@ -537,13 +577,13 @@ describe('queryDatabaseLogic', () => {
             jest.clearAllMocks()
         })
 
-        it('loads table fields on expansion and defers joined fields until the join expands', async () => {
-            const placeholder = findTableNode()?.children?.[0]
+        it.each(['events', 'posthog.events'])('hydrates %s and defers joined fields until expansion', async (name) => {
+            const placeholder = findTableNode(name)?.children?.[0]
             expect(placeholder?.type).toEqual('loading-indicator')
             expect(placeholder?.record?.pendingTableName).toEqual('events')
 
             expect(performQuery).not.toHaveBeenCalled()
-            logic.actions.toggleFolderOpen('table-events', false)
+            logic.actions.toggleFolderOpen(`table-${name}`, false)
             await expectLogic(dbLogic).toFinishAllListeners()
 
             expect(performQuery).toHaveBeenCalledWith(expect.objectContaining({ tables: ['events'] }))
@@ -566,10 +606,17 @@ describe('queryDatabaseLogic', () => {
                 } as any,
             })
 
-            const columnNames = findTableNode()?.children?.map((child: any) => child.name)
+            const columnNames = findTableNode(name)?.children?.map((child: any) => child.name)
             expect(columnNames).toEqual(['uuid', 'person'])
             expect(performQuery).toHaveBeenCalledTimes(1)
-            const joinNode = findTableNode()?.children?.find((child: any) => child.record?.type === 'lazy-table')
+            logic.actions.toggleFolderOpen(`table-${name === 'events' ? 'posthog.events' : 'events'}`, false)
+            logic.actions.selectSchema(findTableNode(name).record.table)
+            await expectLogic(dbLogic).toFinishAllListeners()
+            expect(performQuery).toHaveBeenCalledTimes(1)
+            expect(
+                logic.values.sidebarOverlayTreeItems.map((item) => ('name' in item ? item.name : undefined))
+            ).toEqual(['uuid', 'person'])
+            const joinNode = findTableNode(name)?.children?.find((child: any) => child.record?.type === 'lazy-table')
             expect(joinNode).toBeTruthy()
             logic.actions.toggleFolderOpen(joinNode.id, false)
             await expectLogic(dbLogic).toFinishAllListeners()
