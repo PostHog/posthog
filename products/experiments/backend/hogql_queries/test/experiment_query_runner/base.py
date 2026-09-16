@@ -32,6 +32,20 @@ from products.warehouse_sources.backend.facade.testing import create_data_wareho
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.experiments.queryrunner"
 
 
+# One precomputed case per metric path, kept so the query over the preaggregated tables stays
+# snapshotted. Nothing else snapshots that read path.
+SNAPSHOT_PRECOMPUTED_CASES = frozenset(
+    {
+        "test_property_sum_metric_1_precomputed",  # mean
+        "test_query_runner_funnel_metric_1_precomputed",  # funnel
+        "test_basic_retention_calculation_1_precomputed",  # retention
+        "test_basic_ratio_metric_1_precomputed",  # ratio
+        "test_query_runner_with_unique_users_metric_1_precomputed",  # unique users
+        "test_exposure_query_returns_correct_timeseries_1_precomputed",  # exposures runner
+    }
+)
+
+
 @override_settings(IN_UNIT_TESTING=True)
 class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
     def teardown_method(self, method) -> None:
@@ -52,10 +66,10 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
         PreaggregationJob.objects.all().delete()
 
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
-        # The precomputed case of a ("direct", False) / ("precomputed", True) pair differs from
-        # the direct case only in the exposures CTE, which the preaggregation test files already
-        # snapshot. Both cases still run; only the duplicate SQL snapshot is skipped.
-        if self._testMethodName.endswith("precomputed"):
+        # Every precomputed case of a ("direct", False) / ("precomputed", True) pair reads the same
+        # preaggregated tables, so one case per metric path carries that SQL and the rest repeat it
+        # with different filters. Both cases always run; only the repeats lose their snapshot.
+        if self._testMethodName.endswith("precomputed") and self._testMethodName not in SNAPSHOT_PRECOMPUTED_CASES:
             return
         super().assertQueryMatchesSnapshot(query, params=params, replace_all_numbers=replace_all_numbers)
 
