@@ -7,7 +7,7 @@ from django.core.management.base import BaseCommand
 
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
-from posthog.temporal.ai import AI_WORKFLOWS
+from posthog.temporal.ai import AI_WORKFLOWS, CONVERSATION_BACKFILL_WORKFLOWS
 from posthog.temporal.common.client import connect
 from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOWS
 from posthog.temporal.dlq_replay import WORKFLOWS as DLQ_REPLAY_WORKFLOWS
@@ -144,6 +144,7 @@ class Command(BaseCommand):
             + USAGE_REPORTS_WORKFLOWS
             + QUOTA_LIMITING_WORKFLOWS
             + AI_WORKFLOWS
+            + CONVERSATION_BACKFILL_WORKFLOWS
             + SALESFORCE_ENRICHMENT_WORKFLOWS
             + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
             + TEST_WORKFLOWS

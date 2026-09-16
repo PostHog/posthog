@@ -567,6 +567,41 @@ the run's saved `pending_user_message` when logs do not yet contain it. This is 
 display fallback: it strips context wrappers, gives way to the selected run's log
 or stream echo, and never submits the message again.
 
+## Legacy chats as tasks
+
+A chat made on the LangGraph runtime is also written as a task, so a user who gets the
+`phai-sandbox-mode` flag finds their old chats in the task list with full history and can
+continue them there. Two paths write the copy, and both go through the same conversion, so a
+chat copied by either looks the same:
+
+- After every turn, the chat workflow starts a detached `conversation-mirror` child that appends
+  the finished turn to the chat's task.
+- The `backfill-conversation-tasks` workflow walks every LangGraph chat that has no task yet and
+  copies it whole. It is the one-time catch-up for chats that predate the live copy.
+
+The copy is idempotent, so a chat touched by both paths ends up copied once. The
+`phai-conversation-task-mirror` flag is the kill switch for both: off means nothing is written.
+
+### Running the backfill
+
+Start it from a production toolbox pod against the general-purpose task queue:
+
+```sh
+python manage.py start_temporal_workflow "backfill-conversation-tasks" \
+  '{"batch_size": 500, "concurrency": 16, "dry_run": false}' \
+  --task-queue general-purpose-task-queue --workflow-id backfill-conversation-tasks
+```
+
+`dry_run: true` walks the pages and counts without copying. `concurrency` is how many copies
+are in flight at once, and `pause_seconds` adds a wait between pages to throttle the database.
+The loop continues as new after every page, so to change a setting mid-run cancel the workflow
+in the Temporal UI and start it again. Pass `start_after` with the last cursor the loop logged
+to resume where it stopped instead of walking already-copied chats.
+
+Progress is the conversation table itself: a copied chat has a task, so the count of LangGraph
+chats without one is the remaining work. Each page logs `conversation_backfill.page_done` with
+the cursor and running totals of copied, skipped, and failed chats.
+
 ## Local development
 
 To set up sandboxed agents for local development:
