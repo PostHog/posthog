@@ -1,8 +1,8 @@
-import uuid
-
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
+
+from posthog.models.utils import uuid7
 
 from .facade.enums import Effect, Scope, TargetType
 from .logic.targets import TARGETS
@@ -50,7 +50,7 @@ class SecurityRule(models.Model):
     """A target plus what happens to it. Instance-global: a rule has no team, and each
     region's database holds its own rules."""
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     target_type = models.CharField(max_length=32, choices=target_type_choices)
     # Stored normalized, so equality is the match for every exact-match target type.
     target_value = models.CharField(max_length=320)
