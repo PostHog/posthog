@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
 
+import { ProjectFreshnessIndicator } from 'lib/components/Account/ProjectFreshnessIndicator'
+import { ProjectName } from 'lib/components/Account/ProjectMenu'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { MemberProjectAccessEntryApi } from 'products/access_control/frontend/generated/api.schemas'
 
@@ -14,12 +17,21 @@ import { memberProjectAccessLogic } from './memberProjectAccessLogic'
 export function MemberProjectAccessModal(): JSX.Element {
     const { modalMember, modalProjects, projectAccessLoading } = useValues(memberProjectAccessLogic)
     const { closeProjectAccessModal } = useActions(memberProjectAccessLogic)
+    const { currentOrganization } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<MemberProjectAccessEntryApi> = [
         {
             title: 'Project',
             key: 'team_name',
-            render: (_, entry) => <span className="font-medium">{entry.team_name}</span>,
+            render: (_, entry) => {
+                const team = currentOrganization?.teams.find((t) => t.id === entry.team_id)
+                return (
+                    <div className="flex items-center font-medium">
+                        {team ? <ProjectName team={team} /> : <span>{entry.team_name}</span>}
+                        <ProjectFreshnessIndicator teamId={entry.team_id} />
+                    </div>
+                )
+            },
         },
         {
             title: 'Access',
