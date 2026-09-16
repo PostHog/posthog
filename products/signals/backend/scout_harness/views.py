@@ -87,7 +87,7 @@ from products.signals.backend.scout_harness.run_gates import (
     check_spend_gates,
 )
 from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS, scout_costs
-from products.signals.backend.scout_harness.scout_naming import allocate_scout_slug
+from products.signals.backend.scout_harness.scout_naming import SLUG_ALLOCATION_ATTEMPTS, allocate_scout_slug
 from products.signals.backend.scout_harness.serializers import (
     REPOSITORIES_REACHABILITY_CHECKED_CONTEXT_KEY,
     EditReportRequestSerializer,
@@ -290,11 +290,6 @@ def _may_read_reports(request: Request, canonical_team: Team) -> bool:
     if not isinstance(user, User):
         return False
     return UserAccessControl(user=user, team=canonical_team).check_access_level_for_resource("task", "viewer")
-
-
-# Times a create retries after a concurrent create takes the slug it picked. Each attempt holds
-# back the slugs it already lost, so three cover a burst far larger than a person can produce.
-SLUG_ALLOCATION_ATTEMPTS = 3
 
 
 class Conflict(exceptions.APIException):

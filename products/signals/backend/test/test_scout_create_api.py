@@ -14,6 +14,7 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.scout_naming import SLUG_ALLOCATION_ATTEMPTS, _slug_candidates
 from products.signals.backend.scout_harness.serializers import SignalScoutCreateSerializer
 from products.skills.backend.api.skill_serializers import SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
@@ -350,6 +351,26 @@ class TestSignalScoutCreateDisplayNameAPI(APIBaseTest):
         assert body["skill"]["name"] == "my-apm-scout"
         config = SignalScoutConfig.all_teams.get(team=self.team, skill_name="my-apm-scout")
         assert config.display_name == "My APM scout"
+
+    def test_a_team_holding_every_deterministic_slug_still_gets_its_scout(self) -> None:
+        # The fallback path end to end: with the base and all nine suffixes held, the allocator has
+        # only its random slug left, and the create still has to land. The retry budget that gets a
+        # request there after losing each candidate to a concurrent create is the sibling test —
+        # here the allocator returns the fallback on the first attempt.
+        for name in _slug_candidates("checkout-failures"):
+            SignalScoutConfig.objects.create(team=self.team, skill_name=name)
+            LLMSkill.objects.create(team=self.team, name=name, description="taken", body="taken")
+
+        response = self._create(display_name="Checkout failures")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["config"]["display_name"] == "Checkout failures"
+        assert response.json()["skill"]["name"].startswith("scout-")
+
+    def test_the_retry_budget_outlasts_the_candidate_list(self) -> None:
+        # The two used to be separate numbers and drifted apart. Reading one from the other is what
+        # this guards: raising the suffix ceiling without the budget reintroduces the 409 above.
+        assert SLUG_ALLOCATION_ATTEMPTS > len(_slug_candidates("checkout-failures"))
 
     def test_a_second_scout_of_the_same_name_gets_its_own_identity(self) -> None:
         # Duplicate labels are allowed, so the slug is what has to stay unique. The first scout's

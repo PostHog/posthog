@@ -33,6 +33,14 @@ _HYPHEN_RUNS = re.compile(r"-{2,}")
 # a name colliding ten deep means something other than ordinary duplicate naming.
 _MAX_COLLISION_SUFFIX = 10
 
+# How many times a create may re-allocate after a concurrent create takes the slug it picked.
+# One per deterministic candidate (the base plus every suffix), and one more for the random
+# fallback the allocator returns once they are all spoken for. Sized from the candidate list
+# rather than picked, because a budget shorter than the list answers 409 while free names remain:
+# each lost race retires one candidate, so a request can only exhaust the list by losing every
+# one of them. The last attempt cannot lose, since the fallback slug is random.
+SLUG_ALLOCATION_ATTEMPTS = _MAX_COLLISION_SUFFIX + 1
+
 # Stem for the fallback slug, used when a display name survives slugification with nothing left
 # (all punctuation, or a script `slugify` transliterates away) or when the suffix search is
 # exhausted. The hex tail makes it unique on its own, so it needs no collision pass.
