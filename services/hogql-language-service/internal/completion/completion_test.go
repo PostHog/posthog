@@ -482,6 +482,7 @@ func TestCompletionQuotesIdentifierInsertionText(t *testing.T) {
 			"order-total":     {Name: "order-total", Type: "float"},
 			"percent%field":   {Name: "percent%field", Type: "string"},
 			"tick`value":      {Name: "tick`value", Type: "string"},
+			"timestamp":       {Name: "timestamp", Type: "datetime"},
 		}},
 	}, Properties: map[string][]catalog.Property{}})
 
@@ -523,6 +524,7 @@ func TestCompletionQuotesIdentifierInsertionText(t *testing.T) {
 		{result: fieldResult, label: "FROM", insertText: "`FROM`"},
 		{result: fieldResult, label: "order-total", insertText: "`order-total`"},
 		{result: fieldResult, label: "tick`value", insertText: "`tick``value`"},
+		{result: fieldResult, label: "timestamp", insertText: ""},
 		{result: aliasResult, label: "billing total", insertText: "`billing total`"},
 		{result: cteResult, label: "recent.items", insertText: "`recent.items`"},
 		{result: cteResult, label: "recent items", insertText: "`recent items`"},
@@ -530,6 +532,32 @@ func TestCompletionQuotesIdentifierInsertionText(t *testing.T) {
 		suggestion, ok := findSuggestion(test.result.Suggestions, test.label)
 		if !ok || suggestion.InsertText != test.insertText {
 			t.Fatalf("suggestion %q = %#v, want insert text %q", test.label, suggestion, test.insertText)
+		}
+	}
+	for _, test := range []struct {
+		query, insertText string
+	}{
+		{"SELECT * FROM orders WHERE 1 = 1 AND tim| > now()", "timestamp"},
+		{"SELECT o.tim| FROM orders AS o", "timestamp"},
+		{"SELECT tim| FROM orders AS a JOIN orders AS b ON 1 = 1", "a.timestamp"},
+	} {
+		position := strings.IndexByte(test.query, '|')
+		query := strings.Replace(test.query, "|", "", 1)
+		result, err := Complete(schema, query, position, PositionEncodingUTF8, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		suggestion, ok := findSuggestion(result.Suggestions, "timestamp")
+		insertText := suggestion.InsertText
+		if insertText == "" {
+			insertText = suggestion.Label
+		}
+		if !ok || insertText != test.insertText {
+			t.Fatalf("query %q: suggestion = %#v, want insertion %q", query, suggestion, test.insertText)
+		}
+		completed := query[:position-len("tim")] + insertText + query[position:]
+		if checked := validation.Validate(schema, completed); !checked.Valid {
+			t.Errorf("inserted query %q is invalid: %#v", completed, checked)
 		}
 	}
 	for _, test := range []struct {

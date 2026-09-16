@@ -49,7 +49,7 @@ var predicateContinuations = []string{"AND", "OR", "GROUP BY", "ORDER BY", "LIMI
 var comparisonOperators = []string{"=", "!=", "<", "<=", ">", ">=", "LIKE", "ILIKE", "IN", "NOT IN", "IS NULL", "IS NOT NULL", "BETWEEN", "NOT BETWEEN"}
 var commonFunctions = []string{"avg", "coalesce", "count", "countDistinct", "countIf", "if", "max", "min", "now", "sum", "sumIf", "toDate", "toDateTime", "uniq", "uniqExact"}
 var simpleHogQLIdentifier = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
-var hogQLKeywords = map[string]struct{}{
+var quotedHogQLKeywords = map[string]struct{}{
 	"ALL": {}, "AND": {}, "ANTI": {}, "ANY": {}, "ARRAY": {}, "AS": {}, "ASC": {}, "ASCENDING": {}, "ASOF": {},
 	"BETWEEN": {}, "BOTH": {}, "BY": {}, "CASE": {}, "CAST": {}, "CATCH": {}, "COHORT": {}, "COLLATE": {}, "COLUMNS": {},
 	"CROSS": {}, "CUBE": {}, "CURRENT": {}, "DATE": {}, "DAY": {}, "DESC": {}, "DESCENDING": {}, "DISTINCT": {},
@@ -63,7 +63,7 @@ var hogQLKeywords = map[string]struct{}{
 	"ORDER": {}, "OUTER": {}, "OVER": {}, "PARTITION": {}, "PIVOT": {}, "POSITIONAL": {}, "PRECEDING": {},
 	"PREWHERE": {}, "QUALIFY": {}, "QUARTER": {}, "RANGE": {}, "RECURSIVE": {}, "REPLACE": {}, "RETURN": {}, "RIGHT": {},
 	"ROLLUP": {}, "ROW": {}, "ROWS": {}, "SAMPLE": {}, "SELECT": {}, "SEMI": {}, "SETS": {}, "SETTINGS": {},
-	"SECOND": {}, "STEP": {}, "SUBSTRING": {}, "THEN": {}, "THROW": {}, "TIES": {}, "TIME": {}, "TIMESTAMP": {},
+	"SECOND": {}, "STEP": {}, "SUBSTRING": {}, "THEN": {}, "THROW": {}, "TIES": {}, "TIME": {},
 	"TO": {}, "TOP": {}, "TOTALS": {}, "TRAILING": {}, "TRIM": {}, "TRUNCATE": {}, "TRY": {}, "TRY_CAST": {},
 	"UNBOUNDED": {}, "UNION": {}, "UNPIVOT": {}, "USING": {}, "VALUES": {}, "WEEK": {}, "WHEN": {},
 	"WHERE": {}, "WHILE": {}, "WINDOW": {}, "WITH": {}, "WITHIN": {}, "YEAR": {}, "YYYY": {}, "ZONE": {},
@@ -284,7 +284,7 @@ func supportedHogQLIdentifier(name string) bool {
 }
 
 func quoteHogQLFieldIdentifier(name string) string {
-	if _, keyword := hogQLKeywords[strings.ToUpper(name)]; keyword {
+	if _, keyword := quotedHogQLKeywords[strings.ToUpper(name)]; keyword {
 		return "`" + hogQLIdentifierEscaper.Replace(name) + "`"
 	}
 	return quoteHogQLIdentifier(name)

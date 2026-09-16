@@ -56,6 +56,7 @@ When visible sources expose the same field name, unqualified completion returns 
 The label remains the field name, the detail includes its type and source, and insertion uses the qualified field, for example `e.uuid`.
 An explicit table alias identifies its source, including separate aliases in a self-join; the table name and its alias do not create duplicate suggestions.
 CTEs and aliased subqueries use the same rules, with identifier quoting for both the source and field.
+Completion leaves `timestamp` unquoted, including qualified references such as `e.timestamp`; other keyword names still use conservative quoting.
 Multi-part physical table paths use HogQL's implicit double-underscore alias, for example `postgres__synced__orders.synced_id`; an explicit alias takes precedence.
 Equal field labels have a deterministic source order across completion pages.
 Unique fields and already-qualified completion retain their existing details and insertion text.
