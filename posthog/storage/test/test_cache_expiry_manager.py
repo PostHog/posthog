@@ -110,15 +110,17 @@ class TestRefreshExpiringCaches(SimpleTestCase):
         assert (counts.successful, counts.failed, counts.enqueued) == (0, 3, 0)
 
     def test_pacing_pauses_once_per_chunk_of_routed_teams(self):
-        self.mock_get_teams.return_value = build_teams(10)
+        self.mock_get_teams.return_value = build_teams(9)
 
         refresh_expiring_caches(
             build_config(route_refresh_fn=MagicMock(return_value=True)),
             pacing=RefreshPacing(chunk_size=3, delay_seconds=5, window_seconds=600),
         )
 
-        # After teams 3, 6 and 9. The tenth team is last, so nothing waits behind it.
-        assert [call.args[0] for call in self.mock_sleep.call_args_list] == [5, 5, 5]
+        # After teams 3 and 6. The ninth completes a chunk but is last, so nothing waits
+        # behind it. A team count that is not a multiple of the chunk never reaches that
+        # branch, so it has to be one that does.
+        assert [call.args[0] for call in self.mock_sleep.call_args_list] == [5, 5]
 
     def test_pacing_does_not_pause_a_run_that_routes_nothing(self):
         refresh_expiring_caches(
@@ -145,6 +147,10 @@ class TestRefreshExpiringCaches(SimpleTestCase):
         refresh_expiring_caches(build_config(), limit=3)
 
         assert self.mock_push.call_args.kwargs["expiry_backlog"] == 9000
+        # Counting a different key or a capped range would still satisfy the value
+        # assertion above, so pin which set the gauge reads.
+        assert self.mock_get_client.return_value.zcount.call_args.args[0] == "test_cache_expiry"
+        assert self.mock_get_client.return_value.zcount.call_args.args[1] == "-inf"
 
     def test_an_empty_run_still_reports_its_counts_and_backlog(self):
         self.mock_get_teams.return_value = []

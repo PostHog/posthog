@@ -970,7 +970,9 @@ def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 50
 
     This is the main hourly job that keeps caches fresh. It:
     1. Finds cache entries with TTL < threshold (up to limit)
-    2. Refreshes them with new data and full TTL
+    2. Refreshes them with new data and full TTL, or, for a team the refresh routing
+       flag has claimed, raises a Kafka invalidation and leaves the build to the Rust
+       builder instead
 
     Processes teams in batches (default 5000). If more teams are expiring than the limit,
     subsequent runs will process the next batch.

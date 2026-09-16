@@ -82,9 +82,17 @@ FLAGS_CACHE_REFRESH_LIMIT: int = get_from_env("FLAGS_CACHE_REFRESH_LIMIT", 5000,
 # Pacing for the teams the refresh sweep routes to the Kafka cache builder instead of
 # building itself. The builder drains a batch sequentially, so a whole run produced at
 # once sits in front of the flag edits raised after it and delays their rebuilds. The
-# run pauses for CHUNK_DELAY_SECONDS after every CHUNK_SIZE routed teams, which spreads
-# a run at the 5000-team cap over about 20 minutes. WINDOW_SECONDS caps the total pause,
-# so a misconfigured chunk size or delay cannot make an hourly run outlive its schedule.
+# run pauses for CHUNK_DELAY_SECONDS after every CHUNK_SIZE routed teams. WINDOW_SECONDS
+# caps the total pause, so a misconfigured chunk size or delay cannot make an hourly run
+# outlive its schedule.
+#
+# The window has to stay under the worker pod's termination grace period, currently 1230
+# seconds, because the pause happens inside the task and Celery waits for it on shutdown.
+# A window at or above that means a deploy landing mid-sweep leaves the pod in Terminating
+# for the rest of the run and then kills it before the end-of-run metrics push. 600 covers
+# a fully routed run at the volumes the sweep sees today, which peak around 2,300 teams
+# and need about 9 pauses. A larger run spends the window and routes the rest unpaced,
+# which logs a warning.
 FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE: int = max(
     1, get_from_env("FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE", 250, type_cast=int)
 )
@@ -92,7 +100,7 @@ FLAGS_CACHE_REFRESH_KAFKA_CHUNK_DELAY_SECONDS: float = max(
     0.0, get_from_env("FLAGS_CACHE_REFRESH_KAFKA_CHUNK_DELAY_SECONDS", 60.0, type_cast=float)
 )
 FLAGS_CACHE_REFRESH_KAFKA_WINDOW_SECONDS: float = max(
-    0.0, get_from_env("FLAGS_CACHE_REFRESH_KAFKA_WINDOW_SECONDS", 1200.0, type_cast=float)
+    0.0, get_from_env("FLAGS_CACHE_REFRESH_KAFKA_WINDOW_SECONDS", 600.0, type_cast=float)
 )
 
 # Batch size for flags cache verification. Each batch loads both cached data

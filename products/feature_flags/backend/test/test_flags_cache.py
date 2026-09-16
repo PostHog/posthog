@@ -860,6 +860,10 @@ class TestServiceFlagsKafkaRouting(BaseTest):
         assert envelope.version == 1
         assert envelope.team_id == self.team.id
         assert envelope.operation == "invalidate"
+        # A builder that predates `source` rejects any message carrying it through
+        # deny_unknown_fields, and counts it as a parse error the DLQ does not keep.
+        # The edit path must stay on the default so it reaches those builders.
+        assert "source" not in data
 
     @patch("products.feature_flags.backend.flags_cache.producer_scope")
     @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
@@ -1249,6 +1253,22 @@ class TestGetTeamPrimaryFlagsWriter(unittest.TestCase):
             assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.get_primary_writer_fn is not None
             assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.get_primary_writer_fn(42) == "rust"
         assert mock_feature_enabled.call_args.args[1] == "team-42"
+
+    def test_flags_config_binds_the_refresh_routing_hook(self):
+        # The lambda on the config is the only wire between the sweep and the hook.
+        # Unbound, the sweep silently keeps building in Python and the enqueued gauge
+        # stays at zero, which looks the same as the flag being off.
+        with (
+            patch("products.feature_flags.backend.flags_cache._produce_invalidation") as mock_produce,
+            patch(
+                "products.feature_flags.backend.flags_cache.feature_enabled_or_false",
+                return_value=True,
+            ),
+        ):
+            assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.route_refresh_fn is not None
+            assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.route_refresh_fn(Team(id=42)) is True
+
+        assert mock_produce.call_args.kwargs["source"] == "refresh"
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
