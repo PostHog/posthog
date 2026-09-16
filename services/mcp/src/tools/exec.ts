@@ -560,6 +560,9 @@ export function createExecInnerToolCallResolver(
 // A tool a feature flag removed still has a definition, so it declares its own
 // successor through `superseded_by` and is answered by `flagGatedToolMessage`
 // instead of by an entry here.
+const LOOPS_CREATE_REDIRECT = (name: string): string =>
+    `Tool "${name}" was removed: Desktop loops are now workflows tagged origin_product "loops". Read the \`building-loops\` skill for the exact graph, then use "workflows-create", "workflows-test-run", "workflows-schedule-create" and "workflows-enable".`
+
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
     // Removed in favor of SQL-based schema discovery via `system.information_schema.*`.
     'read-data-warehouse-schema': () =>
@@ -587,6 +590,25 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
             .join('\n')
         return `Tool "query-run" was removed. Pick the typed query tool that matches your intent, or use "execute-sql" for arbitrary HogQL. Available query-* tools:\n${queryTools}`
     },
+    'loops-list': () =>
+        'Tool "loops-list" was removed: Desktop loops are now workflows. Use "workflows-list" with { "type": "loop" } to list them.',
+    'loops-retrieve': () =>
+        'Tool "loops-retrieve" was removed: Desktop loops are now workflows. Use "workflows-get" with the loop id as the workflow id.',
+    'loops-create': () => LOOPS_CREATE_REDIRECT('loops-create'),
+    'loops-create-prepare': () => LOOPS_CREATE_REDIRECT('loops-create-prepare'),
+    'loops-create-execute': () => LOOPS_CREATE_REDIRECT('loops-create-execute'),
+    'loops-review': () =>
+        'Tool "loops-review" was removed. Summarize the loop in chat and get the user\'s go-ahead, then build it with "workflows-create" following the `building-loops` skill.',
+    'loops-partial-update': () =>
+        'Tool "loops-partial-update" was removed: Desktop loops are now workflows. Use "workflows-patch-graph" for the prompt, trigger and steps, "workflows-update" for the name and description, "workflows-update-schedule" for the cadence, and "workflows-enable" or "workflows-archive" to resume or pause. The `building-loops` skill has the graph a loop must keep.',
+    'loops-destroy': () =>
+        'Tool "loops-destroy" was removed: Desktop loops are now workflows. Use "workflows-archive" with the loop id as the workflow id.',
+    'loops-run-create': () =>
+        'Tool "loops-run-create" was removed: Desktop loops are now workflows. Use "workflows-run" with the loop id as the workflow id to fire it now.',
+    'loops-runs-retrieve': () =>
+        'Tool "loops-runs-retrieve" was removed: a workflow-backed loop\'s runs are the tasks it created. Use "tasks-list" with { "hog_flow_id": "<loop id>" } (add "status": "failed" for failures), then "tasks-runs-list" for one task\'s runs.',
+    'loops-preview-create': () =>
+        'Tool "loops-preview-create" was removed: Desktop loops are now workflows. Use "workflows-test-run" to step through the loop with a sample event without creating a task.',
     // Folded into "inbox-reports-list", which already served the same endpoint.
     // Spell out the filter renames: the replacement declares no required
     // parameters, so an old array filter sent to it is silently dropped and the

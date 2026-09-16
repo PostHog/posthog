@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this hog flow.",
+            "type": "string"
+        },
+        "variables": {
+            "additionalProperties": {
+                "description": "Override value for one workflow variable."
+            },
+            "description": "Variable value overrides, merged with the workflow's own variable defaults for this run only.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

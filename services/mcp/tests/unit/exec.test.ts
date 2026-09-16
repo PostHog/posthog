@@ -1765,6 +1765,16 @@ describe('exec tool', () => {
             ['query-generate-hogql-from-question', 'execute-sql'],
             ['query-run', 'execute-sql'],
             ['self-driving-inbox-get', 'inbox-reports-list'],
+            ['loops-list', 'workflows-list'],
+            ['loops-retrieve', 'workflows-get'],
+            ['loops-create', 'workflows-create'],
+            ['loops-create-prepare', 'workflows-create'],
+            ['loops-review', 'workflows-create'],
+            ['loops-partial-update', 'workflows-patch-graph'],
+            ['loops-destroy', 'workflows-archive'],
+            ['loops-run-create', 'workflows-run'],
+            ['loops-runs-retrieve', 'tasks-list'],
+            ['loops-preview-create', 'workflows-test-run'],
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(

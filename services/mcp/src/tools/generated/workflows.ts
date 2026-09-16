@@ -400,6 +400,30 @@ const workflowsRestoreRevision = (): ToolBase<ReturnType<typeof WorkflowsRestore
     },
 })
 
+const WorkflowsRunSchema = () => {
+    const HogFlowsRunCreateBody = orvalSchemas.HogFlowsRunCreateBody()
+    const HogFlowsRunCreateParams = orvalSchemas.HogFlowsRunCreateParams()
+    return HogFlowsRunCreateParams.omit({ project_id: true }).extend(HogFlowsRunCreateBody.shape)
+}
+
+const workflowsRun = (): ToolBase<ReturnType<typeof WorkflowsRunSchema>, Schemas.HogFlowRunResponse> => ({
+    name: 'workflows-run',
+    schema: WorkflowsRunSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsRunSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.variables !== undefined) {
+            body['variables'] = params.variables
+        }
+        const result = await context.api.request<Schemas.HogFlowRunResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/run/`,
+            body,
+        })
+        return result
+    },
+})
+
 const WorkflowsStatsSchema = () => {
     const HogFlowsMetricsRetrieveParams = orvalSchemas.HogFlowsMetricsRetrieveParams()
     const HogFlowsMetricsRetrieveQueryParams = orvalSchemas.HogFlowsMetricsRetrieveQueryParams()
@@ -558,6 +582,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-patch-graph': workflowsPatchGraph,
     'workflows-publish': workflowsPublish,
     'workflows-restore-revision': workflowsRestoreRevision,
+    'workflows-run': workflowsRun,
     'workflows-stats': workflowsStats,
     'workflows-test-run': workflowsTestRun,
     'workflows-update': workflowsUpdate,

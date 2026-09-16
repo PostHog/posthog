@@ -99,9 +99,6 @@ tools:
     hog-flows-revisions-retrieve:
         operation: hog_flows_revisions_retrieve
         enabled: false
-    hog-flows-run-create:
-        operation: hog_flows_run_create
-        enabled: false
     hog-flows-schedules-create:
         operation: hog_flows_schedules_create
         enabled: false
@@ -411,6 +408,24 @@ tools:
             in-flight. A 409 means a draft is already open — publish or discard it, or pass overwrite=true to replace
             it. Note what a rollback can't undo: runs that already moved on while the newer version was live keep their
             positions.
+    workflows-run:
+        operation: hog_flows_run_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run workflow now
+        description: >
+            Fire a schedule-triggered workflow once, right now, outside its cadence. The workflow must be active
+            (workflows-enable) and have a 'schedule' trigger; a batch trigger dispatches with workflows-run-batch
+            instead, and other trigger types fire from their own source. Every call queues a new run, so do not
+            retry one that returned an invocation_id. Pass `variables` to override the workflow's variable defaults
+            for this run only. Returns the queued invocation_id; read it with workflows-get-invocation. For a Desktop
+            loop this is the "Run now" action: the run creates one task, which tasks-list shows under `hog_flow_id`.
+            To step through a workflow without side effects use workflows-test-run.
     workflows-stats:
         operation: hog_flows_metrics_retrieve
         enabled: true

@@ -62,7 +62,7 @@ Run health comes from task records, not saved canvas labels.
 Use `tasks-list` with the space's `channel`, `status=failed`, `internal=all`, and `archived=all`.
 For workflow-backed loops, add `hog_flow_id`.
 Results include the latest run's error and completion time even if the agent could not write canvas state.
-Read `tasks-runs-list` for earlier runs, or use `loops-runs-retrieve` with `status=failed` for a loop's paged failure history.
+Read `tasks-runs-list` for earlier runs of one task.
 These reads do not change task states or grant additional permissions.
 
 ### Validation

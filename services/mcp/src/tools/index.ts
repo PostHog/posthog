@@ -21,7 +21,6 @@ import { GENERATED_TOOL_MAP } from './generated'
 import queryInsight from './insights/query'
 // Links (utility — builds canonical app URLs from the frontend's route table)
 import generateAppUrl from './links/generate-app-url'
-import loopsReview from './loops/loopsReview'
 import { mergeToolFactories } from './mergeToolFactories'
 // Notebooks (edit + cell tools are hand-written — generated CRUD lives in generated/notebooks.ts)
 import notebookAddCell from './notebooks/addCell'
@@ -118,7 +117,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
-    'loops-review': loopsReview,
 
     // Feedback
     'agent-feedback': submitFeedback,
