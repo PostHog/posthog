@@ -461,55 +461,55 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         ],
     })),
     reducers(() => ({
-            insights: {
-                updateInsight: (state, { insight }) => ({
-                    ...state,
-                    results: state.results.map((i) => (i.short_id === insight.short_id ? insight : i)),
-                }),
-                addInsight: (state, { insight }) => ({
-                    ...state,
-                    count: state.count + 1,
-                    results: [insight, ...state.results],
-                }),
+        insights: {
+            updateInsight: (state, { insight }) => ({
+                ...state,
+                results: state.results.map((i) => (i.short_id === insight.short_id ? insight : i)),
+            }),
+            addInsight: (state, { insight }) => ({
+                ...state,
+                count: state.count + 1,
+                results: [insight, ...state.results],
+            }),
+        },
+        rawFilters: [
+            null as Partial<SavedInsightFilters> | null,
+            {
+                persist: true,
+                storageKey: `scenes.saved-insights.savedInsightsLogic.${getCurrentUserIdOrNone() ?? 'anonymous'}.${getCurrentTeamId()}.rawFilters`,
             },
-            rawFilters: [
-                null as Partial<SavedInsightFilters> | null,
-                {
-                    persist: true,
-                    storageKey: `scenes.saved-insights.savedInsightsLogic.${getCurrentUserIdOrNone() ?? 'anonymous'}.${getCurrentTeamId()}.rawFilters`,
+            {
+                setSavedInsightsFilters: (state, { filters, merge }) =>
+                    cleanFilters({
+                        ...(merge ? state || {} : {}),
+                        ...filters,
+                        // Reset page on filter change EXCEPT if it's page that's being updated
+                        ...('page' in filters ? {} : { page: 1 }),
+                    }),
+            },
+        ],
+        insightsLoadFailed: [
+            false,
+            {
+                loadInsights: () => false,
+                loadInsightsSuccess: () => false,
+                loadInsightsFailure: () => true,
+            },
+        ],
+        dashboardUpdatesInProgress: [
+            {} as Record<number, boolean>,
+            {
+                setDashboardUpdateLoading: (state, { insightId, loading }) => {
+                    return { ...state, [insightId]: loading }
                 },
-                {
-                    setSavedInsightsFilters: (state, { filters, merge }) =>
-                        cleanFilters({
-                            ...(merge ? state || {} : {}),
-                            ...filters,
-                            // Reset page on filter change EXCEPT if it's page that's being updated
-                            ...('page' in filters ? {} : { page: 1 }),
-                        }),
-                },
-            ],
-            insightsLoadFailed: [
-                false,
-                {
-                    loadInsights: () => false,
-                    loadInsightsSuccess: () => false,
-                    loadInsightsFailure: () => true,
-                },
-            ],
-            dashboardUpdatesInProgress: [
-                {} as Record<number, boolean>,
-                {
-                    setDashboardUpdateLoading: (state, { insightId, loading }) => {
-                        return { ...state, [insightId]: loading }
-                    },
-                },
-            ],
-            draftQuery: [
-                null as DraftInsightQuery | null,
-                {
-                    setDraftQuery: (_, { draftQuery }) => draftQuery,
-                },
-            ],
+            },
+        ],
+        draftQuery: [
+            null as DraftInsightQuery | null,
+            {
+                setDraftQuery: (_, { draftQuery }) => draftQuery,
+            },
+        ],
     })),
     selectors({
         filters: [
