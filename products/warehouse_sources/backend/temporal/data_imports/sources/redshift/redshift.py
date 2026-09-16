@@ -10,6 +10,7 @@ credentials.
 
 from __future__ import annotations
 
+import re
 import time
 import collections
 from collections.abc import Callable, Iterator
@@ -129,6 +130,73 @@ SYSTEM_REDSHIFT_SCHEMAS = ["pg_catalog", "information_schema", "pg_internal", "p
 # discovered schema makes the Arrow schema disagree with the streamed rows and
 # `pa.Table.from_pydict` raises a `KeyError`. The `padb_internal` prefix is Redshift-reserved.
 REDSHIFT_INTERNAL_COLUMN_LIKE = "padb_internal%"
+
+# `information_schema.columns` filters on the connecting role's privileges, and on some clusters it
+# returns no rows for a materialized view the role can nonetheless `SELECT` from. Discovery then
+# reports the relation as missing or unreadable, and a schema refresh disables its sync.
+# `pg_catalog` applies no privilege filter, so it is the fallback for relations discovery already
+# knows by name; a role that truly cannot read one still gets the real `permission denied` at sync
+# time, which names the actual problem.
+_CATALOG_COLUMNS_SQL = """
+    SELECT
+        n.nspname,
+        c.relname,
+        a.attname,
+        format_type(a.atttypid, a.atttypmod),
+        CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END
+    FROM pg_catalog.pg_attribute a
+    JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE a.attnum > 0
+      AND NOT a.attisdropped
+      AND a.attname NOT LIKE %(internal_column)s
+      AND {where}
+    ORDER BY n.nspname ASC, c.relname ASC, a.attnum ASC
+"""
+
+_TYPE_MODIFIER_PATTERN = re.compile(r"\((\d+)(?:,\s*(\d+))?\)")
+
+
+@frozen
+class _CatalogColumn:
+    """One `pg_catalog` column, normalized to what `information_schema.columns` would report."""
+
+    schema: str
+    table: str
+    name: str
+    data_type: str
+    nullable: bool
+    numeric_precision: int | None
+    numeric_scale: int | None
+
+    @classmethod
+    def from_row(cls, schema: str, table: str, name: str, formatted_type: str, is_nullable: str) -> _CatalogColumn:
+        """Build from a `_CATALOG_COLUMNS_SQL` row.
+
+        `format_type` renders the modifier inline (`character varying(256)`, `numeric(18,2)`), while
+        `information_schema.columns` reports the bare type and carries precision and scale in their
+        own columns. Only `numeric`/`decimal` keep the modifier values; a missing scale is 0, as in
+        the catalog.
+        """
+        data_type = formatted_type
+        precision: int | None = None
+        scale: int | None = None
+        match = _TYPE_MODIFIER_PATTERN.search(formatted_type)
+        if match is not None:
+            data_type = " ".join((formatted_type[: match.start()] + formatted_type[match.end() :]).split())
+            if data_type in ("numeric", "decimal"):
+                precision = int(match.group(1))
+                scale = int(match.group(2) or 0)
+        return cls(
+            schema=schema,
+            table=table,
+            name=name,
+            data_type=data_type,
+            nullable=is_nullable == "YES",
+            numeric_precision=precision,
+            numeric_scale=scale,
+        )
+
 
 # A single-node Redshift cluster rejects any `FETCH FORWARD` above 1000 rows with
 # "Fetch size N exceeds the limit of 1000 for a single node configuration". The limit is fixed by
@@ -748,7 +816,7 @@ class RedshiftColumn(Column):
             case "smallint" | "int2":
                 arrow_type = pa.int16()
             case "numeric" | "decimal":
-                if not self.numeric_precision or not self.numeric_scale:
+                if self.numeric_precision is None or self.numeric_scale is None:
                     raise TypeError("expected `numeric_precision` and `numeric_scale` to be `int`, got `NoneType`")
                 arrow_type = build_pyarrow_decimal_type(self.numeric_precision, self.numeric_scale)
             case "real" | "float4":
@@ -873,16 +941,9 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         qualify = selected_schema is None
 
         with conn.cursor() as cursor:
-            params: dict = {"internal_column": REDSHIFT_INTERNAL_COLUMN_LIKE}
-            where: list[str] = ["column_name NOT LIKE %(internal_column)s"]
-            if selected_schema is not None:
-                params["schema"] = selected_schema
-                where.append("table_schema = %(schema)s")
-            else:
-                placeholders, system_params = _named_placeholders("system_schema", SYSTEM_REDSHIFT_SCHEMAS)
-                params.update(system_params)
-                where.append(f"table_schema NOT IN ({placeholders})")
-                where.append("table_schema NOT LIKE 'pg_temp_%%'")
+            where, params = self._scope_predicates(selected_schema, "table_schema")
+            params["internal_column"] = REDSHIFT_INTERNAL_COLUMN_LIKE
+            where.append("column_name NOT LIKE %(internal_column)s")
             if names:
                 name_clause, name_params = self._column_name_predicate(names, selected_schema)
                 params.update(name_params)
@@ -899,15 +960,41 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             )
             result = cursor.fetchall()
 
+            undiscovered = self._undiscovered_relations(conn, cursor, selected_schema, names, result)
+            catalog_columns = (
+                self._columns_from_catalog(conn, cursor, undiscovered, selected_schema) if undiscovered else []
+            )
+
         schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
         for table_schema, table_name, column_name, data_type, is_nullable in result:
             display = _display_name(table_schema, table_name, qualify=qualify)
             schema_list[display].append((column_name, data_type, is_nullable == "YES"))
+        for column in catalog_columns:
+            display = _display_name(column.schema, column.table, qualify=qualify)
+            schema_list[display].append((column.name, column.data_type, column.nullable))
         return dict(schema_list)
 
     @staticmethod
-    def _column_name_predicate(names: list[str], selected_schema: Optional[str]) -> tuple[str, dict[str, str]]:
-        """Build a WHERE fragment restricting `information_schema.columns` to the requested tables.
+    def _scope_predicates(selected_schema: Optional[str], schema_column: str) -> tuple[list[str], dict[str, str]]:
+        """WHERE fragments that pin a catalog query to the configured namespace(s).
+
+        Pinned schema → that schema only. Blank schema → every namespace except the Redshift
+        system schemas and per-session temp schemas.
+        """
+        if selected_schema is not None:
+            return [f"{schema_column} = %(schema)s"], {"schema": selected_schema}
+        placeholders, params = _named_placeholders("system_schema", SYSTEM_REDSHIFT_SCHEMAS)
+        return [f"{schema_column} NOT IN ({placeholders})", f"{schema_column} NOT LIKE 'pg_temp_%%'"], params
+
+    @staticmethod
+    def _column_name_predicate(
+        names: list[str],
+        selected_schema: Optional[str],
+        *,
+        schema_column: str = "table_schema",
+        table_column: str = "table_name",
+    ) -> tuple[str, dict[str, str]]:
+        """Build a WHERE fragment restricting a column listing to the requested tables.
 
         Pinned schema → match by bare `table_name`. Blank schema → match each qualified
         `schema.table` on both parts (bare names fall back to any-schema for legacy self-heal).
@@ -917,17 +1004,83 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         for index, name in enumerate(names):
             if selected_schema is not None:
                 params[f"name_{index}"] = name
-                clauses.append(f"table_name = %(name_{index})s")
+                clauses.append(f"{table_column} = %(name_{index})s")
                 continue
             schema, _, table = name.partition(".")
             if table:
                 params[f"sch_{index}"] = schema
                 params[f"tbl_{index}"] = table
-                clauses.append(f"(table_schema = %(sch_{index})s AND table_name = %(tbl_{index})s)")
+                clauses.append(f"({schema_column} = %(sch_{index})s AND {table_column} = %(tbl_{index})s)")
             else:
                 params[f"name_{index}"] = name
-                clauses.append(f"table_name = %(name_{index})s")
+                clauses.append(f"{table_column} = %(name_{index})s")
         return "(" + " OR ".join(clauses) + ")", params
+
+    def _undiscovered_relations(
+        self,
+        conn: psycopg.Connection,
+        cursor: Any,
+        selected_schema: Optional[str],
+        names: list[str] | None,
+        listed: list[tuple[Any, ...]],
+    ) -> list[str]:
+        """Display names that `information_schema.columns` returned no rows for, but that should exist.
+
+        With explicit `names` those are the requested relations themselves — the caller knows they
+        exist. Without, the candidates are the materialized views `svv_mv_info` lists in scope, the
+        relation type `information_schema` hides from non-owner roles. That probe is best-effort: a
+        role without access to `svv_mv_info` keeps the plain listing.
+        """
+        found_pairs = {(table_schema, table_name) for table_schema, table_name, *_ in listed}
+        found_tables = {table_name for _, table_name in found_pairs}
+
+        def is_found(display: str) -> bool:
+            schema, table = _split_display_name(display, selected_schema)
+            return table in found_tables if schema is None else (schema, table) in found_pairs
+
+        if names:
+            return [name for name in names if not is_found(name)]
+
+        where, params = self._scope_predicates(selected_schema, "schema_name")
+        try:
+            cursor.execute(f"SELECT schema_name, name FROM svv_mv_info WHERE {' AND '.join(where)}", params)
+            rows = cursor.fetchall()
+        except Exception:
+            _recover_after_failed_probe(conn)
+            return []
+        return [
+            display
+            for schema_name, view_name in rows
+            if not is_found(display := _display_name(schema_name, view_name, qualify=selected_schema is None))
+        ]
+
+    def _columns_from_catalog(
+        self,
+        conn: psycopg.Connection,
+        cursor: Any,
+        names: list[str],
+        selected_schema: Optional[str],
+    ) -> list[_CatalogColumn]:
+        """Columns of `names`, read from `pg_catalog` instead of `information_schema.columns`.
+
+        Best-effort: a failure here leaves discovery with what `information_schema` returned, the
+        same result as before the fallback existed.
+        """
+        where, params = self._scope_predicates(selected_schema, "n.nspname")
+        name_clause, name_params = self._column_name_predicate(
+            names, selected_schema, schema_column="n.nspname", table_column="c.relname"
+        )
+        where.append(name_clause)
+        params.update(name_params)
+        params["internal_column"] = REDSHIFT_INTERNAL_COLUMN_LIKE
+        try:
+            cursor.execute(_CATALOG_COLUMNS_SQL.format(where=" AND ".join(where)), params)
+            rows = cursor.fetchall()
+        except Exception as e:
+            _recover_after_failed_probe(conn)
+            structlog.get_logger().warning("Failed to read Redshift columns from pg_catalog", exc_info=e)
+            return []
+        return [_CatalogColumn.from_row(*row) for row in rows]
 
     def get_primary_keys(
         self,
@@ -1354,22 +1507,38 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             _explain_query(cursor, query, logger)
             logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
+        rows = [
+            _CatalogColumn(
+                schema=schema,
+                table=table_name,
+                name=name,
+                data_type=data_type,
+                nullable=nullable == "YES",
+                numeric_precision=numeric_precision,
+                numeric_scale=numeric_scale,
+            )
+            for name, data_type, nullable, numeric_precision, numeric_scale in cursor
+        ]
+        if not rows:
+            rows = self._column_metadata_from_catalog(cursor, schema, table_name)
 
         numeric_data_types = {"numeric", "decimal"}
         columns = []
-        for name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate in cursor:
-            if data_type in numeric_data_types:
-                numeric_precision = numeric_precision_candidate or DEFAULT_NUMERIC_PRECISION
-                numeric_scale = numeric_scale_candidate or DEFAULT_NUMERIC_SCALE
+        for row in rows:
+            if row.data_type in numeric_data_types:
+                numeric_precision = (
+                    row.numeric_precision if row.numeric_precision is not None else DEFAULT_NUMERIC_PRECISION
+                )
+                numeric_scale = row.numeric_scale if row.numeric_scale is not None else DEFAULT_NUMERIC_SCALE
             else:
                 numeric_precision = None
                 numeric_scale = None
 
             columns.append(
                 RedshiftColumn(
-                    name=name,
-                    data_type=data_type,
-                    nullable=nullable == "YES",
+                    name=row.name,
+                    data_type=row.data_type,
+                    nullable=row.nullable,
                     numeric_precision=numeric_precision,
                     numeric_scale=numeric_scale,
                 )
@@ -1381,6 +1550,14 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         elif is_view:
             table_type = "view"
         return Table(name=table_name, parents=(schema,), columns=columns, type=table_type)
+
+    @staticmethod
+    def _column_metadata_from_catalog(cursor: psycopg.Cursor, schema: str, table_name: str) -> list[_CatalogColumn]:
+        cursor.execute(
+            _CATALOG_COLUMNS_SQL.format(where="n.nspname = %(schema)s AND c.relname = %(table)s"),
+            {"schema": schema, "table": table_name, "internal_column": REDSHIFT_INTERNAL_COLUMN_LIKE},
+        )
+        return [_CatalogColumn.from_row(*row) for row in cursor.fetchall()]
 
     def get_rows_to_sync(
         self,
