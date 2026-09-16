@@ -29,8 +29,7 @@ jest.mock('~/ingestion/common/steps/event-preprocessing', () => ({
     createApplyEventRestrictionsStep: jest.fn(),
 }))
 
-// The warning debouncer is a module-level token bucket keyed by team:type:key, so warnings of the
-// same type for one team leak across tests. Always allow, and let each test assert its own warnings.
+// The warning debouncer is a module-level bucket keyed by team:type:key, so it leaks across tests.
 jest.mock('~/common/utils/token-bucket', () => ({
     ...jest.requireActual('~/common/utils/token-bucket'),
     IngestionWarningLimiter: { consume: jest.fn().mockReturnValue(true) },
@@ -1168,9 +1167,7 @@ describe('session-replay-pipeline', () => {
             expect(messageValue.type).toBe('message_timestamp_diff_too_large')
         })
 
-        // Both drops discard a whole session, and both run in the session-resolution phase. They
-        // reach the warnings output only while that phase stays inside the team-aware scope; move it
-        // out and a lost recording goes back to leaving no customer-visible trace.
+        // These reach the warnings output only while session resolution stays inside teamAware.
         it.each([
             {
                 name: 'rate-limited new session',

@@ -123,10 +123,8 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                     b
                         .sequentially((b) => addSessionReplayPreprocessing(b, config))
                         .gather()
-                        // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings. It
-                        // sits immediately after the team filter, the first point where a team is known,
-                        // so every later drop can carry a customer-visible warning. A warning returned
-                        // above this line has no team to attribute and is discarded.
+                        // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings
+                        // A warning returned above this line has no team to attribute, and is discarded.
                         .filterMap(
                             (element) => ({
                                 result: element.result,
@@ -138,9 +136,6 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                             (b) =>
                                 b
                                     .teamAware((b) =>
-                                        // Resolve retention for the whole batch in one call, before the message is
-                                        // parsed and recorded — keyed on the (validated) session_id header. Sessions
-                                        // with unresolvable retention are dropped before any parse or write.
                                         addSessionReplaySessionResolution(b, config)
                                             .sequentially((b) =>
                                                 b

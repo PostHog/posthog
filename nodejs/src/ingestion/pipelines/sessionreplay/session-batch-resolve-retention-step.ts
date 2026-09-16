@@ -59,8 +59,7 @@ export function createResolveRetentionStep<
                 sessionId: value.headers.session_id,
                 teamId: value.team.teamId,
             })
-            // Debounced per team: the cause is team-wide (the team is unknown or deleted), so every
-            // one of its sessions fails together.
+            // Debounced per team: the team is unknown or deleted, so all its sessions fail together.
             return drop(
                 'retention_unresolved',
                 [],
