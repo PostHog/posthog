@@ -14,7 +14,9 @@ export function decryptEnvelope(key: MlDataKey, envelope: MlEncryptedEnvelope, k
     if (sealed.length < TAG_BYTES) {
         throw new Error('Invalid authenticated ML envelope')
     }
-    const decipher = createDecipheriv('aes-256-gcm', key.plaintext, Buffer.from(envelope.nonce, 'base64'))
+    const decipher = createDecipheriv('aes-256-gcm', key.plaintext, Buffer.from(envelope.nonce, 'base64'), {
+        authTagLength: TAG_BYTES,
+    })
     decipher.setAAD(Buffer.from(canonicalJson({ v: 3, context })))
     decipher.setAuthTag(sealed.subarray(sealed.length - TAG_BYTES))
     return Buffer.concat([decipher.update(sealed.subarray(0, sealed.length - TAG_BYTES)), decipher.final()])

@@ -146,7 +146,7 @@ export class MlKeyEncryption {
 export function encryptEnvelope(key: MlDataKey, kind: string, data: Buffer, ref?: string): Buffer {
     const context = { ...key.identity, kind, ...(ref ? { ref } : {}) }
     const nonce = randomBytes(NONCE_BYTES)
-    const cipher = createCipheriv('aes-256-gcm', key.plaintext, nonce)
+    const cipher = createCipheriv('aes-256-gcm', key.plaintext, nonce, { authTagLength: TAG_BYTES })
     cipher.setAAD(Buffer.from(canonicalJson({ v: 3, context })))
     const ciphertext = Buffer.concat([cipher.update(data), cipher.final(), cipher.getAuthTag()])
     const envelope: MlEncryptedEnvelope = {
