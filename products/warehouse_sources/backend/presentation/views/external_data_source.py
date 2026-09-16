@@ -5260,7 +5260,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         all_inputs = HogFunctionSerializer(hog_function).data.get("inputs") or {}
         webhook_inputs = {k: v for k, v in all_inputs.items() if k in webhook_field_names}
 
-        return Response(
+        return Response(  # nosemgrep: api-response-must-match-schema -- pre-existing hand-built payload, this change only adds a key
             status=status.HTTP_200_OK,
             data={
                 "supports_webhooks": True,
