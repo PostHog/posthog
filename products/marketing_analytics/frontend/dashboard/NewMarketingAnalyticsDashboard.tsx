@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconCursor, IconPeople, IconRetention, IconTarget, IconTrends } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCollapse, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonCollapse, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -36,6 +36,7 @@ import {
     WebOverviewQueryResponse,
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
+import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { CustomerAcquisitionCards } from './CustomerAcquisitionCards'
 import { marketingAcquisitionLogic } from './marketingAcquisitionLogic'
@@ -108,14 +109,14 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
     const { setDates, setCompareFilter, setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
     const { setupPlan, setupPlanLoading, visibleSuggestions } = useValues(setupPlanLogic)
     const { loadSetupPlan, reviewSuggestion } = useActions(setupPlanLogic)
-    const [sourcesExpanded, setSourcesExpanded] = useLocalStorage('marketing-source-suggestions-expanded', true)
+    const [sourcesExpanded, setSourcesExpanded] = useLocalStorage('marketing-source-suggestions-expanded', false)
     const sourceSuggestions = visibleSuggestions.filter((suggestion) => suggestion.kind === 'connect_source')
     const reviewSources = (): void => {
         setSetupSection(SetupSection.SOURCES)
         setActiveTab(MarketingAnalyticsTab.SETUP)
     }
 
-    const [goalsExpanded, setGoalsExpanded] = useLocalStorage('marketing-goal-suggestions-expanded', true)
+    const [goalsExpanded, setGoalsExpanded] = useLocalStorage('marketing-goal-suggestions-expanded', false)
     const goalSuggestions = suggestionsForSection(visibleSuggestions, SetupSection.CONVERSION_GOALS)
     const reviewGoals = (): void => {
         setSetupSection(SetupSection.CONVERSION_GOALS)
@@ -185,90 +186,89 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                     </>
                 )}
             </div>
-            {sourceSuggestions.length > 0 && (
-                <div className="border rounded relative">
-                    <LemonButton className="absolute right-2 top-0 z-10" size="small" onClick={reviewSources}>
-                        Review in Setup
-                    </LemonButton>
-                    <LemonCollapse
-                        embedded
-                        size="small"
-                        activeKey={sourcesExpanded ? 'sources' : null}
-                        onChange={(key) => setSourcesExpanded(key !== null)}
-                        panels={[
-                            {
-                                key: 'sources',
-                                header: {
-                                    children: `Suggested ad sources (${sourceSuggestions.length})`,
-                                    className: 'pr-36',
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,24rem),1fr))] items-start gap-2 empty:hidden">
+                {sourceSuggestions.length > 0 && (
+                    <div className="border rounded relative">
+                        <LemonButton className="absolute right-2 top-0 z-10" size="small" onClick={reviewSources}>
+                            Review in Setup
+                        </LemonButton>
+                        <LemonCollapse
+                            embedded
+                            size="small"
+                            activeKey={sourcesExpanded ? 'sources' : null}
+                            onChange={(key) => setSourcesExpanded(key !== null)}
+                            panels={[
+                                {
+                                    key: 'sources',
+                                    header: {
+                                        children: `Suggested ad sources (${sourceSuggestions.length})`,
+                                        className: 'pr-36',
+                                    },
+                                    content: sourceSuggestions.map((suggestion) => (
+                                        <SuggestionRow
+                                            key={suggestion.id}
+                                            suggestion={suggestion}
+                                            currentSection={SetupSection.SOURCES}
+                                            onReview={(item) => {
+                                                reviewSources()
+                                                reviewSuggestion(item)
+                                            }}
+                                        />
+                                    )),
                                 },
-                                content: sourceSuggestions.map((suggestion) => (
-                                    <SuggestionRow
-                                        key={suggestion.id}
-                                        suggestion={suggestion}
-                                        currentSection={SetupSection.SOURCES}
-                                        onReview={(item) => {
-                                            reviewSources()
-                                            reviewSuggestion(item)
-                                        }}
-                                    />
-                                )),
-                            },
-                        ]}
-                    />
-                </div>
-            )}
-            {goalSuggestions.length > 0 && (
-                <div className="border rounded relative">
-                    <LemonButton className="absolute right-2 top-0 z-10" size="small" onClick={reviewGoals}>
-                        Review in Setup
-                    </LemonButton>
-                    <LemonCollapse
-                        embedded
-                        size="small"
-                        activeKey={goalsExpanded ? 'goals' : null}
-                        onChange={(key) => setGoalsExpanded(key !== null)}
-                        panels={[
-                            {
-                                key: 'goals',
-                                header: {
-                                    children: `Suggested conversion goals (${goalSuggestions.length})`,
-                                    className: 'pr-36',
+                            ]}
+                        />
+                    </div>
+                )}
+                {goalSuggestions.length > 0 && (
+                    <div className="border rounded relative">
+                        <LemonButton className="absolute right-2 top-0 z-10" size="small" onClick={reviewGoals}>
+                            Review in Setup
+                        </LemonButton>
+                        <LemonCollapse
+                            embedded
+                            size="small"
+                            activeKey={goalsExpanded ? 'goals' : null}
+                            onChange={(key) => setGoalsExpanded(key !== null)}
+                            panels={[
+                                {
+                                    key: 'goals',
+                                    header: {
+                                        children: `Suggested conversion goals (${goalSuggestions.length})`,
+                                        className: 'pr-36',
+                                    },
+                                    content: goalSuggestions.map((suggestion) => (
+                                        <SuggestionRow
+                                            key={suggestion.id}
+                                            suggestion={suggestion}
+                                            currentSection={SetupSection.CONVERSION_GOALS}
+                                            onReview={(item) => {
+                                                reviewGoals()
+                                                reviewSuggestion(item)
+                                            }}
+                                        />
+                                    )),
                                 },
-                                content: goalSuggestions.map((suggestion) => (
-                                    <SuggestionRow
-                                        key={suggestion.id}
-                                        suggestion={suggestion}
-                                        currentSection={SetupSection.CONVERSION_GOALS}
-                                        onReview={(item) => {
-                                            reviewGoals()
-                                            reviewSuggestion(item)
-                                        }}
-                                    />
-                                )),
-                            },
-                        ]}
-                    />
-                </div>
-            )}
-            <nav aria-label="Dashboard sections" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                {sections.map(({ key, title, description, icon }) => (
+                            ]}
+                        />
+                    </div>
+                )}
+            </div>
+            <nav aria-label="Dashboard sections" className="flex flex-wrap gap-1 rounded border p-1 w-fit max-w-full">
+                {sections.map(({ key, title, icon }) => (
                     <LemonButton
                         key={key}
-                        type={activeSection === key ? 'primary' : 'secondary'}
+                        type="tertiary"
+                        active={activeSection === key}
+                        className={activeSection === key ? '!bg-accent-highlight !text-accent' : undefined}
+                        icon={icon}
+                        size="small"
+                        data-attr={`marketing-dashboard-section-${key}`}
                         onClick={() => setSelectedSection(key)}
                         aria-pressed={activeSection === key}
                         aria-controls="marketing-dashboard-section"
-                        className="h-full"
-                        fullWidth
                     >
-                        <div className="flex flex-col gap-2 py-2 text-left">
-                            <span className="flex items-center gap-2 text-lg font-semibold">
-                                {icon}
-                                {title}
-                            </span>
-                            <span className="font-normal">{description}</span>
-                        </div>
+                        {title}
                     </LemonButton>
                 ))}
             </nav>
@@ -290,6 +290,9 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                             .map(({ title, keys }) => (
                                 <section key={title} className="flex flex-col gap-2" aria-label={title}>
                                     <h2 className="mb-0">{title}</h2>
+                                    <p className="text-secondary mb-2">
+                                        {sections.find(({ key }) => key === activeSection)?.description}
+                                    </p>
                                     <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] auto-rows-fr gap-2">
                                         <div className="contents">
                                             <OverviewMetricCardGrid
@@ -347,6 +350,9 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                 {activeSection === 'conversion' && (
                     <section aria-label="Conversion" className="flex flex-col gap-2">
                         <h2 className="mb-0">Conversion</h2>
+                        <p className="text-secondary mb-2">
+                            {sections.find(({ key }) => key === activeSection)?.description}
+                        </p>
                         <AttributionTab />
                     </section>
                 )}
@@ -418,51 +424,105 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                 )}
                 {isTraffic && (
                     <>
-                        <div className="flex items-center gap-2">
-                            <span>Breakdown by</span>
-                            <LemonSelect
-                                value={trafficBreakdown}
-                                onChange={setTrafficBreakdown}
-                                options={TRAFFIC_BREAKDOWNS}
-                                aria-label="Traffic breakdown"
-                            />
-                        </div>
-                        <Query
-                            query={{
-                                kind: NodeKind.DataTableNode,
-                                source: {
-                                    kind: NodeKind.WebStatsTableQuery,
-                                    breakdownBy: trafficBreakdown,
-                                    orderBy: trafficOrderBy[activeSection],
-                                    dateRange,
+                        {activeSection === 'acquisition' && (
+                            <LemonCard hoverEffect={false}>
+                                <h3>Visitors over time</h3>
+                                <p className="text-secondary text-sm">All traffic in the selected period.</p>
+                                <div className="flex flex-col h-80">
+                                    <Query
+                                        key={activeSection}
+                                        query={{
+                                            kind: NodeKind.InsightVizNode,
+                                            source: {
+                                                kind: NodeKind.TrendsQuery,
+                                                dateRange,
+                                                compareFilter,
+                                                filterTestAccounts: shouldFilterTestAccounts,
+                                                interval: 'day',
+                                                tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                                series: [
+                                                    {
+                                                        kind: NodeKind.EventsNode,
+                                                        event: null,
+                                                        properties: [
+                                                            {
+                                                                key: 'event',
+                                                                type: PropertyFilterType.EventMetadata,
+                                                                operator: PropertyOperator.Exact,
+                                                                value: ['$pageview', '$screen'],
+                                                            },
+                                                        ],
+                                                        math: BaseMathType.UniqueUsers,
+                                                        custom_name: 'Visitors',
+                                                    },
+                                                ],
+                                                trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+                                            },
+                                            embedded: true,
+                                            showTable: false,
+                                            hidePersonsModal: true,
+                                        }}
+                                        readOnly
+                                    />
+                                </div>
+                            </LemonCard>
+                        )}
+                        <LemonCard hoverEffect={false}>
+                            <div className="flex flex-wrap justify-between items-center gap-2 mb-3">
+                                <h3 className="mb-0">
+                                    {`${activeSection === 'acquisition' ? 'Acquisition' : 'Engagement'} by ${TRAFFIC_BREAKDOWNS.find(({ value }) => value === trafficBreakdown)?.label.toLowerCase()}`}
+                                </h3>
+                                <div className="flex items-center gap-2">
+                                    <span>Breakdown by</span>
+                                    <LemonSelect
+                                        value={trafficBreakdown}
+                                        onChange={setTrafficBreakdown}
+                                        options={TRAFFIC_BREAKDOWNS}
+                                        aria-label="Traffic breakdown"
+                                    />
+                                </div>
+                            </div>
+                            <p className="text-secondary text-sm">
+                                Grouped by session entry. UTM source and referring domain are separate breakdowns.
+                                Visitors can appear in more than one row.
+                            </p>
+                            <Query
+                                query={{
+                                    kind: NodeKind.DataTableNode,
+                                    source: {
+                                        kind: NodeKind.WebStatsTableQuery,
+                                        breakdownBy: trafficBreakdown,
+                                        orderBy: trafficOrderBy[activeSection],
+                                        dateRange,
+                                        compareFilter,
+                                        filterTestAccounts: shouldFilterTestAccounts,
+                                        includeBounceRate: activeSection === 'engagement',
+                                        includeTrafficMetrics: activeSection === 'acquisition',
+                                        conversionGoal: activeSection === 'acquisition' ? customerConversionGoal : null,
+                                        properties: [],
+                                        limit: 25,
+                                        tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                    },
+                                    hiddenColumns:
+                                        activeSection === 'engagement'
+                                            ? ['context.columns.views']
+                                            : [
+                                                  'context.columns.total_conversions',
+                                                  ...(customerConversionGoal ? ['context.columns.cross_sell'] : []),
+                                              ],
+                                    full: true,
+                                    embedded: false,
+                                    showOpenEditorButton: false,
+                                }}
+                                context={{
+                                    ...marketingTrafficQueryContext(trafficOrderBy[activeSection], (field) =>
+                                        toggleTrafficSort(activeSection, field)
+                                    ),
                                     compareFilter,
-                                    filterTestAccounts: shouldFilterTestAccounts,
-                                    includeBounceRate: activeSection === 'engagement',
-                                    includeTrafficMetrics: activeSection === 'acquisition',
-                                    conversionGoal: activeSection === 'acquisition' ? customerConversionGoal : null,
-                                    properties: [],
-                                    limit: 25,
-                                    tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                },
-                                hiddenColumns:
-                                    activeSection === 'engagement'
-                                        ? ['context.columns.views']
-                                        : [
-                                              'context.columns.total_conversions',
-                                              ...(customerConversionGoal ? ['context.columns.cross_sell'] : []),
-                                          ],
-                                full: true,
-                                embedded: false,
-                                showOpenEditorButton: false,
-                            }}
-                            context={{
-                                ...marketingTrafficQueryContext(trafficOrderBy[activeSection], (field) =>
-                                    toggleTrafficSort(activeSection, field)
-                                ),
-                                compareFilter,
-                            }}
-                            readOnly
-                        />
+                                }}
+                                readOnly
+                            />
+                        </LemonCard>
                     </>
                 )}
             </div>
