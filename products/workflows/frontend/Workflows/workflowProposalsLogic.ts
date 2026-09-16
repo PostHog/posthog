@@ -188,15 +188,15 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 setResolvingId: (_, { action }) => action,
             },
         ],
-        // Merge each finished request's entry here at reducer time, not inside the request. A request
-        // that read prior state to build the merged map would read it stale, so two near-simultaneous
-        // loads would drop each other's entry.
         lastSeenVersion: [
             null as number | null,
             {
                 setLastSeenVersion: (_, { version }) => version,
             },
         ],
+        // Merge each finished request's entry here at reducer time, not inside the request. A request
+        // that read prior state to build the merged map would read it stale, so two near-simultaneous
+        // loads would drop each other's entry.
         outcomes: [
             {} as Record<string, WorkflowProposalOutcomeApi>,
             {
