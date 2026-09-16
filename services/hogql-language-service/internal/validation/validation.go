@@ -146,13 +146,13 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 			}
 			return true
 		})
-		if document.ProjectionLimitExceeded() {
+		if document.LimitError() != nil {
 			break
 		}
 	}
-	if document.ProjectionLimitExceeded() && len(diagnostics) < querylimits.MaxDiagnostics {
+	if err := document.LimitError(); err != nil && len(diagnostics) < querylimits.MaxDiagnostics {
 		diagnostics = append(diagnostics, Diagnostic{
-			Code: "query_limit", Message: querylimits.ErrCTEProjectionTooLarge.Error(), Start: 0, End: len(query),
+			Code: "query_limit", Message: err.Error(), Start: 0, End: len(query),
 		})
 	}
 	return result(diagnostics, referencedTableNames, started)
@@ -197,13 +197,13 @@ func validateProperty(diagnostics *[]Diagnostic, seen map[string]bool, propertie
 }
 
 func validateField(diagnostics *[]Diagnostic, seen map[string]bool, binding analysis.Relation, ident *clickhouse.Ident, document *analysis.Document) {
-	if len(*diagnostics) >= querylimits.MaxDiagnostics || document.ProjectionLimitExceeded() {
+	if len(*diagnostics) >= querylimits.MaxDiagnostics || document.LimitError() != nil {
 		return
 	}
 	if _, ok := binding.Field(ident.Name); ok {
 		return
 	}
-	if document.ProjectionLimitExceeded() {
+	if document.LimitError() != nil {
 		return
 	}
 	key := fmt.Sprintf("%d:%d", ident.Pos(), ident.End())
@@ -218,23 +218,23 @@ func validateField(diagnostics *[]Diagnostic, seen map[string]bool, binding anal
 }
 
 func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, bindings analysis.Bindings, ident *clickhouse.Ident, document *analysis.Document) {
-	if len(*diagnostics) >= querylimits.MaxDiagnostics || document.ProjectionLimitExceeded() {
+	if len(*diagnostics) >= querylimits.MaxDiagnostics || document.LimitError() != nil {
 		return
 	}
 	uniqueTables := map[string]analysis.Relation{}
-	for _, binding := range bindings.All() {
+	for binding := range bindings.UniqueRelations() {
 		uniqueTables[binding.Name()] = binding
 		if _, ok := binding.Field(ident.Name); ok {
 			return
 		}
-		if document.ProjectionLimitExceeded() {
+		if document.LimitError() != nil {
 			return
 		}
 	}
 	candidates := make([]catalog.Entry, 0)
 	for _, binding := range uniqueTables {
 		candidates = slices.AppendSeq(candidates, binding.Fields())
-		if document.ProjectionLimitExceeded() {
+		if document.LimitError() != nil {
 			return
 		}
 	}

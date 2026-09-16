@@ -5824,6 +5824,22 @@ snapshots:
         hash: v1.k794b7964.eceb80b180d692b6f616365ea7269d24bb6f084128cbfafc661cf6159dc281ec.FagEpfMfYMDwAJaH7ctNLBVSS-sThFgcTnQ8Ghwk8wI
     products-data-modeling-views-list--actions--light:
         hash: v1.k794b7964.72724e994dcffa8f4d3914d5e9f87d9c6ad7ddfe0ffd28a02897129354ba956d.Vu7BhdcTI1yxaNzfgaW9gFoiBIScbrYMw9RN8FmP1ms
+    products-data-quality-overview--default--dark:
+        hash: v1.k794b7964.a76c0a0a52b4899bbc284267a9401f161027073107f64241a1ca6212c8402eb7.kxBvgToQcotkJw5a6_uClxdSsJmvHxdoWx4dT0DPMf8
+    products-data-quality-overview--default--light:
+        hash: v1.k794b7964.d4e4a007fd8dc6bd071ec34b6414daf84c56d8af2fe843df224d623b308c136d.-qoPd7IS8jzPQhS3wsQ6pOVtumNQ-1HTOTw8wwPucTk
+    products-data-quality-overview--empty--dark:
+        hash: v1.k794b7964.aef914cdb03e217fe4640aacf8eed4a798f9ef6a9ff1152d424fb839492d3c5a.bQxhnZ1IkgLapO0PLUeTbSbwnfTfgD0GBumWdOq6tsI
+    products-data-quality-overview--empty--light:
+        hash: v1.k794b7964.ae20a8bb7ab523520b39769efb5ba3f209316062d304b7dbda14b1a0118aa59f.DK2jH1rE0O7c3IdFpyI1sWIUU-rjQyh9nWc1VoZD9Gw
+    products-data-quality-overview--narrow--dark:
+        hash: v1.k794b7964.ab1dc8d009d28798ed92bac7897cae61a541492a713b7c3e0aae8d30b20cbb70.1RHkf5iF7pgMZru0VsuyYFr54yToqY8wWqkfgKt95O4
+    products-data-quality-overview--narrow--light:
+        hash: v1.k794b7964.874828133fdc4247f4ba0e6485094636e490e90cbb265c0c519f9f8ba2168a2a.d7PqHHUzicKzzWuqBJUz6pLOJf44hkf_19dL5k6x4wA
+    products-data-quality-overview--narrow-empty--dark:
+        hash: v1.k794b7964.1cd9a844cb246b38b4bbd177c34ec9db60c45fdae6a9e46c9246952165a9070f.Sr2NAphdaoOfPI0lR2OL0dhVkr5noiBifnDNr5lQQkk
+    products-data-quality-overview--narrow-empty--light:
+        hash: v1.k794b7964.59ccc48cc2c5362a03766b0467145a11574abe2978dc286acd07c3e0249505d1.kkv6y918MpirjkSJIgEzyx2vOKbIaweiEm0zBJ75R4g
     products-mcp-analytics-routingbar--all-variants--dark:
         hash: v1.k794b7964.769a69526cf676447319f587f24ed0d2670a137098867f8d3ee87ebda3415a70.3FGS0pbxxcrZUSto8SNCNHEkxaFXH6T8shqpdg5zzlQ
     products-mcp-analytics-routingbar--all-variants--light:

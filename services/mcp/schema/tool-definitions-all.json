@@ -1475,7 +1475,7 @@
         }
     },
     "canvas-state-retrieve": {
-        "description": "Read persisted `ph.state` entries for a visible canvas. Returns shared entries and the authenticated user's own user-scoped entries, never another user's. Use this with canvas-source-retrieve when collaborative progress, checklist selections, filters, or other runtime values live outside the source. Only scopes declared by the live canvas version are readable. Optionally filter to `user` or `shared` with `scope`.",
+        "description": "Read persisted `ph.state` entries for a visible canvas. Returns shared entries and the authenticated user's own user-scoped entries, never another user's. Use this with canvas-source-retrieve when collaborative progress, checklist selections, filters, or other runtime values live outside the source. Only scopes declared by the live canvas version are readable. Optionally filter to `user` or `shared` with `scope`. Returns a key inventory by default. Keep filters unchanged and follow next_offset until complete is true. Set key or key_prefix and keys_only=false for small selected values. Use canvas-state-value-retrieve for long values. This reads persisted state directly; no composition storage tool is needed.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "Read canvas state",
@@ -1500,6 +1500,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "canvas-state-value-retrieve": {
+        "description": "Read one exact scope and key as bounded JSON text chunks. Start at offset zero, then pass next_offset and revision until complete is true. Join value_json chunks in order before parsing the JSON. If the value changes, the read returns 409; discard earlier chunks and restart at zero. On a 404, read the error detail: \"No readable value for this scope and key\" means the entry is absent and broader permissions would not help, while any other 404 means the canvas is not available to this caller.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Read a canvas state value",
+        "title": "Read a canvas state value",
+        "required_scopes": ["canvas:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "canvas-validate-create": {
@@ -2092,7 +2106,7 @@
         "feature_flag": "context-layer"
     },
     "context-wiki-page-retrieve": {
-        "description": "Read one repo-relative Markdown page from the organization context wiki. Returns its content and head_sha; pass that head_sha as base_head when updating the page.",
+        "description": "Read one repo-relative Markdown page from the organization context wiki. Returns its content and head_sha; pass that head_sha as base_head when updating the page. Reads are bounded. Follow next_offset with the same head_sha and limit until complete is true. Join content chunks in order before editing. On 409, discard the chunks and restart at offset zero.",
         "category": "Context wiki",
         "feature": "context_layer",
         "summary": "Read a context wiki page",
@@ -4398,8 +4412,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "experiment-flag-cleanup-pr"
+        }
     },
     "experiment-copy-to-project": {
         "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nREQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This writes a new experiment into a DIFFERENT project than the one the user is currently looking at. Resolve the target project from the user's wording to a concrete team id, then confirm the source experiment and the target project by name before invoking.\n\nCopies an experiment into another project in the SAME organization as a new draft. The target project must belong to the same organization — this CANNOT copy across organizations or regions. Use experiment-duplicate instead when the copy should land in the same project.\n\nWhat IS copied: name (defaults to \"Original Name (Copy)\", de-duplicated with a numeric suffix if that name already exists in the target), description, type, parameters (variant split, rollout), filters, primary and secondary metrics (each with freshly regenerated uuids and preserved ordering), stats config, scheduling config, exposure criteria, and the only_count_matured_users setting.\n\nWhat is NOT copied: saved-metric references (saved metrics are project-scoped, so they are dropped on a cross-project copy), holdout, exposure cohort, start/end dates, results, and conclusion. The copy always starts as a fresh draft.\n\nFeature flag: pass feature_flag_key to control the flag key created in the target project. If omitted, the source experiment's flag key is reused — and if a flag with that key already exists in the target project, the copy SHARES that existing flag (its variants are reused) rather than creating a new one. A shared flag means lifecycle operations on either experiment (shipping a variant, pausing) affect both. To avoid this, pass a feature_flag_key that does not already exist in the target project. If an existing target flag is reused, it must be multivariate with 2 to 20 variants, otherwise the call returns 400 (\"Feature flag must have at least 2 variants (a baseline and at least one test variant)\" or \"Feature flag must have at most 20 variants\"). No specific variant key is required — the analysis baseline defaults to the variant keyed \"control\" when present, else the first variant. Exception: copying a web experiment requires the reused target flag to have a variant keyed \"control\", otherwise the call returns 400 (\"Web experiments require a variant with key 'control'\").\n\nReturns 400 if the source experiment uses legacy metrics (\"Copying is not supported for experiments using legacy metrics.\"). Returns 404 if the target project is not found in the organization (\"Target team not found.\"). Returns 403 if you lack write access to the target project (\"You do not have write access to the target project.\").\n\nThe returned experiment (including its id) belongs to the TARGET project, not the source project.",
@@ -8167,7 +8180,7 @@
         "feature_flag": "context-layer"
     },
     "loop-context-wiki-page-retrieve": {
-        "description": "Read a context wiki page and its head_sha for an unattended loop run.",
+        "description": "Read a bounded context wiki page chunk and its head_sha for an unattended loop run. Follow next_offset with the same head_sha and limit until complete is true. Join all content chunks before editing. On 409, discard the chunks and restart at offset zero.",
         "category": "Context wiki",
         "feature": "context_layer",
         "summary": "Read a loop context wiki page",
@@ -8332,7 +8345,7 @@
         "feature_flag": "loops"
     },
     "loops-runs-retrieve": {
-        "description": "List a loop's run history, newest first, cursor-paginated. Each entry carries the run's status, branch, error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and what they produced.",
+        "description": "List a loop's run history, newest first, cursor-paginated. Each entry carries the run's status, branch, error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and what they produced. Set status=failed to find failure records without reading canvas state. Keep the status filter unchanged when following next_cursor. Use these records and the loop's last_run_status, last_error, and consecutive_failures for current health; an enabled schedule alone does not show successful work.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "List loop runs",
@@ -11918,7 +11931,7 @@
         "feature_flag": "context-layer"
     },
     "task-context-wiki-page-retrieve": {
-        "description": "Read a context wiki page and its head_sha for an unattended task run.",
+        "description": "Read a bounded context wiki page chunk and its head_sha for an unattended task run. Follow next_offset with the same head_sha and limit until complete is true. Join all content chunks before editing. On 409, discard the chunks and restart at offset zero.",
         "category": "Context wiki",
         "feature": "context_layer",
         "summary": "Read this task's context wiki page",
@@ -12053,7 +12066,7 @@
         "feature_flag": "tasks-mcp-agent-run-start"
     },
     "tasks-list": {
-        "description": "Search agent tasks before starting related work. Use `search` to match task titles and descriptions, and `channel` to limit results to the current space. The results identify who created each task and whether its latest run is active. Supports additional filtering by status, repository, creator, origin product, and archived or internal state. Requires the calling token's organization to have Tasks access enabled.",
+        "description": "Search agent tasks before starting related work. Use `search` to match task titles and descriptions, and `channel` to limit results to the current space. The results identify who created each task and whether its latest run is active. Supports additional filtering by status, repository, creator, origin product, and archived or internal state. Requires the calling token's organization to have Tasks access enabled. To inspect failures in a space, set channel, status=failed, internal=all, and archived=all. For workflow-backed loops, also set hog_flow_id. The latest_run includes the stored error and completion time even if the run stopped before writing canvas state. Use tasks-runs-list for earlier runs of a task.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Search and list tasks",

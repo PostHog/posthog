@@ -81,6 +81,7 @@ from products.signals.dags.inbox_ranking.training.examples import (
     build_examples,
     example_columns,
     point_in_time_mask,
+    reports_missing_birth_snapshot,
     state_rows,
 )
 from products.signals.dags.inbox_ranking.training.heads import HEADS, HEADS_BY_HORIZON, HEADS_BY_NAME
@@ -90,19 +91,29 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     candidate_events,
     capture_training_events,
     examples_events,
+    holdout_calibration_events,
     promotion_event,
+    unseen_calibration_events,
     unseen_head_graded_events,
     unseen_report_graded_events,
     unseen_score_events,
 )
-from products.signals.dags.inbox_ranking.training.train import XGB_PARAMS, TrainedHead, booster_holdout_auc, train_head
+from products.signals.dags.inbox_ranking.training.train import (
+    XGB_PARAMS,
+    TrainedHead,
+    booster_holdout_auc,
+    holdout_calibration_rows,
+    train_head,
+)
 from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
     CHAMPION_ROLE,
     MODEL_FAMILIES,
+    UNSEEN_SCORES_TABLE,
     HeadGrade,
     ModelFamily,
     UnseenModel,
+    calibration_rows,
     empty_scores_write_allowed,
     graded_rows,
     head_grades,
@@ -121,7 +132,6 @@ from products.signals.dags.inbox_ranking.training.unseen import (
 )
 
 EXAMPLES_TABLE = "inbox_ranking_training_examples"
-UNSEEN_SCORES_TABLE = "inbox_ranking_unseen_scores"
 MODELS_TABLE = "inbox_ranking_models"
 CHAMPION_FILE = "champion.json"
 METADATA_FILE = "metadata.json"
@@ -305,10 +315,17 @@ def inbox_ranking_training_examples(context: dagster.AssetExecutionContext) -> N
     if backfilled_rows:
         context.log.warning(f"{backfilled_rows} state rows read after the snapshot window are excluded (backfill)")
 
+    # A gap in the partitions is silent at the birth grain: it removes every report born that day
+    # from every head, rather than thinning the rows of a report that survives.
+    unreachable_reports = reports_missing_birth_snapshot(snapshots, dates)
+    if unreachable_reports:
+        context.log.warning(f"{unreachable_reports} reports born inside the window have no birth-day snapshot")
+
     extras = report_embeddings_extras(context, client, bucket, prefix, partition_key)
     metadata: dict[str, dagster.MetadataValue] = {
         "snapshots": dagster.MetadataValue.int(len(snapshots)),
         "backfilled_state_rows_excluded": dagster.MetadataValue.int(backfilled_rows),
+        "reports_missing_birth_snapshot": dagster.MetadataValue.int(unreachable_reports),
     }
     for feature_set in FEATURE_SETS.values():
         missing = feature_set.missing_extras(extras)
@@ -542,7 +559,19 @@ def _train_candidate(
         context.log.warning(
             f"removed {len(stale)} stale {family.name} objects from a previous run of dt={partition_key}"
         )
-    capture_training_events(context, partition_key, candidate_events(metadata))
+    capture_training_events(
+        context,
+        partition_key,
+        [
+            *candidate_events(metadata),
+            *holdout_calibration_events(
+                partition_key=partition_key,
+                run_id=context.run.run_id,
+                model_name=family.name,
+                rows=holdout_calibration_rows(trained),
+            ),
+        ],
+    )
     return {
         f"{family.name}_stale_objects_removed": dagster.MetadataValue.int(len(stale)),
         f"{family.name}_heads_trained": dagster.MetadataValue.int(len(trained)),
@@ -934,6 +963,7 @@ def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
         partition_key,
         [
             *unseen_head_graded_events(run_id=context.run.run_id, grades=grades),
+            *unseen_calibration_events(run_id=context.run.run_id, rows=calibration_rows(grades)),
             *unseen_report_graded_events(run_id=context.run.run_id, rows=report_rows),
         ],
     )

@@ -341,9 +341,11 @@ CONSTANCE_CONFIG = {
         int,
     ),
     "WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS": (
-        get_from_env("WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS", default=21600, type_cast=int),
+        get_from_env("WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS", default=7200, type_cast=int),
         "How long the fleet-wide demand selection is cached in object storage. Warming replays the "
-        "cached shape list every run; the expensive query_log scan only re-runs once this expires (default 6h).",
+        "cached shape list every run; the expensive query_log scan only re-runs once this expires (default 2h). "
+        "Shorter means a newly-hot shape enters the warm set sooner, at the cost of re-running the query_log "
+        "scan more often.",
         int,
     ),
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT": (
