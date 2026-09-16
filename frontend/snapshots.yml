@@ -116,6 +116,10 @@ snapshots:
         hash: v1.k794b7964.0d80c815b27006d88f038af4b2d689f510f8bdf583d7fc830eb68942821b56e4.vFLLhu562dwroQu8TA_dLSIrYC3SgtRpKdZTB8ufS84
     components-agentattribution--intent-and-task--light:
         hash: v1.k794b7964.24895d9480ddd6f87009e5b1b25baf6e886cac9cd9880903e339bff843033fd8.KzV5k8F-3EZNmgX3eF2rV0oiWATstdKagopl-HYlEfQ
+    components-agentattribution--intent-only--dark:
+        hash: v1.k794b7964.f8bf9ca0845659ac7663e8b7e345a8d093a752c1f562497bdad3d1f87f77366c.uPzI-KBozuElBjF8Hdlict0N4JMDU55i5YgPHtms8BU
+    components-agentattribution--intent-only--light:
+        hash: v1.k794b7964.ff34426525e6649ce8bce821f536aea21b43bd8878cefb5448209e6fd107c6a1.6Wo_irGPe6Xr4WKCYXA0XYpna9TiT0NuTNfewqR0uv0
     components-agentattribution--task-only--dark:
         hash: v1.k794b7964.5b5f3178c99673ba0bf03dddb8a88cf889e51cf1d89039743d51c3bb056172cc.nuzeiVXJiHurkyu1JOKm6DOspFpAqjrJKgmUZzfj0d0
     components-agentattribution--task-only--light:
