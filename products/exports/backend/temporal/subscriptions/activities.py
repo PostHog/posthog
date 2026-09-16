@@ -374,6 +374,7 @@ async def fetch_due_subscriptions_page_activity(
         oldest_due_at=oldest_due_at,
         now=dt.datetime.now(dt.UTC),
         has_more=page.next_cursor is not None,
+        record_oldest_due_age=inputs.cursor is None,
     )
     await LOGGER.ainfo(
         "Fetched due subscriptions page",

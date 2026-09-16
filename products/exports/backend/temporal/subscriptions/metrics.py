@@ -25,6 +25,7 @@ def record_scheduler_fetch(
     oldest_due_at: datetime | None,
     now: datetime,
     has_more: bool,
+    record_oldest_due_age: bool = True,
 ) -> None:
     meter = get_metric_meter()
     outcome = "saturated" if has_more else "empty" if selected_count == 0 else "partial"
@@ -36,12 +37,13 @@ def record_scheduler_fetch(
         SCHEDULER_SELECTED,
         "Due subscriptions selected for Temporal child-workflow dispatch.",
     ).add(selected_count)
-    oldest_due_age_seconds = max(0.0, (now - oldest_due_at).total_seconds()) if oldest_due_at is not None else 0.0
-    meter.create_gauge_float(
-        SCHEDULER_OLDEST_DUE_AGE_SECONDS,
-        "Age in seconds of the oldest due subscription selected by a scheduler run.",
-        "s",
-    ).set(oldest_due_age_seconds)
+    if record_oldest_due_age:
+        oldest_due_age_seconds = max(0.0, (now - oldest_due_at).total_seconds()) if oldest_due_at is not None else 0.0
+        meter.create_gauge_float(
+            SCHEDULER_OLDEST_DUE_AGE_SECONDS,
+            "Age in seconds of the oldest due subscription selected by a scheduler run.",
+            "s",
+        ).set(oldest_due_age_seconds)
     meter.create_gauge_float(
         SCHEDULER_LAST_SUCCESSFUL_FETCH_TIMESTAMP_SECONDS,
         "Unix timestamp of the last successful subscription scheduler fetch.",

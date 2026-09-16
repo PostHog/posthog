@@ -41,6 +41,27 @@ def test_record_scheduler_fetch_emits_progress_and_saturation_signals() -> None:
     )
 
 
+def test_record_scheduler_fetch_does_not_replace_oldest_due_age_for_later_pages() -> None:
+    meter = MagicMock()
+    counters: dict[str, MagicMock] = {}
+    gauges: dict[str, MagicMock] = {}
+    _capture_instruments(meter, counters=counters, gauges=gauges)
+
+    with patch(
+        "products.exports.backend.temporal.subscriptions.metrics.get_metric_meter",
+        return_value=meter,
+    ):
+        record_scheduler_fetch(
+            selected_count=100,
+            oldest_due_at=datetime(2026, 9, 11, 12, 0, tzinfo=UTC),
+            now=datetime(2026, 9, 11, 12, 5, tzinfo=UTC),
+            has_more=True,
+            record_oldest_due_age=False,
+        )
+
+    assert "subscriptions_scheduler_oldest_due_age_seconds" not in gauges
+
+
 def test_record_scheduler_progress_emits_backlog_and_dispatch_signals() -> None:
     meter = MagicMock()
     counters: dict[str, MagicMock] = {}
