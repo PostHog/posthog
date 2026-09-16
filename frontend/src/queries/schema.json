@@ -1549,6 +1549,10 @@
             "required": ["results"],
             "type": "object"
         },
+        "AnnotationScope": {
+            "enum": ["dashboard_item", "dashboard", "project", "organization"],
+            "type": "string"
+        },
         "AnyAssistantGeneratedQuery": {
             "anyOf": [
                 {
@@ -27466,6 +27470,10 @@
         "FunnelsFilter": {
             "additionalProperties": false,
             "properties": {
+                "annotationsScope": {
+                    "$ref": "#/definitions/AnnotationScope",
+                    "description": "Render only annotations with this scope. Only applies to historical-trends funnels."
+                },
                 "binCount": {
                     "type": "integer"
                 },
@@ -53665,6 +53673,10 @@
                 "aggregationAxisPrefix": {
                     "description": "Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself.",
                     "type": "string"
+                },
+                "annotationsScope": {
+                    "$ref": "#/definitions/AnnotationScope",
+                    "description": "Render only annotations with this scope. Unset renders every scope."
                 },
                 "breakdown_histogram_bin_count": {
                     "type": "number"

@@ -26,7 +26,7 @@ describe('flagCleanupTargetLogic', () => {
         const logic = flagCleanupTargetLogic({ experimentId: 1 })
         logic.mount()
 
-        // Code access off: opening the modal must not hit the endpoint (it would 403).
+        // Without Code access: opening the modal must not hit the endpoint (it would 403).
         modalsLogic.mount()
         modalsLogic.actions.openFinishExperimentModal()
         await Promise.resolve()
