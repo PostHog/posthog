@@ -1,15 +1,20 @@
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from requests import Response
+from requests.exceptions import HTTPError
 
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.settings import (
     BUNNY_ENDPOINTS,
     DATE_FROM_PARAM,
+    LOG_DATE_FROM_PARAM,
+    LOG_EXCLUDED_FIELDS,
+    LOG_RETENTION,
+    LOG_WINDOW_MARGIN,
     BunnyEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
@@ -22,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
+    OffsetPaginator,
     PageNumberPaginator,
     SinglePagePaginator,
 )
@@ -34,6 +40,8 @@ BUNNY_BASE_URL = "https://api.bunny.net"
 # The Stream API answers on its own host and authenticates per video library rather than per
 # account, so it needs its own client even though it is the same vendor.
 BUNNY_STREAM_BASE_URL = "https://video.bunnycdn.com"
+# The CDN Logging API is a third host. It takes the same account API key as the Core API.
+BUNNY_LOG_BASE_URL = "https://logging.bunnycdn.com"
 # The list endpoints accept perPage 5..1000; 1000 minimises round trips for the typically small
 # zone/library tables.
 PER_PAGE = 1000
@@ -82,9 +90,29 @@ class BunnyHasMoreItemsPaginator(PageNumberPaginator):
         self._has_next_page = isinstance(body, dict) and bool(body.get("HasMoreItems", False))
 
 
+class BunnyLogHasMorePaginator(OffsetPaginator):
+    """Offset paginator that stops on the Logging API's explicit ``pagination.hasMore`` flag.
+
+    The built-in stop conditions don't fit: the response reports no grand total, and the API
+    applies some of its filters after fetching a page, so a short page does not mean the last
+    one. The flag is the API's own termination signal.
+    """
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        self.offset += self.limit
+        try:
+            body = response.json()
+        except Exception:
+            body = None
+        pagination = body.get("pagination") if isinstance(body, dict) else None
+        self._has_next_page = isinstance(pagination, dict) and bool(pagination.get("hasMore", False))
+
+
 def _paginator_for(config: BunnyEndpointConfig) -> BasePaginator:
     if config.charts is not None:
         return SinglePagePaginator()
+    if config.logging_api:
+        return BunnyLogHasMorePaginator(limit=PER_PAGE)
     if config.stream_api:
         # The Stream list envelope reports total ITEMS and carries no "more items" flag, so the
         # walk ends on the first empty page instead.
@@ -118,6 +146,9 @@ def _rest_client(access_key: str, base_url: str = BUNNY_BASE_URL) -> RESTClient:
 def _request_params(config: BunnyEndpointConfig, date_from: Optional[str] = None) -> dict[str, Any]:
     if config.charts is not None:
         return {**config.params, DATE_FROM_PARAM: date_from}
+    if config.logging_api:
+        # The paginator carries this endpoint's page size, alongside its offset.
+        return {**config.params, LOG_DATE_FROM_PARAM: date_from}
     return {config.page_size_param: PER_PAGE, **config.params}
 
 
@@ -133,6 +164,21 @@ def _date_from(db_incremental_field_last_value: Any) -> Optional[str]:
     if value is None:
         return None
     return value.strftime(DATE_FROM_FORMAT)
+
+
+def _log_date_from(db_incremental_field_last_value: Any) -> str:
+    """The ``from`` bound a log query asks from. Always set, unlike ``dateFrom``.
+
+    The Logging API returns only the last 24 hours when no window is sent, which would drop
+    entries whenever a sync runs less often than daily, so a first run asks from the retention
+    edge instead. A later run asks from the newest entry the table already holds, clamped to
+    that same edge because the API rejects a window starting before it. The overlap that the
+    clamp and the open window end re-read upserts on the request id.
+    """
+    retention_edge = datetime.now(UTC) - LOG_RETENTION + LOG_WINDOW_MARGIN
+    watermark = parse_datetime_value(db_incremental_field_last_value)
+    date_from = retention_edge if watermark is None else max(watermark, retention_edge)
+    return date_from.strftime(DATE_FROM_FORMAT)
 
 
 def _stream_access_key(library: dict[str, Any]) -> Optional[str]:
@@ -171,6 +217,7 @@ def _endpoint_calls(access_key: str, config: BunnyEndpointConfig) -> Iterator[Bu
         yield BunnyEndpointCall(client=core_client, path=config.path, injected={})
         return
 
+    child_client = _rest_client(access_key, BUNNY_LOG_BASE_URL) if config.logging_api else core_client
     for parent_row in _iter_parent_rows(core_client, BUNNY_ENDPOINTS[config.parent.endpoint]):
         parent_id = parent_row.get(config.parent.id_field)
         if parent_id is None:
@@ -178,7 +225,7 @@ def _endpoint_calls(access_key: str, config: BunnyEndpointConfig) -> Iterator[Bu
         injected = {config.parent.id_column: parent_id}
         path = config.path.format(id=parent_id)
         if not config.stream_api:
-            yield BunnyEndpointCall(client=core_client, path=path, injected=injected)
+            yield BunnyEndpointCall(client=child_client, path=path, injected=injected)
             continue
         stream_key = _stream_access_key(parent_row)
         if stream_key is not None:
@@ -238,6 +285,30 @@ def _fanout_list_pages(access_key: str, config: BunnyEndpointConfig) -> Iterator
                 yield [{**call.injected, **row} for row in page]
 
 
+def _log_pages(access_key: str, config: BunnyEndpointConfig, date_from: str) -> Iterator[list[dict[str, Any]]]:
+    """Walk the CDN access logs of every pull zone that has logging turned on."""
+    params = _request_params(config, date_from)
+    for call in _endpoint_calls(access_key, config):
+        try:
+            for page in call.client.paginate(
+                call.path,
+                params=params,
+                data_selector=config.items_selector,
+                data_selector_required=True,
+                paginator=_paginator_for(config),
+            ):
+                if page:
+                    yield [
+                        {**call.injected, **{k: v for k, v in row.items() if k not in LOG_EXCLUDED_FIELDS}}
+                        for row in page
+                    ]
+        except HTTPError as error:
+            # The Logging API answers 404 for a pull zone with logging turned off. That is a
+            # normal per-zone setting, not a failure of the table, so skip the zone.
+            if error.response is None or error.response.status_code != 404:
+                raise
+
+
 def _resume_page(manager: ResumableSourceManager[BunnyResumeConfig]) -> Optional[dict[str, Any]]:
     """The paginator state a retried attempt picks up from, or None to start at the first page."""
     if not manager.can_resume():
@@ -292,6 +363,10 @@ def bunny_source(
         timestamp_column = config.timestamp_column
         date_from = _date_from(db_incremental_field_last_value)
         return _source_response(config, lambda: _chart_pages(access_key, config, timestamp_column, date_from))
+
+    if config.logging_api:
+        date_from = _log_date_from(db_incremental_field_last_value)
+        return _source_response(config, lambda: _log_pages(access_key, config, date_from))
 
     if config.parent is not None:
         return _source_response(config, lambda: _fanout_list_pages(access_key, config))
