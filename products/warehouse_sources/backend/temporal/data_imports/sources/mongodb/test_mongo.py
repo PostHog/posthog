@@ -18,6 +18,7 @@ from pymongo.hello import Hello
 from pymongo.server_description import ServerDescription
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     HostNotAllowedError,
@@ -574,16 +575,37 @@ class TestGetRetryableErrors(SimpleTestCase):
             f"MongoDB server selection timeout should be classified retryable: {error_msg}"
         )
 
-    def test_exhausted_server_selection_timeout_replaces_the_topology_dump(self):
+    @parameterized.expand(
+        [
+            (
+                "unreachable_cluster",
+                "No servers found yet, Timeout: 5.0s, Topology Description: <TopologyDescription ...>",
+                "allowlisted",
+            ),
+            # A resolver answering EAI_AGAIN fails server selection too, so this error carries the
+            # topology marker as well and would otherwise be told to check a correct allowlist.
+            (
+                "temporary_resolution_failure",
+                "cluster0.example.mongodb.net:27017: [Errno -3] Temporary failure in name resolution, "
+                "Timeout: 10.0s, Topology Description: <TopologyDescription ...>",
+                "dns records",
+            ),
+        ]
+    )
+    def test_exhausted_retries_replace_the_topology_dump(self, _name, error_msg, expected_phrase):
         # The schema stays enabled, so the stored error is what the user reads. Left alone it would
-        # be the raw dump of every seed host, port, and per-server driver exception.
+        # be the raw dump of every seed host, port, and per-server driver exception. Mirror the
+        # finalizer's first-match selection over get_retry_exhausted_errors.
         from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import MongoDBSource
 
-        error_msg = "No servers found yet, Timeout: 5.0s, Topology Description: <TopologyDescription ...>"
         exhausted = MongoDBSource().get_retry_exhausted_errors()
-        message = next((m for pattern, m in exhausted.items() if pattern in error_msg), None)
-        assert message is not None
+        message = next(
+            (m for pattern, m in exhausted.items() if error_message_matches(error_msg, [pattern])),
+            None,
+        )
+        assert message is not None, f"Exhausted retryable error must surface a message: {error_msg}"
         assert "Topology Description" not in message
+        assert expected_phrase in message.lower()
 
     def test_interrupted_at_shutdown_is_classified_retryable(self):
         # NotPrimaryError raised when a read is killed by a routine replica-set failover (the

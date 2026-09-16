@@ -14,6 +14,7 @@ from posthog.exceptions_capture import capture_exception
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    HOST_RESOLUTION_EXHAUSTED_MESSAGE,
     HostNotAllowedError,
     ValidateDatabaseHostMixin,
 )
@@ -126,9 +127,11 @@ _DNS_NAME_NOT_FOUND_MARKERS = (
     "Name or service not known",
 )
 
+_DNS_TEMPORARY_FAILURE_MARKER = "Temporary failure in name resolution"
+
 # The markers above plus EAI_AGAIN, where the resolver itself did not answer. Validation reports
 # both the same way; only the permanent ones classify a sync failure as non-retryable.
-_DNS_RESOLUTION_FAILURE_MARKERS = (*_DNS_NAME_NOT_FOUND_MARKERS, "Temporary failure in name resolution")
+_DNS_RESOLUTION_FAILURE_MARKERS = (*_DNS_NAME_NOT_FOUND_MARKERS, _DNS_TEMPORARY_FAILURE_MARKER)
 
 # For a `mongodb+srv://` URI, pymongo resolves the SRV record via dnspython inside the
 # MongoClient constructor and wraps any dnspython exception as ConfigurationError. dnspython's
@@ -259,7 +262,16 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         # A server-selection timeout that outlived the retry budget leaves `latest_error` holding
         # the raw topology dump: every seed host, port, and per-server driver exception. Replace it
         # with the two things the user can act on, and say the schema is still enabled.
-        return {"Topology Description:": _MONGO_UNREACHABLE_RETRY_MESSAGE}
+        #
+        # A resolver that keeps answering EAI_AGAIN fails the same server selection, so its error
+        # carries the topology marker as well. The finalizer stores the first pattern that matches,
+        # so the resolver marker is listed first: without it the user reads the allowlist guidance
+        # and checks network access rules that are already correct. The shared resolver message
+        # names the lookup instead, and says the sync stays enabled.
+        return {
+            _DNS_TEMPORARY_FAILURE_MARKER: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
+            "Topology Description:": _MONGO_UNREACHABLE_RETRY_MESSAGE,
+        }
 
     def get_schemas(
         self,
