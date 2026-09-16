@@ -214,6 +214,9 @@ class HealthIssueRefreshRequestSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         allow_null=True,
+        # Omitted or null refreshes the whole project; an empty list is a caller bug, and the
+        # runtime rejects it, so the generated schema has to say so too.
+        allow_empty=False,
         help_text=(
             "Only re-run these check kinds (e.g. ['reverse_proxy']). Omit to re-run every check for the project. "
             "A scoped refresh has its own, shorter cooldown, so fixing one thing and re-checking it does not "
