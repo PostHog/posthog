@@ -20,7 +20,7 @@ class HealthCheckRun(UUIDModel):
     # Environment-scoped: a check runs for every team, child environments included, and a row
     # records the team it actually ran for. No RootTeamMixin, whose save() would canonicalize the
     # team to the parent, and `EnvironmentScopedManager` filters by the literal id given.
-    objects = EnvironmentScopedManager()
+    objects = EnvironmentScopedManager["HealthCheckRun"]()
 
     # db_constraint=False so CreateModel takes no lock on posthog_team.
     team = models.ForeignKey(
@@ -50,18 +50,18 @@ class HealthCheckRun(UUIDModel):
     def record_run(cls, kind: str, team_ids: Iterable[int], teams_with_issues: set[int]) -> None:
         """Stamp `kind` as evaluated for every team in the batch."""
         # Mirror the issue writes: a team deleted between the workflow's team-ID snapshot and this
-        # call would fail the FK and roll back the whole batch.
+        # call would otherwise get a row that nothing ever cleans up.
         existing_team_ids = _filter_existing_team_ids(set(team_ids))
         if not existing_team_ids:
             return
 
         now = timezone.now()
         rows = [
-            cls(team_id=team_id, kind=kind, last_run_at=now, found_issues=team_id in teams_with_issues)
+            HealthCheckRun(team_id=team_id, kind=kind, last_run_at=now, found_issues=team_id in teams_with_issues)
             for team_id in sorted(existing_team_ids)
         ]
         # Cross-team by design: one call stamps the whole batch the workflow just processed.
-        cls.objects.unscoped().bulk_create(
+        HealthCheckRun.objects.unscoped().bulk_create(
             rows,
             update_conflicts=True,
             update_fields=["last_run_at", "found_issues"],
