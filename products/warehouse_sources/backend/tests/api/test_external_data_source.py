@@ -3,6 +3,7 @@ import time
 import uuid
 import typing as t
 from datetime import date, timedelta
+from threading import BoundedSemaphore
 from typing import Any, cast
 
 import time_machine
@@ -5415,6 +5416,41 @@ class TestExternalDataSource(APIBaseTest):
             assert phrase in message
         for phrase in forbidden_phrases:
             assert phrase not in message.lower()
+        mock_capture_exception.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_answers_at_once_when_every_discovery_worker_is_busy(
+        self, mock_get_source, mock_capture_exception
+    ):
+        # The pool's queue only holds work that has not started, so a fully busy pool reads as empty.
+        # A caller admitted on that reading waits out the whole budget for work that never starts.
+        source = StripeSource()
+        mock_get_source.return_value = source
+
+        capacity = BoundedSemaphore(1)
+        assert capacity.acquire(blocking=False)
+
+        def _must_not_run(*args, **kwargs):
+            raise AssertionError("discovery must not start while every worker is busy")
+
+        with (
+            patch.object(source, "validate_config", return_value=(True, [])),
+            patch.object(source, "parse_config", return_value=None),
+            patch.object(source, "validate_credentials", side_effect=_must_not_run),
+            patch.object(source, "get_schemas", side_effect=_must_not_run),
+            patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_source._DISCOVERY_CAPACITY",
+                capacity,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={"source_type": "Stripe"},
+            )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == source.discovery_timeout_message()
         mock_capture_exception.assert_not_called()
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")

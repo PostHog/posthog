@@ -10,6 +10,7 @@ from concurrent.futures import (
 )
 from datetime import UTC, datetime, timedelta
 from functools import partial
+from threading import BoundedSemaphore
 from typing import Any, cast
 from urllib.parse import quote
 
@@ -215,6 +216,10 @@ DISCOVERY_DEADLINE_SECONDS = 100
 # would instead leak a thread per slow discovery, which is exactly what a wide account produces.
 _DISCOVERY_MAX_WORKERS = 8
 _DISCOVERY_EXECUTOR = ThreadPoolExecutor(max_workers=_DISCOVERY_MAX_WORKERS, thread_name_prefix="warehouse-discovery")
+# The executor's queue only holds work that has not started yet, so it reads as empty while every
+# worker is busy. A permit per worker measures what the cap is about instead: an abandoned leg keeps
+# its permit until the driver returns, so it still counts against the next caller.
+_DISCOVERY_CAPACITY = BoundedSemaphore(_DISCOVERY_MAX_WORKERS)
 
 # The failures this endpoint turns into a message were previously invisible: a request killed at the
 # gateway never reaches exception capture, so the only baseline we can build is one we count here.
@@ -232,6 +237,15 @@ def _record_discovery_failure(source: AnySource, cause: str) -> None:
     _discovery_otel.record_counter_twin(DISCOVERY_FAILURES_COUNTER, 1, labels)
 
 
+class _DiscoveryCapacityExhausted(FutureTimeoutError):
+    """Every discovery worker on this process was busy, so this request never started its own.
+
+    A subclass of the budget's own error because the caller answers both the same way: no catalog
+    came back in time. It stays a distinct type so the metric can tell our saturation apart from a
+    customer's wide catalog.
+    """
+
+
 class _DiscoveryDeadline:
     """Wall-clock budget shared by every blocking leg of interactive schema discovery."""
 
@@ -242,12 +256,15 @@ class _DiscoveryDeadline:
         """Run `work` on a pooled thread, raising `FutureTimeoutError` once the budget is spent.
 
         Every worker still busy is one the caller already abandoned, so a saturated pool means the
-        answer is the same timeout the budget would produce. The thread closes the Django
-        connections it opened so an abandoned leg does not leak one.
+        answer is the same timeout the budget would produce. Answer it at once rather than holding
+        the caller for a budget no work will start in. The thread closes the Django connections it
+        opened so an abandoned leg does not leak one.
         """
         remaining = self._expires_at - time.monotonic()
-        if remaining <= 0 or _DISCOVERY_EXECUTOR._work_queue.qsize() >= _DISCOVERY_MAX_WORKERS:  # noqa: SLF001
+        if remaining <= 0:
             raise FutureTimeoutError()
+        if not _DISCOVERY_CAPACITY.acquire(blocking=False):
+            raise _DiscoveryCapacityExhausted()
 
         def _work_and_release() -> T:
             try:
@@ -255,7 +272,19 @@ class _DiscoveryDeadline:
             finally:
                 connections.close_all()
 
-        return _DISCOVERY_EXECUTOR.submit(_work_and_release).result(timeout=remaining)
+        try:
+            future = _DISCOVERY_EXECUTOR.submit(_work_and_release)
+        except Exception:
+            _DISCOVERY_CAPACITY.release()
+            raise
+        future.add_done_callback(lambda _future: _DISCOVERY_CAPACITY.release())
+        try:
+            return future.result(timeout=remaining)
+        except FutureTimeoutError:
+            # A leg that has not reached a worker yet must not open a connection to the customer's
+            # source for a request that already ended. One that has started cannot be stopped.
+            future.cancel()
+            raise
 
 
 def _source_unavailable_message(source_type: str) -> str:
@@ -371,18 +400,20 @@ def _credentials_validation_failed(source: AnySource, team_id: int, error: Excep
     return False, INVALID_CREDENTIALS_FALLBACK_MESSAGE
 
 
-def _discovery_timed_out_response(source: AnySource, team_id: int) -> Response:
+def _discovery_timed_out_response(source: AnySource, team_id: int, error: FutureTimeoutError) -> Response:
     """Answer a discovery run that outlived its budget with the source's own guidance.
 
     Not captured as an exception: the cause is the size of the customer's catalog, not a bug, and
     the request never reached exception capture before because the gateway killed it first.
     """
-    _record_discovery_failure(source, "timeout")
+    saturated = isinstance(error, _DiscoveryCapacityExhausted)
+    _record_discovery_failure(source, "saturated" if saturated else "timeout")
     logger.warning(
         "database_schema discovery timed out",
         source_type=str(source.source_type),
         team_id=team_id,
         timeout_seconds=DISCOVERY_DEADLINE_SECONDS,
+        saturated=saturated,
     )
     # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
     return Response(
@@ -3603,8 +3634,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         deadline = _DiscoveryDeadline(DISCOVERY_DEADLINE_SECONDS)
         try:
             credentials_valid, credentials_error = deadline.run(probe)
-        except FutureTimeoutError:
-            return _discovery_timed_out_response(source, self.team_id)
+        except FutureTimeoutError as e:
+            return _discovery_timed_out_response(source, self.team_id, e)
         except Exception as e:
             # A probe that raises instead of returning `(False, message)` is a discovery failure too.
             # Counted here rather than in the helper, which non-discovery credential flows also use.
@@ -3618,8 +3649,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         try:
             schemas = deadline.run(lambda: source.get_schemas(source_config, self.team_id))
-        except FutureTimeoutError:
-            return _discovery_timed_out_response(source, self.team_id)
+        except FutureTimeoutError as e:
+            return _discovery_timed_out_response(source, self.team_id, e)
         except NotImplementedError:
             # Source doesn't implement schema discovery (e.g. an unreleased source), so there are
             # no tables to list — a caller mistake, not a server error worth capturing. Mirrors `setup`.
