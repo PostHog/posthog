@@ -35,14 +35,17 @@ class TaggedItemQuerySet(models.QuerySet):
 
     def for_model(self, model: type[models.Model]) -> "TaggedItemQuerySet":
         """Rows tagging any instance of this model."""
+        # nosemgrep: orm-field-injection -- the name comes from the closed TAGGABLE_MODELS registry, never from input
         return self.filter(**{f"{legacy_field_for(model)}__isnull": False})
 
     def for_object(self, obj: models.Model) -> "TaggedItemQuerySet":
         """Rows tagging this exact instance."""
+        # nosemgrep: orm-field-injection -- the name comes from the closed TAGGABLE_MODELS registry, never from input
         return self.filter(**{f"{legacy_field_for(type(obj))}_id": obj.pk})
 
     def for_objects(self, model: type[models.Model], pks: Iterable[Any]) -> "TaggedItemQuerySet":
         """Rows tagging any of these instances of one model."""
+        # nosemgrep: orm-field-injection -- the name comes from the closed TAGGABLE_MODELS registry, never from input
         return self.filter(**{f"{legacy_field_for(model)}_id__in": pks})
 
 
