@@ -23,7 +23,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError
 
 from posthog.dataclasses import frozen
-from posthog.ingress.contracts import WebhookDelivery
+from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
 from posthog.models.team import Team
@@ -112,6 +112,58 @@ def accept_github_event(delivery: WebhookDelivery) -> None:
     from products.conversations.backend.services import github_events  # noqa: PLC0415
 
     github_events.accept_github_event(delivery)
+
+
+def accept_mailgun_inbound_message(delivery: WebhookDelivery) -> None:
+    """The Mailgun inbox route enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    mailgun_events.accept_mailgun_inbound_message(delivery)
+
+
+def accept_mailgun_outbound_message(delivery: WebhookDelivery) -> None:
+    """The Mailgun outbound capture route enters conversations here."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    mailgun_events.accept_mailgun_outbound_message(delivery)
+
+
+def accept_mailgun_captured_message(delivery: WebhookDelivery) -> None:
+    """The Mailgun catch-all route enters conversations here, for either direction."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    mailgun_events.accept_mailgun_captured_message(delivery)
+
+
+def mailgun_inbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the email channel the delivery's inbox address belongs to.
+
+    Ingress asks before it dispatches, and forwards the signed request to the other region when
+    the answer is elsewhere.
+    """
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_inbound_delivery_ownership(delivery)
+
+
+def mailgun_outbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the email channel the captured message was sent from."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_outbound_delivery_ownership(delivery)
+
+
+def mailgun_capture_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the email channel the catch-all delivery belongs to."""
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_capture_delivery_ownership(delivery)
 
 
 def sync_google_account_email(integration_id: int, team_id: int) -> None:

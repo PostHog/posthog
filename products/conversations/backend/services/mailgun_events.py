@@ -1,28 +1,38 @@
-"""Mailgun email webhook endpoints, and the inbound and outbound handling behind them."""
+"""Mailgun route deliveries for the conversations email channels.
+
+Six entry points, all reached from the facade after ingress verified the signature in the form
+and flattened it to a mapping: one ownership answer and one handler per route. `inbound` carries
+mail a customer sent to a PostHog inbox address, `outbound` carries mail a customer's own agent
+sent, and `capture` is the single catch-all route that serves both and splits on the recipient
+local part. No HTTP in here, because ingress owns the request, the receipt and the forward to the
+region that owns the channel.
+
+Attachments are read and stored inside the request. An `UploadedFile` is backed by the request
+stream or by a temporary file, so it does not survive the response and cannot be handed to a task.
+"""
 
 import re
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
-from typing import Any, cast
+from typing import Any
 
 from django.core.files.uploadedfile import UploadedFile
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, transaction
 from django.db.models import F
-from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
-from django.views.decorators.csrf import csrf_exempt
 
 import structlog
 
+from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
+from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
+from posthog.ingress.mailgun.provider import FILES_KEY
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.regions import is_primary_region
 
-from products.conversations.backend.mailgun import validate_webhook_signature
 from products.conversations.backend.models import (
     Channel,
     EmailChannel,
@@ -50,16 +60,11 @@ from products.conversations.backend.services.email_thread_ingestion import (
     ParsedEmail,
     ingest_customer_email,
 )
-from products.conversations.backend.services.region_routing import (
-    proxy_to_secondary_region,
-    request_secondary_region_status,
-)
 
 logger = structlog.get_logger(__name__)
 
 INBOUND_TOKEN_PATTERN = re.compile(r"^team-([a-f0-9]+)@")
 OUTBOUND_CAPTURE_LOCAL_PART = "sent"
-OUTBOUND_SENDER_LOOKUP_QUERY_PARAM = "sender_lookup"
 _VIA_SUFFIX_RE = re.compile(r"\s+via\s+.+$", re.IGNORECASE)
 _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
@@ -67,7 +72,6 @@ _FORWARDING_CHALLENGE_RE = re.compile(rf"{re.escape(FORWARDING_CHALLENGE_MARKER)
 _DKIM_DOMAIN_RE = re.compile(r"(?:^|;)\s*d\s*=\s*([^;\s]+)", re.IGNORECASE)
 MAX_EMAIL_BODY_LENGTH = 50_000
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
-MAX_ATTACHMENTS = 20
 # Sender-controlled To/Cc headers can list far more addresses than a real thread carries, and each
 # one becomes a per-recipient participant upsert. Cap the count so one message can't fan out into
 # an unbounded batch of queries under the held thread lock.
@@ -85,11 +89,336 @@ AUTORESPONDER_HEADERS = ("X-Autoreply", "X-Autorespond")
 # and freeze its preview. Reject dates beyond a small clock-skew allowance and fall back to the
 # authenticated webhook timestamp (or now) instead.
 MAX_SENT_AT_CLOCK_SKEW = timedelta(minutes=5)
+# The channel lookups run inside the request, before dispatch, so they draw on the delivery's
+# wall clock.
+_CHANNEL_LOOKUP_TIMEOUT_MS = 800
+
+
+def _is_plausible_email(addr: str) -> bool:
+    """Reject obviously malformed addresses before trusting a recovery header."""
+    return bool(_BASIC_EMAIL_RE.match(addr))
+
+
+def _parse_message_ids(value: str) -> tuple[str, ...]:
+    message_ids = _MESSAGE_ID_RE.findall(value)
+    if not message_ids:
+        message_ids = value.split()
+    return tuple(dict.fromkeys(message_id.strip()[:998] for message_id in message_ids if message_id.strip()))
+
+
+def _parse_addresses(value: str) -> tuple[EmailAddress, ...]:
+    addresses: list[EmailAddress] = []
+    seen: set[str] = set()
+    for name, address in getaddresses([value]):
+        normalized_email = address.strip().lower()[:400]
+        if not normalized_email or normalized_email in seen:
+            continue
+        seen.add(normalized_email)
+        addresses.append(EmailAddress(name=name.strip()[:400], email=normalized_email))
+        if len(addresses) >= MAX_RECIPIENTS:
+            break
+    return tuple(addresses)
 
 
 def _extract_inbound_token(recipient: str) -> str | None:
     match = INBOUND_TOKEN_PATTERN.match(recipient)
     return match.group(1) if match else None
+
+
+def _is_outbound_capture_recipient(recipient: str) -> bool:
+    local_part, separator, domain = recipient.strip().lower().partition("@")
+    return local_part == OUTBOUND_CAPTURE_LOCAL_PART and bool(separator and domain)
+
+
+class MailgunMessage:
+    """One Mailgun route delivery, read as the mail message it carries.
+
+    Every reader below took an `HttpRequest` and read `request.POST` before these endpoints moved
+    onto ingress. The fields are the same fields; they arrive already flattened, and the
+    attachments arrive under the reserved `_files` key rather than on `request.FILES`.
+    """
+
+    def __init__(self, delivery: WebhookDelivery) -> None:
+        self.payload: Mapping[str, Any] = delivery.payload
+        files = delivery.payload.get(FILES_KEY) or {}
+        # The provider caps how many files one delivery can carry, which is the cap this endpoint
+        # used to apply itself.
+        self.files: tuple[UploadedFile, ...] = tuple(files.values())
+
+    def field(self, name: str) -> str:
+        value = self.payload.get(name, "")
+        return value if isinstance(value, str) else ""
+
+    @property
+    def recipient(self) -> str:
+        return self.field("recipient").strip().lower()
+
+    @property
+    def inbound_token(self) -> str | None:
+        return _extract_inbound_token(self.field("recipient"))
+
+    def _iter_message_header_values(self, header_name: str) -> Iterator[str]:
+        direct_value = self.field(header_name)
+        if direct_value:
+            yield direct_value
+
+        raw_headers = self.field("message-headers")
+        if not raw_headers:
+            return
+        try:
+            parsed_headers = json.loads(raw_headers)
+        except (TypeError, ValueError):
+            return
+        if not isinstance(parsed_headers, list):
+            return
+        for header in parsed_headers:
+            if (
+                isinstance(header, list)
+                and len(header) == 2
+                and isinstance(header[0], str)
+                and isinstance(header[1], str)
+                and header[0].lower() == header_name.lower()
+            ):
+                yield header[1]
+
+    def message_header_values(self, header_name: str) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(self._iter_message_header_values(header_name)))
+
+    def authentication_passed(self, header_name: str) -> bool:
+        results = tuple(
+            dict.fromkeys(value.strip().lower() for value in self.message_header_values(header_name) if value.strip())
+        )
+        return results == ("pass",)
+
+    def dkim_signing_domains(self) -> tuple[str, ...]:
+        domains: list[str] = []
+        for signature in self.message_header_values("DKIM-Signature"):
+            tags: dict[str, str] = {}
+            for raw_tag in signature.split(";"):
+                key, separator, value = raw_tag.partition("=")
+                if separator:
+                    tags[key.strip().lower()] = value.strip()
+            signed_headers = {header.strip().lower() for header in tags.get("h", "").split(":")}
+            domain = tags.get("d", "").rstrip(".").lower()
+            if not domain or not {"from", "subject"}.issubset(signed_headers) or "l" in tags:
+                return ()
+            domains.append(domain)
+        return tuple(dict.fromkeys(domains))
+
+    def _dkim_aligned_with_sender(self, sender_domain: str) -> bool:
+        if not self.authentication_passed("X-Mailgun-Dkim-Check-Result"):
+            return False
+
+        signing_domains: list[str] = []
+        for signature in self.message_header_values("DKIM-Signature"):
+            match = _DKIM_DOMAIN_RE.search(signature)
+            if match:
+                signing_domains.append(match.group(1).rstrip(".").lower())
+        return bool(signing_domains) and all(domain == sender_domain for domain in signing_domains)
+
+    def sender_authenticated(self, sender_email: str) -> bool:
+        """Verify the From header domain before trusting it for identity.
+
+        Mailgun SPF checks can fail for legitimate senders, so aligned DKIM is accepted as a
+        fallback. A DKIM pass is trusted only when every signature uses the From domain, which
+        prevents an unrelated valid signature from authenticating a forged From address.
+        """
+        envelope_sender = self.field("sender")
+        envelope_domain = envelope_sender.rsplit("@", 1)[-1].lower() if "@" in envelope_sender else ""
+        from_domain = sender_email.rsplit("@", 1)[-1].lower() if "@" in sender_email else ""
+        if not envelope_domain or not from_domain or envelope_domain != from_domain:
+            return False
+
+        spf_passed = self.authentication_passed("X-Mailgun-Spf")
+        return spf_passed or self._dkim_aligned_with_sender(from_domain)
+
+    def outbound_sender_email(self) -> str:
+        _, sender_email = parseaddr(self.field("from"))
+        if not sender_email:
+            sender_email = self.field("sender")
+        return sender_email.strip().lower()[:400]
+
+    def outbound_sender_authenticated(self, sender_email: str) -> bool:
+        _, envelope_sender = parseaddr(self.field("sender"))
+        return envelope_sender.strip().lower() == sender_email.lower() and self.sender_authenticated(sender_email)
+
+    def forwarding_challenge_tokens(self) -> tuple[str, ...]:
+        tokens: list[str] = []
+        seen: set[str] = set()
+
+        def append_token(raw_token: str) -> bool:
+            token = raw_token.strip()
+            if not token or len(token) > 1000 or token in seen:
+                return False
+            seen.add(token)
+            tokens.append(token)
+            return len(tokens) >= MAX_FORWARDING_CHALLENGE_TOKENS
+
+        for header_value in self._iter_message_header_values(FORWARDING_CHALLENGE_HEADER):
+            if append_token(header_value):
+                return tuple(tokens)
+        for field_name in ("body-html", "body-plain", "stripped-text"):
+            for match in _FORWARDING_CHALLENGE_RE.finditer(self.field(field_name)):
+                if append_token(match.group("token")):
+                    return tuple(tokens)
+        return tuple(tokens)
+
+    def is_auto_generated(self) -> bool:
+        """Report whether the message announces itself as machine-generated."""
+        for value in self.message_header_values("Auto-Submitted"):
+            # The header carries optional parameters, e.g. "auto-replied; owner-token=...".
+            if value.partition(";")[0].strip().lower() not in ("", AUTO_SUBMITTED_HUMAN_VALUE):
+                return True
+
+        for value in self.message_header_values("Precedence"):
+            if value.strip().lower() in AUTORESPONDER_PRECEDENCE_VALUES:
+                return True
+
+        return any(self.message_header_values(header_name) for header_name in AUTORESPONDER_HEADERS)
+
+    def sent_at(self) -> datetime:
+        now = timezone.now()
+        date_header = self.field("Date") or self.field("date")
+        if date_header:
+            try:
+                sent_at = parsedate_to_datetime(date_header)
+                if sent_at.tzinfo is None:
+                    sent_at = sent_at.replace(tzinfo=UTC)
+                if sent_at <= now + MAX_SENT_AT_CLOCK_SKEW:
+                    return sent_at
+                logger.warning("email_inbound_future_date_header")
+            except (TypeError, ValueError, OverflowError):
+                logger.warning("email_inbound_invalid_date_header")
+
+        webhook_timestamp = self.field("timestamp")
+        if webhook_timestamp:
+            try:
+                return datetime.fromtimestamp(float(webhook_timestamp), tz=UTC)
+            except (ValueError, OverflowError):
+                logger.warning("email_inbound_invalid_timestamp")
+        return now
+
+    def _recover_dmarc_rewritten_sender(
+        self,
+        config: EmailChannel,
+        sender_email: str,
+        sender_name: str,
+    ) -> tuple[str, str]:
+        """Recover the original sender when DMARC-compliant forwarding rewrote From.
+
+        Google Groups / Workspace and other forwarders rewrite the From header to
+        the group address when the original sender's domain has a strict DMARC
+        policy (p=quarantine or p=reject).  The rewritten From looks like:
+
+            "'Real Name' via GroupName" <group@example.com>
+
+        The original sender is preserved in X-Original-From or Reply-To.
+
+        We gate recovery on two signals to reduce spoofing risk:
+          1. sender_email matches the channel's own from_email
+          2. the display name contains " via " (the fingerprint left by forwarders)
+
+        An attacker who forges From to config.from_email but omits the " via "
+        pattern will not trigger recovery.
+
+        Known limitation: if a team member sends from config.from_email with
+        " via " in their display name, recovery would fire. In practice this
+        is vanishingly unlikely — the "via" pattern is injected by mail
+        forwarders, not by human MUAs.
+        """
+        if sender_email.lower() != config.from_email.lower():
+            return sender_email, sender_name
+
+        if " via " not in sender_name.lower():
+            return sender_email, sender_name
+
+        logger.info(
+            "email_inbound_dmarc_rewrite_detected",
+            team_id=config.team_id,
+            from_header=self.field("from"),
+        )
+
+        # 1. Try X-Original-From (set by Google Groups/Workspace)
+        x_original = self.field("X-Original-From") or self.field("X-Original-Sender")
+        if x_original:
+            orig_name, orig_email = parseaddr(x_original)
+            if orig_email and _is_plausible_email(orig_email):
+                return orig_email, orig_name or orig_email.split("@")[0]
+
+        # 2. Try Reply-To (most forwarding services preserve this)
+        reply_to = self.field("Reply-To")
+        if reply_to:
+            rt_name, rt_email = parseaddr(reply_to)
+            if rt_email and rt_email.lower() != config.from_email.lower() and _is_plausible_email(rt_email):
+                return rt_email, rt_name or rt_email.split("@")[0]
+
+        # 3. Neither header yielded a usable address. Strip " via <GroupName>"
+        #    from the display name as a cosmetic fix.
+        logger.warning(
+            "email_inbound_dmarc_rewrite_unrecoverable",
+            team_id=config.team_id,
+            from_header=self.field("from"),
+        )
+        sender_name = _VIA_SUFFIX_RE.sub("", sender_name).strip("'\"").strip()
+
+        return sender_email, sender_name
+
+    def _attachments(self, config: EmailChannel) -> tuple[UploadedFile, ...]:
+        attachments: list[UploadedFile] = []
+        for uploaded_file in self.files:
+            if uploaded_file.size is not None and uploaded_file.size > MAX_ATTACHMENT_SIZE:
+                logger.warning(
+                    "email_inbound_attachment_too_large",
+                    team_id=config.team_id,
+                    file_name=uploaded_file.name,
+                    size=uploaded_file.size,
+                )
+                continue
+            attachments.append(uploaded_file)
+        return tuple(attachments)
+
+    def parse(self, config: EmailChannel) -> ParsedEmail | None:
+        message_ids = _parse_message_ids(self.field("Message-Id"))
+        if not message_ids:
+            return None
+
+        from_header = self.field("from")
+        sender_name, sender_email = parseaddr(from_header)
+        if not sender_email:
+            sender_email = self.field("sender")
+        sender_email = sender_email.strip().lower()[:400]
+        if not sender_name:
+            sender_name = sender_email.split("@")[0] if sender_email else "Unknown"
+        sender_email, sender_name = self._recover_dmarc_rewritten_sender(config, sender_email, sender_name)
+
+        stripped_text = self.field("stripped-text")
+        stripped_signature = self.field("stripped-signature")
+        if stripped_signature and stripped_text:
+            stripped_text = f"{stripped_text}\n\n{stripped_signature}"
+
+        in_reply_to_ids = _parse_message_ids(self.field("In-Reply-To"))
+
+        return ParsedEmail(
+            message_id=message_ids[0],
+            in_reply_to=in_reply_to_ids[0] if in_reply_to_ids else None,
+            references=_parse_message_ids(self.field("References")),
+            sent_at=self.sent_at(),
+            sender=EmailAddress(name=sender_name[:400], email=sender_email),
+            to_recipients=_parse_addresses(self.field("To")),
+            cc_recipients=_parse_addresses(self.field("Cc")),
+            subject=self.field("subject")[:500],
+            body_plain=self.field("body-plain")[:MAX_EMAIL_BODY_LENGTH],
+            stripped_text=stripped_text[:MAX_EMAIL_BODY_LENGTH],
+            body_html=self.field("body-html")[:MAX_EMAIL_BODY_LENGTH],
+            stripped_html=self.field("stripped-html")[:MAX_EMAIL_BODY_LENGTH],
+            sender_authenticated=self.sender_authenticated(sender_email),
+            dkim_passed=self.authentication_passed("X-Mailgun-Dkim-Check-Result"),
+            dkim_signing_domains=self.dkim_signing_domains(),
+            capture_address=self.recipient,
+            attachments=self._attachments(config),
+            forwarding_challenge_tokens=self.forwarding_challenge_tokens(),
+            auto_generated=self.is_auto_generated(),
+        )
 
 
 def _find_thread_ticket(
@@ -134,15 +463,6 @@ def _extract_attachments(uploaded_files: tuple[UploadedFile, ...], team: Team) -
     """Persist files from the Mailgun webhook within the configured limits."""
     attachments: list[dict[str, Any]] = []
     for uploaded_file in uploaded_files:
-        if uploaded_file.size is not None and uploaded_file.size > MAX_ATTACHMENT_SIZE:
-            logger.warning(
-                "email_inbound_attachment_too_large",
-                team_id=team.id,
-                file_name=uploaded_file.name,
-                size=uploaded_file.size,
-            )
-            continue
-
         file_bytes = uploaded_file.read()
         safe_name = sanitize_attachment_filename(uploaded_file.name)
         url = save_file_to_uploaded_media(team, safe_name, uploaded_file.content_type or "", file_bytes)
@@ -204,299 +524,6 @@ def _build_content_with_attachments(text: str, attachments: list[dict[str, Any]]
     return content, rich_content
 
 
-def _is_plausible_email(addr: str) -> bool:
-    """Reject obviously malformed addresses before trusting a recovery header."""
-    return bool(_BASIC_EMAIL_RE.match(addr))
-
-
-def _recover_dmarc_rewritten_sender(
-    request: HttpRequest,
-    config: EmailChannel,
-    sender_email: str,
-    sender_name: str,
-) -> tuple[str, str]:
-    """Recover the original sender when DMARC-compliant forwarding rewrote From.
-
-    Google Groups / Workspace and other forwarders rewrite the From header to
-    the group address when the original sender's domain has a strict DMARC
-    policy (p=quarantine or p=reject).  The rewritten From looks like:
-
-        "'Real Name' via GroupName" <group@example.com>
-
-    The original sender is preserved in X-Original-From or Reply-To.
-
-    We gate recovery on two signals to reduce spoofing risk:
-      1. sender_email matches the channel's own from_email
-      2. the display name contains " via " (the fingerprint left by forwarders)
-
-    An attacker who forges From to config.from_email but omits the " via "
-    pattern will not trigger recovery.
-
-    Known limitation: if a team member sends from config.from_email with
-    " via " in their display name, recovery would fire. In practice this
-    is vanishingly unlikely — the "via" pattern is injected by mail
-    forwarders, not by human MUAs.
-    """
-    if sender_email.lower() != config.from_email.lower():
-        return sender_email, sender_name
-
-    if " via " not in sender_name.lower():
-        return sender_email, sender_name
-
-    logger.info(
-        "email_inbound_dmarc_rewrite_detected",
-        team_id=config.team_id,
-        from_header=request.POST.get("from", ""),
-    )
-
-    # 1. Try X-Original-From (set by Google Groups/Workspace)
-    x_original = request.POST.get("X-Original-From", "") or request.POST.get("X-Original-Sender", "")
-    if x_original:
-        orig_name, orig_email = parseaddr(x_original)
-        if orig_email and _is_plausible_email(orig_email):
-            return orig_email, orig_name or orig_email.split("@")[0]
-
-    # 2. Try Reply-To (most forwarding services preserve this)
-    reply_to = request.POST.get("Reply-To", "")
-    if reply_to:
-        rt_name, rt_email = parseaddr(reply_to)
-        if rt_email and rt_email.lower() != config.from_email.lower() and _is_plausible_email(rt_email):
-            return rt_email, rt_name or rt_email.split("@")[0]
-
-    # 3. Neither header yielded a usable address. Strip " via <GroupName>"
-    #    from the display name as a cosmetic fix.
-    logger.warning(
-        "email_inbound_dmarc_rewrite_unrecoverable",
-        team_id=config.team_id,
-        from_header=request.POST.get("from", ""),
-    )
-    sender_name = _VIA_SUFFIX_RE.sub("", sender_name).strip("'\"").strip()
-
-    return sender_email, sender_name
-
-
-def _dkim_aligned_with_sender(request: HttpRequest, sender_domain: str) -> bool:
-    if not _mailgun_authentication_passed(request, "X-Mailgun-Dkim-Check-Result"):
-        return False
-
-    signing_domains: list[str] = []
-    for signature in _message_header_values(request, "DKIM-Signature"):
-        match = _DKIM_DOMAIN_RE.search(signature)
-        if match:
-            signing_domains.append(match.group(1).rstrip(".").lower())
-    return bool(signing_domains) and all(domain == sender_domain for domain in signing_domains)
-
-
-def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
-    """Verify the From header domain before trusting it for identity.
-
-    Mailgun SPF checks can fail for legitimate senders, so aligned DKIM is accepted as a fallback.
-    A DKIM pass is trusted only when every signature uses the From domain, which prevents an unrelated
-    valid signature from authenticating a forged From address.
-    """
-    envelope_sender = request.POST.get("sender", "")
-    envelope_domain = envelope_sender.rsplit("@", 1)[-1].lower() if "@" in envelope_sender else ""
-    from_domain = sender_email.rsplit("@", 1)[-1].lower() if "@" in sender_email else ""
-    if not envelope_domain or not from_domain or envelope_domain != from_domain:
-        return False
-
-    spf_passed = _mailgun_authentication_passed(request, "X-Mailgun-Spf")
-    return spf_passed or _dkim_aligned_with_sender(request, from_domain)
-
-
-def _outbound_sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
-    _, envelope_sender = parseaddr(request.POST.get("sender", ""))
-    return envelope_sender.strip().lower() == sender_email.lower() and _sender_authenticated(request, sender_email)
-
-
-def _parse_message_ids(value: str) -> tuple[str, ...]:
-    message_ids = _MESSAGE_ID_RE.findall(value)
-    if not message_ids:
-        message_ids = value.split()
-    return tuple(dict.fromkeys(message_id.strip()[:998] for message_id in message_ids if message_id.strip()))
-
-
-def _iter_message_header_values(request: HttpRequest, header_name: str) -> Iterator[str]:
-    direct_value = request.POST.get(header_name, "")
-    if direct_value:
-        yield direct_value
-
-    raw_headers = request.POST.get("message-headers", "")
-    if not raw_headers:
-        return
-    try:
-        parsed_headers = json.loads(raw_headers)
-    except (TypeError, ValueError):
-        return
-    if not isinstance(parsed_headers, list):
-        return
-    for header in parsed_headers:
-        if (
-            isinstance(header, list)
-            and len(header) == 2
-            and isinstance(header[0], str)
-            and isinstance(header[1], str)
-            and header[0].lower() == header_name.lower()
-        ):
-            yield header[1]
-
-
-def _message_header_values(request: HttpRequest, header_name: str) -> tuple[str, ...]:
-    return tuple(dict.fromkeys(_iter_message_header_values(request, header_name)))
-
-
-def _forwarding_challenge_tokens(request: HttpRequest) -> tuple[str, ...]:
-    tokens: list[str] = []
-    seen: set[str] = set()
-
-    def append_token(raw_token: str) -> bool:
-        token = raw_token.strip()
-        if not token or len(token) > 1000 or token in seen:
-            return False
-        seen.add(token)
-        tokens.append(token)
-        return len(tokens) >= MAX_FORWARDING_CHALLENGE_TOKENS
-
-    for header_value in _iter_message_header_values(request, FORWARDING_CHALLENGE_HEADER):
-        if append_token(header_value):
-            return tuple(tokens)
-    for field_name in ("body-html", "body-plain", "stripped-text"):
-        for match in _FORWARDING_CHALLENGE_RE.finditer(request.POST.get(field_name, "")):
-            if append_token(match.group("token")):
-                return tuple(tokens)
-    return tuple(tokens)
-
-
-def _mailgun_authentication_passed(request: HttpRequest, header_name: str) -> bool:
-    results = tuple(
-        dict.fromkeys(value.strip().lower() for value in _message_header_values(request, header_name) if value.strip())
-    )
-    return results == ("pass",)
-
-
-def _dkim_signing_domains(request: HttpRequest) -> tuple[str, ...]:
-    domains: list[str] = []
-    for signature in _message_header_values(request, "DKIM-Signature"):
-        tags: dict[str, str] = {}
-        for raw_tag in signature.split(";"):
-            key, separator, value = raw_tag.partition("=")
-            if separator:
-                tags[key.strip().lower()] = value.strip()
-        signed_headers = {header.strip().lower() for header in tags.get("h", "").split(":")}
-        domain = tags.get("d", "").rstrip(".").lower()
-        if not domain or not {"from", "subject"}.issubset(signed_headers) or "l" in tags:
-            return ()
-        domains.append(domain)
-    return tuple(dict.fromkeys(domains))
-
-
-def _is_auto_generated(request: HttpRequest) -> bool:
-    """Report whether the message announces itself as machine-generated."""
-    for value in _message_header_values(request, "Auto-Submitted"):
-        # The header carries optional parameters, e.g. "auto-replied; owner-token=...".
-        if value.partition(";")[0].strip().lower() not in ("", AUTO_SUBMITTED_HUMAN_VALUE):
-            return True
-
-    for value in _message_header_values(request, "Precedence"):
-        if value.strip().lower() in AUTORESPONDER_PRECEDENCE_VALUES:
-            return True
-
-    return any(_message_header_values(request, header_name) for header_name in AUTORESPONDER_HEADERS)
-
-
-def _parse_addresses(value: str) -> tuple[EmailAddress, ...]:
-    addresses: list[EmailAddress] = []
-    seen: set[str] = set()
-    for name, address in getaddresses([value]):
-        normalized_email = address.strip().lower()[:400]
-        if not normalized_email or normalized_email in seen:
-            continue
-        seen.add(normalized_email)
-        addresses.append(EmailAddress(name=name.strip()[:400], email=normalized_email))
-        if len(addresses) >= MAX_RECIPIENTS:
-            break
-    return tuple(addresses)
-
-
-def _parse_sent_at(request: HttpRequest) -> datetime:
-    now = timezone.now()
-    date_header = request.POST.get("Date", "") or request.POST.get("date", "")
-    if date_header:
-        try:
-            sent_at = parsedate_to_datetime(date_header)
-            if sent_at.tzinfo is None:
-                sent_at = sent_at.replace(tzinfo=UTC)
-            if sent_at <= now + MAX_SENT_AT_CLOCK_SKEW:
-                return sent_at
-            logger.warning("email_inbound_future_date_header")
-        except (TypeError, ValueError, OverflowError):
-            logger.warning("email_inbound_invalid_date_header")
-
-    webhook_timestamp = request.POST.get("timestamp", "")
-    if webhook_timestamp:
-        try:
-            return datetime.fromtimestamp(float(webhook_timestamp), tz=UTC)
-        except (ValueError, OverflowError):
-            logger.warning("email_inbound_invalid_timestamp")
-    return now
-
-
-def _parse_inbound_email(request: HttpRequest, config: EmailChannel) -> ParsedEmail | None:
-    message_ids = _parse_message_ids(request.POST.get("Message-Id", ""))
-    if not message_ids:
-        return None
-
-    from_header = request.POST.get("from", "")
-    sender_name, sender_email = parseaddr(from_header)
-    if not sender_email:
-        sender_email = request.POST.get("sender", "")
-    sender_email = sender_email.strip().lower()[:400]
-    if not sender_name:
-        sender_name = sender_email.split("@")[0] if sender_email else "Unknown"
-    sender_email, sender_name = _recover_dmarc_rewritten_sender(request, config, sender_email, sender_name)
-
-    stripped_text = request.POST.get("stripped-text", "")
-    stripped_signature = request.POST.get("stripped-signature", "")
-    if stripped_signature and stripped_text:
-        stripped_text = f"{stripped_text}\n\n{stripped_signature}"
-
-    in_reply_to_ids = _parse_message_ids(request.POST.get("In-Reply-To", ""))
-    attachments: list[UploadedFile] = []
-    for key in list(request.FILES.keys())[:MAX_ATTACHMENTS]:
-        uploaded_file = cast(UploadedFile, request.FILES[key])
-        if uploaded_file.size is not None and uploaded_file.size > MAX_ATTACHMENT_SIZE:
-            logger.warning(
-                "email_inbound_attachment_too_large",
-                team_id=config.team_id,
-                file_name=uploaded_file.name,
-                size=uploaded_file.size,
-            )
-            continue
-        attachments.append(uploaded_file)
-
-    return ParsedEmail(
-        message_id=message_ids[0],
-        in_reply_to=in_reply_to_ids[0] if in_reply_to_ids else None,
-        references=_parse_message_ids(request.POST.get("References", "")),
-        sent_at=_parse_sent_at(request),
-        sender=EmailAddress(name=sender_name[:400], email=sender_email),
-        to_recipients=_parse_addresses(request.POST.get("To", "")),
-        cc_recipients=_parse_addresses(request.POST.get("Cc", "")),
-        subject=request.POST.get("subject", "")[:500],
-        body_plain=request.POST.get("body-plain", "")[:MAX_EMAIL_BODY_LENGTH],
-        stripped_text=stripped_text[:MAX_EMAIL_BODY_LENGTH],
-        body_html=request.POST.get("body-html", "")[:MAX_EMAIL_BODY_LENGTH],
-        stripped_html=request.POST.get("stripped-html", "")[:MAX_EMAIL_BODY_LENGTH],
-        sender_authenticated=_sender_authenticated(request, sender_email),
-        dkim_passed=_mailgun_authentication_passed(request, "X-Mailgun-Dkim-Check-Result"),
-        dkim_signing_domains=_dkim_signing_domains(request),
-        capture_address=request.POST.get("recipient", "").strip().lower(),
-        attachments=tuple(attachments),
-        forwarding_challenge_tokens=_forwarding_challenge_tokens(request),
-        auto_generated=_is_auto_generated(request),
-    )
-
-
 def _is_self_addressed(*, config: EmailChannel, inbound_token: str, sender_email: str) -> bool:
     """Report whether the inbox received a message that claims to come from itself."""
     sender = sender_email.strip().lower()
@@ -546,21 +573,16 @@ def _resolve_team_member(email: str, team: Team) -> User | None:
     return membership.user if membership else None
 
 
-def _process_support_email(
-    *,
-    config: EmailChannel,
-    inbound_token: str,
-    email: ParsedEmail,
-) -> HttpResponse:
+def _process_support_email(*, config: EmailChannel, inbound_token: str, email: ParsedEmail) -> None:
     team = config.team
     settings_dict = team.conversations_settings or {}
     if not settings_dict.get("email_enabled"):
         logger.info("email_inbound_disabled", team_id=team.id)
-        return HttpResponse(status=200)
+        return
 
     if EmailMessageMapping.objects.filter(message_id=email.message_id, team=team).exists():
         logger.info("email_inbound_duplicate", message_id=email.message_id)
-        return HttpResponse(status=200)
+        return
 
     existing_ticket = _find_thread_ticket(team.id, email.in_reply_to, email.references)
     sender_name = email.sender.name
@@ -676,7 +698,7 @@ def _process_support_email(
             )
     except IntegrityError:
         logger.info("email_inbound_duplicate_race", message_id=email.message_id)
-        return HttpResponse(status=200)
+        return
 
     logger.info(
         "email_inbound_processed",
@@ -684,12 +706,6 @@ def _process_support_email(
         ticket_id=str(ticket.id),
         is_reply=existing_ticket is not None,
     )
-    return HttpResponse(status=200)
-
-
-def _is_outbound_capture_recipient(recipient: str) -> bool:
-    local_part, separator, domain = recipient.strip().lower().partition("@")
-    return local_part == OUTBOUND_CAPTURE_LOCAL_PART and bool(separator and domain)
 
 
 def _has_external_recipient(*, config: EmailChannel, email: ParsedEmail) -> bool:
@@ -715,82 +731,225 @@ def _has_external_recipient(*, config: EmailChannel, email: ParsedEmail) -> bool
     return bool(recipient_emails - internal_emails)
 
 
-@csrf_exempt
-def email_outbound_handler(request: HttpRequest) -> HttpResponse:
-    if request.method != "POST":
-        return HttpResponse(status=405)
+def _channel_for_inbound_token(inbound_token: str) -> EmailChannel | None:
+    """The channel the inbound address belongs to, or None when no channel here owns it.
 
-    token = request.POST.get("token", "")
-    timestamp = request.POST.get("timestamp", "")
-    signature = request.POST.get("signature", "")
-    if not validate_webhook_signature(token, timestamp, signature):
-        logger.warning("email_outbound_invalid_signature")
-        return HttpResponse("Invalid signature", status=403)
+    A cancelled statement raises, because a lookup that never finished is not an answer. Each
+    caller decides what to do with it.
+    """
+    with bounded_statement_timeout(_CHANNEL_LOOKUP_TIMEOUT_MS, models=[EmailChannel]):
+        return EmailChannel.objects.select_related("team", "owner").filter(inbound_token=inbound_token).first()
 
-    recipient = request.POST.get("recipient", "")
-    if not _is_outbound_capture_recipient(recipient):
-        logger.warning("email_outbound_invalid_recipient", recipient=recipient)
-        return HttpResponse("Invalid recipient", status=400)
 
-    _, sender_email = parseaddr(request.POST.get("from", ""))
-    if not sender_email:
-        sender_email = request.POST.get("sender", "")
-    sender_email = sender_email.strip().lower()[:400]
-    if not sender_email or not _outbound_sender_authenticated(request, sender_email):
-        logger.warning("email_outbound_unauthenticated_sender", sender_email=sender_email)
-        return HttpResponse(status=200)
+def _channel_for_outbound_sender(sender_email: str) -> EmailChannel | None:
+    """The active customer-communication channel that sends as this address, or None.
 
-    config = (
-        EmailChannel.objects.select_related("team", "owner")
-        .filter(
-            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
-            connection_status=EmailChannelConnectionStatus.ACTIVE,
-            from_email__iexact=sender_email,
-        )
-        .first()
-    )
-    lookup_only = request.GET.get(OUTBOUND_SENDER_LOOKUP_QUERY_PARAM) == "1"
-    if config is None:
-        if lookup_only:
-            return HttpResponse(status=404)
-        if is_primary_region(request):
-            success = proxy_to_secondary_region(request, log_prefix="email_outbound", timeout=10)
-            return HttpResponse(status=200 if success else 502)
-        logger.info("email_outbound_unknown_sender", sender_email=sender_email)
-        return HttpResponse(status=200)
-
-    if lookup_only:
-        return HttpResponse(status=204)
-
-    if is_primary_region(request):
-        secondary_status = request_secondary_region_status(
-            request,
-            log_prefix="email_outbound_sender_lookup",
-            timeout=10,
-            query_params={OUTBOUND_SENDER_LOOKUP_QUERY_PARAM: "1"},
-            accepted_statuses=frozenset({404}),
-        )
-        if secondary_status is None or secondary_status >= 500:
-            return HttpResponse(status=502)
-        if secondary_status == 204:
-            logger.error(
-                "email_outbound_sender_region_ambiguous",
-                sender_email=sender_email,
-                team_id=config.team_id,
-                config_id=str(config.id),
+    Only an active channel counts. A channel still waiting for its forwarding confirmation is not
+    sending mail yet, so a capture claiming to come from it belongs to whichever region does hold
+    an active one.
+    """
+    with bounded_statement_timeout(_CHANNEL_LOOKUP_TIMEOUT_MS, models=[EmailChannel]):
+        return (
+            EmailChannel.objects.select_related("team", "owner")
+            .filter(
+                kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+                connection_status=EmailChannelConnectionStatus.ACTIVE,
+                from_email__iexact=sender_email,
             )
-            return HttpResponse(status=200)
-        if secondary_status != 404:
-            return HttpResponse(status=502)
+            .first()
+        )
 
-    email = _parse_inbound_email(request, config)
+
+def _ownership_of_channel(channel: EmailChannel | None) -> DeliveryOwnership:
+    """A channel this region does not hold is `ELSEWHERE` rather than undecided.
+
+    The other region is the only one that can tell a channel it holds from one nobody holds, so
+    the delivery has to reach it. A lookup that timed out answers the same way, because a lookup
+    that never finished has not shown ownership here.
+    """
+    return DeliveryOwnership.LOCAL if channel is not None else DeliveryOwnership.ELSEWHERE
+
+
+def mailgun_inbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Which region holds the channel this inbound address belongs to."""
+    message = MailgunMessage(delivery)
+    inbound_token = message.inbound_token
+    if not inbound_token:
+        # Nothing in the delivery names a channel, so no region can claim it.
+        return DeliveryOwnership.UNDECIDED
+
+    try:
+        channel = _channel_for_inbound_token(inbound_token)
+    except OperationalError as error:
+        if not is_statement_timeout(error):
+            raise
+        logger.warning("email_inbound_channel_lookup_timed_out", inbound_token=inbound_token)
+        return DeliveryOwnership.ELSEWHERE
+
+    return _ownership_of_channel(channel)
+
+
+def mailgun_outbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Which region holds the channel this captured message was sent from.
+
+    An unauthenticated sender is undecided rather than elsewhere: the From header is the only
+    thing naming a channel, and an unauthenticated one must not make this region replay the
+    delivery to the other one.
+    """
+    message = MailgunMessage(delivery)
+    if not _is_outbound_capture_recipient(message.recipient):
+        return DeliveryOwnership.UNDECIDED
+
+    sender_email = message.outbound_sender_email()
+    if not sender_email or not message.outbound_sender_authenticated(sender_email):
+        return DeliveryOwnership.UNDECIDED
+
+    try:
+        channel = _channel_for_outbound_sender(sender_email)
+    except OperationalError as error:
+        if not is_statement_timeout(error):
+            raise
+        logger.warning("email_outbound_channel_lookup_timed_out")
+        return DeliveryOwnership.ELSEWHERE
+
+    return _ownership_of_channel(channel)
+
+
+def mailgun_capture_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """The catch-all route serves both directions, so the recipient picks the ownership question."""
+    if _is_outbound_capture_recipient(MailgunMessage(delivery).recipient):
+        return mailgun_outbound_delivery_ownership(delivery)
+    return mailgun_inbound_delivery_ownership(delivery)
+
+
+def _ingest_customer_inbound_email(*, config: EmailChannel, email: ParsedEmail) -> None:
+    challenge_result = process_forwarding_challenges(
+        team_id=config.team_id,
+        channel=config,
+        capture_address=email.capture_address,
+        challenge_tokens=email.forwarding_challenge_tokens,
+    )
+    if challenge_result != ForwardingChallengeResult.NOT_CHALLENGE:
+        logger.info(
+            "customer_email_forwarding_challenge_processed",
+            team_id=config.team_id,
+            config_id=str(config.id),
+            result=challenge_result,
+        )
+        return
+
+    if config.connection_status == EmailChannelConnectionStatus.PENDING_CONFIRMATION:
+        captured = capture_google_forwarding_confirmation(
+            team_id=config.team_id,
+            channel=config,
+            email=email,
+        )
+        logger.info(
+            "customer_email_confirmation_candidate_processed",
+            team_id=config.team_id,
+            config_id=str(config.id),
+            captured=captured,
+        )
+        return
+    if config.connection_status != EmailChannelConnectionStatus.ACTIVE:
+        return
+
+    try:
+        result = ingest_customer_email(
+            team_id=config.team_id,
+            channel=config,
+            email=email,
+            direction=EmailThreadMessageDirection.INBOUND,
+        )
+    except ValueError as error:
+        # A misconfigured channel (e.g. a dangling owner) can't be fixed by redelivery, so log
+        # and ack rather than raise into a Mailgun retry loop.
+        logger.warning(
+            "customer_email_channel_misconfigured",
+            team_id=config.team_id,
+            config_id=str(config.id),
+            error=str(error),
+        )
+        return
+    logger.info(
+        "customer_email_inbound_processed",
+        team_id=config.team_id,
+        config_id=str(config.id),
+        thread_id=str(result.thread_id),
+        message_id=str(result.message_id),
+        created=result.created,
+    )
+
+
+def accept_mailgun_inbound_message(delivery: WebhookDelivery) -> None:
+    """Turn mail sent to a PostHog inbox address into a ticket or a customer email thread."""
+    message = MailgunMessage(delivery)
+    inbound_token = message.inbound_token
+    if not inbound_token:
+        logger.warning("email_inbound_no_token", recipient=message.recipient)
+        return
+
+    # Unguarded on purpose: a timed-out lookup fails the delivery, so the dispatcher releases the
+    # dedup mark and Mailgun's redelivery reaches this consumer instead of the message being lost.
+    config = _channel_for_inbound_token(inbound_token)
+    if config is None:
+        # Quiet on purpose: ingress reports a delivery no region here owns, off the ownership
+        # answer this module gave it before dispatch.
+        return
+
+    email = message.parse(config)
+    if email is None:
+        logger.warning("email_inbound_no_message_id", team_id=config.team_id)
+        return
+
+    if email.auto_generated and _is_self_addressed(
+        config=config, inbound_token=inbound_token, sender_email=email.sender.email
+    ):
+        # An autoresponder on the inbox address answers the inbox itself, and the answer arrives
+        # back here as fresh mail. Accepting it starts a loop that runs until someone notices, so
+        # drop it. Both conditions are required: a person whose mail was relayed with a rewritten
+        # From still reaches us, and an external autoresponder still opens a ticket.
+        logger.warning(
+            "email_inbound_self_addressed_autoreply_dropped",
+            team_id=config.team_id,
+            config_id=str(config.id),
+            message_id=email.message_id,
+        )
+        return
+
+    if config.kind == EmailChannelKind.CUSTOMER_COMMUNICATION:
+        _ingest_customer_inbound_email(config=config, email=email)
+        return
+
+    _process_support_email(config=config, inbound_token=inbound_token, email=email)
+
+
+def accept_mailgun_outbound_message(delivery: WebhookDelivery) -> None:
+    """Record mail a customer's own agent sent, captured by the outbound route."""
+    message = MailgunMessage(delivery)
+    if not _is_outbound_capture_recipient(message.recipient):
+        logger.warning("email_outbound_invalid_recipient", recipient=message.recipient)
+        return
+
+    sender_email = message.outbound_sender_email()
+    if not sender_email or not message.outbound_sender_authenticated(sender_email):
+        logger.warning("email_outbound_unauthenticated_sender", sender_email=sender_email)
+        return
+
+    # Unguarded on purpose, for the same reason as the inbound lookup above.
+    config = _channel_for_outbound_sender(sender_email)
+    if config is None:
+        # Quiet on purpose: ingress reports a delivery no region here owns.
+        return
+
+    email = message.parse(config)
     if email is None:
         logger.warning("email_outbound_no_message_id", team_id=config.team_id)
-        return HttpResponse(status=200)
+        return
 
     if not _has_external_recipient(config=config, email=email):
         logger.info("email_outbound_internal_only", team_id=config.team_id, config_id=str(config.id))
-        return HttpResponse(status=200)
+        return
 
     result = ingest_customer_email(
         team_id=config.team_id,
@@ -806,120 +965,11 @@ def email_outbound_handler(request: HttpRequest) -> HttpResponse:
         message_id=str(result.message_id),
         created=result.created,
     )
-    return HttpResponse(status=200)
 
 
-@csrf_exempt
-def email_inbound_handler(request: HttpRequest) -> HttpResponse:
-    if request.method != "POST":
-        return HttpResponse(status=405)
-
-    token = request.POST.get("token", "")
-    timestamp = request.POST.get("timestamp", "")
-    signature = request.POST.get("signature", "")
-    if not validate_webhook_signature(token, timestamp, signature):
-        logger.warning("email_inbound_invalid_signature")
-        return HttpResponse("Invalid signature", status=403)
-
-    recipient = request.POST.get("recipient", "")
-    inbound_token = _extract_inbound_token(recipient)
-    if not inbound_token:
-        logger.warning("email_inbound_no_token", recipient=recipient)
-        return HttpResponse("Invalid recipient", status=400)
-
-    try:
-        config = EmailChannel.objects.select_related("team", "owner").get(inbound_token=inbound_token)
-    except EmailChannel.DoesNotExist:
-        if is_primary_region(request):
-            success = proxy_to_secondary_region(request, log_prefix="email_inbound", timeout=10)
-            return HttpResponse(status=200 if success else 502)
-        logger.warning("email_inbound_unknown_token", inbound_token=inbound_token)
-        return HttpResponse("Unknown recipient", status=404)
-
-    email = _parse_inbound_email(request, config)
-    if email is None:
-        logger.warning("email_inbound_no_message_id", team_id=config.team_id)
-        return HttpResponse(status=200)
-
-    if email.auto_generated and _is_self_addressed(
-        config=config, inbound_token=inbound_token, sender_email=email.sender.email
-    ):
-        # An autoresponder on the inbox address answers the inbox itself, and the answer arrives
-        # back here as fresh mail. Accepting it starts a loop that runs until someone notices, so
-        # drop it. Both conditions are required: a person whose mail was relayed with a rewritten
-        # From still reaches us, and an external autoresponder still opens a ticket.
-        logger.warning(
-            "email_inbound_self_addressed_autoreply_dropped",
-            team_id=config.team_id,
-            config_id=str(config.id),
-            message_id=email.message_id,
-        )
-        return HttpResponse(status=200)
-
-    if config.kind == EmailChannelKind.CUSTOMER_COMMUNICATION:
-        challenge_result = process_forwarding_challenges(
-            team_id=config.team_id,
-            channel=config,
-            capture_address=email.capture_address,
-            challenge_tokens=email.forwarding_challenge_tokens,
-        )
-        if challenge_result != ForwardingChallengeResult.NOT_CHALLENGE:
-            logger.info(
-                "customer_email_forwarding_challenge_processed",
-                team_id=config.team_id,
-                config_id=str(config.id),
-                result=challenge_result,
-            )
-            return HttpResponse(status=200)
-
-        if config.connection_status == EmailChannelConnectionStatus.PENDING_CONFIRMATION:
-            captured = capture_google_forwarding_confirmation(
-                team_id=config.team_id,
-                channel=config,
-                email=email,
-            )
-            logger.info(
-                "customer_email_confirmation_candidate_processed",
-                team_id=config.team_id,
-                config_id=str(config.id),
-                captured=captured,
-            )
-            return HttpResponse(status=200)
-        if config.connection_status != EmailChannelConnectionStatus.ACTIVE:
-            return HttpResponse(status=200)
-
-        try:
-            result = ingest_customer_email(
-                team_id=config.team_id,
-                channel=config,
-                email=email,
-                direction=EmailThreadMessageDirection.INBOUND,
-            )
-        except ValueError as error:
-            # A misconfigured channel (e.g. a dangling owner) can't be fixed by redelivery, so log
-            # and ack rather than 500 into a Mailgun retry loop.
-            logger.warning(
-                "customer_email_channel_misconfigured",
-                team_id=config.team_id,
-                config_id=str(config.id),
-                error=str(error),
-            )
-            return HttpResponse(status=200)
-        logger.info(
-            "customer_email_inbound_processed",
-            team_id=config.team_id,
-            config_id=str(config.id),
-            thread_id=str(result.thread_id),
-            message_id=str(result.message_id),
-            created=result.created,
-        )
-        return HttpResponse(status=200)
-
-    return _process_support_email(config=config, inbound_token=inbound_token, email=email)
-
-
-@csrf_exempt
-def email_capture_handler(request: HttpRequest) -> HttpResponse:
-    if _is_outbound_capture_recipient(request.POST.get("recipient", "")):
-        return email_outbound_handler(request)
-    return email_inbound_handler(request)
+def accept_mailgun_captured_message(delivery: WebhookDelivery) -> None:
+    """The catch-all route serves both directions, so the recipient picks the handler."""
+    if _is_outbound_capture_recipient(MailgunMessage(delivery).recipient):
+        accept_mailgun_outbound_message(delivery)
+        return
+    accept_mailgun_inbound_message(delivery)

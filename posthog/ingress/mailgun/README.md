@@ -24,16 +24,17 @@ The delivery id is the `token` field.
 Mailgun mints a fresh token per delivery, so dedup is on.
 
 A route carries a message rather than an event, so there is no event field to read.
-Each app has one fixed event type: `message_received` for `inbound`, and `message_sent` for `outbound`.
+Each app has one fixed event type: `message_received` for `inbound` and `capture`, and `message_sent` for `outbound`.
 
 ## Apps and secrets
 
-Two apps, one per route:
+Three apps, one per route:
 
 - `inbound` — mail a customer sent to a PostHog inbox address.
 - `outbound` — mail a customer's own agent sent, captured by a second route.
+- `capture` — one catch-all route that carries both, where the recipient local part is the only thing that tells them apart. Its event type is the inbound one, because the app types the delivery and the split is the consumer's to make.
 
-Both take a `signing_key_getter` from the builder.
+All three take a `signing_key_getter` from the builder.
 The key is per Mailgun account rather than per route, so a caller that mounts both endpoints passes the same getter twice.
 The getter is injected because the setting that holds the key belongs to the product that registered the account, and nothing under `posthog/ingress/` imports a product.
 Keep the getter cheap or cached: the scheme calls it on every request, before it looks at the signature, so an unsigned probe reaches it too.
@@ -47,7 +48,7 @@ A consumer must read a file inside the request.
 An `UploadedFile` is backed by the request stream or by a temporary file, so it does not survive the response and cannot be handed to a task as it is.
 A consumer that wants the attachment later stores it first, then passes the stored reference.
 
-The file count is capped at 20, the cap the conversations inbound view already applies.
+The file count is capped at 20, the cap the conversations inbound view applied before it moved here.
 The cap bounds what a consumer iterates, not what the request costs: the form parser reads and spools every part first, and Django's `DATA_UPLOAD_MAX_NUMBER_FILES` is what bounds that.
 
 The whole body is parsed before the signature is checked, because the signature lives in the form.
@@ -61,7 +62,15 @@ They would be a third app, added when a product needs one.
 
 ## Consumers
 
-No product registers a Mailgun consumer yet.
-The conversations email endpoints move to ingress in their own PR.
-That product serves a third path, `/api/conversations/v1/email/capture`, which picks between the two routes by the recipient local part, so it mounts whichever app its consumer splits on.
+Conversations registers one consumer per app, in `products/conversations/backend/webhook_consumers.py`:
+
+- `conversations_email_inbound` — opens or continues a support ticket, or ingests a customer email thread.
+- `conversations_email_outbound` — records mail a customer's own agent sent.
+- `conversations_email_capture` — reads the recipient local part and runs whichever of the two the message is.
+
+All three declare `ownership`, because a team's email channel lives in one region.
+The inbound apps resolve the channel by the `team-<token>@` inbound address, the outbound app by the sending address on an active customer-communication channel.
+An address this region does not hold answers `ELSEWHERE`, so the delivery reaches the region that does.
+
+`retry_status` is 502 on this provider, so a forward that never landed and a consumer that raised both cost the request its receipt and Mailgun redelivers.
 See the [Endpoints table](../README.md#endpoints).
