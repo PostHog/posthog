@@ -62,15 +62,19 @@ describe('trace redaction', () => {
                 $ai_debug_data: {
                     'user.id': 'someone@example.com',
                     authorization: 'Bearer invented-token-value',
+                    // A withheld key drops its whole subtree, however deep the secret sits.
+                    'http.request': { headers: { cookie: 'session=invented-cookie-value' } },
                     $ai_model: 'gpt-4',
                 },
             }),
         ]) as any
         const debugData = results[0].events[0].properties.$ai_debug_data
+        const serialized = JSON.stringify(results)
 
-        expect(JSON.stringify(results)).not.toContain('invented-token-value')
-        expect(JSON.stringify(results)).not.toContain('someone@example.com')
-        expect(debugData._redactedKeys).toEqual(['user.id', 'authorization'])
+        expect(serialized).not.toContain('invented-token-value')
+        expect(serialized).not.toContain('someone@example.com')
+        expect(serialized).not.toContain('invented-cookie-value')
+        expect(debugData._redactedKeys).toEqual(['user.id', 'authorization', 'http.request'])
         expect(debugData.$ai_model).toBe('gpt-4')
     })
 
