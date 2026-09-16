@@ -59,11 +59,11 @@ from posthog.models.utils import (
     hash_key_value,
 )
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.oauth_provenance import is_interactive_desktop_grant
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
-from posthog.temporal.oauth import POSTHOG_DESKTOP_OAUTH_CLIENT_IDS
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.auth import get_export_renderer_asset_context
@@ -907,10 +907,7 @@ def _record_agent_attribution(request: Union[HttpRequest, Request], access_token
     Attribution is extra detail on an audit row, so an error here must not fail the request.
     """
     try:
-        if (
-            access_token.sandbox_task_id is None
-            and access_token.application.client_id not in POSTHOG_DESKTOP_OAUTH_CLIENT_IDS
-        ):
+        if access_token.sandbox_task_id is None and not is_interactive_desktop_grant(request, access_token):
             return
         if access_token.sandbox_task_id is not None:
             activity_storage.set_agent_task_id(str(access_token.sandbox_task_id))
