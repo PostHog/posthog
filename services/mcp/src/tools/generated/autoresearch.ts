@@ -11,7 +11,10 @@ const AutoresearchCreateSchema = () => {
     return AutoresearchCreateBody
 }
 
-const autoresearchCreate = (): ToolBase<ReturnType<typeof AutoresearchCreateSchema>, Schemas.AutoresearchPipeline> => ({
+const autoresearchCreate = (): ToolBase<
+    ReturnType<typeof AutoresearchCreateSchema>,
+    WithPostHogUrl<Schemas.AutoresearchPipeline>
+> => ({
     name: 'autoresearch-create',
     schema: AutoresearchCreateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchCreateSchema>>) => {
@@ -61,7 +64,7 @@ const autoresearchCreate = (): ToolBase<ReturnType<typeof AutoresearchCreateSche
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/`,
             body,
         })
-        return result
+        return await withPostHogUrl(context, result, `/autoresearch/${result.id}`)
     },
 })
 
@@ -104,7 +107,7 @@ const autoresearchList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
+        return await withPostHogUrl(context, filtered, '/autoresearch')
     },
 })
 
@@ -180,7 +183,7 @@ const autoresearchModelsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
+        return await withPostHogUrl(context, filtered, '/autoresearch')
     },
 })
 
@@ -244,7 +247,7 @@ const AutoresearchRetrieveSchema = () => {
 
 const autoresearchRetrieve = (): ToolBase<
     ReturnType<typeof AutoresearchRetrieveSchema>,
-    Schemas.AutoresearchPipeline
+    WithPostHogUrl<Schemas.AutoresearchPipeline>
 > => ({
     name: 'autoresearch-retrieve',
     schema: AutoresearchRetrieveSchema(),
@@ -255,7 +258,7 @@ const autoresearchRetrieve = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/`,
         })
         const filtered = omitResponseFields(result, ['created_by']) as typeof result
-        return filtered
+        return await withPostHogUrl(context, filtered, `/autoresearch/${filtered.id}`)
     },
 })
 
@@ -331,7 +334,7 @@ const autoresearchSuggestionsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
+        return await withPostHogUrl(context, filtered, '/autoresearch')
     },
 })
 
@@ -711,7 +714,7 @@ const autoresearchTrainingRunsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
+        return await withPostHogUrl(context, filtered, '/autoresearch')
     },
 })
 
