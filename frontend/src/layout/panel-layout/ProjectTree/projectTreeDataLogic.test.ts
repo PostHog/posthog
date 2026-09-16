@@ -50,6 +50,17 @@ describe('projectTreeDataLogic', () => {
         expect(paths).toEqual(['Session replay'])
     })
 
+    it('tags a starred insight with its source, so the row and its menu both report one', () => {
+        logic.actions.loadShortcutsSuccess([
+            { id: '1', path: 'My funnel', type: 'insight', ref: 'abc123', href: '/insights/abc123' },
+            { id: '2', path: 'My board', type: 'dashboard', ref: '7', href: '/dashboard/7' },
+        ])
+
+        const hrefs = logic.values.getShortcutTreeItems('', false).map((item) => item.record?.href)
+
+        expect(hrefs).toEqual(['/insights/abc123#sceneSource=starred', '/dashboard/7'])
+    })
+
     it('handles null unfiled item responses', async () => {
         jest.mocked(api.fileSystem.unfiled).mockResolvedValueOnce(null)
         await expectLogic(logic, () => {

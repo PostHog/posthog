@@ -257,7 +257,10 @@ export function SavedInsights(): JSX.Element {
                                     minAccessLevel={AccessControlLevel.Editor}
                                     userAccessLevel={insight.user_access_level}
                                 >
-                                    <LemonButton to={urls.insightEdit(insight.short_id)} fullWidth>
+                                    <LemonButton
+                                        to={withSceneSource(urls.insightEdit(insight.short_id), 'saved-insights-list')}
+                                        fullWidth
+                                    >
                                         Edit
                                     </LemonButton>
                                 </AccessControlAction>

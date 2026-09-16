@@ -15,7 +15,7 @@ import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'li
 import { withTimeout } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
-import { insightShortIdForEntry } from 'lib/utils/insightNavigation'
+import { insightShortIdForEntry, withInsightSceneSource } from 'lib/utils/insightNavigation'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -92,6 +92,12 @@ interface MoveBatch {
 }
 
 let lastMoveBatchId = 0
+
+// Every insight opened from the Starred panel reports `starred` as its source, whether the row is
+// clicked, opened in a new tab from its menu, or reached through a starred folder.
+function tagStarredEntry<T extends FileSystemEntry | FileSystemImport>(entry: T): T {
+    return { ...entry, href: withInsightSceneSource(entry.href, entry.type, 'starred') }
+}
 
 // Returns `shortcuts` reordered to match `orderedIds`. Any shortcut not referenced in
 // `orderedIds` is appended at the end so a partial input never silently drops items.
@@ -1486,7 +1492,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     )) {
                         const shortcutTreeItem = convertFileSystemEntryToTreeDataItem({
                             root: 'shortcuts://',
-                            imports: [shortcut],
+                            imports: [tagStarredEntry(shortcut)],
                             checkedItems: {},
                             folderStates,
                             users,
@@ -1500,7 +1506,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             const allImports = viableItems.filter((item) => item.path.startsWith(shortcut.ref + '/'))
                             let converted: TreeDataItem[] = convertFileSystemEntryToTreeDataItem({
                                 root: 'project://',
-                                imports: allImports.map((item) => ({ ...item, protocol: 'project://' })),
+                                imports: allImports.map((item) => tagStarredEntry({ ...item, protocol: 'project://' })),
                                 checkedItems: {},
                                 folderStates,
                                 users,
