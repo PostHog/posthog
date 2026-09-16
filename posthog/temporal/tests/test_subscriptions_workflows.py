@@ -48,6 +48,8 @@ from products.exports.backend.temporal.subscriptions.activities import (
     deliver_subscription,
     deliver_subscription_v2,
     fetch_due_subscriptions_activity,
+    fetch_due_subscriptions_page_activity,
+    is_scheduled_subscription_occurrence_current,
     notify_subscription_delivery_failure,
     update_delivery_record,
     validate_subscription_for_delivery,
@@ -71,10 +73,13 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliveryStatus,
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
+    FetchDueSubscriptionsPageActivityInputs,
     GenerateAIReportInputs,
     NoExportableInsightsReason,
     ProcessSubscriptionWorkflowInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
+    ScheduledSubscriptionOccurrenceInputs,
+    SubscriptionSchedulerCursor,
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
@@ -231,6 +236,8 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     Sequence[Callable[..., Any]],
     [
         fetch_due_subscriptions_activity,
+        fetch_due_subscriptions_page_activity,
+        is_scheduled_subscription_occurrence_current,
         create_delivery_record,
         validate_subscription_for_delivery,
         create_export_assets,
@@ -247,6 +254,7 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
 SUBSCRIPTION_PROCESS_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     Sequence[Callable[..., Any]],
     [
+        is_scheduled_subscription_occurrence_current,
         create_delivery_record,
         validate_subscription_for_delivery,
         create_export_assets,
@@ -329,11 +337,11 @@ async def test_subscription_delivery_scheduling(
             ),
         ]
 
-    # Push one subscription outside buffer (+1h)
-    subscriptions[2].start_date = datetime(2022, 1, 1, 10, 0, tzinfo=ZoneInfo("UTC"))
-    await sync_to_async(subscriptions[2].save)()
-
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        # The test server owns the workflow clock, independently of time_machine's Python clock.
+        subscriptions[2].next_delivery_date = await activity_environment.get_current_time() + timedelta(hours=1)
+        await sync_to_async(subscriptions[2].save)(update_fields=["next_delivery_date"])
+
         async with Worker(
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
@@ -350,6 +358,10 @@ async def test_subscription_delivery_scheduling(
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
+            for subscription in subscriptions[:2]:
+                await activity_environment.client.get_workflow_handle(
+                    f"process-subscription-{subscription.id}"
+                ).result()
 
     # Each subscription has 2 recipients -> 4 emails expected (only first two subs within buffer)
     assert mock_send_email.call_count == 4
@@ -2377,6 +2389,104 @@ async def test_fetch_due_subscriptions_excludes_disabled(team, user):
     assert disabled_sub.id not in fetched_ids
 
 
+async def test_fetch_due_subscriptions_page_uses_stable_keyset_cursor(team, user):
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="scheduled dashboard", created_by=user)
+    now = datetime.now(tz=ZoneInfo("UTC"))
+    subscriptions = [
+        await sync_to_async(Subscription.objects.create)(
+            team=team,
+            dashboard=dashboard,
+            title=f"due subscription {index}",
+            target_type="email",
+            target_value="subscriber@example.com",
+            frequency="daily",
+            start_date=now,
+            enabled=True,
+            created_by=user,
+        )
+        for index in range(3)
+    ]
+    await sync_to_async(Subscription.objects.filter(id__in=[sub.id for sub in subscriptions]).update)(
+        next_delivery_date=now,
+    )
+
+    first_page = await ActivityEnvironment().run(
+        fetch_due_subscriptions_page_activity,
+        FetchDueSubscriptionsPageActivityInputs(due_before=(now + timedelta(minutes=15)).isoformat(), page_size=2),
+    )
+
+    assert [subscription.subscription_id for subscription in first_page.subscriptions] == [
+        subscriptions[0].id,
+        subscriptions[1].id,
+    ]
+    assert first_page.next_cursor == SubscriptionSchedulerCursor(
+        next_delivery_date=now.isoformat(),
+        subscription_id=subscriptions[1].id,
+    )
+
+    second_page = await ActivityEnvironment().run(
+        fetch_due_subscriptions_page_activity,
+        FetchDueSubscriptionsPageActivityInputs(
+            due_before=(now + timedelta(minutes=15)).isoformat(),
+            page_size=2,
+            cursor=first_page.next_cursor,
+        ),
+    )
+
+    assert [subscription.subscription_id for subscription in second_page.subscriptions] == [subscriptions[2].id]
+    assert second_page.next_cursor is None
+
+
+async def test_scheduled_occurrence_must_still_match_current_due_date(team, user):
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="scheduled dashboard", created_by=user)
+    subscription = await sync_to_async(Subscription.objects.create)(
+        team=team,
+        dashboard=dashboard,
+        title="due subscription",
+        target_type="email",
+        target_value="subscriber@example.com",
+        frequency="daily",
+        start_date=datetime.now(tz=ZoneInfo("UTC")),
+        enabled=True,
+        created_by=user,
+    )
+    scheduled_at = datetime(2026, 9, 11, 12, 0, tzinfo=ZoneInfo("UTC"))
+    await sync_to_async(Subscription.objects.filter(id=subscription.id).update)(next_delivery_date=scheduled_at)
+
+    assert await ActivityEnvironment().run(
+        is_scheduled_subscription_occurrence_current,
+        ScheduledSubscriptionOccurrenceInputs(
+            subscription_id=subscription.id,
+            scheduled_at=scheduled_at.isoformat(),
+        ),
+    )
+
+    await sync_to_async(Subscription.objects.filter(id=subscription.id).update)(
+        next_delivery_date=scheduled_at + timedelta(days=1)
+    )
+
+    assert not await ActivityEnvironment().run(
+        is_scheduled_subscription_occurrence_current,
+        ScheduledSubscriptionOccurrenceInputs(
+            subscription_id=subscription.id,
+            scheduled_at=scheduled_at.isoformat(),
+        ),
+    )
+
+    await sync_to_async(Subscription.objects.filter(id=subscription.id).update)(
+        next_delivery_date=scheduled_at,
+        deleted=True,
+    )
+
+    assert not await ActivityEnvironment().run(
+        is_scheduled_subscription_occurrence_current,
+        ScheduledSubscriptionOccurrenceInputs(
+            subscription_id=subscription.id,
+            scheduled_at=scheduled_at.isoformat(),
+        ),
+    )
+
+
 @patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription")
 @patch("products.exports.backend.temporal.subscriptions.activities.build_insight_delivery_snapshot")
 @patch(
@@ -2527,6 +2637,27 @@ def _ai_delivery_inputs(subscription_id: int, delivery_id) -> DeliverSubscriptio
     return DeliverSubscriptionInputs(
         subscription_id=subscription_id, exported_asset_ids=[], total_insight_count=0, delivery_id=delivery_id
     )
+
+
+async def _run_ai_subscription_schedule(subscription_id: int) -> None:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ScheduleAllSubscriptionsWorkflow, ProcessSubscriptionWorkflow, ProcessAISubscriptionWorkflow],
+            activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,
+        ):
+            await env.client.execute_workflow(
+                ScheduleAllSubscriptionsWorkflow.run,
+                ScheduleAllSubscriptionsWorkflowInputs(),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+            await env.client.get_workflow_handle(f"process-ai-subscription-{subscription_id}").result()
 
 
 async def test_generate_ai_report_consent_revoked_aborts_and_auto_disables(team, user):
@@ -2912,23 +3043,7 @@ async def test_schedule_ai_subscription_over_credit_budget_lands_skipped(
         next_delivery_date=datetime(2022, 2, 2, 8, 0, tzinfo=ZoneInfo("UTC"))
     )
 
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-            workflows=[ScheduleAllSubscriptionsWorkflow, ProcessSubscriptionWorkflow, ProcessAISubscriptionWorkflow],
-            activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
-            interceptors=[SloInterceptor()],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-            activity_executor=ThreadPoolExecutor(max_workers=50),
-            debug_mode=True,
-        ):
-            await env.client.execute_workflow(
-                ScheduleAllSubscriptionsWorkflow.run,
-                ScheduleAllSubscriptionsWorkflowInputs(),
-                id=str(uuid.uuid4()),
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-            )
+    await _run_ai_subscription_schedule(sub.id)
 
     mock_generate.assert_not_called()  # no LLM spend while over budget
     mock_send_report.assert_not_called()  # delivery skipped
@@ -2964,23 +3079,7 @@ async def test_schedule_routes_ai_subscription_through_full_workflow(
         next_delivery_date=datetime(2022, 2, 2, 8, 0, tzinfo=ZoneInfo("UTC"))
     )
 
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-            workflows=[ScheduleAllSubscriptionsWorkflow, ProcessSubscriptionWorkflow, ProcessAISubscriptionWorkflow],
-            activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
-            interceptors=[SloInterceptor()],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-            activity_executor=ThreadPoolExecutor(max_workers=50),
-            debug_mode=True,
-        ):
-            await env.client.execute_workflow(
-                ScheduleAllSubscriptionsWorkflow.run,
-                ScheduleAllSubscriptionsWorkflowInputs(),
-                id=str(uuid.uuid4()),
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-            )
+    await _run_ai_subscription_schedule(sub.id)
 
     # The LLM ran once, the report was shipped, and the delivery record landed COMPLETED.
     mock_generate.assert_called_once()

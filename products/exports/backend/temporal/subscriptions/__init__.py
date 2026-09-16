@@ -5,6 +5,8 @@ from products.exports.backend.temporal.subscriptions.activities import (
     deliver_subscription,
     deliver_subscription_v2,
     fetch_due_subscriptions_activity,
+    fetch_due_subscriptions_page_activity,
+    is_scheduled_subscription_occurrence_current,
     notify_subscription_delivery_failure,
     update_delivery_record,
     validate_subscription_for_delivery,
@@ -27,6 +29,8 @@ WORKFLOWS = [
 
 ACTIVITIES = [
     fetch_due_subscriptions_activity,
+    fetch_due_subscriptions_page_activity,
+    is_scheduled_subscription_occurrence_current,
     validate_subscription_for_delivery,
     create_export_assets,
     deliver_subscription,

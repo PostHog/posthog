@@ -38,9 +38,13 @@ from products.exports.backend.temporal.subscriptions.types import (
     DueSubscription,
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
+    FetchDueSubscriptionsPageActivityInputs,
+    FetchDueSubscriptionsPageActivityResult,
     NoExportableInsightsContext,
     NoExportableInsightsReason,
     RecipientResult,
+    ScheduledSubscriptionOccurrenceInputs,
+    SubscriptionSchedulerCursor,
     UpdateDeliveryRecordInputs,
 )
 from products.product_analytics.backend.facade.models import Insight
@@ -218,6 +222,109 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
     await LOGGER.ainfo("Fetched due subscriptions", count=len(subscriptions))
 
     return subscriptions
+
+
+@temporalio.activity.defn
+async def fetch_due_subscriptions_page_activity(
+    inputs: FetchDueSubscriptionsPageActivityInputs,
+) -> FetchDueSubscriptionsPageActivityResult:
+    """Fetch one stable page from the due cohort frozen by the coordinator workflow."""
+    if inputs.page_size < 1:
+        raise ApplicationError(
+            f"Subscription scheduler page size must be at least 1, received {inputs.page_size}",
+            non_retryable=True,
+        )
+
+    due_before = dt.datetime.fromisoformat(inputs.due_before)
+    await LOGGER.ainfo(
+        "Fetching due subscriptions page",
+        due_before=due_before,
+        page_size=inputs.page_size,
+        cursor=dataclasses.asdict(inputs.cursor) if inputs.cursor else None,
+    )
+
+    @database_sync_to_async(thread_sensitive=False)
+    def get_page() -> FetchDueSubscriptionsPageActivityResult:
+        subscriptions_query = (
+            Subscription.objects.filter(next_delivery_date__lte=due_before, deleted=False, enabled=True)
+            .exclude(dashboard__deleted=True)
+            .exclude(insight__deleted=True)
+            # Skip relationless subs — derive_resource_type raises on them, and one bad row would fail the whole page.
+            .exclude(
+                Q(insight_id__isnull=True) & Q(dashboard_id__isnull=True) & (Q(prompt__isnull=True) | Q(prompt=""))
+            )
+        )
+        if inputs.cursor is not None:
+            cursor_date = dt.datetime.fromisoformat(inputs.cursor.next_delivery_date)
+            subscriptions_query = subscriptions_query.filter(
+                Q(next_delivery_date__gt=cursor_date)
+                | Q(next_delivery_date=cursor_date, id__gt=inputs.cursor.subscription_id)
+            )
+
+        fetched_rows = list(
+            subscriptions_query.order_by("next_delivery_date", "id").values(
+                "id",
+                "team_id",
+                "created_by__distinct_id",
+                "next_delivery_date",
+                "insight_id",
+                "dashboard_id",
+                "prompt",
+            )[: inputs.page_size + 1]
+        )
+        rows = fetched_rows[: inputs.page_size]
+        subscriptions = [
+            DueSubscription(
+                subscription_id=sub["id"],
+                team_id=sub["team_id"],
+                distinct_id=str(sub["created_by__distinct_id"])
+                if sub["created_by__distinct_id"]
+                else str(sub["team_id"]),
+                next_delivery_date=typing.cast(datetime, sub["next_delivery_date"]).isoformat(),
+                resource_type=Subscription.derive_resource_type(sub["insight_id"], sub["dashboard_id"], sub["prompt"]),
+            )
+            for sub in rows
+        ]
+        has_more = len(fetched_rows) > inputs.page_size
+        last_row = rows[-1] if rows else None
+        next_cursor = (
+            SubscriptionSchedulerCursor(
+                next_delivery_date=typing.cast(datetime, last_row["next_delivery_date"]).isoformat(),
+                subscription_id=last_row["id"],
+            )
+            if last_row is not None and has_more
+            else None
+        )
+        page = FetchDueSubscriptionsPageActivityResult(
+            subscriptions=subscriptions,
+            next_cursor=next_cursor,
+        )
+        return page
+
+    page = await get_page()
+    await LOGGER.ainfo(
+        "Fetched due subscriptions page",
+        count=len(page.subscriptions),
+        page_size=inputs.page_size,
+        has_more=page.next_cursor is not None,
+    )
+    return page
+
+
+@temporalio.activity.defn
+async def is_scheduled_subscription_occurrence_current(inputs: ScheduledSubscriptionOccurrenceInputs) -> bool:
+    """Return whether a scheduled child still represents the subscription's current due occurrence."""
+    scheduled_at = dt.datetime.fromisoformat(inputs.scheduled_at)
+
+    @database_sync_to_async(thread_sensitive=False)
+    def get_current_delivery_date() -> datetime | None:
+        return (
+            Subscription.objects.filter(pk=inputs.subscription_id, deleted=False, enabled=True)
+            .values_list("next_delivery_date", flat=True)
+            .first()
+        )
+
+    return await get_current_delivery_date() == scheduled_at
 
 
 @temporalio.activity.defn

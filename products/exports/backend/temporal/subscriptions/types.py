@@ -4,7 +4,11 @@ import dataclasses
 
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.dataclasses import frozen
 from posthog.slo.types import SloConfig
+
+# Leaves headroom below Temporal's recommendation of at most 1,000 children per parent.
+DEFAULT_SUBSCRIPTIONS_SCHEDULER_PAGE_SIZE = 500
 
 # Type names of these failures never appear in recipient-facing copy. When a safe code and message
 # exist, they are available to query-access owners; this mask only governs the legacy fallback that
@@ -139,7 +143,34 @@ class DueSubscription:
     resource_type: str = ""
 
 
-@dataclasses.dataclass
+@frozen
+class SubscriptionSchedulerCursor:
+    next_delivery_date: str
+    subscription_id: int
+
+
+@frozen
+class FetchDueSubscriptionsPageActivityInputs:
+    due_before: str
+    page_size: int = DEFAULT_SUBSCRIPTIONS_SCHEDULER_PAGE_SIZE
+    cursor: SubscriptionSchedulerCursor | None = None
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "due_before": self.due_before,
+            "page_size": self.page_size,
+            "cursor": dataclasses.asdict(self.cursor) if self.cursor else None,
+        }
+
+
+@frozen
+class FetchDueSubscriptionsPageActivityResult:
+    subscriptions: list[DueSubscription]
+    next_cursor: SubscriptionSchedulerCursor | None
+
+
+@frozen
 class FetchDueSubscriptionsActivityInputs:
     buffer_minutes: int = 15
 
@@ -148,6 +179,12 @@ class FetchDueSubscriptionsActivityInputs:
         return {
             "buffer_minutes": self.buffer_minutes,
         }
+
+
+@frozen
+class ScheduledSubscriptionOccurrenceInputs:
+    subscription_id: int
+    scheduled_at: str
 
 
 @dataclasses.dataclass
@@ -386,12 +423,22 @@ class SnapshotInsightsResult:
     summary_skipped_over_budget: bool = False
 
 
-@dataclasses.dataclass
+@frozen
 class ScheduleAllSubscriptionsWorkflowInputs:
     buffer_minutes: int = 15
+    # Internal pagination configuration and Continue-As-New state. The persisted
+    # Schedule payload only sets buffer_minutes for compatibility with older workers.
+    subscriptions_page_size: int = DEFAULT_SUBSCRIPTIONS_SCHEDULER_PAGE_SIZE
+    due_before: str | None = None
+    cursor: SubscriptionSchedulerCursor | None = None
+    failed_start_count: int = 0
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
         return {
             "buffer_minutes": self.buffer_minutes,
+            "subscriptions_page_size": self.subscriptions_page_size,
+            "due_before": self.due_before,
+            "cursor": dataclasses.asdict(self.cursor) if self.cursor else None,
+            "failed_start_count": self.failed_start_count,
         }
