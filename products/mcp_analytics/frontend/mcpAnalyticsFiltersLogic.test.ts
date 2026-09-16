@@ -9,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { MCP_ANALYTICS_FILTER_ROUTES, mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
+import { mcpToolQualityUrlWithDates, mcpToolReportUrl } from './mcpAnalyticsToolQualityLogic'
 
 const EVENT_FILTER: AnyPropertyFilter = {
     key: '$mcp_tool_name',
@@ -76,5 +77,26 @@ describe('mcpAnalyticsFiltersLogic', () => {
         expect(logic.values.filterTestAccounts).toBe(true)
         logic.actions.setFilterTestAccounts(false)
         expect(logic.values.filterTestAccounts).toBe(false)
+    })
+
+    it('preserves shared filters when opening and leaving a tool report', () => {
+        router.actions.push(urls.mcpAnalyticsToolQuality(), {
+            properties: [EVENT_FILTER],
+            filter_test_accounts: false,
+        })
+
+        router.actions.push(mcpToolReportUrl('create_insight', { dateFrom: '-7d', dateTo: null }))
+        expect(router.values.searchParams).toMatchObject({
+            properties: [EVENT_FILTER],
+            filter_test_accounts: false,
+            date_from: '-7d',
+        })
+
+        router.actions.push(mcpToolQualityUrlWithDates({ dateFrom: '-7d', dateTo: null }))
+        expect(router.values.searchParams).toMatchObject({
+            properties: [EVENT_FILTER],
+            filter_test_accounts: false,
+            date_from: '-7d',
+        })
     })
 })

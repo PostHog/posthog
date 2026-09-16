@@ -1,4 +1,3 @@
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { MCP_TOOL_CALL_EVENT } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
 
 import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema/schema-general'
@@ -35,8 +34,6 @@ export const DEFAULT_MCP_ACTIVITY_QUERY: DataTableNode = {
     showActions: true,
     showCount: true,
     showDateRange: true,
-    showPropertyFilter: [TaxonomicFilterGroupType.MCPProperties, TaxonomicFilterGroupType.EventProperties],
-    showTestAccountFilters: true,
     showReload: true,
 }
 
