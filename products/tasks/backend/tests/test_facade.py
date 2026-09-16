@@ -600,13 +600,14 @@ class TestFacadeReadsAndMappers(TestCase):
         with self.assertNumQueries(3):
             dto = facade.get_task_detail(task.id, self.team.id, self.user.id)
 
-        assert dto is not None and dto.latest_run is not None
-        self.assertEqual(dto.latest_run.output["pr_url"], "https://x/pull/7")
-        self.assertEqual(dto.latest_run.output["pr_urls"], ["https://x/pull/7"])
-        self.assertEqual(dto.latest_run.output["pr_state"], "open")
-        self.assertEqual(dto.latest_run.output["final_message"], "done")
+        assert dto is not None and dto.latest_run is not None and dto.latest_run.output is not None
+        output = dto.latest_run.output
+        self.assertEqual(output["pr_url"], "https://x/pull/7")
+        self.assertEqual(output["pr_urls"], ["https://x/pull/7"])
+        self.assertEqual(output["pr_state"], "open")
+        self.assertEqual(output["final_message"], "done")
         # Only the PR travels; the rest of an earlier run's output stays where it was written.
-        self.assertNotIn("commit_push", dto.latest_run.output)
+        self.assertNotIn("commit_push", output)
 
     def test_task_detail_leaves_a_run_that_opened_its_own_pr_alone(self):
         task = self._make_task()
@@ -619,7 +620,7 @@ class TestFacadeReadsAndMappers(TestCase):
 
         dto = facade.get_task_detail(task.id, self.team.id, self.user.id)
 
-        assert dto is not None and dto.latest_run is not None
+        assert dto is not None and dto.latest_run is not None and dto.latest_run.output is not None
         self.assertEqual(dto.latest_run.output["pr_url"], "https://x/pull/2")
 
     def test_get_prior_pr_output_by_task_skips_an_empty_pr_urls_entry(self):
@@ -634,6 +635,35 @@ class TestFacadeReadsAndMappers(TestCase):
 
         self.assertEqual(prior, {str(task.id): {"pr_url": "https://x/pull/1"}})
 
+    def test_get_prior_pr_output_by_task_matches_a_later_non_empty_pr_url(self):
+        task = self._make_task()
+        # `read_pr_urls` drops the empty entry and still yields a usable URL, so the SQL
+        # predicate has to agree with it rather than looking only at the first entry.
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_urls": ["", "https://x/pull/2"]},
+        )
+
+        prior = facade.get_prior_pr_output_by_task(self.team.id, [task.id])
+
+        self.assertEqual(prior, {str(task.id): {"pr_urls": ["", "https://x/pull/2"]}})
+
+    def test_list_tasks_pr_state_filter_matches_a_later_non_empty_pr_url(self):
+        task = self._make_task(title="empty first entry")
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_urls": ["", "https://x/pull/2"], "pr_state": "open"},
+        )
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        open_ids = [dto.id for dto in facade.list_tasks(self.team.id, self.user.id, filters={"pr_state": "open"})]
+
+        self.assertEqual(open_ids, [task.id])
+
     def test_task_detail_fills_pr_url_from_an_array_only_prior_output(self):
         task = self._make_task()
         TaskRun.objects.create(
@@ -645,7 +675,7 @@ class TestFacadeReadsAndMappers(TestCase):
 
         # Readers that look only at `pr_url` (the feed's `has_pr`, `get_latest_pr_url_by_task`)
         # have to see the PR too.
-        assert dto is not None and dto.latest_run is not None
+        assert dto is not None and dto.latest_run is not None and dto.latest_run.output is not None
         self.assertEqual(dto.latest_run.output["pr_url"], "https://x/pull/9")
         self.assertEqual(dto.latest_run.output["pr_urls"], ["https://x/pull/9"])
 
@@ -693,7 +723,7 @@ class TestFacadeReadsAndMappers(TestCase):
         by_title = {dto.title: dto for dto in dtos}
         for index, task in enumerate(tasks):
             latest_run = by_title[task.title].latest_run
-            assert latest_run is not None
+            assert latest_run is not None and latest_run.output is not None
             self.assertEqual(latest_run.output["pr_url"], f"https://x/pull/{index}")
 
     def test_get_conversation_task_dtos_carries_latest_run_id_not_nested_run(self):
