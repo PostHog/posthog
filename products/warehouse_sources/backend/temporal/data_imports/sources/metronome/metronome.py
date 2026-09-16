@@ -1,7 +1,8 @@
 import threading
 import dataclasses
+from collections import deque
 from collections.abc import Callable, Iterable, Iterator
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -445,6 +446,21 @@ def _usage_rows_for_customer(
     return rows
 
 
+def _fill_in_flight(
+    submit: Callable[[str], "Future[list[Any]]"],
+    todo: deque[str],
+    in_flight: deque[tuple[str, "Future[list[Any]]"]],
+) -> None:
+    """Keep as many walks in flight as there are workers, and no more.
+
+    Submitting a whole customer page at once would leave every finished customer's rows in memory
+    behind a slow one, which is how a batch gets past the row cap.
+    """
+    while todo and len(in_flight) < USAGE_CUSTOMER_CONCURRENCY:
+        customer_id = todo.popleft()
+        in_flight.append((customer_id, submit(customer_id)))
+
+
 def _parallel_usage_pages(
     clients: _PacedClients,
     config: MetronomeEndpointConfig,
@@ -468,29 +484,52 @@ def _parallel_usage_pages(
     if walk.parent_cursor:
         paginator.set_resume_state({"cursor": walk.parent_cursor})
 
+    # `RESTClient.paginate` advances a deep copy of the paginator it is given, so the instance here
+    # never moves. The cursor has to come back through the resume hook, which fires when the loop
+    # asks for the page after the one it just handed over.
+    next_page_cursor: Optional[str] = None
+
+    def record_parent_cursor(state: Optional[dict[str, Any]]) -> None:
+        nonlocal next_page_cursor
+        next_page_cursor = (state or {}).get("cursor")
+
     page_cursor = walk.parent_cursor
     done_in_page = set(walk.completed_customers)
     pool = ThreadPoolExecutor(max_workers=USAGE_CUSTOMER_CONCURRENCY, thread_name_prefix="metronome-usage")
 
-    def walk_customer(customer_id: str) -> list[Any]:
-        return _usage_rows_for_customer(clients.get(), config, json_body, customer_id)
+    def submit_walk(customer_id: str) -> "Future[list[Any]]":
+        return submit_with_context(
+            pool, lambda: _usage_rows_for_customer(clients.get(), config, json_body, customer_id)
+        )
 
     try:
-        for customer_page in clients.get().paginate(
-            parent.path,
-            params=_list_params(parent),
-            data_selector=DATA_SELECTOR,
-            data_selector_required=True,
-            paginator=paginator,
+        for page_index, customer_page in enumerate(
+            clients.get().paginate(
+                parent.path,
+                params=_list_params(parent),
+                data_selector=DATA_SELECTOR,
+                data_selector_required=True,
+                paginator=paginator,
+                resume_hook=record_parent_cursor,
+            )
         ):
-            todo = [str(row["id"]) for row in customer_page if row.get("id") and str(row["id"]) not in done_in_page]
-            futures = [(customer_id, submit_with_context(pool, walk_customer, customer_id)) for customer_id in todo]
+            if page_index:
+                # The hook fired while this page was being fetched, so its cursor is only known now.
+                page_cursor = next_page_cursor
+                done_in_page = set()
 
+            # A customer without an id cannot be asked for, and skipping it would drop its usage
+            # with no signal, so let a malformed page fail the sync instead.
+            todo = deque(cid for row in customer_page if (cid := str(row["id"])) not in done_in_page)
+            in_flight: deque[tuple[str, Future[list[Any]]]] = deque()
+            _fill_in_flight(submit_walk, todo, in_flight)
             batch: list[Any] = []
             batch_customers: list[str] = []
-            for customer_id, future in futures:
+            while in_flight:
+                customer_id, future = in_flight.popleft()
                 batch.extend(future.result())
                 batch_customers.append(customer_id)
+                _fill_in_flight(submit_walk, todo, in_flight)
                 if len(batch) >= USAGE_COALESCE_ROWS or len(batch_customers) >= USAGE_CUSTOMERS_PER_BATCH:
                     yield batch
                     done_in_page.update(batch_customers)
@@ -501,13 +540,6 @@ def _parallel_usage_pages(
                 yield batch
                 done_in_page.update(batch_customers)
                 commit_checkpoint(page_cursor, tuple(done_in_page))
-
-            # The page is written, so the next one starts with nothing done. Reading the cursor here
-            # gives the page after this one, because the paginator advanced before this page yielded.
-            resume_state = paginator.get_resume_state() if paginator.has_next_page else None
-            page_cursor = (resume_state or {}).get("cursor")
-            done_in_page = set()
-            commit_checkpoint(page_cursor, ())
     finally:
         # The consumer may close the generator early; never block on requests still in flight.
         pool.shutdown(wait=False, cancel_futures=True)

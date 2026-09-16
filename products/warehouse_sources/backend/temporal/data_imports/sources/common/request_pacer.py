@@ -88,7 +88,9 @@ class RequestPacer:
                 return
             hold = retry_after if retry_after is not None and retry_after > 0 else self._hold_seconds
             self._interval = min(self._interval * 2, self._base_interval * 16)
-            if retry_after is not None and retry_after > 0:
-                self._hold_until = now + retry_after
-                self._next_start = max(self._next_start, self._hold_until)
+            # The hold applies whether or not the vendor named one. Reducing the rate alone lets a
+            # worker start again immediately, which is the opposite of standing down, and a vendor
+            # that documents no Retry-After would never be held at all.
+            self._hold_until = now + hold
+            self._next_start = max(self._next_start, self._hold_until)
             self._recover_at = now + hold

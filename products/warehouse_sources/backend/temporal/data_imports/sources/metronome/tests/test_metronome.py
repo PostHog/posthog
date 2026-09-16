@@ -1,10 +1,12 @@
-from datetime import UTC, datetime
+from collections import deque
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
 import time_machine
 from unittest.mock import MagicMock, Mock, patch
 
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
@@ -12,17 +14,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.metronome import (
     EPOCH_RFC_3339,
+    USAGE_CUSTOMER_CONCURRENCY,
     MetronomeCursorPaginator,
     MetronomeResumeConfig,
     MetronomeWalkStart,
     _clamp_window_start,
+    _fill_in_flight,
     _format_rfc3339,
     _paginator_for,
     _parallel_usage_pages,
     get_resource,
     metronome_source,
+    validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.settings import METRONOME_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.settings import (
+    METRONOME_ENDPOINTS,
+    USAGE_DAILY_LOOKBACK_SECONDS,
+    USAGE_HOURLY_LOOKBACK_SECONDS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.source import MetronomeSource
 
 TRANSPORT = "products.warehouse_sources.backend.temporal.data_imports.sources.metronome.metronome"
 
@@ -232,14 +242,21 @@ class TestMetronomeResources:
 class _FakeUsageClient:
     """Stands in for a `RESTClient`: one customer list, then one usage walk per customer."""
 
-    def __init__(self, customer_pages, rows_by_customer) -> None:
+    def __init__(self, customer_pages, rows_by_customer, page_cursors=()) -> None:
         self.customer_pages = customer_pages
         self.rows_by_customer = rows_by_customer
+        self.page_cursors = list(page_cursors)
         self.usage_bodies: list[dict[str, Any]] = []
 
     def paginate(self, path, **kwargs):
         if path == "/v1/customers":
-            yield from self.customer_pages
+            hook = kwargs.get("resume_hook")
+            for index, page in enumerate(self.customer_pages):
+                yield page
+                # `RESTClient` offers the next page's cursor once the consumer asks for it.
+                if hook is not None:
+                    cursor = self.page_cursors[index] if index < len(self.page_cursors) else None
+                    hook({"cursor": cursor} if cursor else None)
             return
         body = kwargs["json"]
         self.usage_bodies.append(body)
@@ -312,6 +329,32 @@ class TestMetronomeParallelUsage:
         self._run(client, MetronomeWalkStart(completed_customers=("c1",)))
 
         assert [body["customer_ids"] for body in client.usage_bodies] == [["c2"]]
+
+    def test_the_second_page_checkpoints_the_cursor_that_fetched_it(self) -> None:
+        # `RESTClient.paginate` advances a deep copy of the paginator, so reading the cursor off the
+        # instance here would leave it stuck and a resumed run would restart at the first page.
+        client = _FakeUsageClient(
+            [[{"id": "c1"}], [{"id": "c2"}]],
+            {"c1": [{"value": 1}], "c2": [{"value": 2}]},
+            page_cursors=["cursor-page-2"],
+        )
+        commits: list[tuple[Any, tuple[str, ...]]] = []
+
+        self._run(client, MetronomeWalkStart(), commit=lambda cursor, done: commits.append((cursor, done)))
+
+        assert commits == [(None, ("c1",)), ("cursor-page-2", ("c2",))]
+
+    def test_only_as_many_walks_are_submitted_as_there_are_workers(self) -> None:
+        # Submitting a whole page at once leaves every finished customer's rows in memory behind a
+        # slow one, which is how a batch gets past the row cap.
+        submitted: list[str] = []
+        todo = deque(["c1", "c2", "c3", "c4", "c5", "c6"])
+        in_flight: deque[Any] = deque()
+
+        _fill_in_flight(lambda customer_id: cast(Any, submitted.append(customer_id)), todo, in_flight)
+
+        assert len(submitted) == USAGE_CUSTOMER_CONCURRENCY
+        assert len(todo) == 6 - USAGE_CUSTOMER_CONCURRENCY
 
 
 class TestMetronomeSourceResponse:
@@ -517,3 +560,153 @@ class TestMetronomeSourceResponse:
         mock_parallel.call_args.args[4](None, ())
 
         assert manager.save_state.called is False
+
+    @patch(f"{TRANSPORT}.build_dependent_resource")
+    def test_invoices_fan_out_over_customers(self, mock_build) -> None:
+        mock_build.return_value = iter([])
+
+        metronome_source(api_key="tok", endpoint="invoices", team_id=1, job_id="job-1")
+
+        kwargs = mock_build.call_args.kwargs
+        assert kwargs["fanout"].parent_name == "customers"
+        assert kwargs["fanout"].resolve_param == "customer_id"
+        # The invoice payload already carries `customer_id`, so nothing is copied down.
+        assert kwargs["fanout"].include_from_parent == []
+        assert kwargs["fanout"].child_params == {"sort": "date_asc"}
+        assert kwargs["parent_endpoint_extra"]["data_selector"] == "data"
+        assert kwargs["child_endpoint_extra"]["data_selector"] == "data"
+
+
+class TestMetronomeBodyFanout:
+    @patch(f"{TRANSPORT}._rest_client")
+    def test_contracts_are_requested_once_per_customer_with_the_id_in_the_body(self, mock_client_factory) -> None:
+        client = MagicMock()
+        client.paginate.side_effect = [
+            # Parent customers, across two pages.
+            iter([[{"id": "cust_1"}], [{"id": "cust_2"}]]),
+            iter([[{"id": "contract_1", "customer_id": "cust_1"}]]),
+            iter([[{"id": "contract_2", "customer_id": "cust_2"}]]),
+        ]
+        mock_client_factory.return_value = client
+
+        response = metronome_source(api_key="tok", endpoint="contracts", team_id=1, job_id="job-1")
+        pages = list(cast(Any, response.items()))
+
+        assert pages == [
+            [{"id": "contract_1", "customer_id": "cust_1"}],
+            [{"id": "contract_2", "customer_id": "cust_2"}],
+        ]
+        # Fan-out tables don't resume, so they keep the default chunk size — a per-page flush here
+        # would cost a Delta commit per page on the largest tables for no durability gain.
+        assert response.chunk_size is None
+        child_calls = client.paginate.call_args_list[1:]
+        assert [call.kwargs["json"] for call in child_calls] == [
+            {"include_archived": True, "customer_id": "cust_1"},
+            {"include_archived": True, "customer_id": "cust_2"},
+        ]
+        assert {call.args[0] for call in child_calls} == {"/v2/contracts/list"}
+
+    @patch(f"{TRANSPORT}._rest_client")
+    def test_customer_without_an_id_is_skipped(self, mock_client_factory) -> None:
+        client = MagicMock()
+        client.paginate.side_effect = [iter([[{"name": "no id here"}]])]
+        mock_client_factory.return_value = client
+
+        response = metronome_source(api_key="tok", endpoint="contracts", team_id=1, job_id="job-1")
+
+        assert list(cast(Any, response.items())) == []
+        assert client.paginate.call_count == 1
+
+
+class TestMetronomeCredentials:
+    @parameterized.expand(
+        [
+            (200, True, None),
+            (
+                401,
+                False,
+                "Metronome rejected the API token. Create a new one in Metronome under Developer > API tokens and reconnect.",
+            ),
+            (
+                403,
+                False,
+                "Metronome rejected the API token. Create a new one in Metronome under Developer > API tokens and reconnect.",
+            ),
+            (500, False, "Metronome API returned an unexpected status code: 500"),
+        ]
+    )
+    @patch(f"{TRANSPORT}.make_tracked_session")
+    def test_status_maps_to_message(self, status_code, expected_valid, expected_message, mock_session) -> None:
+        # Metronome's own auth docs say a rejected token comes back as "a 401 or 403", so both
+        # codes have to land on the same message.
+        mock_session.return_value.get.return_value = Mock(status_code=status_code)
+
+        assert validate_credentials("tok") == (expected_valid, expected_message)
+
+    @patch(f"{TRANSPORT}.make_tracked_session")
+    def test_unreachable_host_is_not_reported_as_a_bad_token(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+
+        valid, message = validate_credentials("tok")
+
+        assert valid is False
+        assert message == "Couldn't reach Metronome to validate the API token. Check your connection and try again."
+
+
+class TestMetronomeSchemas:
+    def _schema(self, name: str):
+        source = MetronomeSource()
+        config = source.parse_config({"api_key": "tok"})
+        return {schema.name: schema for schema in source.get_schemas(config, team_id=1)}[name]
+
+    @parameterized.expand(
+        [
+            ("usage_daily", USAGE_DAILY_LOOKBACK_SECONDS),
+            ("usage_hourly", USAGE_HOURLY_LOOKBACK_SECONDS),
+        ]
+    )
+    def test_bucketed_usage_merges_incrementally_and_starts_off(self, name, lookback_seconds) -> None:
+        schema = self._schema(name)
+
+        assert schema.supports_incremental is True
+        # Appending would duplicate every period the lookback re-reads.
+        assert schema.supports_append is False
+        assert [field["field"] for field in schema.incremental_fields] == ["start_timestamp"]
+        assert schema.should_sync_default is False
+        assert schema.default_incremental_lookback_seconds == lookback_seconds
+
+    def test_the_lifetime_usage_table_keeps_its_defaults(self) -> None:
+        schema = self._schema("usage")
+
+        assert schema.supports_incremental is False
+        assert schema.should_sync_default is True
+        assert schema.default_incremental_lookback_seconds is None
+
+    @parameterized.expand(
+        [
+            ("hourly_default", "usage_hourly", None, None, 30),
+            ("hourly_chosen", "usage_hourly", 7, None, 7),
+            ("daily_default", "usage_daily", None, None, 365),
+            ("daily_chosen_reads_as_months", "usage_daily", None, 3, 365 / 4),
+            # Held to the range rather than dropped, so a depth nobody can finish cannot be typed in.
+            ("above_the_range_is_held_to_it", "usage_hourly", 999, None, 30),
+            ("below_the_range_is_held_to_it", "usage_daily", None, 0, 365 / 12),
+            ("a_table_with_no_window", "customers", 7, 3, None),
+        ]
+    )
+    def test_the_usage_history_window_follows_the_source_setting(
+        self, _name, schema_name, hourly, daily, expected_days
+    ) -> None:
+        source = MetronomeSource()
+        config = source.parse_config(
+            {"api_key": "tok", "usage_hourly_history_days": hourly, "usage_daily_history_months": daily}
+        )
+
+        window = source.history_lookback_for_schema(schema_name, config)
+
+        assert window == (timedelta(days=expected_days) if expected_days is not None else None)
+
+    def test_an_unreadable_config_leaves_the_defaults(self) -> None:
+        # `history_start_for_schema` passes None when the source's inputs no longer parse, and a
+        # table whose depth it cannot read must still be bounded.
+        assert MetronomeSource().history_lookback_for_schema("usage_hourly", None) == timedelta(days=30)
