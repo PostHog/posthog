@@ -5,17 +5,16 @@ from unittest.mock import MagicMock, patch
 from products.exports.backend.temporal.subscriptions.metrics import record_scheduler_fetch, record_scheduler_progress
 
 
-def _capture_instruments(meter: MagicMock) -> tuple[dict[str, MagicMock], dict[str, MagicMock]]:
-    counters: dict[str, MagicMock] = {}
-    gauges: dict[str, MagicMock] = {}
+def _capture_instruments(meter: MagicMock, *, counters: dict[str, MagicMock], gauges: dict[str, MagicMock]) -> None:
     meter.create_counter.side_effect = lambda name, *_args: counters.setdefault(name, MagicMock())
     meter.create_gauge_float.side_effect = lambda name, *_args: gauges.setdefault(name, MagicMock())
-    return counters, gauges
 
 
 def test_record_scheduler_fetch_emits_progress_and_saturation_signals() -> None:
     meter = MagicMock()
-    counters, gauges = _capture_instruments(meter)
+    counters: dict[str, MagicMock] = {}
+    gauges: dict[str, MagicMock] = {}
+    _capture_instruments(meter, counters=counters, gauges=gauges)
     now = datetime(2026, 9, 11, 12, 0, tzinfo=UTC)
 
     with (
@@ -44,7 +43,9 @@ def test_record_scheduler_fetch_emits_progress_and_saturation_signals() -> None:
 
 def test_record_scheduler_progress_emits_backlog_and_dispatch_signals() -> None:
     meter = MagicMock()
-    counters, gauges = _capture_instruments(meter)
+    counters: dict[str, MagicMock] = {}
+    gauges: dict[str, MagicMock] = {}
+    _capture_instruments(meter, counters=counters, gauges=gauges)
 
     with patch(
         "products.exports.backend.temporal.subscriptions.metrics.get_metric_meter",
@@ -72,7 +73,9 @@ def test_record_scheduler_progress_emits_backlog_and_dispatch_signals() -> None:
 
 def test_record_scheduler_progress_emits_completion_timestamp() -> None:
     meter = MagicMock()
-    counters, gauges = _capture_instruments(meter)
+    counters: dict[str, MagicMock] = {}
+    gauges: dict[str, MagicMock] = {}
+    _capture_instruments(meter, counters=counters, gauges=gauges)
 
     with patch(
         "products.exports.backend.temporal.subscriptions.metrics.get_metric_meter",
