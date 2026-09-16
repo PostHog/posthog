@@ -1,6 +1,8 @@
 import type { AnyResponseType, BoxPlotDatum, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, type TrendResult } from '~/types'
 
+import { breakdownProperties } from './chartDisplayOptions'
+
 export interface ChartPreviewData {
     response: AnyResponseType
     sample: boolean
@@ -145,7 +147,8 @@ function hasBreakdown(source: TrendsQuery): boolean {
 }
 
 function hasCountryCodeBreakdown(source: TrendsQuery): boolean {
-    return !source.breakdownFilter?.breakdowns?.length && source.breakdownFilter?.breakdown === '$geoip_country_code'
+    const properties = breakdownProperties(source.breakdownFilter)
+    return properties.length === 1 && properties[0] === '$geoip_country_code'
 }
 
 function sampleAction(result: TrendResult | undefined): Pick<TrendResult, 'action' | 'label'> {
