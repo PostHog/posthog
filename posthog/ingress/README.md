@@ -159,5 +159,6 @@ A provider that sends no delivery id skips dedup entirely, and its own README sa
 - **`posthog_ingress_deliveries_total{provider,app,outcome}`** — what the transport answered: `accepted`, `method_not_allowed`, `not_configured`, `invalid_signature`, `invalid_payload`. A consumer failure is not here, because a failing consumer still gets a 2xx receipt.
 - **`posthog_ingress_consumer_runs_total{provider,consumer,outcome}`** — `succeeded`, `failed`, `deduped`, `budget_exceeded`.
 - **`posthog_ingress_consumer_duration_seconds{provider,consumer}`** — where a delivery's budget actually went.
+- **`ingress_delivery_invalid_payload`** — a warning log with the parser error text for a verified delivery whose body did not parse. The counter above cannot carry that text.
 
 A secret in a URL or header is the credential and never becomes a metric label.

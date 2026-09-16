@@ -42,7 +42,10 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
         try:
             # RecursionError: deeply nested JSON must answer 400, not 500.
             payload = json.loads(request.body)
-        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError):
+        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
+            logger.warning(
+                "ingress_delivery_invalid_payload", provider=provider.provider, app=provider.app, error=str(exc)
+            )
             observe_delivery(provider=provider.provider, app=provider.app, outcome="invalid_payload")
             return HttpResponse("Invalid JSON", status=400)
 
