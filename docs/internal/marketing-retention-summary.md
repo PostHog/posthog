@@ -14,7 +14,7 @@ Comparison is enabled by default and can be disabled with the comparison selecto
 
 ## Query and compatibility
 
-Summary mode adds optional fields to the existing retention query and response. Callers that omit summary mode retain the cohort response. The summary materializes acquisition and per-person return results within one query, including comparison. Return events are joined to each acquisition window before aggregation, and the median uses a bounded deterministic reservoir. The table defaults to current acquisition volume, and sources are selected by that volume; the tail is folded before computing the median. User shares include the folded Other row.
+Summary mode adds optional fields to the existing retention query and response. Callers that omit summary mode retain the cohort response. The summary materializes acquisition and per-person return results within one query, including comparison. Return events are joined to each acquisition window before aggregation, and the median uses ClickHouse's bounded reservoir. The table defaults to current acquisition volume, and sources are selected by that volume; the tail is folded before computing the median. User shares include the folded Other row.
 
 The cohort renderer and query mode remain in code temporarily. A separate draft can remove the unused frontend while retaining the backend contract for existing query callers. That cleanup must be reviewed independently.
 

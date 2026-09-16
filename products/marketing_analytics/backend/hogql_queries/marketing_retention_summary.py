@@ -135,9 +135,8 @@ def build_summary_query(runner: "MarketingAnalyticsRetentionQueryRunner") -> ast
                 AND returned_at > first_session_at) AS returned30d,
             countIf(returned_at > first_session_at) AS returners,
             if(returners > 0,
-                medianDeterministicIf(
+                medianIf(
                     dateDiff('second', first_session_at, returned_at) / 86400.0,
-                    cityHash64(actor_id),
                     returned_at > first_session_at),
                 NULL) AS medianReturnDays
         FROM people
