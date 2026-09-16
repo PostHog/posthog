@@ -53,8 +53,10 @@ An HMAC over raw bytes proves only the signature, so its `facts` are empty and `
 | `sns`        | `/webhooks/workflows/ses-events`                        | `default`    | `workflows_ses_events`                                                                                                                      | `products/workflows/backend/webhook_consumers.py`                       |
 | `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none         | none, it is the DRF adapter path                                                                                                            | `products/messaging/backend/api/customerio_webhook.py`                  |
 
-The GitHub endpoints and the SES one are declared in `posthog/urls.py`.
-The others are declared by the product that owns them.
+The owner of the third-party App registration owns the route.
+The customer-facing GitHub App is shared across products, so its two endpoints are declared in `posthog/urls.py`.
+Every other endpoint is declared by the product that registered the App, in its own `routes.py`.
+The SES endpoint is the exception for now, because its view still lives in `backend/api/` rather than behind the ingress builders.
 
 The Vapi endpoint sits behind a per-IP throttle the product owns, from before ingress had a throttle lane.
 It moves onto `throttle_class` next.
@@ -176,11 +178,19 @@ Add a `<provider>/` subpackage with a `provider.py` holding three things (see `g
 - A `build_<provider>_provider(...)` function returning that provider, which the URLconf hands to `build_webhook_view()`.
 
 Add the module to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, so the registry finds its specs and any core consumers.
-Then register the URL as usual:
+
+Then mount the URL where the App registration lives.
+A product that registered the App declares the path in its own `products/<product>/backend/routes.py`, under a `webhooks/<product>/` prefix:
 
 ```python
-path("webhooks/github/", build_webhook_view(build_github_provider("posthog")))
+urlpatterns: list[URLPattern] = [
+    opt_slash_path("webhooks/stamphog/github", build_webhook_view(build_github_provider("stamphog"))),
+]
 ```
+
+An App several products consume has no single owner, so it stays in `posthog/urls.py`.
+The customer-facing GitHub App is the only one today.
+[docs/internal/url-routing.md](../../docs/internal/url-routing.md) has the slot and the prefix rule.
 
 Secrets and verifiers that belong to a product are **passed into the builder**.
 Nothing under `posthog/ingress/` imports a product.
