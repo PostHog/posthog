@@ -6,7 +6,8 @@ import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 
-import { CUPED_ADJUSTED_EXPLANATION, CupedAdjustedTag } from '../shared/CupedAdjustedTag'
+import { CUPED_ADJUSTED_EXPLANATION, CupedAdjustedTag } from 'products/experiments/frontend/components/CupedAdjustedTag'
+
 import {
     type ExperimentVariantResult,
     formatChanceToWinForGoal,

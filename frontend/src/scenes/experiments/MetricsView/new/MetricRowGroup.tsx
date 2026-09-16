@@ -32,7 +32,6 @@ import { ChartEmptyState } from '~/scenes/experiments/MetricsView/shared/ChartEm
 import { SkeletonResultCells } from '~/scenes/experiments/MetricsView/shared/ChartLoadingSkeleton'
 import { ChartLoadingState } from '~/scenes/experiments/MetricsView/shared/ChartLoadingState'
 import { useChartColors } from '~/scenes/experiments/MetricsView/shared/colors'
-import { CupedAdjustedTag } from '~/scenes/experiments/MetricsView/shared/CupedAdjustedTag'
 import { MetricHeader } from '~/scenes/experiments/MetricsView/shared/MetricHeader'
 import { MetricRetryState } from '~/scenes/experiments/MetricsView/shared/MetricRetryState'
 import {
@@ -57,6 +56,7 @@ import {
 } from '~/scenes/experiments/MetricsView/shared/utils'
 import { Experiment, InsightType, BreakdownAttributionType } from '~/types'
 
+import { CupedAdjustedTag } from 'products/experiments/frontend/components/CupedAdjustedTag'
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { DetailsModal } from 'products/experiments/frontend/modals/DetailsModal/DetailsModal'
 import { TimeseriesModal } from 'products/experiments/frontend/modals/TimeseriesModal/TimeseriesModal'

@@ -7,7 +7,6 @@ import {
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import { VariantTag } from '~/scenes/experiments/ExperimentView/VariantTag'
-import { CupedAdjustedTag } from '~/scenes/experiments/MetricsView/shared/CupedAdjustedTag'
 import {
     ExperimentVariantResult,
     formatChanceToWinForGoal,
@@ -16,6 +15,8 @@ import {
     isBayesianResult,
     isCupedAdjusted,
 } from '~/scenes/experiments/MetricsView/shared/utils'
+
+import { CupedAdjustedTag } from 'products/experiments/frontend/components/CupedAdjustedTag'
 
 type NotebookCompactTableProps = {
     result: NewExperimentQueryResponse
