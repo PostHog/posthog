@@ -124,6 +124,21 @@ def test_the_delivery_task_raises_so_celery_retries_when(status_code: int) -> No
         deliver_workflow_step_resume(team_id=7, origin_key="job:step:3", status="completed", result={})
 
 
+def test_the_delivery_task_falls_back_to_kafka_when_its_worker_has_no_key() -> None:
+    with (
+        override_settings(WORKFLOWS_STEP_RESUME_JWT_SECRETS=[]),
+        patch(_POST) as post,
+        patch(_PRODUCE) as produce,
+    ):
+        deliver_workflow_step_resume(team_id=7, origin_key="job:step:3", status="completed", result={"pr_urls": ["u"]})
+
+    post.assert_not_called()
+    produce.assert_called_once()
+    event = produce.call_args.kwargs["event"]
+    assert event.event == "$workflow_step_resume"
+    assert event.properties == {"origin_key": "job:step:3", "status": "completed", "result": {"pr_urls": ["u"]}}
+
+
 def test_the_delivery_task_retries_for_about_twelve_minutes() -> None:
     task = deliver_workflow_step_resume
     delays = [

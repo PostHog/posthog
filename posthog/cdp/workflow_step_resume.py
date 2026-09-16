@@ -57,6 +57,17 @@ def cap_value(value: Any, budget: int) -> Any:
     return value if value is not None and _json_size(value) <= budget else None
 
 
+def produce_step_resume_event(*, team_id: int, origin_key: str, status: str, result: Mapping[str, Any]) -> None:
+    produce_internal_event(
+        team_id=team_id,
+        event=InternalEventEvent(
+            event=WORKFLOW_STEP_RESUME_EVENT,
+            distinct_id=f"team_{team_id}",
+            properties={"origin_key": origin_key, "status": status, "result": result},
+        ),
+    )
+
+
 def emit_workflow_step_resume(
     *,
     team_id: int,
@@ -81,14 +92,7 @@ def emit_workflow_step_resume(
                 kwargs={"team_id": team_id, "origin_key": origin_key, "status": status, "result": capped},
             )
             return
-        produce_internal_event(
-            team_id=team_id,
-            event=InternalEventEvent(
-                event=WORKFLOW_STEP_RESUME_EVENT,
-                distinct_id=f"team_{team_id}",
-                properties={"origin_key": origin_key, "status": status, "result": capped},
-            ),
-        )
+        produce_step_resume_event(team_id=team_id, origin_key=origin_key, status=status, result=capped)
     except Exception:
         logger.exception("workflow_step_resume_emit_failed", team_id=team_id, origin_key=origin_key, status=status)
         if raise_on_error:
@@ -108,4 +112,10 @@ def emit_workflow_step_resume(
 @skip_team_scope_audit
 def deliver_workflow_step_resume(team_id: int, origin_key: str, status: str, result: dict[str, Any]) -> None:
     """One wake over HTTP; a 409 (worker still holds the job) or transport error re-enqueues with backoff."""
+    if not WORKFLOWS_STEP_RESUME_JWT_PURPOSE.enabled():
+        # The emitter held the key and this worker does not, so the key is still rolling out. Minting
+        # would raise outside `autoretry_for` and drop the wake, so send it down the Kafka path instead.
+        logger.warning("workflow_step_resume_key_missing_on_worker", team_id=team_id, origin_key=origin_key)
+        produce_step_resume_event(team_id=team_id, origin_key=origin_key, status=status, result=result)
+        return
     resume_workflow_step(team_id=team_id, origin_key=origin_key, status=status, result=result).raise_for_status()
