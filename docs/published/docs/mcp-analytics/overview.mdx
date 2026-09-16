@@ -1,0 +1,26 @@
+---
+title: MCP analytics overview
+sidebar: Docs
+showTitle: true
+---
+
+The **Overview** tab is the landing page for MCP analytics once your server has enough traffic. It answers what people tried to do with your server, what stopped them, and what to fix next. Charts of call volume, error rate and latency over time live on the **Trends** tab.
+
+## Filters
+
+The date range, property filters and the internal and test users toggle apply to every card.
+
+The **People / Automations / Everything** toggle splits traffic by who made the call. It reads the `$mcp_scope_preset` property, which only PostHog's own hosted MCP server sets for its automated runs. A server you instrument with the SDK never sets it, so all of its traffic counts as people.
+
+## Cards
+
+- **Summary**: one sentence with the number of people, the clients they came from, the share of calls that succeeded, how many people were new, and how many of those hit an error on their first call. Below it, a prompt bar and suggested questions open PostHog AI with the question prefilled.
+- **What people are trying to do**: the intent themes for the range, each with the share of intents it covers and the share of its calls that succeeded. Themes need the `$mcp_intent` property on tool calls and a configured summarizer.
+- **Who is using it**: new people, the first-call failure rate, and calls with error rate by client and by model. Clients the SDK could not identify show as unresolved; calls without a model show as Unknown.
+- **What is failing, by people affected**: errored calls grouped by tool and error message, ranked by the number of sessions that hit them. Ids and long numbers in messages are replaced by a placeholder so one failure does not split into many groups. Each row says what the agent did on its next call: retried and succeeded, retried and failed again, switched tool, or ended the session. The create fix task action is the same one the tool report offers.
+- **What they asked for that you do not have**: how many sessions asked for a tool the server rejected, and the newest report agents sent through `get_more_tools`.
+- **Can you trust the numbers above?**: whether tool calls carry intent, whether sessions are being stitched, whether clients are identified, how many calls report a model, and whether missing-capability reporting is set up. Each item links to the setup step that fixes it.
+
+## When the Overview is the landing tab
+
+A project with little traffic lands on the **Activity** tab, which shows the live feed. Once the project passes the metrics threshold, the bare `/mcp-analytics` URL lands on the Overview. Deep links to any tab always open that tab.
