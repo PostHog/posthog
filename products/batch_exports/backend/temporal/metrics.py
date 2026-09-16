@@ -489,7 +489,10 @@ def get_sla_from_interval(
     """Get the SLA for a batch export based on its interval string."""
     match interval:
         case "hour":
-            return dt.timedelta(hours=1)
+            # Hourly batch exports get a wider SLA than their interval because enough runs
+            # take longer than an hour that a one hour SLA only produces alert noise. Set
+            # this back to one hour once hourly runs are fast enough to meet it.
+            return dt.timedelta(hours=3)
         case "day":
             return dt.timedelta(days=1)
         case "week":
