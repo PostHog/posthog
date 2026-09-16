@@ -368,7 +368,7 @@ describe('Experiments', { concurrent: false }, () => {
             const params = {
                 name: 'MDE Test Experiment',
                 feature_flag_key: flagKey,
-                parameters: {
+                running_time_calculation: {
                     minimum_detectable_effect: 15,
                 },
                 allow_unknown_events: true,
@@ -379,6 +379,7 @@ describe('Experiments', { concurrent: false }, () => {
             trackExperiment(experiment)
 
             expect(experiment.id).toBeTruthy()
+            expect(experiment.running_time_calculation?.minimum_detectable_effect).toBe(15)
         })
 
         it('should create an experiment with filter test accounts enabled', async () => {
@@ -609,7 +610,7 @@ describe('Experiments', { concurrent: false }, () => {
                         },
                     },
                 },
-                parameters: {
+                running_time_calculation: {
                     minimum_detectable_effect: 20,
                 },
                 exposure_criteria: {
