@@ -59,7 +59,8 @@ Ctrl+Space is left available for the operating system's input-source shortcut.
 Enable **Analyze as you type** to run both operations after a 300 ms typing pause.
 The checkbox is off by default. Enabling it also analyzes the current query; loading an example or inserting a suggestion schedules analysis too.
 Turning it off cancels scheduled analysis and in-flight requests. Manual buttons and shortcuts remain available.
-Empty queries and unfinished input-method composition do not trigger automatic requests.
+Empty queries trigger completion for SELECT and WITH, but not validation.
+Unfinished input-method composition does not trigger automatic requests.
 Completion requests use UTF-16 offsets, matching the textarea selection API.
 Validation requests explicitly select UTF-8 offsets; the page converts those byte ranges to UTF-16 for diagnostic selection.
 Raw responses and copied exchanges keep the service's original offsets.
