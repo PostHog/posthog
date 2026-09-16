@@ -45,6 +45,9 @@ class WebhookProvider(ABC):
     # receipt. This is the one documented exception to "consumers never decide the response": the
     # decision is the transport's, not a consumer's.
     forward_failure_status: int | None = None
+    # An incarnation that answers 404 to withhold the endpoint's existence sets this False, so the
+    # body does not name the reason the status code was chosen to hide.
+    explains_rejections: bool = True
 
     @abstractmethod
     def scheme(self) -> SignatureScheme:

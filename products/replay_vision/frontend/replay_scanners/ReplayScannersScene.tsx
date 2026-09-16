@@ -44,6 +44,7 @@ import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { CreateScannerButton } from './components/CreateScannerButton'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
+import { WatchFeedTab } from './components/WatchFeedTab'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
 import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
@@ -154,12 +155,17 @@ export function ReplayScannersScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const { showUsd } = useValues(visionQuotaLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const onScannersTab = ![ReplayScannerTab.Search, 'usage'].includes(searchParams.tab)
-    // Reading the flags proxy reports exposure; guard the read so it fires only where the
-    // experiment arms actually diverge (the scanners tab; the Usage tab reads it itself).
+    // On the test arm the tab row itself diverges, so the flag read (which reports exposure)
+    // is correct on every tab of this scene.
     const isRedesign =
-        onScannersTab &&
         homeRedesignVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]) === 'test'
+    // The feed tab exists only on the test arm and is its default; control users following a
+    // shared ?tab=watch link fall through to the scanners tab.
+    const knownTabs: string[] = isRedesign
+        ? ['watch', 'scanners', ReplayScannerTab.Search, 'usage']
+        : ['scanners', ReplayScannerTab.Search, 'usage']
+    const defaultTab = isRedesign ? 'watch' : 'scanners'
+    const activeTab = knownTabs.includes(searchParams.tab) ? searchParams.tab : defaultTab
 
     const columns: LemonTableColumns<ReplayScanner> = [
         {
@@ -293,20 +299,21 @@ export function ReplayScannersScene(): JSX.Element {
             )}
 
             <LemonTabs
-                activeKey={
-                    [ReplayScannerTab.Search, 'usage'].includes(searchParams.tab) ? searchParams.tab : 'scanners'
-                }
-                onChange={(tab) => push(urls.replayVision(), tab === 'scanners' ? {} : { tab })}
+                activeKey={activeTab}
+                onChange={(tab) => push(urls.replayVision(), tab === defaultTab ? {} : { tab })}
                 tabs={[
+                    ...(isRedesign ? [{ key: 'watch', label: 'What to watch', content: <></> }] : []),
                     { key: 'scanners', label: 'Scanners', content: <></> },
                     { key: ReplayScannerTab.Search, label: 'Search', content: <></> },
                     { key: 'usage', label: 'Usage', content: <></> },
                 ]}
             />
 
-            {searchParams.tab === ReplayScannerTab.Search ? (
+            {activeTab === 'watch' ? (
+                <WatchFeedTab />
+            ) : activeTab === ReplayScannerTab.Search ? (
                 <ObservationSearchTab scanner={null} />
-            ) : searchParams.tab === 'usage' ? (
+            ) : activeTab === 'usage' ? (
                 <VisionUsageTab />
             ) : (
                 <>

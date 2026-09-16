@@ -2276,9 +2276,49 @@ class ProjectProfilePayloadSerializer(serializers.Serializer):
     inventory = ProjectProfileInventorySerializer(help_text="Deterministic snapshot of what's true about the project.")
 
 
+class ProjectProfileSummarySerializer(serializers.Serializer):
+    """The compact envelope returned ahead of the verbose `payload`.
+
+    Both sections are repeated from `payload.inventory`. They lead the response because a
+    client that truncates a long tool result keeps the prefix, and these are the two things a
+    scout has to know before it does anything: whether its output can reach the inbox at all,
+    and what is already there. Read `summary` rather than digging for the same keys inside
+    `payload.inventory`, because it is the same data and it is guaranteed to be in the part you
+    received.
+    """
+
+    emit_eligibility = EmitEligibilitySerializer(
+        allow_null=True,
+        help_text=(
+            "The delivery gate: whether scout findings can reach the inbox for this team, with a "
+            "one-line `remediation` when they cannot. Check `can_emit` before investigating "
+            "anything, because when it is False every emit is silently dropped. Null only for a stored "
+            "profile built before this section existed, which the caller should treat as unknown "
+            "rather than as permission to emit."
+        ),
+    )
+    existing_inbox_reports = ExistingInboxReportsSerializer(
+        allow_null=True,
+        help_text=(
+            "Counts of reports already in the inbox, grouped by status, which is what a new finding "
+            "would be deduped against. Null for a stored profile built before this section existed."
+        ),
+    )
+
+
 class ProjectProfileQuerySerializer(serializers.Serializer):
     """Query parameters for the `current` action on `SignalProjectProfileViewSet`."""
 
+    summary_only = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, respond with the cache metadata and the `summary` envelope only, and omit "
+            "`payload` entirely. Use it when you need the emit gate and the inbox counts but not "
+            "the full inventory. The full profile runs to tens of kilobytes, which a client can "
+            "truncate. Costs nothing extra: the profile is read or built the same way either way."
+        ),
+    )
     force_refresh = serializers.BooleanField(
         required=False,
         default=False,
@@ -2300,8 +2340,18 @@ class ProjectProfileSerializer(serializers.Serializer):
     is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
     latest cached profile or a freshly-built one if the cache was stale or the caller passed
     `force_refresh=true`.
+
+    `summary` leads the response and `payload` trails it: the inventory runs to tens of
+    kilobytes, so a client that truncates a long tool result would otherwise cut off the emit
+    gate the scout has to read before doing any work.
     """
 
+    summary = ProjectProfileSummarySerializer(
+        help_text=(
+            "Compact envelope repeating the emit gate and the inbox report counts from "
+            "`payload.inventory`. Declared first so it survives a truncated response."
+        ),
+    )
     profile_id = serializers.CharField(help_text="UUID of the `SignalProjectProfile` row.")
     computed_at = serializers.CharField(help_text="ISO-8601 timestamp the profile was built.")
     expires_at = serializers.CharField(help_text="ISO-8601 timestamp after which the profile is considered stale.")
@@ -2309,7 +2359,8 @@ class ProjectProfileSerializer(serializers.Serializer):
         help_text="Schema version of the inventory builder. Bumps invalidate older cached rows.",
     )
     payload = ProjectProfilePayloadSerializer(
-        help_text="Structured profile content. v1 has `inventory` only.",
+        required=False,
+        help_text="Structured profile content. v1 has `inventory` only. Omitted when `summary_only=true`.",
     )
 
 
@@ -2550,11 +2601,23 @@ class SignalScoutConfigListQuerySerializer(serializers.Serializer):
         ),
     )
 
+    search = serializers.CharField(
+        required=False,
+        help_text=(
+            "Case-insensitive substring filter over a scout's display name and its skill name. A "
+            "scout matches on either, so a person who knows the label and a caller who knows the "
+            "identifier both find it. Omit for the whole fleet."
+        ),
+    )
+
     def validate_tags(self, value: str) -> list[str]:
         tags = sorted({slug for raw in value.split(",") if (slug := slugify_tag(raw))})
         if not tags:
             raise serializers.ValidationError("No usable tags in the filter once normalized to lowercase slugs.")
         return tags
+
+    def validate_search(self, value: str) -> str:
+        return value.strip()
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -3119,9 +3182,28 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
         return _validate_write_scopes(value)
 
 
+def _display_name_field() -> serializers.CharField:
+    """The scout's label, as written. Separate from the skill name, which stays its identity."""
+    return serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=True,
+        max_length=SignalScoutConfig.MAX_DISPLAY_NAME_LENGTH,
+        help_text=(
+            "Name shown wherever people identify this scout, written however you want it — spaces, "
+            "capitalization, and acronyms are kept as typed, and two scouts may share one. It does "
+            "not change the scout's skill name, which stays its identity, so renaming a scout keeps "
+            "its schedule, run history, notes, memory, and links. At most "
+            f"{SignalScoutConfig.MAX_DISPLAY_NAME_LENGTH} characters; blank means the scout has no "
+            "name of its own and is labelled from its skill name instead."
+        ),
+    )
+
+
 class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, serializers.ModelSerializer):
     """Editable display name, schedule, enablement, and emit posture for one scout config."""
 
+    display_name = _display_name_field()
     enabled = serializers.BooleanField(
         required=False,
         help_text=(
@@ -3341,6 +3423,7 @@ class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
     registered the row, the provided tunables are applied to it instead.
     """
 
+    display_name = _display_name_field()
     skill_name = serializers.CharField(
         max_length=200,
         help_text=(
@@ -3364,11 +3447,17 @@ class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
 class SignalScoutCreateSerializer(serializers.Serializer):
     """Create a runnable custom scout and its config in one atomic request."""
 
+    display_name = _display_name_field()
     name = serializers.CharField(
+        required=False,
         max_length=64,
         help_text=(
-            "Unique scout name, containing only lowercase letters, numbers, and hyphens. The "
-            "`signals-scout-` prefix is optional."
+            "Optional skill name for the scout — its permanent identifier, containing only "
+            "lowercase letters, numbers, and hyphens. Omit it and one is generated from "
+            "`display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when "
+            "that name is taken. Pass it to pick the identifier yourself, or to keep a client "
+            "written before display names working unchanged. The `signals-scout-` prefix is "
+            "optional."
         ),
     )
     description = serializers.CharField(
@@ -3408,6 +3497,14 @@ class SignalScoutCreateSerializer(serializers.Serializer):
         if error := reserved_scout_name_error(value):
             raise serializers.ValidationError(error)
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # One of the two has to say what the scout is called. `name` alone is the pre-display-name
+        # client; `display_name` alone is the modern one, and the slug is derived from it. The
+        # error names `display_name` because that is the field a person fills in.
+        if not attrs.get("name") and not attrs.get("display_name"):
+            raise serializers.ValidationError({"display_name": "Give the scout a name."})
+        return attrs
 
     def validate_body(self, value: str) -> str:
         return validate_skill_body_size(value)

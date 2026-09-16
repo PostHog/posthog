@@ -1,5 +1,6 @@
 ---
 name: signals-scout-ai-observability
+scout-display-name: AI observability
 description: >
   Signals scout for PostHog AI observability. Watches LLM traces for cost, latency, error,
   volume, and eval-performance regressions.
@@ -123,6 +124,7 @@ Telemetry & cost:
 - `query-llm-traces-list` — recent traces, filterable by user / model / cost / error / tool.
 - `query-llm-trace` — drill into a single trace (full request/response, tool calls, spans).
 - `get-llm-total-costs-for-project` — top-level cost surface.
+- `query-trends` — native trends, breakdowns, and comparisons over `$ai_*` events when its aggregations preserve the required calculation.
 - `execute-sql` — the workhorse for trends and breakdowns over `$ai_*` events (read `posthog:querying-posthog-data` for HogQL discipline).
 
 Evals & enrichment config:

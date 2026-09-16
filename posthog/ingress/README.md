@@ -146,7 +146,7 @@ That is the transport deciding the response, not a consumer.
 Add a `<provider>/` subpackage with a `provider.py` holding three things (see `github/` for the full shape, `vapi/` for a small one):
 
 - `SPECS` — one `ProviderSpec` per app, naming the event types the app is subscribed to. The registry validates consumers against these.
-- A `WebhookProvider` subclass — its `scheme()` (from `verify/`), its `deliveries()` (how to read event type, delivery id and context off the request), and any status codes its protocol fixes. The defaults are 403 on a bad signature, 500 when unconfigured, and 202 on success.
+- A `WebhookProvider` subclass — its `scheme()` (from `verify/`), its `deliveries()` (how to read event type, delivery id and context off the request), and any status codes its protocol fixes. The defaults are 403 on a bad signature, 500 when unconfigured, and 202 on success, with a short body naming the reason on the two rejections. An incarnation that answers 404 to withhold the endpoint's existence sets `explains_rejections = False` so the body stays empty as well.
 - A `build_<provider>_provider(...)` function returning that provider, which the URLconf hands to `build_webhook_view()`.
 
 Add the module to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, so the registry finds its specs and any core consumers.
@@ -167,7 +167,9 @@ Last, write `<provider>/README.md` with the fixed sections every provider README
 Two shapes that already exist and are worth copying rather than re-deriving:
 
 - **Several apps on one provider.** One incarnation can serve several apps, each with its own secret getter, its own subscribed event types, and its own consumer set. Consumers register against the app name. `github/` is the case.
-- **The DRF adapter path.** An endpoint that genuinely needs DRF's team scoping keeps its view, and the incarnation contributes a scheme only, declaring no spec, because nothing dispatches there. `customerio/` is the case. The view verifies through `posthog.auth.WebhookSignatureAuthentication`, which still carries its own HMAC-SHA256 computation rather than the scheme here; moving that class onto the schemes is its own PR.
+- **The DRF adapter path.** An endpoint that genuinely needs DRF's team scoping keeps its view, and the incarnation contributes a scheme only, declaring no spec, because nothing dispatches there. `customerio/` is the case. The view verifies through `posthog.auth.WebhookSignatureAuthentication`.
+  That base class computes its digest with `hmac_sha256_signature()` and compares with `signatures_match()` from `verify/schemes.py`, so the adapter path and the dispatched path share one implementation of HMAC-SHA256.
+  It backs three endpoints rather than Customer.io alone, because the tasks cross-region usage lookup and the AI observability cross-region spend lookup subclass it too, each with its own header names, signed-input format, and secret.
 
 ## Dedup
 
@@ -185,5 +187,6 @@ A provider that sends no delivery id skips dedup entirely, and its own README sa
 - **`posthog_ingress_consumer_duration_seconds{provider,consumer}`** — where a delivery's budget actually went.
 - **`posthog_ingress_ownership_total{provider,consumer,outcome}`** — what a consumer answered when asked which region owns the delivery: `local`, `elsewhere`, `undecided`, `failed`.
 - **`posthog_ingress_forwards_total{provider,app,outcome}`** — what the owning region answered a forwarded request: `forwarded`, `rejected`, `failed`.
+- **`ingress_delivery_invalid_payload`** — a warning log with the parser error text for a verified delivery whose body did not parse. The counter above cannot carry that text.
 
 A secret in a URL or header is the credential and never becomes a metric label.

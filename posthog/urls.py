@@ -150,7 +150,7 @@ urlpatterns = [
     opt_slash_path("api/revoke_leaked_key", leaked_key.PublicLeakedKeyReport.as_view()),
     path(
         "api/legal_documents/pandadoc",
-        csrf_exempt(legal_document_pandadoc_webhook),
+        legal_document_pandadoc_webhook,
         name="legal_document_pandadoc_webhook",
     ),
     path(

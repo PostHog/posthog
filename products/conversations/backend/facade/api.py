@@ -359,6 +359,7 @@ def _support_ticket_last_message(ticket: Ticket, comment: Comment | None) -> Con
             "slack_author_name",
             "teams_author_name",
             "teams_author_email",
+            "github_login",
             "email_from_name",
             "slack_author_email",
             "email_from",

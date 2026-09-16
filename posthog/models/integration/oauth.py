@@ -151,6 +151,27 @@ def _salesforce_instance_host(instance_url: str | None) -> str | None:
 # rather than the hardcoded login host (sandbox orgs reject the prod endpoints).
 SALESFORCE_OAUTH_KINDS = ("salesforce", "pardot")
 
+# Kinds that authorize through another kind's connected app. The provider allows only the callback
+# URL that the app was registered with, so a path built from the borrowing kind is rejected with
+# redirect_uri_mismatch before the user can grant anything.
+OAUTH_REDIRECT_URI_ALIASES: dict[str, str] = {"pardot": "salesforce"}
+
+
+def resolve_aliased_oauth_kind(path_kind: str, state: str) -> str:
+    """Return the kind a callback belongs to, given the kind its callback path names.
+
+    An aliased kind returns on the app owner's path, so the path segment names the wrong
+    integration and `authorize_url` puts the real kind in the state. Only a state kind that the
+    alias table maps back to `path_kind` is promoted, so a caller cannot name an unrelated
+    integration through this — and a caller that wants the aliased kind can already ask for it
+    directly.
+    """
+    state_kind = parse_qs(state).get("kind", [""])[0]
+    if state_kind and OAUTH_REDIRECT_URI_ALIASES.get(state_kind) == path_kind:
+        return state_kind
+    return path_kind
+
+
 # PostHog connect. Unlike every other OAuth kind — which points at a fixed third-party provider —
 # the `posthog` kind points at *another PostHog project*, in a region chosen by the user at connect
 # time. That region may differ from the connecting project's or be the same one (same-region is just
@@ -767,9 +788,10 @@ class OauthIntegration:
     @classmethod
     def redirect_uri(cls, kind: str) -> str:
         # The redirect uri is fixed but should always be https and include the "next" parameter for the frontend to redirect
+        path_kind = OAUTH_REDIRECT_URI_ALIASES.get(kind, kind)
         if settings.DEBUG and settings.NGROK_URL:
-            return f"{settings.NGROK_URL}/integrations/{kind}/callback"
-        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
+            return f"{settings.NGROK_URL}/integrations/{path_kind}/callback"
+        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{path_kind}/callback"
 
     @classmethod
     def authorize_url(
@@ -790,6 +812,10 @@ class OauthIntegration:
         state_payload: dict[str, str] = {"next": next, "token": token}
         if team_id is not None:
             state_payload["team_id"] = str(team_id)
+        if kind in OAUTH_REDIRECT_URI_ALIASES:
+            # The callback lands on the aliased kind's path, so its URL segment names the wrong
+            # integration. The callback handler reads the real kind from here instead.
+            state_payload["kind"] = kind
 
         scope = oauth_config.scope
         if kind == "posthog":
@@ -952,7 +978,7 @@ class OauthIntegration:
 
         if res.status_code != 200 or not access_token:
             # Hack to try getting sandbox auth token instead of their salesforce production account
-            if kind == "salesforce":
+            if kind in SALESFORCE_OAUTH_KINDS:
                 oauth_config = cls.oauth_config_for_kind("salesforce-sandbox")
                 res = requests.post(
                     oauth_config.token_url,
@@ -965,6 +991,8 @@ class OauthIntegration:
                         **({"code_verifier": code_verifier} if code_verifier else {}),
                     },
                     timeout=10,
+                    # Same guard as the first exchange: a 30x must not resend the secret and code.
+                    allow_redirects=False,
                 )
 
                 try:
@@ -973,7 +1001,15 @@ class OauthIntegration:
                     config = {}
 
                 if res.status_code != 200 or not config.get("access_token"):
-                    logger.error(f"Oauth error for {kind}", response=res.text)
+                    logger.error(
+                        f"Oauth error for {kind}",
+                        response=res.text,
+                        status_code=res.status_code,
+                        client_id=oauth_config.client_id,
+                        redirect_uri=OauthIntegration.redirect_uri(kind),
+                        code_prefix=str(params.get("code", ""))[:12],
+                        exchange_host="sandbox",
+                    )
                     _raise_oauth_validation_error(kind, res)
             else:
                 # Include request context so on-call can compare what we sent against what

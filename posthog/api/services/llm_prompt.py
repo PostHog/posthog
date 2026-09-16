@@ -18,6 +18,7 @@ from products.ai_observability.backend.models.llm_prompt import (
     LLMPromptLabel,
     annotate_llm_prompt_version_history_metadata,
 )
+from products.ai_observability.backend.prompt_references import record_prompt_references, validate_prompt_references
 
 SYNC_ARCHIVE_VERSION_INVALIDATION_LIMIT = 100
 MAX_PROMPT_VERSION = 2000
@@ -210,6 +211,8 @@ def publish_prompt_version(
             # Config-only publish: carry the prompt content forward unchanged.
             resolved_payload = current_latest.prompt
 
+        validate_prompt_references(team.id, prompt_name=prompt_name, prompt_payload=resolved_payload)
+
         # `config_provided` distinguishes "not sent" (carry forward) from an explicit
         # null (clear) — text-only publishes must not silently drop the config.
         resolved_config = config if config_provided else current_latest.config
@@ -225,6 +228,7 @@ def publish_prompt_version(
             created_by=user,
             version_description=version_description,
         )
+        record_prompt_references(published_prompt)
 
         changes = [
             Change(
@@ -291,6 +295,11 @@ def duplicate_prompt(
         if LLMPrompt.objects.filter(team=team, name=new_name, deleted=False).exists():
             raise LLMPromptDuplicateNameConflictError()
 
+        # The source's references were valid when it was published, but a
+        # referenced prompt may have changed since; the copy must not start
+        # from content that can no longer resolve.
+        validate_prompt_references(team.id, prompt_name=new_name, prompt_payload=source_latest.prompt)
+
         try:
             new_prompt = LLMPrompt.objects.create(
                 team=team,
@@ -305,6 +314,7 @@ def duplicate_prompt(
             if "unique_llm_prompt_latest_per_team" in str(err) or "unique_llm_prompt_version_per_team" in str(err):
                 raise LLMPromptDuplicateNameConflictError() from err
             raise
+        record_prompt_references(new_prompt)
 
         # One entry per prompt history: the copy records where it came from, the
         # source records where it went.

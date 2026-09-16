@@ -43,11 +43,29 @@ BUILDKITE_ENDPOINTS: dict[str, BuildkiteEndpointConfig] = {
         partition_key="created_at",
         incremental_fields=[],
     ),
+    "organization_members": BuildkiteEndpointConfig(
+        name="organization_members",
+        path="/v2/organizations/{organization}/members",
+        # A member row carries no timestamp of any kind, so there is nothing stable to partition on.
+        incremental_fields=[],
+    ),
     "pipelines": BuildkiteEndpointConfig(
         name="pipelines",
         path="/v2/organizations/{organization}/pipelines",
         partition_key="created_at",
         incremental_fields=[],
+    ),
+    "pipeline_schedules": BuildkiteEndpointConfig(
+        name="pipeline_schedules",
+        path="/v2/organizations/{organization}/pipelines/{pipeline_slug}/schedules",
+        # A schedule is only addressable through its pipeline, so the pipeline has to reach the row
+        # for the key to stay unique once every pipeline's schedules land in one table.
+        primary_keys=["pipeline_slug", "id"],
+        partition_key="created_at",
+        # Buildkite returns a pipeline's schedules newest-created first.
+        sort_mode="desc",
+        incremental_fields=[],
+        probe_path="/v2/organizations/{organization}/pipelines",
     ),
     "builds": BuildkiteEndpointConfig(
         name="builds",
@@ -103,11 +121,32 @@ BUILDKITE_ENDPOINTS: dict[str, BuildkiteEndpointConfig] = {
         partition_key="created_at",
         incremental_fields=[],
     ),
+    "cluster_queues": BuildkiteEndpointConfig(
+        name="cluster_queues",
+        path="/v2/organizations/{organization}/clusters/{cluster_id}/queues",
+        # A queue key is only unique within its cluster, and the row carries the cluster as a URL
+        # rather than an id, so the parent cluster id is injected and keyed on.
+        primary_keys=["cluster_id", "id"],
+        partition_key="created_at",
+        incremental_fields=[],
+        probe_path="/v2/organizations/{organization}/clusters",
+    ),
     "teams": BuildkiteEndpointConfig(
         name="teams",
         path="/v2/organizations/{organization}/teams",
         partition_key="created_at",
         incremental_fields=[],
+    ),
+    "team_pipelines": BuildkiteEndpointConfig(
+        name="team_pipelines",
+        path="/v2/organizations/{organization}/teams/{team_id}/pipelines",
+        # The rows are team-to-pipeline links, not pipelines, so they carry no id of their own.
+        # The pair of endpoints they join is the key.
+        primary_keys=["team_id", "pipeline_id"],
+        # `created_at` is when the pipeline was added to the team, which is set once.
+        partition_key="created_at",
+        incremental_fields=[],
+        probe_path="/v2/organizations/{organization}/teams",
     ),
     "test_suites": BuildkiteEndpointConfig(
         name="test_suites",

@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 from django.core.cache import cache
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
+import structlog.testing
 from parameterized import parameterized
 from requests import RequestException
 
@@ -81,17 +82,24 @@ class TestWebhookView(SimpleTestCase):
             response = self._github_view()(request)
 
         self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.content, b"Invalid signature")
         self.dispatcher.dispatch.assert_not_called()
 
-    def test_an_unparseable_body_is_400(self) -> None:
+    def test_an_unparseable_body_is_400_and_logs_the_parser_error(self) -> None:
         body = b"{not json"
         request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "push"})
 
         with patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET):
-            response = self._github_view()(request)
+            with structlog.testing.capture_logs() as logs:
+                response = self._github_view()(request)
 
         self.assertEqual(response.status_code, 400)
         self.dispatcher.dispatch.assert_not_called()
+        warning = next(log for log in logs if log["event"] == "ingress_delivery_invalid_payload")
+        self.assertEqual(warning["log_level"], "warning")
+        self.assertEqual(warning["provider"], "github")
+        self.assertEqual(warning["app"], "posthog")
+        self.assertIn("Expecting property name", warning["error"])
 
     def test_a_verified_delivery_is_202_whatever_the_consumers_did(self) -> None:
         body = json.dumps({"action": "opened", "installation": {"id": 42}}).encode()
@@ -138,6 +146,29 @@ class TestWebhookView(SimpleTestCase):
             response = build_webhook_view(build_github_provider("posthog"))(request)
 
         self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.content, b"Webhook not configured")
+
+    @parameterized.expand(
+        [
+            ("a_bad_signature", SECRET),
+            ("a_missing_secret", ""),
+        ]
+    )
+    def test_a_provider_that_withholds_its_existence_answers_an_empty_body(self, _name: str, secret: str) -> None:
+        body = b'[{"event":"document_state_changed"}]'
+        request = self.factory.post(
+            "/webhooks/pandadoc/",
+            data=body,
+            content_type="application/json",
+            headers={"X-PandaDoc-Signature": "0" * 64},
+        )
+
+        with override_settings(PANDADOC_WEBHOOK_SECRET=secret):
+            response = build_webhook_view(build_pandadoc_provider())(request)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.content, b"")
+        self.dispatcher.dispatch.assert_not_called()
 
     def test_slack_url_verification_echoes_the_challenge_before_dispatch(self) -> None:
         body = json.dumps({"type": "url_verification", "challenge": "abc123"}).encode()
