@@ -1,14 +1,3 @@
-# PostHog `exec` covers
-
-business-knowledge-documents|dashboard|execute-sql|feature-flag|query
-
-# Tools
-
-exec – run any PostHog command; its `command` description has the syntax.
-render-ui – show a tool result as an interactive app.
-
-Prioritize skills over tools.
-
 ### Business knowledge first
 
 When `business-knowledge-documents-search` is available, call it before your first answer to every user request. Use a short, broad query based on the user's topic. This applies even when the request looks simple or another source appears to answer it.

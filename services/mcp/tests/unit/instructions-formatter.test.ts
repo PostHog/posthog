@@ -17,6 +17,7 @@ const realisticTools = [
     { name: 'feature-flag-create', category: 'Feature flags' },
     { name: 'feature-flag-get-all', category: 'Feature flags' },
     { name: 'execute-sql', category: 'SQL' },
+    { name: 'business-knowledge-documents-search', category: 'Business knowledge' },
     { name: 'query-trends', category: 'Query wrappers' },
     { name: 'query-funnel', category: 'Query wrappers' },
 ]
@@ -60,6 +61,8 @@ describe('InstructionsFormatter', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildToolsInstructions(fullCtx)
             expect(result).toContain('### Basic functionality')
+            expect(result).toContain('### Business knowledge first')
+            expect(result).toContain('before your first answer to every user request')
             expect(result).toContain('### Retrieving data')
             expect(result).toContain('### Examples')
         })
@@ -82,6 +85,13 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('{metadata}')
         })
 
+        it('omits business knowledge guidance when search is unavailable', () => {
+            const formatter = new InstructionsFormatter()
+            expect(formatter.buildToolsInstructions({ guidelines: 'rules' })).not.toContain(
+                '### Business knowledge first'
+            )
+        })
+
         it('always includes the agent-feedback section', () => {
             const formatter = new InstructionsFormatter()
             expect(formatter.buildToolsInstructions(fullCtx)).toContain('### Sharing feedback on PostHog')
@@ -97,6 +107,7 @@ describe('InstructionsFormatter', () => {
             const result = formatter.buildExecInstructions(fullCtx)
             // query-* tools surface as the single `query` domain, not a separate catalog line
             expect(result).toContain('dashboard|execute-sql|feature-flag|query')
+            expect(result).toContain('### Business knowledge first')
             expect(result).not.toContain('query-*:')
             // Env context is not here — it rides the exec command description, which has no
             // truncation cap, leaving this payload's whole budget to the domain index.
@@ -164,6 +175,17 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('Run `info <tool_name>` once if its schema is not in context.')
             expect(result).not.toContain('### Basic functionality')
             expect(result).not.toContain('### Examples')
+            expect(result).not.toContain('### Business knowledge first')
+        })
+
+        it('leads with business knowledge guidance when search is available', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildExecToolDescription({ businessKnowledgeEnabled: true })
+
+            expect(result).toContain('### Business knowledge first')
+            expect(result.indexOf('### Business knowledge first')).toBeLessThan(
+                result.indexOf('Using the `posthog` tool')
+            )
         })
     })
 
@@ -173,6 +195,7 @@ describe('InstructionsFormatter', () => {
             for (const stripEnvContext of [true, false]) {
                 const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
                 expect(result).toContain('SCHEMA DRILL-DOWN RULE')
+                expect(result).toContain('### Business knowledge first')
                 expect(result).toContain('### Basic functionality')
                 expect(result).toContain('### Examples')
             }
