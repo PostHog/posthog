@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  classicAvailable: false,
   featureFlags: new Map<string, boolean>(),
   fullPath: "/",
   /** The settled location, so a pick can tell "where I was" from "where I am". */
@@ -16,6 +17,10 @@ const mocks = vi.hoisted(() => ({
   navigateToInbox: vi.fn(),
   openSettings: vi.fn(),
   openBrowserTab: vi.fn(),
+}));
+
+vi.mock("@posthog/di/react", () => ({
+  useServiceOptional: () => (mocks.classicAvailable ? () => null : null),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -161,6 +166,7 @@ function rememberVisits(lastByPane: Record<string, RailVisit>): void {
 describe("NavRail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.classicAvailable = false;
     mocks.featureFlags.clear();
     mocks.featureFlags.set(DESKTOP_HOME_FLAG, true);
     mocks.fullPath = "/";
@@ -172,6 +178,22 @@ describe("NavRail", () => {
     rememberVisits({});
     clearKeepListForRoute();
   });
+
+  it.each([false, true])(
+    "shows Classic only when the host supports it: %s",
+    (available) => {
+      mocks.classicAvailable = available;
+      render(<NavRail />);
+      const classic = screen.queryByRole("button", { name: "Classic" });
+      if (available) {
+        expect(classic).toBeInTheDocument();
+        if (classic) fireEvent.click(classic);
+        expect(mocks.navigate).toHaveBeenCalledWith({ to: "/classic" });
+      } else {
+        expect(classic).not.toBeInTheDocument();
+      }
+    },
+  );
 
   // The rail is the one column every destination keeps, so the create button
   // is always reachable from it.

@@ -1,4 +1,5 @@
 import { BellIcon, GearSix, MagnifyingGlass } from "@phosphor-icons/react";
+import { useServiceOptional } from "@posthog/di/react";
 import {
   Button,
   cn,
@@ -31,6 +32,10 @@ import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import {
+  CLASSIC_FRAME_COMPONENT,
+  type ClassicFrameComponent,
+} from "@posthog/ui/features/classic/classicFrameHost";
 import {
   formatHotkey,
   SHORTCUTS,
@@ -199,7 +204,11 @@ function NavRailImpl() {
 
   const savedSearchesRailEnabled = useFeatureFlag(SAVED_SEARCHES_RAIL_FLAG);
   const hasSavedSearches = useProjectTaskFeeds().length > 0;
+  const classicFrame = useServiceOptional<ClassicFrameComponent>(
+    CLASSIC_FRAME_COMPONENT,
+  );
   const destinations = visibleRailDestinations({
+    classic: Boolean(classicFrame),
     home: homeEnabled,
     inbox: inboxAvailable,
     loops: loopsEnabled,

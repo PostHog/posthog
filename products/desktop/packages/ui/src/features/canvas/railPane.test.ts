@@ -38,6 +38,7 @@ describe("railPaneForPath", () => {
     ["/reports/$reportId", "reports"],
     ["/inbox/pulls/$reportId", "inbox"],
     ["/loops", "loops"],
+    ["/classic", "classic"],
     ["/loops/$loopId/edit", "loops"],
     ["/feeds/", "feeds"],
     ["/feeds/$feedId", "feeds"],

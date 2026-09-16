@@ -23,6 +23,7 @@ export type TabAppView = Extract<
   | "report"
   | "agents"
   | "loops"
+  | "classic"
   | "archived"
   | "command-center"
   | "context"
@@ -44,6 +45,7 @@ export const TAB_APP_VIEW_META: Record<
   report: { label: "Report", icon: <FileTextIcon size={14} /> },
   agents: { label: "Agents", icon: <RobotIcon size={14} /> },
   loops: { label: "Loops", icon: <RepeatIcon size={14} /> },
+  classic: { label: "Classic", icon: <SquaresFourIcon size={14} /> },
   archived: { label: "Archived", icon: <ArchiveIcon size={14} /> },
   skills: { label: "Skills", icon: <BrainIcon size={14} /> },
   "mcp-servers": {

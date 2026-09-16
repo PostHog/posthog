@@ -21,6 +21,7 @@ export type NavRailPane =
   | "command-center"
   | "loops"
   | "context"
+  | "classic"
   | "feeds";
 
 /**
@@ -40,6 +41,7 @@ export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
   "command-center": "/command-center",
   loops: "/loops",
   context: "/spaces/context",
+  classic: "/classic",
   feeds: "/feeds",
 };
 
@@ -54,6 +56,7 @@ const CLAIMED: readonly NavRailPane[] = [
   "command-center",
   "loops",
   "context",
+  "classic",
   "feeds",
 ];
 
@@ -99,6 +102,7 @@ export function isRestorableVisitHref(
 }
 
 const PANES_WITH_SIDEBAR = new Set<NavRailPane>([
+  "classic",
   "spaces",
   "activity",
   "canvases",

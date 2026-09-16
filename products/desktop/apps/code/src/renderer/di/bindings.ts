@@ -175,6 +175,10 @@ import {
   type BrowserTabsClient,
 } from "@posthog/ui/features/browser-tabs/browserTabsClient";
 import {
+  CLASSIC_FRAME_COMPONENT,
+  type ClassicFrameComponent,
+} from "@posthog/ui/features/classic/classicFrameHost";
+import {
   REVIEW_HOST,
   type ReviewHost,
 } from "@posthog/ui/features/code-review/reviewHost";
@@ -311,6 +315,7 @@ export interface RendererBindings {
   [DIFF_WORKER_FACTORY]: DiffWorkerFactory;
   [REVIEW_HOST]: ReviewHost;
   [ARTIFACT_HTML_FRAME_COMPONENT]: ArtifactHtmlFrameComponent;
+  [CLASSIC_FRAME_COMPONENT]: ClassicFrameComponent;
   [MCP_TOOL_BLOCK_COMPONENT]: McpToolBlockComponent;
   [MCP_APP_HOST_COMPONENT]: McpAppHostComponent;
   [MCP_SANDBOX_PROXY_URL]: McpSandboxProxyUrlProvider;

@@ -1,11 +1,22 @@
 import path from "node:path";
-import type { BrowserWindow, WebContents, WebPreferences } from "electron";
+import {
+  type BrowserWindow,
+  type Session,
+  session,
+  type WebContents,
+  type WebPreferences,
+} from "electron";
 import {
   ARTIFACT_PREVIEW_ARG,
   ARTIFACT_PREVIEW_DATA_URL_PREFIX,
   ARTIFACT_PREVIEW_PARTITION_PREFIX,
 } from "../../shared/constants";
 import { logger } from "../utils/logger";
+import {
+  hardenClassicPreferences,
+  isAllowedClassicView,
+  lockDownClassicView,
+} from "./electron-classic-view";
 
 const log = logger.scope("artifact-preview-webview");
 
@@ -85,8 +96,14 @@ export function lockDownArtifactPreview(guest: WebContents): void {
 
 export function setupArtifactPreviewWebviews(window: BrowserWindow): void {
   const preloadPath = path.join(__dirname, "preload.js");
+  const classicOrigins = new WeakMap<Session, string>();
 
   window.webContents.on("will-attach-webview", (event, preferences, params) => {
+    if (isAllowedClassicView(params.src, params.partition)) {
+      hardenClassicPreferences(preferences);
+      classicOrigins.set(session.fromPartition(params.partition), params.src);
+      return;
+    }
     if (!isAllowedArtifactPreview(params.src, params.partition)) {
       event.preventDefault();
       log.warn("Blocked an unsupported webview attachment");
@@ -96,6 +113,11 @@ export function setupArtifactPreviewWebviews(window: BrowserWindow): void {
   });
 
   window.webContents.on("did-attach-webview", (_event, guest) => {
+    const origin = classicOrigins.get(guest.session);
+    if (origin) {
+      lockDownClassicView(guest, origin);
+      return;
+    }
     lockDownArtifactPreview(guest);
   });
 }

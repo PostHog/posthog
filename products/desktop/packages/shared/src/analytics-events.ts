@@ -282,6 +282,7 @@ export interface CommandMenuActionProperties {
 }
 
 export type SidebarNavItem =
+  | "classic"
   | "home"
   | "spaces"
   | "new_task"

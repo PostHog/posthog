@@ -1,4 +1,9 @@
-import type { BrowserWindow, WebContents, WebPreferences } from "electron";
+import {
+  type BrowserWindow,
+  session,
+  type WebContents,
+  type WebPreferences,
+} from "electron";
 import { describe, expect, it, vi } from "vitest";
 import {
   ARTIFACT_PREVIEW_ARG,
@@ -10,8 +15,75 @@ import {
   lockDownArtifactPreview,
   setupArtifactPreviewWebviews,
 } from "./electron-artifact-preview";
+import {
+  hardenClassicPreferences,
+  isAllowedClassicView,
+  isClassicNavigation,
+} from "./electron-classic-view";
+
+vi.mock("electron", () => ({
+  session: { fromPartition: vi.fn().mockReturnValue({}) },
+}));
 
 describe("artifact preview webviews", () => {
+  it.each([
+    [
+      "https://us.posthog.com/project/1/dashboards",
+      "posthog-classic-account",
+      true,
+    ],
+    [
+      "https://eu.posthog.com/project/1/dashboards",
+      "posthog-classic-account",
+      true,
+    ],
+    ["https://us.posthog.com/project/1/dashboards", "persist:main", false],
+    [
+      "https://us.posthog.com.example.com/project/1/dashboards",
+      "posthog-classic-account",
+      false,
+    ],
+    [
+      "https://user:secret@us.posthog.com/project/1/dashboards",
+      "posthog-classic-account",
+      false,
+    ],
+    ["file:///project/1/dashboards", "posthog-classic-account", false],
+    ["https://us.posthog.com/project/1/max", "posthog-classic-account", false],
+  ])("checks Classic attachment %s in %s", (src, partition, allowed) => {
+    expect(isAllowedClassicView(src, partition)).toBe(allowed);
+  });
+
+  it.each([
+    ["https://us.posthog.com/login", true],
+    ["https://us.posthog.com/project/1/dashboards/2", true],
+    ["https://us.posthog.com/project/1/insights/abc", true],
+    ["https://us.posthog.com/project/1/max", false],
+    ["https://eu.posthog.com/project/1/dashboards", false],
+    ["https://example.com", false],
+    ["javascript:alert(1)", false],
+  ])("checks Classic navigation to %s", (url, allowed) => {
+    expect(isClassicNavigation(url, "https://us.posthog.com")).toBe(allowed);
+  });
+
+  it("removes the desktop preload from Classic guests", () => {
+    const preferences: WebPreferences = {
+      preload: "/app/preload.js",
+      nodeIntegration: true,
+      sandbox: false,
+      webSecurity: false,
+    };
+    hardenClassicPreferences(preferences);
+    expect(preferences).toMatchObject({
+      nodeIntegration: false,
+      nodeIntegrationInWorker: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      webviewTag: false,
+    });
+    expect(preferences.preload).toBeUndefined();
+  });
   it.each([
     ["https://example.com/report.html", "artifact-preview-one"],
     [`${ARTIFACT_PREVIEW_DATA_URL_PREFIX}<h1>report</h1>`, "persist:main"],
@@ -198,5 +270,26 @@ describe("artifact preview webviews", () => {
     } as unknown as WebContents;
     handlers.get("did-attach-webview")?.({} as never, guest as never);
     expect(guest.setWindowOpenHandler).toHaveBeenCalledOnce();
+    const classicPreferences: WebPreferences = { preload: "/app/preload.js" };
+    const preventClassic = vi.fn();
+    handlers.get("will-attach-webview")?.(
+      { preventDefault: preventClassic } as never,
+      classicPreferences as never,
+      {
+        src: "https://us.posthog.com/project/1/dashboards",
+        partition: "posthog-classic-account",
+      } as never,
+    );
+    expect(preventClassic).not.toHaveBeenCalled();
+    expect(classicPreferences.preload).toBeUndefined();
+    const classicSession = session.fromPartition("posthog-classic-account");
+    Object.assign(classicSession, {
+      setPermissionCheckHandler: vi.fn(),
+      setPermissionRequestHandler: vi.fn(),
+      enableNetworkEmulation: vi.fn(),
+    });
+    const classicGuest = { ...guest, session: classicSession } as WebContents;
+    handlers.get("did-attach-webview")?.({} as never, classicGuest as never);
+    expect(classicSession.enableNetworkEmulation).not.toHaveBeenCalled();
   });
 });

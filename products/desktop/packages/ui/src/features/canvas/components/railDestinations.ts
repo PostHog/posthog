@@ -7,6 +7,7 @@ import {
   Lightning,
   ListMagnifyingGlassIcon,
   ShapesIcon,
+  SquaresFourIcon,
 } from "@phosphor-icons/react";
 import type { RailVisit } from "@posthog/shared";
 import type { SidebarNavItem } from "@posthog/shared/analytics-events";
@@ -72,6 +73,7 @@ export interface RailDestination {
 }
 
 export interface RailFlags {
+  classic?: boolean;
   home: boolean;
   inbox: boolean;
   loops: boolean;
@@ -252,6 +254,17 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     href: "/spaces/context",
     onPick: navigateToSpacesContext,
     enabled: (flags) => flags.context,
+  },
+  {
+    pane: "classic",
+    label: "Classic",
+    analyticsId: "classic",
+    Icon: SquaresFourIcon,
+    href: "/classic",
+    onPick: () => {
+      void getRouterOrNull()?.navigate({ to: "/classic" });
+    },
+    enabled: (flags) => flags.classic === true,
   },
 ];
 

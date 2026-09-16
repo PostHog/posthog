@@ -13,6 +13,7 @@ import { Route as UsageRouteImport } from './routes/usage'
 import { Route as PrRouteImport } from './routes/pr'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as ContextRouteImport } from './routes/context'
+import { Route as ClassicRouteImport } from './routes/classic'
 import { Route as ArchivedRouteImport } from './routes/archived'
 import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as WebsiteIndexRouteImport } from './routes/website.index'
@@ -87,6 +88,11 @@ const InboxRoute = InboxRouteImport.update({
 const ContextRoute = ContextRouteImport.update({
   id: '/context',
   path: '/context',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClassicRoute = ClassicRouteImport.update({
+  id: '/classic',
+  path: '/classic',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ArchivedRoute = ArchivedRouteImport.update({
@@ -377,6 +383,7 @@ const ShellSpacesChannelIdDashboardsDashboardIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
   '/archived': typeof ArchivedRoute
+  '/classic': typeof ClassicRoute
   '/context': typeof ContextRoute
   '/inbox': typeof InboxRouteWithChildren
   '/pr': typeof PrRoute
@@ -436,6 +443,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/archived': typeof ArchivedRoute
+  '/classic': typeof ClassicRoute
   '/context': typeof ContextRoute
   '/pr': typeof PrRoute
   '/usage': typeof UsageRoute
@@ -492,6 +500,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_shell': typeof ShellRouteWithChildren
   '/archived': typeof ArchivedRoute
+  '/classic': typeof ClassicRoute
   '/context': typeof ContextRoute
   '/inbox': typeof InboxRouteWithChildren
   '/pr': typeof PrRoute
@@ -555,6 +564,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/archived'
+    | '/classic'
     | '/context'
     | '/inbox'
     | '/pr'
@@ -614,6 +624,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/archived'
+    | '/classic'
     | '/context'
     | '/pr'
     | '/usage'
@@ -669,6 +680,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_shell'
     | '/archived'
+    | '/classic'
     | '/context'
     | '/inbox'
     | '/pr'
@@ -731,6 +743,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   ShellRoute: typeof ShellRouteWithChildren
   ArchivedRoute: typeof ArchivedRoute
+  ClassicRoute: typeof ClassicRoute
   ContextRoute: typeof ContextRoute
   InboxRoute: typeof InboxRouteWithChildren
   PrRoute: typeof PrRoute
@@ -777,6 +790,13 @@ declare module '@tanstack/react-router' {
       path: '/context'
       fullPath: '/context'
       preLoaderRoute: typeof ContextRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/classic': {
+      id: '/classic'
+      path: '/classic'
+      fullPath: '/classic'
+      preLoaderRoute: typeof ClassicRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/archived': {
@@ -1320,6 +1340,7 @@ const LoopsLoopIdRouteWithChildren = LoopsLoopIdRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   ShellRoute: ShellRouteWithChildren,
   ArchivedRoute: ArchivedRoute,
+  ClassicRoute: ClassicRoute,
   ContextRoute: ContextRoute,
   InboxRoute: InboxRouteWithChildren,
   PrRoute: PrRoute,
