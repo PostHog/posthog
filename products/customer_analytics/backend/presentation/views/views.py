@@ -1746,7 +1746,7 @@ class AccountViewSet(
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.ResourceForbiddenError:
-            raise PermissionDenied()
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountSerializer(instance=account).data)
 
     @extend_schema(

@@ -227,6 +227,17 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         expect(mockAccountsByExternalIdRetrieve).not.toHaveBeenCalled()
     })
 
+    it('shows a load error when the current project is unavailable', async () => {
+        logic = customerAnalyticsAccountSceneLogic({ accountId: ACCOUNT_ID, projectId: null })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.accountLoading).toBe(false)
+        expect(logic.values.accountLoadError).toEqual(new Error('Could not determine the current project or account.'))
+        expect(logic.values.isAccountMissing).toBe(false)
+        expect(mockAccountsRetrieve).not.toHaveBeenCalled()
+    })
+
     it('reports unexpected load failures', async () => {
         const failure = new ApiError('Server error', 500)
         const captureException = jest.spyOn(posthog, 'captureException')

@@ -279,8 +279,12 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             try {
                 const projectId = props.projectId
                 const identifier = props.externalId ?? props.accountId
-                if (!projectId || props.invalidRoute || !identifier) {
+                if (props.invalidRoute) {
                     actions.loadAccountFailure(null)
+                    return
+                }
+                if (!projectId || !identifier) {
+                    actions.loadAccountFailure(new Error('Could not determine the current project or account.'))
                     return
                 }
                 const account = props.externalId

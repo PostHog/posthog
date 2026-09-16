@@ -41,7 +41,7 @@ It does not fall back to the account UUID, even when the external ID is a UUID s
 
 The endpoint returns the same account response as UUID retrieval, including tags and notebooks.
 It uses the same access controls and requires `account:read` for API credentials.
-Invalid input returns 400, a missing account returns 404, and object-level access denial follows the existing 403 behavior.
+Invalid input returns 400. Missing accounts and object-level access denial both return 404 so callers cannot distinguish restricted external IDs.
 
 ## Scene behavior
 

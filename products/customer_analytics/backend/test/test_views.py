@@ -1754,7 +1754,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_account_by_external_id_403_when_object_access_denied(self) -> None:
+    def test_account_by_external_id_404_when_object_access_denied(self) -> None:
         AccessControl.objects.create(
             team=self.team,
             resource="account",
@@ -1769,7 +1769,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
 
         response = self.client.get(f"{self.accounts_url}by_external_id/?external_id={self.account.external_id}")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class TestCustomPropertyDefinitionViewSet(APIBaseTest):
