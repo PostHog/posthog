@@ -42,6 +42,9 @@ from posthog.permissions import TimeSensitiveActionPermission, extract_organizat
 from posthog.utils import posthoganalytics
 
 from products.access_control.backend.facade.subject_access_control import get_project_scoped_visible_membership_ids
+from products.access_control.backend.presentation.access_control_organization_members import (
+    OrganizationMemberProjectAccessViewSetMixin,
+)
 
 tracer = trace.get_tracer(__name__)
 
@@ -181,6 +184,7 @@ class OrganizationMemberGithubLoginSerializer(serializers.Serializer):
 )
 class OrganizationMemberViewSet(
     TeamAndOrgViewSetMixin,
+    OrganizationMemberProjectAccessViewSetMixin,
     mixins.DestroyModelMixin,
     mixins.UpdateModelMixin,
     mixins.ListModelMixin,

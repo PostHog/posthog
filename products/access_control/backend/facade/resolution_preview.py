@@ -36,6 +36,7 @@ from products.access_control.backend.facade.user_access_control import (
     RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     ResolvedAccess,
     UserAccessControl,
+    _AccessControl,
     model_to_resource,
     ordered_access_levels,
 )
@@ -95,13 +96,8 @@ class _LoadedObject:
     short_id: Optional[str]
 
 
-def _deciding_subject_name(
-    subject: SubjectAccessControl,
-    access: ResolvedAccess,
-    role_names: dict[str, str],
-    member_names: dict[str, str],
-) -> Optional[str]:
-    """Name of the member or role whose row decided `access`.
+def deciding_subject_row(subject: SubjectAccessControl, access: ResolvedAccess) -> Optional[_AccessControl]:
+    """The member or role row that decided `access`, or None when no such row did.
 
     The walks report which kind of subject decided (`source_subject`) but not which row. The
     deciding row is re-picked from the same cached pool: the highest row of that kind in the
@@ -120,7 +116,19 @@ def _deciding_subject_name(
     rows = [row for row in subject._get_access_controls(filters) if subject._row_subject(row) == access.source_subject]
     if not rows:
         return None
-    row = subject._highest_access_from_rows(access.source_resource, rows)
+    return subject._highest_access_from_rows(access.source_resource, rows)
+
+
+def deciding_subject_name(
+    subject: SubjectAccessControl,
+    access: ResolvedAccess,
+    role_names: dict[str, str],
+    member_names: dict[str, str],
+) -> Optional[str]:
+    """Name of the member or role whose row decided `access`."""
+    row = deciding_subject_row(subject, access)
+    if row is None:
+        return None
     if row.role_id is not None:
         return role_names.get(str(row.role_id))
     if row.organization_member_id is not None:
@@ -312,13 +320,13 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
                 object_short_id=object_short_id,
                 current=replace(
                     current,
-                    subject_name=_deciding_subject_name(
+                    subject_name=deciding_subject_name(
                         subject.access, current, subject_index.role_names, subject_index.member_names
                     ),
                 ),
                 proposed=replace(
                     proposed,
-                    subject_name=_deciding_subject_name(
+                    subject_name=deciding_subject_name(
                         subject.access, proposed, subject_index.role_names, subject_index.member_names
                     ),
                 ),
