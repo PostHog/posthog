@@ -157,3 +157,39 @@ semgrep --test .semgrep/rules/security/
 # Or via Docker
 docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/rules/security/
 ```
+
+## Content Security Policy
+
+`CSPMiddleware` in `posthog/middleware.py` attaches a policy to every HTML response.
+Treat it as enforced.
+A refused resource produces no user-visible error, so the feature simply does not work, and the only signal is a `$csp_violation` event in project 2.
+
+Three policies exist, and a change lands in whichever one covers the page:
+
+- **The app policy** governs every SPA page. It is enforced per user behind the `csp-enforce-app-policy` flag, and report-only otherwise.
+- **The admin policy** governs `/admin/`. It is enforced for every staff member, with no flag, so a mistake here breaks admin immediately.
+- **A view may set its own policy.** The canvas artifact and the workflow asset endpoint do this to sandbox untrusted HTML. `CSPMiddleware` returns a response that already carries the header unchanged, so do not expect the app policy on those documents.
+
+### What the app policy forbids
+
+| You want to                     | The policy says                                                                                                                                                       |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Load a script from a new origin | Only `'self'`, our own CDNs, and a named list. Stripe, Turnstile and Unlayer are there because each vendor requires its own origin. Prefer serving the file yourself. |
+| Call `eval` or `new Function`   | Refused. `wasm-unsafe-eval` permits WebAssembly compilation only.                                                                                                     |
+| Start a worker                  | `'self'` and `blob:` only. Never `data:`: a `data:` worker body is code the policy cannot inspect.                                                                    |
+| Load a font from a CDN          | Self-host it instead. A CDN font already caused a regression when the origin was removed.                                                                             |
+| Submit a form                   | `'self'` plus the admin OAuth origin. The directive is checked on every hop of a redirect chain, so a same-origin action that redirects off-origin is refused.        |
+| Set `<base href>`               | Refused. Chromium judges the assignment even on a detached document.                                                                                                  |
+
+### Traps that have already cost us
+
+- **A dependency can carry the origin.** Grep `node_modules` for the literal host before you call an origin unused. A font CDN was removed on the belief nothing used it, and a transitive dependency defaulted to it.
+- **posthog-js wraps `fetch`, so an extension's request is reported with our bundle as the source file.** Never conclude a violation is ours from the source file alone. Corroborate with the blocked URL and the document.
+- **A CSP report names the original URL, not the hop that failed.** For `form-action` and any redirected navigation, the blocked URL can be same-origin while the refusal happened later in the chain.
+- **The Vite dev server cannot reproduce any of this.** It injects CSS as `<style>` blocks and emits absolute asset URLs, so paths that depend on a stylesheet's own href never run. Only the esbuild build matches production.
+
+### Checking a change
+
+Add the directive in `CSPMiddleware`, with a comment saying why the source is needed, and run `posthog/test/test_middleware.py::TestCSPMiddleware`.
+To see what the policy currently blocks, query `$csp_violation` events in project 2.
+Filter to the current policy text and exclude browser extensions on both the source file and the blocked URL, or the result is mostly noise.
