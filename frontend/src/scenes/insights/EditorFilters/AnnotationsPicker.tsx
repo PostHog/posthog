@@ -27,19 +27,20 @@ export function AnnotationsPicker(): JSX.Element {
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     return (
-        <LemonSelect
-            className="mb-2.5 mx-2"
-            size="small"
-            fullWidth
-            value={showAnnotations === false ? 'none' : (annotationsScope ?? 'all')}
-            options={OPTIONS}
-            onChange={(selection) =>
-                updateInsightFilter({
-                    showAnnotations: selection === 'none' ? false : undefined,
-                    annotationsScope: selection === 'all' || selection === 'none' ? undefined : selection,
-                })
-            }
-            data-attr="insight-annotations-picker"
-        />
+        <div className="mb-2.5 mx-2">
+            <LemonSelect
+                size="small"
+                fullWidth
+                value={showAnnotations === false ? 'none' : (annotationsScope ?? 'all')}
+                options={OPTIONS}
+                onChange={(selection) =>
+                    updateInsightFilter({
+                        showAnnotations: selection === 'none' ? false : undefined,
+                        annotationsScope: selection === 'all' || selection === 'none' ? undefined : selection,
+                    })
+                }
+                data-attr="insight-annotations-picker"
+            />
+        </div>
     )
 }
