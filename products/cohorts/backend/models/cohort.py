@@ -35,6 +35,7 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.schema_enums import ProductKey
 from posthog.settings.base_variables import TEST
 
+from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.leaf_shape import (
     extract_behavioral_leaf_shape_hash,
     extract_leaf_shape_hash,
@@ -543,33 +544,37 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "cohorts": any(leaf.get("type") == "cohort" for leaf in leaves),
         }
 
+    def _required_backfill_stamps(self) -> dict[str, Optional[datetime]]:
+        """The backfill stamp each of this cohort's current filter kinds needs, keyed by that kind.
+
+        The one place the filter-type-to-stamp mapping lives, so `is_flag_compatible`,
+        `realtime_ready_at` and the realtime state resolver cannot drift apart. A third gated leaf
+        kind added to one of them and not the others would let a cohort read as ready from a
+        backfill its filters never needed.
+
+        Empty when no filter type is recognized (empty filters, cohort-reference-only, and so on):
+        the realtime evaluator has no leaf to key membership on, so stale stamps mean nothing.
+        """
+        stamps: dict[str, Optional[datetime]] = {}
+        if self._has_filter_type("person") or self._has_filter_type("person_metadata"):
+            stamps[CohortBackfillKind.PERSON_PROPERTY.value] = self.last_backfill_person_properties_at
+        if self._has_filter_type("behavioral"):
+            stamps[CohortBackfillKind.BEHAVIORAL.value] = self.last_backfill_events_at
+        return stamps
+
     @property
     def is_flag_compatible(self) -> bool:
         """Whether this cohort can be used in feature flag targeting via cohort_membership lookups.
 
-        Gates on both person property and event backfills based on which filter types the cohort uses:
-        - Cohorts with person property or person_metadata filters require last_backfill_person_properties_at
-        - Cohorts with behavioral event filters require last_backfill_events_at
-        - Cohorts with both require both timestamps
-        - Cohorts with neither recognized filter type (empty filters, cohort-reference-only, etc.)
-          are not flag-compatible, even if stale timestamps are set, because the realtime
-          evaluator has no leaf to key membership on.
+        Every backfill its current filters need has to have landed: person property and
+        person_metadata filters need `last_backfill_person_properties_at`, behavioral event filters
+        need `last_backfill_events_at`, and a cohort with both needs both.
         """
         if self.cohort_type != CohortType.REALTIME:
             return False
 
-        has_person_filters = self._has_filter_type("person") or self._has_filter_type("person_metadata")
-        has_behavioral_filters = self._has_filter_type("behavioral")
-
-        if not (has_person_filters or has_behavioral_filters):
-            return False
-
-        if has_person_filters and self.last_backfill_person_properties_at is None:
-            return False
-        if has_behavioral_filters and self.last_backfill_events_at is None:
-            return False
-
-        return True
+        stamps = self._required_backfill_stamps()
+        return bool(stamps) and all(stamp is not None for stamp in stamps.values())
 
     @property
     def realtime_ready_at(self) -> Optional[datetime]:
@@ -581,18 +586,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """
         if not self.is_flag_compatible:
             return None
-
-        stamps = [
-            stamp
-            for stamp in (
-                self.last_backfill_person_properties_at
-                if (self._has_filter_type("person") or self._has_filter_type("person_metadata"))
-                else None,
-                self.last_backfill_events_at if self._has_filter_type("behavioral") else None,
-            )
-            if stamp is not None
-        ]
-        return max(stamps) if stamps else None
+        # `is_flag_compatible` has already proved every required stamp is set.
+        return max(stamp for stamp in self._required_backfill_stamps().values() if stamp is not None)
 
     @property
     def properties(self) -> PropertyGroup:

@@ -117,6 +117,7 @@ from products.feature_flags.backend.models.team_feature_flags_config import (
     PropertyMatchingVersion,
     TeamFeatureFlagsConfig,
 )
+from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -711,13 +712,10 @@ def _realtime_targeting_enabled(context: dict[str, Any]) -> bool:
     so the list path pays it once per page.
     """
     if REALTIME_TARGETING_ENABLED_CONTEXT_KEY not in context:
-        # Avoid circular import: feature_flag imports cohort models
-        from products.feature_flags.backend.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
-
         request = context.get("request")
         team = _team_from_serializer_context(context)
         context[REALTIME_TARGETING_ENABLED_CONTEXT_KEY] = (
-            request is not None and team is not None and _is_realtime_cohort_flag_targeting_enabled(request, team=team)
+            request is not None and team is not None and is_realtime_cohort_flag_targeting_enabled(request, team=team)
         )
     return context[REALTIME_TARGETING_ENABLED_CONTEXT_KEY]
 
@@ -1881,10 +1879,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # When realtime cohort flag targeting is enabled, realtime cohorts that have been
             # backfilled are allowed through.
             if self.request.query_params.get("hide_behavioral_cohorts", "false").lower() == "true":
-                # Avoid circular import: feature_flag imports cohort models
-                from products.feature_flags.backend.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
-
-                allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.request, team=self.team)
+                allow_realtime_backfilled = is_realtime_cohort_flag_targeting_enabled(self.request, team=self.team)
                 # The flag's cohort typeahead hits this endpoint on every keystroke, so the
                 # behavioral set is computed once per team and cached (invalidated on cohort
                 # writes); see get_flag_excluded_behavioral_cohort_ids.

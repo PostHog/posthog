@@ -8,7 +8,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { CohortLogicProps, REALTIME_POLL_INTERVAL_MS, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -265,6 +265,42 @@ describe('cohortEditLogic', () => {
 
             expect(logic.values.cohort.realtime).toEqual(rebuildingRealtime)
             expect(lemonToast.success).not.toHaveBeenCalled()
+        })
+
+        it('keeps checking while the build runs, and stops once it is ready', async () => {
+            // Both halves matter. A loop that never stops refetches the cohort every 15 seconds for
+            // as long as the tab is open; one that stops early freezes the progress row until reload.
+            let served: CohortRealtimeReadinessApi = buildingRealtime
+            let detailFetches = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/': () => {
+                        detailFetches += 1
+                        return [200, { ...mockCohort, realtime: served }]
+                    },
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            const afterMount = detailFetches
+
+            jest.useFakeTimers()
+            try {
+                // The mount armed the poll on a real timer. Arming again replaces that disposable
+                // with one on the fake clock, which is the same timer the loop re-arms below.
+                logic.actions.armRealtimeReadinessPoll()
+
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+                expect(detailFetches).toBe(afterMount + 1)
+
+                served = readyRealtime
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+                expect(detailFetches).toBe(afterMount + 2)
+
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS * 4)
+                expect(detailFetches).toBe(afterMount + 2)
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         it('announces the ready moment once, not on every check after it', async () => {

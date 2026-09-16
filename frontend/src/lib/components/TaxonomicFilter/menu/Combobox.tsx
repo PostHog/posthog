@@ -1381,7 +1381,7 @@ function Row({
             <MatchedValueBadge entry={entry} />
             {/* Whatever the group supplies for this item, the same node the classic list renders,
                 so a picker row carries its per-item state in either menu. */}
-            {itemTag && <span className="shrink-0">{itemTag}</span>}
+            {itemTag && <span className="shrink-0 empty:hidden">{itemTag}</span>}
             {recency && (
                 <Badge variant="default" className="gap-1 shrink-0">
                     {recency === 'recent' ? <IconClock className="size-3" /> : <IconPinFilled className="size-3" />}

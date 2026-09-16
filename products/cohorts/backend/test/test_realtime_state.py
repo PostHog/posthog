@@ -101,15 +101,38 @@ class TestRealtimeReadiness(BaseTest):
 
     @parameterized.expand(
         [
-            (CohortBackfillTrigger.COHORT_CREATED, CohortRealtimeState.BUILDING),
-            (CohortBackfillTrigger.COHORT_EDITED, CohortRealtimeState.REBUILDING),
+            # The keys are set with `nx=True` and each kind has its own handler, so a cohort
+            # created with one leaf kind and edited to add the other inside the five-minute
+            # countdown carries a different trigger per kind. The edit is the one that decides.
+            (
+                "created",
+                {CohortBackfillKind.BEHAVIORAL: CohortBackfillTrigger.COHORT_CREATED},
+                CohortRealtimeState.BUILDING,
+            ),
+            (
+                "edited",
+                {CohortBackfillKind.BEHAVIORAL: CohortBackfillTrigger.COHORT_EDITED},
+                CohortRealtimeState.REBUILDING,
+            ),
+            (
+                "created_then_edited",
+                {
+                    CohortBackfillKind.BEHAVIORAL: CohortBackfillTrigger.COHORT_CREATED,
+                    CohortBackfillKind.PERSON_PROPERTY: CohortBackfillTrigger.COHORT_EDITED,
+                },
+                CohortRealtimeState.REBUILDING,
+            ),
         ]
     )
-    def test_debounced_save_reads_as_a_build_before_its_run_exists(self, trigger: str, expected: str) -> None:
+    def test_debounced_save_reads_as_a_build_before_its_run_exists(
+        self, _name: str, triggers: dict[str, str], expected: str
+    ) -> None:
         # The run-creation task waits five minutes. Without the debounce key, every cohort would
         # read as needs_attention for those five minutes, right after the save that asked for it.
-        cohort = self._cohort()
-        get_redis_client().set(cohort_backfill_pending_key(cohort.id, CohortBackfillKind.BEHAVIORAL), trigger, ex=300)
+        leaves = [BEHAVIORAL_LEAF] + ([PERSON_LEAF] if len(triggers) > 1 else [])
+        cohort = self._cohort(filters=filters(*leaves))
+        for kind, trigger in triggers.items():
+            get_redis_client().set(cohort_backfill_pending_key(cohort.id, kind), trigger, ex=300)
 
         readiness = resolve_realtime_readiness([cohort])[cohort.id]
         assert readiness.state == expected
@@ -218,6 +241,24 @@ class TestRealtimeReadiness(BaseTest):
 
         assert self._state(cohort) == CohortRealtimeState.NEEDS_ATTENTION
 
+    def test_a_required_kind_with_nothing_building_it_is_not_hidden_by_the_other_one(self) -> None:
+        # Both kinds are triggered separately, so one can be refused or lost while the other runs.
+        # Reporting the running one as the cohort's progress would leave a bar climbing towards a
+        # ready state the missing kind is never going to allow.
+        cohort = self._cohort(filters=filters(BEHAVIORAL_LEAF, PERSON_LEAF))
+        self._participate(self._run(status=CohortBackfillRunStatus.SEEDING, cohort=cohort), cohort)
+
+        readiness = resolve_realtime_readiness([cohort])[cohort.id]
+        assert readiness.state == CohortRealtimeState.NEEDS_ATTENTION
+        assert readiness.build is None
+
+        get_redis_client().set(
+            cohort_backfill_pending_key(cohort.id, CohortBackfillKind.PERSON_PROPERTY),
+            CohortBackfillTrigger.COHORT_CREATED,
+            ex=300,
+        )
+        assert self._state(cohort) == CohortRealtimeState.BUILDING
+
     def test_a_run_for_a_kind_the_filters_no_longer_need_decides_nothing(self) -> None:
         # A person run left over from an earlier definition is not something this cohort waits on,
         # so neither its progress nor its being blocked describes the cohort.
@@ -262,6 +303,29 @@ class TestRealtimeReadiness(BaseTest):
         build = resolve_realtime_readiness([cohort])[cohort.id].build
         assert build is not None
         assert build.percent_complete == 25
+
+    def test_a_run_past_the_scan_reports_no_progress(self) -> None:
+        # Reconciling confirms every chunk, so reading the tally there would park the bar at 100%
+        # under "checking", which reads as a build that finished and then stalled.
+        cohort = self._cohort()
+        run = self._run(status=CohortBackfillRunStatus.RECONCILING, cohort=cohort)
+        self._participate(run, cohort)
+        self._chunks(run, total=4, confirmed=4)
+
+        build = resolve_realtime_readiness([cohort])[cohort.id].build
+        assert build is not None
+        assert build.phase == CohortHistoryBuildPhase.CHECKING
+        assert build.percent_complete is None
+
+    def test_scan_progress_rounds_down_so_100_means_finished(self) -> None:
+        cohort = self._cohort()
+        run = self._run(cohort=cohort)
+        self._participate(run, cohort)
+        self._chunks(run, total=200, confirmed=199)
+
+        build = resolve_realtime_readiness([cohort])[cohort.id].build
+        assert build is not None
+        assert build.percent_complete == 99
 
     def test_run_with_no_chunks_yet_reports_no_progress(self) -> None:
         cohort = self._cohort()
@@ -327,9 +391,19 @@ class TestRealtimeReadiness(BaseTest):
             self._participate(self._run(cohort=cohort), cohort)
             cohorts.append(cohort)
 
+        # The shape right after a save: one cohort on the page is carried by the debounce key
+        # alone, so the branch that falls through to Redis runs inside the query budget too.
+        queued = self._cohort()
+        get_redis_client().set(
+            cohort_backfill_pending_key(queued.id, CohortBackfillKind.BEHAVIORAL),
+            CohortBackfillTrigger.COHORT_CREATED,
+            ex=300,
+        )
+        cohorts.append(queued)
+
         with self.assertNumQueries(2):
             readiness = resolve_realtime_readiness(cohorts)
-        assert len(readiness) == 5
+        assert len(readiness) == 6
 
     def test_a_page_of_settled_cohorts_reads_no_backfill_rows(self) -> None:
         # Stamped, static and daily cohorts are the steady state, so the common page costs nothing.

@@ -67,6 +67,13 @@ const realtimeCohorts: CohortType[] = [
             build: null,
         }
     ),
+    // Event criteria the realtime path does not support, so flags cannot target it at all. A
+    // cohort demoted past the person-count ceiling lands here too, which is the case worth seeing.
+    withRealtime(createCohort(7, 'Stopped using search', 512, false), {
+        state: 'daily',
+        ready_at: null,
+        build: null,
+    }),
 ]
 
 const cohortApiMocks = {
@@ -161,6 +168,11 @@ export const CohortEditRealtimeRebuilding: Story = {
 export const CohortEditRealtimeNotAvailable: Story = {
     parameters: { pageUrl: urls.cohort(6) },
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/6/': realtimeCohorts[2], ...cohortApiMocks } })],
+}
+
+export const CohortEditRealtimeDaily: Story = {
+    parameters: { pageUrl: urls.cohort(7) },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/7/': realtimeCohorts[3], ...cohortApiMocks } })],
 }
 
 export const CohortEditStatic: Story = {

@@ -86,7 +86,7 @@ const isCohortEditTab = (value: unknown): value is CohortEditTab => value === 'o
 
 // While history is being built, flags can't target the cohort yet, so the scene keeps asking. The
 // build takes tens of minutes, so this is slow polling, unlike the 1s loop the daily calculation uses.
-const REALTIME_POLL_INTERVAL_MS = 15_000
+export const REALTIME_POLL_INTERVAL_MS = 15_000
 const BUILDING_STATES: CohortRealtimeStateEnumApi[] = ['building', 'rebuilding']
 
 const isBuildingHistory = (cohort: CohortType): boolean =>

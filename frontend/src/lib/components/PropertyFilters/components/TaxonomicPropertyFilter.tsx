@@ -260,10 +260,15 @@ export function TaxonomicPropertyFilter({
 
     const filterType = filter?.type as PropertyFilterType | undefined
 
+    // The button truncates its label, so its tooltip is how a long cohort name is read in full. The
+    // wrapper below cannot do that job: it clips rather than wraps, and it would nest the tag's own
+    // tooltip inside the button's. So the tooltip gets the plain string.
+    const cohortLabel = filter?.type === 'cohort' ? cohortName || `Cohort #${filter?.value}` : undefined
+
     const filterContent =
         filter?.type === 'cohort' ? (
             <span className="flex items-center gap-2 min-w-0">
-                <span className="truncate">{cohortName || `Cohort #${filter?.value}`}</span>
+                <span className="truncate">{cohortLabel}</span>
                 <CohortRealtimeTag realtime={cohort?.realtime} />
             </span>
         ) : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_') ? (
@@ -303,7 +308,7 @@ export function TaxonomicPropertyFilter({
                 truncate={true}
                 tooltip={
                     <>
-                        {filterContent ?? (addText || 'Add filter')}
+                        {cohortLabel ?? filterContent ?? (addText || 'Add filter')}
                         {addFilterDocLink && (
                             <>
                                 <br />

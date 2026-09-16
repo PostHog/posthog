@@ -9,9 +9,10 @@ Only cohorts with event-based criteria get a state. Feature flags could always t
 the flag API never checks them against the backfill stamps, so a person-only cohort with no stamp
 would read as not targetable when it is.
 
-Every state comes from a row that exists. A cohort whose backfill was refused, lost, or never
-triggered has no run, so it reads as ``needs_attention`` and never as ``building``: the filters
-changing is not evidence that anything is rebuilding.
+Every state comes from a row that exists, and from one per backfill kind the cohort needs. A kind
+whose backfill was refused, lost, or never triggered has no run and no queued task, so the cohort
+reads as ``needs_attention`` and never as ``building``, however well its other kind is going: the
+filters changing is not evidence that anything is rebuilding.
 """
 
 from collections import defaultdict
@@ -32,7 +33,7 @@ from products.cohorts.backend.models.backfill import (
     ACTIVE_COHORT_BACKFILL_RUN_STATUSES,
     CohortBackfillChunk,
     CohortBackfillChunkStatus,
-    CohortBackfillKind,
+    CohortBackfillRun,
     CohortBackfillRunCohort,
     CohortBackfillRunStatus,
     CohortBackfillTrigger,
@@ -109,20 +110,20 @@ def _settled_state(cohort: Cohort) -> str | None:
 def _required_backfill_kinds(cohort: Cohort) -> set[str]:
     """The backfill kinds this cohort's current filters need stamped before flags can target it.
 
-    The same two predicates `is_flag_compatible` gates on. A cohort can still be participating in
-    an active run for a kind its filters no longer use, and that run decides nothing about it.
+    The same mapping `is_flag_compatible` gates on. A cohort can still be participating in an
+    active run for a kind its filters no longer use, and that run decides nothing about it.
     """
-    kinds = {CohortBackfillKind.BEHAVIORAL.value} if cohort._has_filter_type("behavioral") else set()
-    if cohort._has_filter_type("person") or cohort._has_filter_type("person_metadata"):
-        kinds.add(CohortBackfillKind.PERSON_PROPERTY.value)
-    return kinds
+    return set(cohort._required_backfill_stamps())
 
 
 def _percent_complete(chunks: dict[str, Any] | None) -> int | None:
-    """Scan progress as a whole percent, or None while the run has planned no chunks."""
+    """Scan progress as a whole percent, or None while the run has planned no chunks.
+
+    Rounded down, so 100 means every chunk is confirmed rather than 199 of 200.
+    """
     if not chunks or not chunks["chunks_total"]:
         return None
-    return round(chunks["chunks_confirmed"] / chunks["chunks_total"] * 100)
+    return chunks["chunks_confirmed"] * 100 // chunks["chunks_total"]
 
 
 def _active_participations_per_cohort(
@@ -164,8 +165,8 @@ def _active_participations_per_cohort(
     return by_cohort
 
 
-def _queued_trigger_kinds(cohort_ids: Sequence[int]) -> dict[int, str] | None:
-    """The trigger kind of each cohort's debounced run-creation task, for the cohorts that have one.
+def _queued_triggers(pairs: Sequence[tuple[int, str]]) -> dict[tuple[int, str], str] | None:
+    """The trigger kind of the debounced run-creation task for each cohort and backfill kind asked for.
 
     A save enqueues that task with a five-minute countdown, so for those five minutes the debounce
     key is the only record that a build was asked for. Without it, every cohort would read as
@@ -175,9 +176,13 @@ def _queued_trigger_kinds(cohort_ids: Sequence[int]) -> dict[int, str] | None:
     queued": the caller reports no state at all rather than asserting that nothing is preparing
     these cohorts.
     """
-    keys = [
-        cohort_backfill_pending_key(cohort_id, kind) for cohort_id in cohort_ids for kind in CohortBackfillKind.values
-    ]
+    if not pairs:
+        # redis-py sends an argument-less MGET rather than short-circuiting, and the server
+        # answers with an error that `parse_response` turns into an empty list. Every build that
+        # is already running takes this path, and that is when the detail endpoint is polled.
+        return {}
+
+    keys = [cohort_backfill_pending_key(cohort_id, kind) for cohort_id, kind in pairs]
     try:
         values = get_redis_client().mget(keys)
     except Exception as error:
@@ -185,17 +190,11 @@ def _queued_trigger_kinds(cohort_ids: Sequence[int]) -> dict[int, str] | None:
         logger.warning("cohort_backfill_pending_lookup_failed", error=str(error))
         return None
 
-    queued: dict[int, str] = {}
-    for key, value in zip(keys, values, strict=True):
-        if value is None:
-            continue
-        cohort_id = int(key.rsplit(":", 1)[1])
-        # Any kind's task counts as a build being on its way, and an edit outranks a creation:
-        # both kinds are enqueued together, and the edit is the one with a consequence for flags.
-        trigger = value.decode() if isinstance(value, bytes) else str(value)
-        if queued.get(cohort_id) != CohortBackfillTrigger.COHORT_EDITED:
-            queued[cohort_id] = trigger
-    return queued
+    return {
+        pair: (value.decode() if isinstance(value, bytes) else str(value))
+        for pair, value in zip(pairs, values, strict=True)
+        if value is not None
+    }
 
 
 def _chunk_tallies(team_id: int, run_ids: Sequence[UUID]) -> dict[UUID, dict[str, Any]]:
@@ -216,24 +215,58 @@ def _chunk_tallies(team_id: int, run_ids: Sequence[UUID]) -> dict[UUID, dict[str
     return {tally["run_id"]: tally for tally in tallies}
 
 
-def _required_participations(
+@frozen
+class _KindProgress:
+    """How one backfill kind of one cohort is coming along, from a run row or from a queued task."""
+
+    phase: str
+    trigger: str
+    run: CohortBackfillRun | None
+
+
+def _live_run_per_kind(
     participations: Sequence[CohortBackfillRunCohort], required_kinds: set[str]
-) -> list[CohortBackfillRunCohort]:
-    """The live participations for the backfill kinds a cohort's current filters still need."""
-    return [participation for participation in participations if participation.run.backfill_kind in required_kinds]
+) -> dict[str, CohortBackfillRun]:
+    """The newest live run per backfill kind, among the kinds a cohort's current filters still need.
 
-
-def _deciding_participation(required: Sequence[CohortBackfillRunCohort]) -> CohortBackfillRunCohort | None:
-    """The participation whose run describes the cohort's build, or None when no run does.
-
-    A cohort needing both kinds is waiting on both, so the least advanced one is what a reader
-    should see. A run parked on an operator (`blocked`) has no phase, and a build one kind cannot
-    leave is not in progress, so that case reports no run at all and the cohort resolves to
-    `needs_attention`.
+    A cohort can hold two live participations of one kind at once, its own run and the team's, and
+    it can hold participations for a kind its filters no longer use, which decide nothing about it.
     """
-    if not required or any(participation.run.status not in _PHASE_BY_RUN_STATUS for participation in required):
-        return None
-    return min(required, key=lambda participation: _PHASE_RANK[_PHASE_BY_RUN_STATUS[participation.run.status]])
+    per_kind: dict[str, CohortBackfillRun] = {}
+    for participation in participations:  # newest run first
+        kind = participation.run.backfill_kind
+        if kind in required_kinds and kind not in per_kind:
+            per_kind[kind] = participation.run
+    return per_kind
+
+
+def _cohort_progress(
+    cohort_id: int,
+    required_kinds: set[str],
+    live_runs: dict[str, CohortBackfillRun],
+    queued: dict[tuple[int, str], str],
+) -> list[_KindProgress] | None:
+    """One progress record per required backfill kind, or None when nothing is building the cohort.
+
+    A cohort is ready only once every kind its filters need has finished, so every one of them has
+    to be moving for the cohort to read as a build in progress. One kind seeding while the other
+    was refused, lost or never triggered is a cohort nothing is carrying to ready, and reporting it
+    as preparing would leave a progress bar running against a build that is not coming.
+
+    A run that has started outranks the debounce key for its kind: the key survives until the
+    countdown it was set for expires, so both records exist for as long as the task takes to run.
+    """
+    progress: list[_KindProgress] = []
+    for kind in sorted(required_kinds):
+        run = live_runs.get(kind)
+        if run is not None and run.status in _PHASE_BY_RUN_STATUS:
+            progress.append(_KindProgress(phase=_PHASE_BY_RUN_STATUS[run.status], trigger=run.trigger_kind, run=run))
+            continue
+        trigger = queued.get((cohort_id, kind))
+        if trigger is None:
+            return None
+        progress.append(_KindProgress(phase=CohortHistoryBuildPhase.WAITING, trigger=trigger, run=None))
+    return progress or None
 
 
 def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, CohortRealtimeReadiness]:
@@ -250,60 +283,76 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
     if not pending:
         return readiness
 
-    active = _active_participations_per_cohort(
+    participations = _active_participations_per_cohort(
         team_id, [cohort.id for cohort in pending], statuses=ACTIVE_COHORT_BACKFILL_RUN_STATUSES
     )
-    required = {
-        cohort.id: _required_participations(active.get(cohort.id, []), _required_backfill_kinds(cohort))
+    required_kinds = {cohort.id: _required_backfill_kinds(cohort) for cohort in pending}
+    live_runs = {
+        cohort.id: _live_run_per_kind(participations.get(cohort.id, []), required_kinds[cohort.id])
         for cohort in pending
     }
-    building = {
-        cohort.id: participation
-        for cohort in pending
-        if (participation := _deciding_participation(required[cohort.id]))
-    }
-    chunks_by_run = _chunk_tallies(team_id, [participation.run_id for participation in building.values()])
-    queued = _queued_trigger_kinds([cohort.id for cohort in pending if cohort.id not in building])
 
+    # A kind whose live run has a phase is progressing on its own evidence. Every other required
+    # kind has to be found in the debounce key: a run parked on an operator (`blocked`) has no
+    # phase, and a kind with no live run at all may still have a task waiting out its countdown.
+    # Asking about nothing else keeps a page whose builds are all running free of a round trip.
+    unresolved = {
+        cohort.id: {
+            kind
+            for kind in required_kinds[cohort.id]
+            if live_runs[cohort.id].get(kind) is None or live_runs[cohort.id][kind].status not in _PHASE_BY_RUN_STATUS
+        }
+        for cohort in pending
+    }
+    queued = _queued_triggers([(cohort.id, kind) for cohort in pending for kind in sorted(unresolved[cohort.id])])
+
+    progress_by_cohort: dict[int, list[_KindProgress]] = {}
     for cohort in pending:
-        participation = building.get(cohort.id)
-        if participation is not None:
-            run = participation.run
-            chunks = chunks_by_run.get(run.id)
-            chunks_updated_at = chunks["chunks_updated_at"] if chunks else None
-            # Any required kind's run being an edit makes this a rebuild, the same way the queued
-            # path ranks an edit above a creation.
-            trigger = (
-                CohortBackfillTrigger.COHORT_EDITED
-                if any(other.run.trigger_kind == CohortBackfillTrigger.COHORT_EDITED for other in required[cohort.id])
-                else run.trigger_kind
-            )
-            build = CohortHistoryBuild(
-                phase=_PHASE_BY_RUN_STATUS[run.status],
-                percent_complete=_percent_complete(chunks),
-                updated_at=max(run.updated_at, chunks_updated_at) if chunks_updated_at else run.updated_at,
-            )
-        elif queued is None:
+        if queued is None and unresolved[cohort.id]:
             # The lookup that would say whether a build is queued is unavailable, so this cohort
             # gets no state rather than one asserting that nothing is preparing it.
             continue
-        elif cohort.id in queued:
-            trigger = queued[cohort.id]
-            build = CohortHistoryBuild(phase=CohortHistoryBuildPhase.WAITING, percent_complete=None, updated_at=None)
-        else:
+        progress = _cohort_progress(cohort.id, required_kinds[cohort.id], live_runs[cohort.id], queued or {})
+        if progress is None:
             readiness[cohort.id] = CohortRealtimeReadiness(
                 state=CohortRealtimeState.NEEDS_ATTENTION, ready_at=None, build=None
             )
             continue
+        progress_by_cohort[cohort.id] = progress
 
-        readiness[cohort.id] = CohortRealtimeReadiness(
+    # A cohort is only as far along as its least advanced kind, and that is the only run a reader
+    # is shown, so it is the only one whose chunks are tallied.
+    deciding = {
+        cohort_id: min(progress, key=lambda item: _PHASE_RANK[item.phase])
+        for cohort_id, progress in progress_by_cohort.items()
+    }
+    chunks_by_run = _chunk_tallies(team_id, [item.run.id for item in deciding.values() if item.run is not None])
+
+    for cohort_id, deciding_kind in deciding.items():
+        chunks = chunks_by_run.get(deciding_kind.run.id) if deciding_kind.run is not None else None
+        timestamps = (
+            deciding_kind.run.updated_at if deciding_kind.run is not None else None,
+            chunks["chunks_updated_at"] if chunks else None,
+        )
+        readiness[cohort_id] = CohortRealtimeReadiness(
             state=(
                 CohortRealtimeState.REBUILDING
-                if trigger == CohortBackfillTrigger.COHORT_EDITED
+                # Any required kind's build being an edit makes the whole thing a rebuild: both
+                # kinds are asked for together, and the edit is the one with a consequence for flags.
+                if any(kind.trigger == CohortBackfillTrigger.COHORT_EDITED for kind in progress_by_cohort[cohort_id])
                 else CohortRealtimeState.BUILDING
             ),
             ready_at=None,
-            build=build,
+            build=CohortHistoryBuild(
+                phase=deciding_kind.phase,
+                # Chunks are the scan's own unit of work, so they measure no other phase: a
+                # reconciling run has confirmed all of them, and a bar at 100% under "checking"
+                # would read as a build that has finished and stalled.
+                percent_complete=(
+                    _percent_complete(chunks) if deciding_kind.phase == CohortHistoryBuildPhase.SCANNING else None
+                ),
+                updated_at=max((stamp for stamp in timestamps if stamp is not None), default=None),
+            ),
         )
 
     return readiness

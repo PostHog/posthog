@@ -123,6 +123,7 @@ from products.feature_flags.backend.local_evaluation import _get_flag_properties
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flag_policy_config import team_requires_flag_tags
+from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.feature_flags.backend.session_recording_links import (
     REPLAY_LINKED_FLAG_DELETE_ERROR,
     replay_linked_flag_ids,
@@ -236,7 +237,6 @@ def _count_filters_write_success(serializer: serializers.Serializer, operation: 
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
-REALTIME_COHORT_FLAG_TARGETING_FLAG = "realtime-cohort-flag-targeting"
 EARLY_EXIT_FLAG = "feature-flag-early-exit"
 
 # Gates enforcement of `feature_flag:write` on cross-resource flag mutations
@@ -392,25 +392,6 @@ def assert_feature_flag_write_scope(
             f"This action also modifies a feature flag, which requires the `feature_flag:write` scope "
             f"in addition to `{resource_scope}`. {key_guidance}"
         )
-
-
-def _is_realtime_cohort_flag_targeting_enabled(request, *, team: Team) -> bool:
-    """Check whether the realtime cohort flag targeting feature is enabled for this request."""
-    try:
-        user = getattr(request, "user", None)
-        if user is None or user.is_anonymous:
-            return False
-        organization_id = str(team.organization_id)
-        return feature_enabled_or_false(
-            REALTIME_COHORT_FLAG_TARGETING_FLAG,
-            user.distinct_id,
-            groups={"organization": organization_id, "project": str(team.uuid)},
-            group_properties={"organization": {"id": organization_id}, "project": {"id": team.id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        return False
 
 
 def _describe_behavioral_properties(behavioral_props: list[Property]) -> str | None:
@@ -1585,7 +1566,7 @@ class FeatureFlagSerializer(
         """
         get_team = self.context.get("get_team")
         team = get_team() if get_team else Team.objects.get(pk=self.context["team_id"])
-        return _is_realtime_cohort_flag_targeting_enabled(self.context["request"], team=team)
+        return is_realtime_cohort_flag_targeting_enabled(self.context["request"], team=team)
 
     def validate_filters(self, filters):
         # Metrics wrapper: one increment per rejected write. `rejected` means a switch-gated

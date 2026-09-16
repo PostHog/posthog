@@ -2054,7 +2054,7 @@ email@example.org,
         self.assertNotIn("posthog_cohortcalculationhistory", basic_sql)
         self.assertNotIn("posthog_experiment", basic_sql)
 
-    @patch("products.feature_flags.backend.api.feature_flag._is_realtime_cohort_flag_targeting_enabled")
+    @patch("posthog.api.cohort.is_realtime_cohort_flag_targeting_enabled")
     @patch("posthog.api.cohort.report_user_action")
     def test_realtime_readiness_is_served_only_where_the_pipeline_runs(self, patch_capture, mock_flag_enabled):
         # The wiring guard for the derived state: a realtime team in the rollout gets it on both the
@@ -2078,8 +2078,12 @@ email@example.org,
         with self.settings(REALTIME_COHORT_TEAM_ALLOWLIST="all"):
             detail = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()
             listed = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()["results"][0]
+            # The basic payload is what `cohortsById` is built from, so it is where the flag
+            # picker's rows and the condition link's bolt read the state.
+            basic = self.client.get(f"/api/projects/{self.team.id}/cohorts?basic=true").json()["results"][0]
         self.assertEqual(detail["realtime"]["state"], "needs_attention")
         self.assertEqual(listed["realtime"]["state"], "needs_attention")
+        self.assertEqual(basic["realtime"]["state"], "needs_attention")
 
         with self.settings(REALTIME_COHORT_TEAM_ALLOWLIST="none"):
             detail = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()
@@ -2246,7 +2250,7 @@ email@example.org,
             ("realtime_backfilled_flag_off", CohortType.REALTIME, True, False, False),
         ]
     )
-    @patch("products.feature_flags.backend.api.feature_flag._is_realtime_cohort_flag_targeting_enabled")
+    @patch("posthog.api.cohort.is_realtime_cohort_flag_targeting_enabled")
     @patch("posthog.api.cohort.report_user_action")
     def test_behavioral_cohort_dropdown_visibility(
         self,
@@ -2303,7 +2307,7 @@ email@example.org,
         else:
             self.assertNotIn(behavioral_cohort.id, result_ids)
 
-    @patch("products.feature_flags.backend.api.feature_flag._is_realtime_cohort_flag_targeting_enabled")
+    @patch("posthog.api.cohort.is_realtime_cohort_flag_targeting_enabled")
     @patch("posthog.api.cohort.report_user_action")
     def test_nested_cohort_with_flag_compatible_leaf_visible_when_flag_on(
         self,

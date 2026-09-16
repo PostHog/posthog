@@ -6,12 +6,14 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 import { CohortRealtimeReadinessApi, CohortRealtimeStateEnumApi } from '../generated/api.schemas'
 
-type TagContent = { label: string; icon: JSX.Element; explanation: string }
+type TagContent = { label: string; icon?: JSX.Element; explanation: string }
 
-// Every label leads with "Realtime" so a row is never read as the daily calculation being unfinished:
-// a bare "Preparing" beside a finished calculation reads as the whole cohort not being ready. The
-// cohort page carries the state in full. `daily` and `static` get no tag, because a tag on every row
-// would drown the few that matter.
+// A tag appears on every cohort feature flags cannot target, and on the realtime ones they can, so
+// a bare row means one thing: flags can target this cohort. Every realtime label leads with the
+// word, so a row is never read as the daily calculation being unfinished (a bare "Preparing" beside
+// a finished calculation reads as the whole cohort not being ready). Only the ready state keeps the
+// bolt, which stands for flags seeing changes at once. `static` gets no tag: flags can target it
+// and it has nothing else to say. The cohort page carries the state in full.
 const TAG_BY_STATE: Partial<Record<CohortRealtimeStateEnumApi, TagContent>> = {
     ready: {
         label: 'Realtime',
@@ -32,13 +34,17 @@ const TAG_BY_STATE: Partial<Record<CohortRealtimeStateEnumApi, TagContent>> = {
             "A realtime cohort. The criteria changed, so PostHog is preparing it again and feature flags can't target it until that finishes. Open the cohort to see the progress.",
     },
     needs_attention: {
-        label: 'Realtime',
-        icon: <IconBolt />,
+        label: 'Realtime · unavailable',
         explanation: "A realtime cohort that feature flags can't target yet. Open the cohort for details.",
+    },
+    daily: {
+        label: 'No flag targeting',
+        explanation:
+            "Feature flags can't target this cohort. Its criteria are matched in the once-a-day calculation, which feature flags can't read.",
     },
 }
 
-/** Marks a realtime cohort in the list and picker rows, where a sentence would be too much. */
+/** What feature flags can do with a cohort, for list and picker rows where a sentence is too much. */
 export function CohortRealtimeTag({
     realtime,
 }: {
