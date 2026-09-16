@@ -96,6 +96,29 @@ class TestSwitchSchemasToDeclaredCursor:
         # would send no cursor and re-read the whole table.
         assert schema.sync_type_config["incremental_field"] == "createDate"
 
+    def test_appends_a_table_the_connector_cannot_merge(self, team):
+        schema = _create_full_refresh_schema(
+            team,
+            source_type="CiscoDuo",
+            job_inputs={"api_hostname": "api-x.duosecurity.example", "integration_key": "k", "secret_key": "s"},
+            schema_name="administrator_logs",
+        )
+
+        with patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=1758000000):
+            call_command(
+                "switch_schemas_to_declared_cursor",
+                source_type="CiscoDuo",
+                schema_name="administrator_logs",
+                live_run=True,
+            )
+
+        schema.refresh_from_db()
+        # These rows have no unique id, so a merge has no key to match on and every run after the
+        # switch would fail once the table exists.
+        assert schema.sync_type == ExternalDataSchema.SyncType.APPEND
+        assert schema.sync_type_config["incremental_field"] == "timestamp"
+        assert schema.sync_type_config["incremental_field_last_value"] == 1758000000
+
     def test_dry_run_changes_nothing(self, team):
         schema = _create_full_refresh_schema(team)
 

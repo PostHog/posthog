@@ -6,7 +6,8 @@ import structlog
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -72,9 +73,25 @@ class Command(BaseCommand):
         switched = 0
         skipped = 0
         for schema in schema_list:
-            declared = self._declared_cursor(schema, schema_name)
-            if declared is None:
+            matched = self._matched_schema(schema, schema_name)
+            declared = source.declared_incremental_field_for_schema(matched) if matched is not None else None
+            if matched is None or declared is None:
                 self.stdout.write(f"  skip schema={schema.id} team={schema.team_id}: connector declares no cursor")
+                skipped += 1
+                continue
+
+            # Which write mode the cursor feeds, as `build_default_sync_settings` picks it for a new
+            # connection. A table the connector can only append to has no key to merge on, so
+            # merging it raises `MissingPrimaryKeysException` on every run once the table exists.
+            if matched.supports_incremental:
+                sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+            elif matched.supports_append:
+                sync_type = ExternalDataSchema.SyncType.APPEND
+            else:
+                self.stdout.write(
+                    f"  skip schema={schema.id} team={schema.team_id}: connector declares a cursor for this "
+                    f"table but supports neither incremental nor append"
+                )
                 skipped += 1
                 continue
 
@@ -88,12 +105,13 @@ class Command(BaseCommand):
                 continue
 
             self.stdout.write(
-                f"  schema={schema.id} team={schema.team_id} cursor={declared['field']} starting at {last_value}"
+                f"  schema={schema.id} team={schema.team_id} sync_type={sync_type} "
+                f"cursor={declared['field']} starting at {last_value}"
             )
             if not live_run:
                 continue
 
-            schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+            schema.sync_type = sync_type
             schema.sync_type_config["incremental_field"] = declared["field"]
             schema.sync_type_config["incremental_field_type"] = str(declared["field_type"])
             # Reads `incremental_field_type` back out of the config, so it has to be set first.
@@ -105,6 +123,7 @@ class Command(BaseCommand):
                 schema_id=str(schema.id),
                 team_id=schema.team_id,
                 source_type=source_type,
+                sync_type=str(sync_type),
                 incremental_field=declared["field"],
             )
 
@@ -118,13 +137,11 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"\nDone. Switched: {switched}, skipped: {skipped}"))
 
-    def _declared_cursor(self, schema: ExternalDataSchema, schema_name: str) -> IncrementalField | None:
+    def _matched_schema(self, schema: ExternalDataSchema, schema_name: str) -> SourceSchema | None:
         source = SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type))
         config = source.parse_config(schema.source.job_inputs or {})
         # Cursors vary by vendor API version, so discovery reads the pin the sync runs on. A
         # schema-level override (user-managed) wins over the source pin, as the pipeline does.
         api_version = source.resolve_api_version(schema.api_version or schema.source.api_version)
         source_schemas = source.get_schemas(config, schema.team_id, names=[schema_name], api_version=api_version)
-        if not source_schemas:
-            return None
-        return source.declared_incremental_field_for_schema(source_schemas[0])
+        return source_schemas[0] if source_schemas else None
