@@ -148,13 +148,6 @@ export class HogFlowExecutorService {
             usageReporter,
             options
         )
-        const hogFunctionPushHandler = new HogFunctionHandler(
-            hogFlowFunctionsService,
-            recipientPreferencesService,
-            emailValidationService,
-            'push',
-            usageReporter
-        )
 
         this.actionHandlers = {
             trigger: new TriggerHandler(integrationManager),
@@ -165,7 +158,7 @@ export class HogFlowExecutorService {
             random_cohort_branch: new RandomCohortBranchHandler(),
             function: hogFunctionHandler,
             function_sms: hogFunctionSmsHandler,
-            function_push: hogFunctionPushHandler,
+            function_push: hogFunctionHandler,
             function_email: hogFunctionEmailHandler,
             exit: new ExitHandler(),
         }
