@@ -138,6 +138,7 @@ export interface tracingViewerLogicMeta {
         ) => TraceIdentity
         traceSessionId: (
             openTraceSpans: Span[],
+            spans: Span[],
             selectedSpanId: string | null,
             configuredSessionIdKeys: string[] | undefined,
             sessionErrorBadgesEnabled: boolean
@@ -325,9 +326,16 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
         // resolves from one row, so the stricter rule would also make the two disagree. A later
         // page that carries a second session withdraws the answer rather than keeping a wrong one.
         traceSessionId: [
-            (s) => [s.openTraceSpans, s.selectedSpanId, s.configuredSessionIdKeys, s.sessionErrorBadgesEnabled],
+            (s) => [
+                s.openTraceSpans,
+                s.spans,
+                s.selectedSpanId,
+                s.configuredSessionIdKeys,
+                s.sessionErrorBadgesEnabled,
+            ],
             (
                 openTraceSpans: Span[],
+                spans: Span[],
                 selectedSpanId: string | null,
                 configuredSessionIdKeys: string[] | undefined,
                 sessionErrorBadgesEnabled: boolean
@@ -339,9 +347,13 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
                 // user pressed. Reading the whole trace instead would answer null for a trace that
                 // touches two sessions, so a row that just showed a count would open a tab saying
                 // the trace has no session.
-                const anchored = selectedSpanId
-                    ? (openTraceSpans.find((span) => span.span_id === selectedSpanId) ?? null)
-                    : null
+                //
+                // The full-trace fetch returns the earliest page of a large trace, which can omit
+                // the anchored span. The row the user pressed is still in the list, so fall back to
+                // it rather than resolving from a page that may carry another session.
+                const findAnchored = (candidates: Span[]): Span | null =>
+                    selectedSpanId ? (candidates.find((span) => span.span_id === selectedSpanId) ?? null) : null
+                const anchored = findAnchored(openTraceSpans) ?? findAnchored(spans)
                 const anchoredSessionId = anchored ? resolveSpanSessionId(anchored, configuredSessionIdKeys) : null
                 return anchoredSessionId ?? resolveTraceSessionId(openTraceSpans, configuredSessionIdKeys)
             },

@@ -126,17 +126,34 @@ describe('tracingViewerLogic', () => {
 
         // A badge sits on one row and resolves that row's session. A trace touching two sessions
         // must therefore still answer for the row the badge opened, or clicking a row that just
-        // showed a count lands on a tab saying the trace has no session.
-        it('resolves traceSessionId from the span the drawer is anchored on', () => {
+        // showed a count lands on a tab saying the trace has no session. The full-trace fetch
+        // returns the earliest page of a large trace, so the anchored row can be missing from it
+        // while it still sits in the list the badge was clicked in.
+        it.each([
+            ['the prefetched list', false],
+            ['the list when the fetched trace page omits it', true],
+        ])('resolves traceSessionId from the anchored span in %s', (_name, tracePageOmitsAnchor) => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES], {
                 [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true,
             })
-            tracingDataLogic().actions.fetchSpansSuccess([
-                makeSpan({ uuid: 'span-0', span_id: 'span-0', trace_id: 'trace-x', attributes: { sessionId: 'a' } }),
-                makeSpan({ uuid: 'span-1', span_id: 'span-1', trace_id: 'trace-x', attributes: { sessionId: 'b' } }),
-            ])
+            const spanA = makeSpan({
+                uuid: 'span-0',
+                span_id: 'span-0',
+                trace_id: 'trace-x',
+                attributes: { sessionId: 'a' },
+            })
+            const spanB = makeSpan({
+                uuid: 'span-1',
+                span_id: 'span-1',
+                trace_id: 'trace-x',
+                attributes: { sessionId: 'b' },
+            })
+            tracingDataLogic().actions.fetchSpansSuccess([spanA, spanB])
 
             logic.actions.openTrace('trace-x', { spanId: 'span-1', ts: '2024-01-01T00:00:00Z' })
+            if (tracePageOmitsAnchor) {
+                tracingDataLogic().actions.loadTraceSpansSuccess([spanA])
+            }
 
             expect(logic.values.traceSessionId).toBe('b')
         })
