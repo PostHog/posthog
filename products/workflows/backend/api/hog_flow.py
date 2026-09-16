@@ -1774,18 +1774,21 @@ class HogFlowActionSerializer(serializers.Serializer):
             if strict and not _wait_condition_already_stored(data, self.context):
                 _reject_clock_based_wait(data["config"], self.context["get_team"]())
             max_wait_duration = data.get("config", {}).get("max_wait_duration")
-            # A falsy timeout never reaches the parser: conditional_branch.ts skips the re-park and
+            # Absent or empty never reaches the parser: conditional_branch.ts skips the re-park and
             # continues to the next action, so only a value the parser sees needs the format. It does
-            # not wait indefinitely, whatever the field name suggests.
-            if strict and max_wait_duration and not is_duration(max_wait_duration):
+            # not wait indefinitely, whatever the field name suggests. Test emptiness rather than
+            # truthiness, because {} and [] are falsy here and truthy in the worker, which would hand
+            # the parser a container and throw on every run.
+            if strict and max_wait_duration not in (None, "") and not is_duration(max_wait_duration):
                 raise serializers.ValidationError({"config": duration_error("max_wait_duration")})
 
         if is_conditional_branch:
             # A branch that matches no condition re-parks on this optional delay, which
-            # conditional_branch.ts hands to the same parser as max_wait_duration above. Absent means
-            # "do not re-park", so only a value that actually reaches the parser needs the format.
+            # conditional_branch.ts hands to the same parser as max_wait_duration above. Absent or
+            # empty means "do not re-park", so only a value that actually reaches the parser needs the
+            # format, and emptiness is the test for the same reason as above.
             delay_duration = data.get("config", {}).get("delay_duration")
-            if strict and delay_duration and not is_duration(delay_duration):
+            if strict and delay_duration not in (None, "") and not is_duration(delay_duration):
                 raise serializers.ValidationError({"config": duration_error("delay_duration")})
 
         if data.get("type") == "delay":

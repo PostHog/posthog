@@ -831,6 +831,9 @@ class TestHogFlowAPI(APIBaseTest):
             ("unsupported_unit", "10x"),
             ("iso_8601", "P30D"),
             ("numeric", 1800),
+            # Falsy in Python, truthy in the worker, which would hand the parser a container.
+            ("empty_object", {}),
+            ("empty_array", []),
         ]
     )
     def test_hog_flow_wait_validation_rejects_malformed_max_wait_duration(self, _name, max_wait_duration):
@@ -882,6 +885,9 @@ class TestHogFlowAPI(APIBaseTest):
             ("iso_8601", "P30D"),
             ("numeric", 1800),
             ("unicode_digits", "\u0665d"),
+            # Falsy in Python, truthy in the worker, which would hand the parser a container.
+            ("empty_object", {}),
+            ("empty_array", []),
         ]
     )
     def test_hog_flow_conditional_branch_validation_rejects_malformed_delay_duration(self, _name, delay_duration):
