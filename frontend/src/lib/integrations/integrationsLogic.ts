@@ -122,6 +122,7 @@ export interface integrationsLogicValues {
     githubPersonalConnected: boolean | null
     githubRepositories: Record<number, GitHubRepoApi[]>
     githubRepositoriesLoading: boolean
+    linearIntegrations: IntegrationType[]
     githubRepositoriesTotal: Record<number, number>
     integrations: IntegrationType[] | null
     integrationsLoading: boolean
@@ -605,6 +606,7 @@ export interface integrationsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         slackIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[] | undefined
         githubIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[]
+        linearIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[]
         githubAvailableInstallations: (
             githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi | null
         ) => GitHubAvailableInstallationApi[] | null
@@ -1151,6 +1153,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
             (s) => [s.integrations],
             (integrations: IntegrationType[] | null): IntegrationType[] => {
                 return integrations?.filter((x) => x.kind === 'github') ?? []
+            },
+        ],
+        linearIntegrations: [
+            (s) => [s.integrations],
+            (integrations: IntegrationType[] | null): IntegrationType[] => {
+                return integrations?.filter((x) => x.kind === 'linear') ?? []
             },
         ],
         githubAvailableInstallations: [
