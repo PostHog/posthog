@@ -753,6 +753,10 @@ _DOCKER_SIZE_PATTERN = re.compile(r"([0-9]*\.?[0-9]+)\s*([kmgtp]?b)", re.IGNOREC
 _DOCKER_PRUNABLE_TYPES = ("Images", "Containers", "Build Cache")
 _DOCKER_VOLUME_TYPE = "Local Volumes"
 
+# A wedged daemon answers neither `info` nor `df`, and both run before we print anything,
+# so without a bound the whole command looks hung. The prunes themselves stay unbounded.
+_DOCKER_PROBE_TIMEOUT = 10
+
 
 def _parse_docker_size(value: str) -> float:
     """Convert a `docker system df` size such as `26.5GB` to bytes (decimal units)."""
@@ -770,12 +774,16 @@ def _parse_docker_size(value: str) -> float:
 def _docker_df_rows() -> list[dict[str, str]]:
     """Return one dict per `docker system df` row, or an empty list when unavailable."""
 
-    result = subprocess.run(
-        ["docker", "system", "df", "--format", "{{json .}}"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["docker", "system", "df", "--format", "{{json .}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_DOCKER_PROBE_TIMEOUT,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
     if result.returncode != 0:
         return []
 
@@ -803,8 +811,8 @@ def _docker_total_size(rows: Sequence[dict[str, str]]) -> float:
 
 def _docker_running() -> bool:
     try:
-        subprocess.run(["docker", "info"], capture_output=True, check=True)
-    except (FileNotFoundError, subprocess.CalledProcessError):
+        subprocess.run(["docker", "info"], capture_output=True, check=True, timeout=_DOCKER_PROBE_TIMEOUT)
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return False
     return True
 
@@ -928,7 +936,11 @@ def _estimate_sccache(repo_root: Path) -> CleanupEstimate:
 def _cleanup_sccache(estimate: CleanupEstimate, _: Path) -> CleanupStats:
     """Stop the sccache server, then delete its cache directory."""
 
-    subprocess.run(["sccache", "--stop-server"], capture_output=True, check=False)
+    # The cache directory outlives the binary, so the estimate can find one to delete on a
+    # machine where sccache is no longer installed.
+    if shutil.which("sccache") is not None:
+        subprocess.run(["sccache", "--stop-server"], capture_output=True, check=False)
+
     freed = _delete_items(estimate.items)
     return CleanupStats(freed=freed, deleted_anything=freed > 0)
 
@@ -982,6 +994,7 @@ def _cleanup_uv_cache(_: CleanupEstimate, __: Path) -> CleanupStats:
 # the store, held by a gcroot under the per-process cache directory. Those roots dangle
 # once the process directory is gone, so most of the store sits unreachable but on disk.
 _NIX_QUERY_CHUNK = 500
+_NIX_INVALID_PATH_ERROR = "is not valid"
 _NIX_FREED_PATTERN = re.compile(r"([0-9]*\.?[0-9]+)\s*(B|KiB|MiB|GiB|TiB)\s+freed", re.IGNORECASE)
 _NIX_FREED_UNITS = {"b": 1, "kib": 1024, "mib": 1024**2, "gib": 1024**3, "tib": 1024**4}
 
@@ -1005,7 +1018,8 @@ def _nix_chunk_size(chunk: Sequence[str]) -> float:
 
     `nix-store -q --size` answers in argument order and then aborts on the first invalid
     path, so a single stale entry would otherwise cost us the whole batch. The sizes it
-    already printed stay good, and the path after them is the one to skip.
+    already printed stay good, and the path after them is the one to skip. Any other
+    failure ends the batch, because retrying it per path only repeats it.
     """
 
     total = 0.0
@@ -1020,6 +1034,8 @@ def _nix_chunk_size(chunk: Sequence[str]) -> float:
             except ValueError:
                 continue
         if result.returncode == 0:
+            break
+        if _NIX_INVALID_PATH_ERROR not in result.stderr:
             break
         remaining = remaining[len(answered) + 1 :]
 

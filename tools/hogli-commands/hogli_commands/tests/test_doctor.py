@@ -1911,6 +1911,24 @@ def test_nix_chunk_size_resumes_past_an_invalid_path(monkeypatch: pytest.MonkeyP
     assert _nix_chunk_size(paths) == pytest.approx(700.0)
 
 
+def test_nix_chunk_size_gives_up_on_a_failure_that_is_not_an_invalid_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Retrying a locked database once per path would spawn thousands of doomed
+    # processes and still answer nothing, so the batch has to end at the first one.
+    calls = 0
+
+    def fake_run(cmd: Sequence[str], **kwargs: object) -> SimpleNamespace:
+        nonlocal calls
+        calls += 1
+        return SimpleNamespace(returncode=1, stdout="", stderr="error: unable to lock the database")
+
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+
+    assert _nix_chunk_size([f"/nix/store/{index}" for index in range(50)]) == 0.0
+    assert calls == 1
+
+
 def test_collect_rust_target_dirs_includes_the_shared_cargo_target_dir(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
