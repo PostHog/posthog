@@ -372,12 +372,16 @@ const SECRET_FIELD_NAMES = [
     'refresh_token',
     'token_type',
     'apikey',
+    'api_key',
+    'apitoken',
     'apisecret',
     'clientsecret',
+    'clevertappasscode',
     'password',
     'secretkey',
     'secret',
     'securitytoken',
+    'server_token',
 ]
 
 const translateInputsSchema = (
