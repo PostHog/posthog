@@ -18,16 +18,24 @@ def team():
     return create_team(organization=create_organization("test org"))
 
 
-def _create_full_refresh_tickets_schema(team, with_table=True):
+def _create_full_refresh_schema(
+    team,
+    with_table=True,
+    source_type="Zendesk",
+    job_inputs=None,
+    api_version=None,
+    schema_name="tickets",
+):
     source = ExternalDataSource.objects.create(
         team=team,
-        source_type="Zendesk",
-        job_inputs={"subdomain": "nibbles", "api_key": "token", "email_address": "user@example.com"},
+        source_type=source_type,
+        job_inputs=job_inputs or {"subdomain": "nibbles", "api_key": "token", "email_address": "user@example.com"},
+        api_version=api_version,
     )
     table = (
         DataWarehouseTable.objects.create(
             team=team,
-            name="zendesk_tickets",
+            name=f"{source_type.lower()}_{schema_name}",
             format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
             url_pattern="https://bucket/x/*",
             external_data_source=source,
@@ -36,7 +44,7 @@ def _create_full_refresh_tickets_schema(team, with_table=True):
         else None
     )
     return ExternalDataSchema.objects.create(
-        name="tickets",
+        name=schema_name,
         team=team,
         source=source,
         table=table,
@@ -48,7 +56,7 @@ def _create_full_refresh_tickets_schema(team, with_table=True):
 
 class TestSwitchSchemasToDeclaredCursor:
     def test_starts_the_cursor_from_the_rows_already_synced(self, team):
-        schema = _create_full_refresh_tickets_schema(team)
+        schema = _create_full_refresh_schema(team)
 
         with patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=1758000000):
             call_command(
@@ -62,15 +70,34 @@ class TestSwitchSchemasToDeclaredCursor:
         assert schema.sync_type_config["incremental_field_last_value"] == 1758000000
 
     def test_leaves_a_schema_alone_when_it_has_no_cursor_value_to_start_from(self, team):
-        schema = _create_full_refresh_tickets_schema(team, with_table=False)
+        schema = _create_full_refresh_schema(team, with_table=False)
 
         call_command("switch_schemas_to_declared_cursor", source_type="Zendesk", schema_name="tickets", live_run=True)
 
         schema.refresh_from_db()
         assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
+    def test_reads_the_cursor_from_the_version_the_schema_is_pinned_to(self, team):
+        schema = _create_full_refresh_schema(
+            team,
+            source_type="ShipStation",
+            job_inputs={"api_key": "key", "api_secret": "secret"},
+            api_version="v1",
+            schema_name="shipments",
+        )
+
+        with patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=1758000000):
+            call_command(
+                "switch_schemas_to_declared_cursor", source_type="ShipStation", schema_name="shipments", live_run=True
+            )
+
+        schema.refresh_from_db()
+        # v2 shipments declare `modified_at`, a column a v1 sync cannot filter on, so the run
+        # would send no cursor and re-read the whole table.
+        assert schema.sync_type_config["incremental_field"] == "createDate"
+
     def test_dry_run_changes_nothing(self, team):
-        schema = _create_full_refresh_tickets_schema(team)
+        schema = _create_full_refresh_schema(team)
 
         with patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=1758000000):
             call_command("switch_schemas_to_declared_cursor", source_type="Zendesk", schema_name="tickets")

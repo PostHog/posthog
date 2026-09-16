@@ -121,7 +121,10 @@ class Command(BaseCommand):
     def _declared_cursor(self, schema: ExternalDataSchema, schema_name: str) -> IncrementalField | None:
         source = SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type))
         config = source.parse_config(schema.source.job_inputs or {})
-        source_schemas = source.get_schemas(config, schema.team_id, names=[schema_name])
+        # Cursors vary by vendor API version, so discovery reads the pin the sync runs on. A
+        # schema-level override (user-managed) wins over the source pin, as the pipeline does.
+        api_version = source.resolve_api_version(schema.api_version or schema.source.api_version)
+        source_schemas = source.get_schemas(config, schema.team_id, names=[schema_name], api_version=api_version)
         if not source_schemas:
             return None
         return source.declared_incremental_field_for_schema(source_schemas[0])
