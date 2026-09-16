@@ -133,7 +133,7 @@ const REASON_CASES: ReasonCase[] = [
     },
     {
         reason: ExperimentReplayListEmptyReason.TooEarly,
-        experimentId: 214,
+        experimentId: 217,
         experiment: { start_date: daysAgo(1), end_date: null },
         setup: (logic) => logic.actions.setExposureScope('all_exposed'),
         copy: 'The experiment started 1 day ago',
@@ -143,12 +143,35 @@ const REASON_CASES: ReasonCase[] = [
         // The same young run, narrowed to one variant. A list this young is usually empty for every
         // variant, so the copy stays the age of the run, and the banner carries the way out of the
         // variant. Without it the viewer is told to wait and given nothing to widen the list with.
+        // The variant outranks the scope, so the way out is the variant's even under the in-session
+        // default.
         reason: ExperimentReplayListEmptyReason.TooEarly,
         experimentId: 216,
         experiment: { start_date: daysAgo(1), end_date: null },
         setup: (logic) => logic.actions.setSelectedVariantKey('test'),
         copy: 'No recordings yet',
         actions: ['experiment-recordings-empty-show-all-variants'],
+    },
+    {
+        // A young run reaches this reason before the metric-filter one, so it can render while a
+        // bucket supplies the session set. The bucket drops the narrowing from the query, so the
+        // way back out would move nothing: it must not be offered, and the copy must not claim the
+        // list is narrowed to the exposure session.
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        experimentId: 218,
+        experiment: { start_date: daysAgo(1), end_date: null },
+        setup: (logic) => {
+            ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue({
+                session_ids: ['bucket-session'],
+                truncated: false,
+                considered_metrics: [],
+                excluded_metrics: [],
+                filter_test_accounts: true,
+            })
+            logic.actions.setMetricFilterMode('no_metric_activity')
+        },
+        copy: 'The experiment started 1 day ago',
+        actions: [],
     },
     {
         reason: ExperimentReplayListEmptyReason.EndedPastRetention,

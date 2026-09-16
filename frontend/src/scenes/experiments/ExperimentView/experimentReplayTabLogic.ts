@@ -286,11 +286,15 @@ function daysSince(date: string | null | undefined): number | null {
  *
  * The tab's own metric event filters are left out. The reason they raise carries no action either,
  * so there is nothing for this to offer.
+ *
+ * The scope is the one the list ran under, not the one the control settled on. A session bucket or
+ * a watch card supplies the session set itself and drops the narrowing from the query, so the
+ * scope did not empty that list and widening it would move nothing.
  */
 function narrowingAction(
     filtersCustomized: boolean,
     effectiveVariantKey: string | null,
-    effectiveExposureScope: ExperimentReplayExposureScope
+    ranExposureScope: ExperimentReplayExposureScope
 ): ExperimentRecordingsNarrowingAction | null {
     if (filtersCustomized) {
         return 'clear_filters'
@@ -298,7 +302,7 @@ function narrowingAction(
     if (effectiveVariantKey !== null) {
         return 'show_all_variants'
     }
-    if (effectiveExposureScope === 'in_session') {
+    if (ranExposureScope === 'in_session') {
         return 'all_sessions'
     }
     return null
@@ -747,7 +751,7 @@ export interface experimentReplayTabLogicMeta {
             effectiveVariantKey: string | null,
             effectiveExposureScope: ExperimentReplayExposureScope,
             scannedWindowEnd: string | null,
-            effectiveExposureScope: ExperimentReplayExposureScope,
+            recordingsFilters: RecordingUniversalFilters,
             arg: any
         ) => ExperimentRecordingsListEmptyContext
         filterContext: (
@@ -1491,16 +1495,16 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 s.currentTeam,
                 s.filtersCustomized,
                 s.effectiveVariantKey,
-                s.effectiveExposureScope,
                 s.scannedWindowEnd,
+                s.recordingsFilters,
                 (_, props) => props.experiment,
             ],
             (
                 currentTeam: TeamPublicType | TeamType | null,
                 filtersCustomized: boolean,
                 effectiveVariantKey: string | null,
-                effectiveExposureScope: ExperimentReplayExposureScope,
                 scannedWindowEnd: string | null,
+                recordingsFilters: RecordingUniversalFilters,
                 experiment: Experiment
             ): ExperimentRecordingsListEmptyContext => ({
                 daysSinceStart: daysSince(experiment.start_date),
@@ -1508,7 +1512,15 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 retentionWindowDays: retentionDays(currentTeam?.session_recording_retention_period),
                 variantKey: effectiveVariantKey,
                 scannedWindowEnd,
-                narrowingAction: narrowingAction(filtersCustomized, effectiveVariantKey, effectiveExposureScope),
+                narrowingAction: narrowingAction(
+                    filtersCustomized,
+                    effectiveVariantKey,
+                    // Off the filter the list ran with rather than the settled scope: where a
+                    // bucket or a card supplies the session set the narrowing never reached the
+                    // query, so it is not what emptied the list and the way back out would move
+                    // nothing.
+                    recordingsFilters.experiment_exposure?.in_session ? 'in_session' : 'all_exposed'
+                ),
             }),
         ],
         // What the list was narrowed by, shared by the opened-recording and list-rendered reports so
