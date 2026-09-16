@@ -16,6 +16,7 @@ from posthog.event_usage import groups
 from products.access_control.backend.models.role import RoleMembership
 
 from .. import logic, weekly_digest, weekly_digest_delivery
+from ..indexed_embedding import EMBEDDING_TABLES
 from ..logic import external_references, rules
 from ..models import (
     ErrorTrackingIssue,
@@ -779,3 +780,12 @@ def build_team_section_payload(data: dict[str, Any]) -> dict[str, Any]:
 
 def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
     weekly_digest_delivery.send_digest_to_workflow(digest, distinct_id)
+
+
+def document_embedding_tables() -> list[tuple[str, str]]:
+    """Every per-model embeddings table as ``(sharded storage table, distributed read table)``.
+
+    Other products embed their documents into these tables too, so a sweep that removes a
+    product's rows needs the full list rather than the one model it writes with.
+    """
+    return [(table.sharded_table_name(), table.distributed_table_name()) for table in EMBEDDING_TABLES]
