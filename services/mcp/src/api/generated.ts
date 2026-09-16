@@ -17761,6 +17761,63 @@ export namespace Schemas {
       max_selections?: number | null;
     }
 
+    export interface CdcEnableResponse {
+      /** Whether CDC was enabled on the source. */
+      success: boolean;
+      /** Whether the extraction and cleanup schedules could be created. False means CDC is enabled but scheduling failed; the schedule self-heals on the first CDC schema toggle. */
+      schedules_ready: boolean;
+    }
+
+    export interface CdcPrerequisitesResponse {
+      /** Whether the source satisfies every CDC prerequisite. */
+      valid: boolean;
+      /** Unmet prerequisites, empty when valid is true. */
+      errors: string[];
+    }
+
+    /**
+     * * `posthog` - posthog
+     * * `self_managed` - self_managed
+     */
+    export type ManagementModeEnum = typeof ManagementModeEnum[keyof typeof ManagementModeEnum];
+
+
+    export const ManagementModeEnum = {
+      Posthog: 'posthog',
+      SelfManaged: 'self_managed',
+    } as const;
+
+    export interface CdcStatus {
+      /** Whether CDC is enabled on this source. */
+      enabled: boolean;
+      /** Who owns the slot and publication: PostHog or the customer.
+       *
+       * * `posthog` - posthog
+       * * `self_managed` - self_managed */
+      management_mode?: ManagementModeEnum;
+      /** Replication slot PostHog consumes from. Empty when unset. */
+      slot_name?: string;
+      /** Publication PostHog reads changes from. Empty when unset. */
+      publication_name?: string;
+      /** Lag in MB above which the UI warns. */
+      lag_warning_threshold_mb?: number;
+      /** Lag in MB above which the UI alerts. */
+      lag_critical_threshold_mb?: number;
+      /** True when a non-retryable failure paused the extraction schedule; the UI then offers Resume instead of Repair. Degrades to false when the schedule lookup fails. */
+      schedule_paused?: boolean;
+      /** Whether the replication slot exists on the source, when the source was reachable. */
+      slot_exists?: boolean;
+      /** Whether the publication exists on the source, when the source was reachable. */
+      publication_exists?: boolean;
+      /**
+         * Current slot lag in bytes, when the source was reachable.
+         * @nullable
+         */
+      lag_bytes?: number | null;
+      /** Tables in the publication, when the source was reachable and a publication exists. */
+      published_tables?: string[];
+    }
+
     /**
      * * `consolidated` - consolidated
      * * `cdc_only` - cdc_only
@@ -21201,6 +21258,23 @@ export namespace Schemas {
       files?: CreateVersionFromSourceInputFiles;
       /** Extra binary files to ship next to app.py, keyed by project-relative path (for example 'data/events.parquet'), each as standard base64 text. */
       assets?: CreateVersionFromSourceInputAssets;
+    }
+
+    export interface CreateWebhookResponse {
+      /** Whether the webhook was created and registered with the source. */
+      success: boolean;
+      /**
+         * The PostHog endpoint the external service delivers events to.
+         * @nullable
+         */
+      webhook_url: string | null;
+      /**
+         * Why creation failed, when success is false.
+         * @nullable
+         */
+      error: string | null;
+      /** Inputs the external service needs before delivery works. Submit via update_webhook_inputs. */
+      pending_inputs: string[];
     }
 
     /**
@@ -28920,6 +28994,18 @@ export namespace Schemas {
       status?: string;
       /** duckgres org identifier (the PostHog organization id) */
       org?: string;
+    }
+
+    export interface DeleteWebhookResponse {
+      /** Whether the webhook delivery function was deleted. */
+      success: boolean;
+      /** Whether the webhook was also removed from the external service. False when the source config was already gone and only the local function was cleaned up, or when the external call failed. */
+      external_deleted: boolean;
+      /**
+         * Why the external deletion failed, when external_deleted is false.
+         * @nullable
+         */
+      error: string | null;
     }
 
     /**
@@ -92096,6 +92182,11 @@ export namespace Schemas {
       color?: string | null;
     }
 
+    export interface UpdateWebhookInputsResponse {
+      /** Whether the inputs were saved and pushed to the external service. */
+      success: boolean;
+    }
+
     export interface UploadVersionRequest {
       /** Zip archive containing the Streamlit app sources (max 10 MB). */
       file: string;
@@ -93076,6 +93167,101 @@ export namespace Schemas {
     export interface WebAnalyticsUserPreferences {
       /** When true, the requesting user has hidden the Web analytics achievements gamification UI and suppressed achievement-unlocked notifications for this project. Scoped per (project, user). */
       achievements_opt_out: boolean;
+    }
+
+    export interface WebhookExternalStatus {
+      /** Whether the webhook exists on the external service. */
+      exists: boolean;
+      /**
+         * The webhook URL on the external service.
+         * @nullable
+         */
+      url: string | null;
+      /**
+         * Events the external webhook is subscribed to.
+         * @nullable
+         */
+      enabled_events: string[] | null;
+      /**
+         * Delivery health as the external service reports it (e.g. 'enabled').
+         * @nullable
+         */
+      status: string | null;
+      /**
+         * Description the external service holds for it.
+         * @nullable
+         */
+      description: string | null;
+      /**
+         * When the external webhook was created.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * Vendor API version the endpoint delivers at, when pinned.
+         * @nullable
+         */
+      api_version: string | null;
+      /**
+         * Read error the external service returned, if any.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    /**
+     * Delivery health reported by the pipeline: `state` and `tokens` counters.
+     */
+    export type WebhookHogFunctionStatus = { [key: string]: unknown };
+
+    export interface WebhookHogFunction {
+      /** ID of the webhook delivery hog function. */
+      id: string;
+      /** Name of the webhook delivery hog function. */
+      name: string;
+      /** Whether the webhook delivery function is enabled. */
+      enabled: boolean;
+      /** When the webhook delivery function was created (ISO 8601). */
+      created_at: string;
+      /** Delivery health reported by the pipeline: `state` and `tokens` counters. */
+      status: WebhookHogFunctionStatus;
+    }
+
+    /**
+     * Resource name to external schema id, as configured on the webhook function.
+     */
+    export type WebhookInfoResponseSchemaMapping = {[key: string]: string};
+
+    /**
+     * Current webhook function inputs keyed by the source's declared webhook field names.
+     */
+    export type WebhookInfoResponseInputs = {[key: string]: InputsItem};
+
+    export interface WebhookInfoResponse {
+      /** Whether the source type supports webhooks at all. When false, the other fields are absent. */
+      supports_webhooks: boolean;
+      /** Whether a PostHog webhook delivery function exists for this source yet. */
+      exists: boolean;
+      /**
+         * Set when the connection's credentials can never create the webhook, so only manual setup is left. Null means 'not known to be blocked'.
+         * @nullable
+         */
+      auto_creation_blocked_reason: string | null;
+      /** The webhook delivery function, present once the webhook exists. */
+      hog_function: WebhookHogFunction | null;
+      /**
+         * The PostHog endpoint the external service delivers events to.
+         * @nullable
+         */
+      webhook_url: string | null;
+      /** Resource name to external schema id, as configured on the webhook function. */
+      schema_mapping: WebhookInfoResponseSchemaMapping;
+      /** Current webhook function inputs keyed by the source's declared webhook field names. */
+      inputs?: WebhookInfoResponseInputs;
+      /** Live webhook state as the external service reports it, when it could be read. */
+      external_status: WebhookExternalStatus | null;
+      /** Desired provider events not yet on the webhook (manual setup, or created before a new table). */
+      missing_events?: string[];
     }
 
     export interface WebhookUrl {
@@ -101329,11 +101515,6 @@ export namespace Schemas {
 
     export type ExternalDataSourcesResumeCdcCreate200 = {
       success?: boolean;
-    };
-
-    export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
-      valid?: boolean;
-      errors?: string[];
     };
 
     export type ExternalDataSourcesConnectLinkRetrieveParams = {

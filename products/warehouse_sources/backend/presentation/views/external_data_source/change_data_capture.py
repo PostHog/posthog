@@ -7,7 +7,7 @@ from typing import Any
 from django.db import transaction
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -35,6 +35,65 @@ from products.warehouse_sources.backend.facade.source_management import (
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 from . import base
+
+
+class CdcPrerequisitesResponseSerializer(serializers.Serializer):
+    valid = serializers.BooleanField(help_text="Whether the source satisfies every CDC prerequisite.")
+    errors = serializers.ListField(  # type: ignore[assignment]  # shadows the DRF `errors` property
+        child=serializers.CharField(), help_text="Unmet prerequisites, empty when valid is true."
+    )
+
+
+class CdcEnableResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether CDC was enabled on the source.")
+    schedules_ready = serializers.BooleanField(
+        help_text=(
+            "Whether the extraction and cleanup schedules could be created. False means CDC is enabled but "
+            "scheduling failed; the schedule self-heals on the first CDC schema toggle."
+        )
+    )
+
+
+class CdcStatusSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(help_text="Whether CDC is enabled on this source.")
+
+    # Absent when enabled is false — CDC is off, so nothing else is known.
+    management_mode = serializers.ChoiceField(
+        choices=["posthog", "self_managed"],
+        required=False,
+        help_text="Who owns the slot and publication: PostHog or the customer.",
+    )
+    slot_name = serializers.CharField(
+        required=False, help_text="Replication slot PostHog consumes from. Empty when unset."
+    )
+    publication_name = serializers.CharField(
+        required=False, help_text="Publication PostHog reads changes from. Empty when unset."
+    )
+    lag_warning_threshold_mb = serializers.IntegerField(required=False, help_text="Lag in MB above which the UI warns.")
+    lag_critical_threshold_mb = serializers.IntegerField(
+        required=False, help_text="Lag in MB above which the UI alerts."
+    )
+    schedule_paused = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "True when a non-retryable failure paused the extraction schedule; the UI then offers Resume instead "
+            "of Repair. Degrades to false when the schedule lookup fails."
+        ),
+    )
+    slot_exists = serializers.BooleanField(
+        required=False, help_text="Whether the replication slot exists on the source, when the source was reachable."
+    )
+    publication_exists = serializers.BooleanField(
+        required=False, help_text="Whether the publication exists on the source, when the source was reachable."
+    )
+    lag_bytes = serializers.IntegerField(
+        allow_null=True, required=False, help_text="Current slot lag in bytes, when the source was reachable."
+    )
+    published_tables = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Tables in the publication, when the source was reachable and a publication exists.",
+    )
 
 
 class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
@@ -99,13 +158,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         request=None,
         responses={
             200: OpenApiResponse(
-                response={
-                    "type": "object",
-                    "properties": {
-                        "valid": {"type": "boolean"},
-                        "errors": {"type": "array", "items": {"type": "string"}},
-                    },
-                },
+                response=CdcPrerequisitesResponseSerializer,
                 description="Whether the Postgres database satisfies CDC prerequisites.",
             ),
             400: OpenApiResponse(description="Invalid config, disallowed host, or connection failure."),
@@ -195,10 +248,9 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": f"Could not connect to Postgres to check prerequisites: {e}"},
             )
 
-        # nosemgrep: api-response-must-match-schema -- matches the declared inline schema shape
         return Response(
             status=status.HTTP_200_OK,
-            data={"valid": len(prereq_errors) == 0, "errors": prereq_errors},
+            data=CdcPrerequisitesResponseSerializer({"valid": len(prereq_errors) == 0, "errors": prereq_errors}).data,
         )
 
     def _get_cdc_adapter_or_400(self, instance: ExternalDataSource) -> tuple[CDCSourceAdapter | None, Response | None]:
@@ -266,12 +318,12 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": f"Could not connect to source to check prerequisites: {e}"},
             )
 
-        # nosemgrep: api-response-must-match-schema -- matches the declared inline schema shape
         return Response(
             status=status.HTTP_200_OK,
-            data={"valid": len(prereq_errors) == 0, "errors": prereq_errors},
+            data=CdcPrerequisitesResponseSerializer({"valid": len(prereq_errors) == 0, "errors": prereq_errors}).data,
         )
 
+    @extend_schema(responses=CdcEnableResponseSerializer)
     @action(methods=["POST"], detail=True)
     def enable_cdc(self, request: Request, *arg: Any, **kwargs: Any):
         """Enable CDC on an existing source.
@@ -368,7 +420,10 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             base.logger.exception("Could not create CDC schedules after enable_cdc", exc_info=e)
             base.capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
 
-        return Response(status=status.HTTP_200_OK, data={"success": True, "schedules_ready": schedules_ok})
+        return Response(
+            status=status.HTTP_200_OK,
+            data=CdcEnableResponseSerializer({"success": True, "schedules_ready": schedules_ok}).data,
+        )
 
     @action(methods=["POST"], detail=True)
     def disable_cdc(self, request: Request, *arg: Any, **kwargs: Any):
@@ -717,6 +772,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
 
+    @extend_schema(responses=CdcStatusSerializer)
     @action(methods=["GET"], detail=True)
     def cdc_status(self, request: Request, *arg: Any, **kwargs: Any):
         """Live CDC health for an existing source: slot/publication existence and WAL lag.
@@ -735,8 +791,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
 
         cdc_config = adapter.parse_cdc_config(instance)
         if not cdc_config.enabled:
-            # nosemgrep: api-response-must-match-schema -- short-circuit response, declared via extend_schema
-            return Response(status=status.HTTP_200_OK, data={"enabled": False})
+            return Response(status=status.HTTP_200_OK, data=CdcStatusSerializer({"enabled": False}).data)
 
         try:
             live_status = adapter.get_status(instance)
@@ -760,17 +815,18 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             base.logger.warning("cdc_status_schedule_paused_lookup_failed", source_id=str(instance.id), exc_info=True)
             schedule_paused = False
 
-        # nosemgrep: api-response-must-match-schema -- matches the declared inline schema shape
         return Response(
             status=status.HTTP_200_OK,
-            data={
-                "enabled": True,
-                "management_mode": cdc_config.management_mode,
-                "slot_name": cdc_config.slot_name,
-                "publication_name": cdc_config.publication_name,
-                "lag_warning_threshold_mb": cdc_config.lag_warning_threshold_mb,
-                "lag_critical_threshold_mb": cdc_config.lag_critical_threshold_mb,
-                "schedule_paused": schedule_paused,
-                **live_status,
-            },
+            data=CdcStatusSerializer(
+                {
+                    "enabled": True,
+                    "management_mode": cdc_config.management_mode,
+                    "slot_name": cdc_config.slot_name,
+                    "publication_name": cdc_config.publication_name,
+                    "lag_warning_threshold_mb": cdc_config.lag_warning_threshold_mb,
+                    "lag_critical_threshold_mb": cdc_config.lag_critical_threshold_mb,
+                    "schedule_paused": schedule_paused,
+                    **live_status,
+                }
+            ).data,
         )

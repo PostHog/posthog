@@ -1215,7 +1215,6 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             # Roll back the row just created so a caller can't accumulate orphaned sources, and return
             # a clean 400 instead of the uncaught 500 this would otherwise raise. Mirrors `setup`.
             new_source_model.delete()
-            # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": helpers._source_unavailable_message(source_type)},
@@ -1709,8 +1708,10 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             request=request,
         )
 
-        # nosemgrep: api-response-must-match-schema -- create-source id ack, pre-existing payload
-        return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
+        return Response(
+            status=status.HTTP_201_CREATED,
+            data=ExternalDataSourceCreateResponseSerializer({"id": new_source_model.pk}).data,
+        )
 
     def prefix_required(self, source_type: str) -> bool:
         # A prefix is only needed when a no-prefix source of the same type already
@@ -1925,7 +1926,6 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         except NotImplementedError:
             # Source doesn't implement schema discovery (e.g. an unreleased source) so it can't be
             # set up via this one-shot flow — a caller mistake, not a server error worth capturing.
-            # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": helpers._source_unavailable_message(source_type)},
@@ -2041,15 +2041,16 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             # ValueError for an unknown resource_name / dependency cycle — all caller mistakes.
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
 
-        # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
         return Response(
             status=status.HTTP_200_OK,
-            data={
-                "rows": result.rows,
-                "row_count": result.row_count,
-                "columns": result.columns,
-                "error": result.error,
-            },
+            data=SourcePreviewResponseSerializer(
+                {
+                    "rows": result.rows,
+                    "row_count": result.row_count,
+                    "columns": result.columns,
+                    "error": result.error,
+                }
+            ).data,
         )
 
     @extend_schema(
@@ -2130,16 +2131,17 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             request=request,
         )
 
-        # nosemgrep: api-response-must-match-schema -- matches the declared inline schema shape
         return Response(
             status=status.HTTP_200_OK,
-            data={
-                "draft_status": result.status,
-                "manifest_json": result.manifest_json,
-                "resource_names": result.resource_names,
-                "attempts": result.attempts,
-                "error": result.error,
-            },
+            data=DraftCustomManifestResponseSerializer(
+                {
+                    "draft_status": result.status,
+                    "manifest_json": result.manifest_json,
+                    "resource_names": result.resource_names,
+                    "attempts": result.attempts,
+                    "error": result.error,
+                }
+            ).data,
         )
 
     def _validate_source_config_and_credentials(

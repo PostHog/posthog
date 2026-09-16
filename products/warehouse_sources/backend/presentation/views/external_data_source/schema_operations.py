@@ -45,6 +45,17 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
 from . import base, credential_store, helpers
 
 
+class RefreshSchemasResponseSerializer(serializers.Serializer):
+    added = serializers.IntegerField(help_text="Number of schemas newly created from the source.")
+    deleted = serializers.IntegerField(
+        help_text="Number of schemas removed because they no longer exist on the source."
+    )
+    auto_enabled = serializers.IntegerField(
+        help_text="Number of new schemas auto-enabled because the source has auto_sync_new_schemas on."
+    )
+    total_tables_seen = serializers.IntegerField(help_text="Total tables the source reported, before filtering.")
+
+
 class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Schema identifier to update.")
     should_sync = serializers.BooleanField(required=False, help_text="Whether the schema should be queryable/synced.")
@@ -173,19 +184,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 raise PermissionDenied("You do not have editor access to every table in this source.")
 
     @action(methods=["POST"], detail=True)
-    @extend_schema(
-        responses={
-            200: {
-                "type": "object",
-                "properties": {
-                    "added": {"type": "integer"},
-                    "deleted": {"type": "integer"},
-                    "auto_enabled": {"type": "integer"},
-                    "total_tables_seen": {"type": "integer"},
-                },
-            }
-        }
-    )
+    @extend_schema(responses=RefreshSchemasResponseSerializer)
     def refresh_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Fetch current schema/table list from the source and create any new ExternalDataSchema rows (no data sync)."""
         instance: ExternalDataSource = self.get_object()
@@ -316,15 +315,16 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             auto_enabled=len(auto_enabled_names),
             total_tables_seen=len(schemas),
         )
-        # nosemgrep: api-response-must-match-schema -- matches the extend_schema responses declaration
         return Response(
             status=status.HTTP_200_OK,
-            data={
-                "added": len(sync_result.created),
-                "deleted": len(schemas_deleted),
-                "auto_enabled": len(auto_enabled_names),
-                "total_tables_seen": len(schemas),
-            },
+            data=RefreshSchemasResponseSerializer(
+                {
+                    "added": len(sync_result.created),
+                    "deleted": len(schemas_deleted),
+                    "auto_enabled": len(auto_enabled_names),
+                    "total_tables_seen": len(schemas),
+                }
+            ).data,
         )
 
     @extend_schema(request=credential_store.DatabaseSchemaRequestSerializer)
@@ -389,7 +389,6 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         except NotImplementedError:
             # Source doesn't implement schema discovery (e.g. an unreleased source), so there are
             # no tables to list — a caller mistake, not a server error worth capturing. Mirrors `setup`.
-            # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": helpers._source_unavailable_message(source_type)},

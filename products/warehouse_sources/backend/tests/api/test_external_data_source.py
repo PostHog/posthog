@@ -11887,7 +11887,8 @@ class TestCDCStatus(APIBaseTest):
         source = _make_postgres_source(self.team.pk, self.user)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
         assert response.status_code == 200, response.content
-        assert response.json() == {"enabled": False}
+        assert response.json()["enabled"] is False
+        assert "management_mode" not in response.json()
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.base.is_cdc_extraction_schedule_paused",

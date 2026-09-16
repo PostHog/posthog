@@ -9,7 +9,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CdcEnableResponseApi,
+    CdcPrerequisitesResponseApi,
+    CdcStatusApi,
+    CreateWebhookResponseApi,
     DatabaseSchemaRequestApi,
+    DeleteWebhookResponseApi,
     DirectConnectionSourceOptionApi,
     DraftCustomManifestRequestApi,
     DraftCustomManifestResponseApi,
@@ -25,7 +30,6 @@ import type {
     ExternalDataSourceCreateApi,
     ExternalDataSourceCreateResponseApi,
     ExternalDataSourceSerializersApi,
-    ExternalDataSourcesCheckCdcPrerequisitesCreate200,
     ExternalDataSourcesConnectLinkRetrieveParams,
     ExternalDataSourcesJobsListParams,
     ExternalDataSourcesListParams,
@@ -53,8 +57,10 @@ import type {
     SourcePreviewResponseApi,
     SourceSetupApi,
     SourceSetupResponseApi,
+    UpdateWebhookInputsResponseApi,
     WarehouseColumnStatisticsApi,
     WarehouseColumnStatisticsListParams,
+    WebhookInfoResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -638,8 +644,8 @@ export const externalDataSourcesCdcStatusRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesCdcStatusRetrieveUrl(projectId, id), {
+): Promise<CdcStatusApi> => {
+    return apiMutator<CdcStatusApi>(getExternalDataSourcesCdcStatusRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -687,8 +693,8 @@ export const externalDataSourcesCreateWebhookCreate = async (
     id: string,
     externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesCreateWebhookCreateUrl(projectId, id), {
+): Promise<CreateWebhookResponseApi> => {
+    return apiMutator<CreateWebhookResponseApi>(getExternalDataSourcesCreateWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -708,8 +714,8 @@ export const externalDataSourcesDeleteWebhookCreate = async (
     id: string,
     externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesDeleteWebhookCreateUrl(projectId, id), {
+): Promise<DeleteWebhookResponseApi> => {
+    return apiMutator<DeleteWebhookResponseApi>(getExternalDataSourcesDeleteWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -811,8 +817,8 @@ export const externalDataSourcesEnableCdcCreate = async (
     id: string,
     externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesEnableCdcCreateUrl(projectId, id), {
+): Promise<CdcEnableResponseApi> => {
+    return apiMutator<CdcEnableResponseApi>(getExternalDataSourcesEnableCdcCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1009,13 +1015,16 @@ export const externalDataSourcesUpdateWebhookInputsCreate = async (
     id: string,
     externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesUpdateWebhookInputsCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
-    })
+): Promise<UpdateWebhookInputsResponseApi> => {
+    return apiMutator<UpdateWebhookInputsResponseApi>(
+        getExternalDataSourcesUpdateWebhookInputsCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(externalDataSourceSerializersApi),
+        }
+    )
 }
 
 export const getExternalDataSourcesWebhookInfoRetrieveUrl = (projectId: string, id: string) => {
@@ -1029,8 +1038,8 @@ export const externalDataSourcesWebhookInfoRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesWebhookInfoRetrieveUrl(projectId, id), {
+): Promise<WebhookInfoResponseApi> => {
+    return apiMutator<WebhookInfoResponseApi>(getExternalDataSourcesWebhookInfoRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -1049,14 +1058,11 @@ export const getExternalDataSourcesCheckCdcPrerequisitesCreateUrl = (projectId: 
 export const externalDataSourcesCheckCdcPrerequisitesCreate = async (
     projectId: string,
     options?: RequestInit
-): Promise<ExternalDataSourcesCheckCdcPrerequisitesCreate200> => {
-    return apiMutator<ExternalDataSourcesCheckCdcPrerequisitesCreate200>(
-        getExternalDataSourcesCheckCdcPrerequisitesCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-        }
-    )
+): Promise<CdcPrerequisitesResponseApi> => {
+    return apiMutator<CdcPrerequisitesResponseApi>(getExternalDataSourcesCheckCdcPrerequisitesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
 }
 
 export const getExternalDataSourcesConnectLinkRetrieveUrl = (

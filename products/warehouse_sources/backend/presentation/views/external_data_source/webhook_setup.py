@@ -6,12 +6,14 @@ import dataclasses
 from collections.abc import Mapping
 from typing import Any
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.utils import action
+from posthog.cdp.validation import InputsSerializer
 
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
@@ -54,6 +56,119 @@ class SourceSetupWebhookSerializer(serializers.Serializer):
             "Webhook input names the user still needs to provide (e.g. a signing secret the external API did not "
             "return on create). Submit them via the update_webhook_inputs endpoint."
         ),
+    )
+
+
+class WebhookHogFunctionSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="ID of the webhook delivery hog function.")
+    name = serializers.CharField(help_text="Name of the webhook delivery hog function.")
+    enabled = serializers.BooleanField(help_text="Whether the webhook delivery function is enabled.")
+    created_at = serializers.CharField(help_text="When the webhook delivery function was created (ISO 8601).")
+    status = serializers.DictField(
+        child=serializers.JSONField(),
+        help_text="Delivery health reported by the pipeline: `state` and `tokens` counters.",
+    )
+
+
+class WebhookExternalStatusSerializer(serializers.Serializer):
+    exists = serializers.BooleanField(help_text="Whether the webhook exists on the external service.")
+    url = serializers.CharField(allow_null=True, allow_blank=True, help_text="The webhook URL on the external service.")
+    enabled_events = serializers.ListField(
+        child=serializers.CharField(), allow_null=True, help_text="Events the external webhook is subscribed to."
+    )
+    status = serializers.CharField(
+        allow_null=True,
+        allow_blank=True,
+        help_text="Delivery health as the external service reports it (e.g. 'enabled').",
+    )
+    description = serializers.CharField(
+        allow_null=True, allow_blank=True, help_text="Description the external service holds for it."
+    )
+    created_at = serializers.CharField(
+        allow_null=True, allow_blank=True, help_text="When the external webhook was created."
+    )
+    api_version = serializers.CharField(
+        allow_null=True, allow_blank=True, help_text="Vendor API version the endpoint delivers at, when pinned."
+    )
+    error = serializers.CharField(
+        allow_null=True, allow_blank=True, help_text="Read error the external service returned, if any."
+    )
+
+
+class WebhookInfoResponseSerializer(serializers.Serializer):
+    supports_webhooks = serializers.BooleanField(
+        help_text="Whether the source type supports webhooks at all. When false, the other fields are absent."
+    )
+    exists = serializers.BooleanField(
+        help_text="Whether a PostHog webhook delivery function exists for this source yet."
+    )
+    auto_creation_blocked_reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Set when the connection's credentials can never create the webhook, so only manual setup is left. "
+            "Null means 'not known to be blocked'."
+        ),
+    )
+    hog_function = WebhookHogFunctionSerializer(
+        allow_null=True, help_text="The webhook delivery function, present once the webhook exists."
+    )
+    webhook_url = serializers.CharField(
+        allow_null=True, help_text="The PostHog endpoint the external service delivers events to."
+    )
+    schema_mapping = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Resource name to external schema id, as configured on the webhook function.",
+    )
+    inputs = InputsSerializer(
+        required=False,
+        help_text="Current webhook function inputs keyed by the source's declared webhook field names.",
+    )
+    external_status = WebhookExternalStatusSerializer(
+        allow_null=True, help_text="Live webhook state as the external service reports it, when it could be read."
+    )
+    missing_events = serializers.ListField(
+        required=False,
+        child=serializers.CharField(),
+        help_text="Desired provider events not yet on the webhook (manual setup, or created before a new table).",
+    )
+
+
+class WebhookInfoBlockedResponseSerializer(serializers.Serializer):
+    supports_webhooks = serializers.BooleanField(help_text="Whether the source type supports webhooks. True here.")
+    exists = serializers.BooleanField(help_text="Always false: no webhook function exists yet.")
+    auto_creation_blocked_reason = serializers.CharField(
+        help_text="Why automatic creation can't proceed, so only manual setup is left."
+    )
+
+
+class CreateWebhookResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the webhook was created and registered with the source.")
+    webhook_url = serializers.CharField(
+        allow_null=True, allow_blank=True, help_text="The PostHog endpoint the external service delivers events to."
+    )
+    error = serializers.CharField(
+        allow_null=True, allow_blank=True, help_text="Why creation failed, when success is false."
+    )
+    pending_inputs = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Inputs the external service needs before delivery works. Submit via update_webhook_inputs.",
+    )
+
+
+class UpdateWebhookInputsResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the inputs were saved and pushed to the external service.")
+
+
+class DeleteWebhookResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the webhook delivery function was deleted.")
+    external_deleted = serializers.BooleanField(
+        help_text=(
+            "Whether the webhook was also removed from the external service. False when the source config was "
+            "already gone and only the local function was cleaned up, or when the external call failed."
+        )
+    )
+    error = serializers.CharField(
+        allow_null=True, allow_blank=True, help_text="Why the external deletion failed, when external_deleted is false."
     )
 
 
@@ -201,6 +316,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
             base.capture_exception(e)
             return None
 
+    @extend_schema(responses=WebhookInfoResponseSerializer)
     @action(methods=["GET"], detail=True)
     def webhook_info(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
@@ -208,16 +324,19 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
         source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):
-            # nosemgrep: api-response-must-match-schema -- matches the declared inline schema shape
             return Response(
                 status=status.HTTP_200_OK,
-                data={
-                    "supports_webhooks": False,
-                    "exists": False,
-                    "webhook_url": None,
-                    "schema_mapping": {},
-                    "external_status": None,
-                },
+                data=WebhookInfoResponseSerializer(
+                    {
+                        "supports_webhooks": False,
+                        "exists": False,
+                        "auto_creation_blocked_reason": None,
+                        "hog_function": None,
+                        "webhook_url": None,
+                        "schema_mapping": {},
+                        "external_status": None,
+                    }
+                ).data,
             )
 
         blocked_reason = self._webhook_creation_blocked_reason(source, instance)
@@ -230,14 +349,21 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
         ).first()
 
         if not hog_function:
-            # nosemgrep: api-response-must-match-schema -- matches the declared inline schema shape
             return Response(
                 status=status.HTTP_200_OK,
-                data={
-                    "supports_webhooks": True,
-                    "exists": False,
-                    "auto_creation_blocked_reason": blocked_reason,
-                },
+                data=WebhookInfoResponseSerializer(
+                    {
+                        "supports_webhooks": True,
+                        "exists": False,
+                        "auto_creation_blocked_reason": blocked_reason,
+                        "hog_function": None,
+                        "webhook_url": None,
+                        "schema_mapping": {},
+                        "inputs": {},
+                        "external_status": None,
+                        "missing_events": [],
+                    }
+                ).data,
             )
 
         webhook_url = get_webhook_url(hog_function.id)
@@ -263,28 +389,30 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
         all_inputs = HogFunctionSerializer(hog_function).data.get("inputs") or {}
         webhook_inputs = {k: v for k, v in all_inputs.items() if k in webhook_field_names}
 
-        # nosemgrep: api-response-must-match-schema -- matches the declared inline schema shape
         return Response(
             status=status.HTTP_200_OK,
-            data={
-                "supports_webhooks": True,
-                "exists": True,
-                "hog_function": {
-                    "id": str(hog_function.id),
-                    "name": hog_function.name,
-                    "enabled": hog_function.enabled,
-                    "created_at": hog_function.created_at.isoformat(),
-                    "status": hog_function.status,
-                },
-                "webhook_url": webhook_url,
-                "schema_mapping": schema_mapping,
-                "inputs": webhook_inputs,
-                "external_status": dataclasses.asdict(external_status) if external_status else None,
-                "missing_events": missing_events,
-                "auto_creation_blocked_reason": blocked_reason,
-            },
+            data=WebhookInfoResponseSerializer(
+                {
+                    "supports_webhooks": True,
+                    "exists": True,
+                    "auto_creation_blocked_reason": blocked_reason,
+                    "hog_function": {
+                        "id": str(hog_function.id),
+                        "name": hog_function.name,
+                        "enabled": hog_function.enabled,
+                        "created_at": hog_function.created_at.isoformat(),
+                        "status": hog_function.status,
+                    },
+                    "webhook_url": webhook_url,
+                    "schema_mapping": schema_mapping,
+                    "inputs": webhook_inputs,
+                    "external_status": dataclasses.asdict(external_status) if external_status else None,
+                    "missing_events": missing_events,
+                }
+            ).data,
         )
 
+    @extend_schema(responses=CreateWebhookResponseSerializer)
     @action(methods=["POST"], detail=True)
     def create_webhook(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
@@ -353,12 +481,14 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
         if blocked_reason is not None:
             return Response(
                 status=status.HTTP_200_OK,
-                data={
-                    "success": False,
-                    "webhook_url": hog_fn_result.webhook_url,
-                    "error": blocked_reason,
-                    "pending_inputs": [],
-                },
+                data=CreateWebhookResponseSerializer(
+                    {
+                        "success": False,
+                        "webhook_url": hog_fn_result.webhook_url,
+                        "error": blocked_reason,
+                        "pending_inputs": [],
+                    }
+                ).data,
             )
 
         result = create_and_register_webhook(
@@ -367,14 +497,17 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
 
         return Response(
             status=status.HTTP_200_OK,
-            data={
-                "success": result.success,
-                "webhook_url": result.webhook_url,
-                "error": result.error,
-                "pending_inputs": result.pending_inputs,
-            },
+            data=CreateWebhookResponseSerializer(
+                {
+                    "success": result.success,
+                    "webhook_url": result.webhook_url,
+                    "error": result.error,
+                    "pending_inputs": result.pending_inputs,
+                }
+            ).data,
         )
 
+    @extend_schema(responses=UpdateWebhookInputsResponseSerializer)
     @action(methods=["POST"], detail=True)
     def update_webhook_inputs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
@@ -467,8 +600,9 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
                 data={"success": False, "error": error or "Failed to update webhook on the external source."},
             )
 
-        return Response(status=status.HTTP_200_OK, data={"success": True})
+        return Response(status=status.HTTP_200_OK, data=UpdateWebhookInputsResponseSerializer({"success": True}).data)
 
+    @extend_schema(responses=DeleteWebhookResponseSerializer)
     @action(methods=["POST"], detail=True)
     def delete_webhook(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
@@ -518,7 +652,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
 
             return Response(
                 status=status.HTTP_200_OK,
-                data={"success": True, "external_deleted": False},
+                data=DeleteWebhookResponseSerializer({"success": True, "external_deleted": False}).data,
             )
 
         try:
@@ -540,9 +674,11 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
 
         return Response(
             status=status.HTTP_200_OK,
-            data={
-                "success": result.success,
-                "external_deleted": result.external_deleted,
-                "error": result.error,
-            },
+            data=DeleteWebhookResponseSerializer(
+                {
+                    "success": result.success,
+                    "external_deleted": result.external_deleted,
+                    "error": result.error,
+                }
+            ).data,
         )
