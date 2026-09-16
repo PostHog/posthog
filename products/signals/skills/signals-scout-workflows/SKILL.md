@@ -1,5 +1,6 @@
 ---
 name: signals-scout-workflows
+scout-display-name: Workflows
 description: >
   Signals scout for PostHog workflows. Looks at the workflows whose owner asked for
   suggestions, reads each email step's per-version delivery metrics, and proposes one
