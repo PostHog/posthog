@@ -70,6 +70,8 @@ from personhog.types.v1.person_pb2 import (
     DeletePersonsBatchForTeamResponse,
     DeletePersonsRequest,
     DeletePersonsResponse,
+    DeleteTombstonedPersonsRequest,
+    DeleteTombstonedPersonsResponse,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest,

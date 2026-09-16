@@ -59,6 +59,7 @@ from posthog.models.utils import (
     hash_key_value,
 )
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.oauth_provenance import is_interactive_desktop_grant
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.shared_link_user import SharedLinkUser
@@ -900,15 +901,16 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
 
 def _record_agent_attribution(request: Union[HttpRequest, Request], access_token: OAuthAccessToken) -> None:
-    """Record the sandbox task bound to the token, and the intent the agent claims.
+    """Record a trusted task binding, or intent from a Desktop OAuth application.
 
-    Any caller can send the intent header, so it is read only behind the token binding.
+    Intent is self-reported. Only the token binding can supply a verified task id.
     Attribution is extra detail on an audit row, so an error here must not fail the request.
     """
     try:
-        if access_token.sandbox_task_id is None:
+        if access_token.sandbox_task_id is None and not is_interactive_desktop_grant(request, access_token):
             return
-        activity_storage.set_agent_task_id(str(access_token.sandbox_task_id))
+        if access_token.sandbox_task_id is not None:
+            activity_storage.set_agent_task_id(str(access_token.sandbox_task_id))
         intent = request.headers.get(ACTIVITY_LOG_INTENT_HEADER, "").strip()[:ACTIVITY_LOG_INTENT_MAX_LENGTH]
         if intent:
             activity_storage.set_agent_intent(intent)

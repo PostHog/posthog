@@ -46,6 +46,7 @@ import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
@@ -128,6 +129,7 @@ from products.tasks.backend.models import (
 )
 from products.tasks.backend.pr_urls import (
     merge_pr_output,
+    read_head_branches,
     read_pr_urls as read_pr_urls,
 )
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
@@ -1165,28 +1167,35 @@ def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | N
     return None
 
 
-def get_latest_active_internal_task_run_for_organization(
-    organization_id: str | UUID, *, ai_stage: str
+def get_latest_internal_task_run_for_organization(
+    organization_id: str | UUID, *, ai_stage: str, active_only: bool = False, terminal_only: bool = False
 ) -> contracts.TaskRunDTO | None:
-    """Return the newest active cloud run for a server-owned organization flow."""
-    run = (
-        TaskRun.objects.filter(
-            team__organization_id=organization_id,
-            task__team__organization_id=organization_id,
-            task__internal=True,
-            environment=TaskRun.Environment.CLOUD,
-            state__ai_stage=ai_stage,
+    runs = TaskRun.objects.filter(
+        team__organization_id=organization_id,
+        task__team__organization_id=organization_id,
+        task__internal=True,
+        environment=TaskRun.Environment.CLOUD,
+        state__ai_stage=ai_stage,
+    )
+    if active_only:
+        runs = runs.filter(
             status__in=[
                 TaskRun.Status.NOT_STARTED,
                 TaskRun.Status.QUEUED,
                 TaskRun.Status.IN_PROGRESS,
-            ],
+            ]
         )
-        .select_related("task", "task__created_by")
-        .order_by("-created_at", "-id")
-        .first()
-    )
+    if terminal_only:
+        runs = runs.filter(status__in=_TERMINAL_TASK_RUN_STATUSES)
+    run = runs.select_related("task", "task__created_by").order_by("-created_at", "-id").first()
     return _task_run_to_dto(run) if run is not None else None
+
+
+def get_latest_active_internal_task_run_for_organization(
+    organization_id: str | UUID, *, ai_stage: str
+) -> contracts.TaskRunDTO | None:
+    """Return the newest active cloud run for a server-owned organization flow."""
+    return get_latest_internal_task_run_for_organization(organization_id, ai_stage=ai_stage, active_only=True)
 
 
 def get_stale_queued_task_run_ids(
@@ -7417,6 +7426,17 @@ def warm_task_resume_sandbox(
 # --- Task run (the ``run`` action) ---
 
 
+def _branches_worked_on(run: TaskRun) -> set[str]:
+    output = run.output if isinstance(run.output, dict) else {}
+    branches = {entry["branch"] for entry in read_head_branches(output)}
+    head_branch = output.get("head_branch")
+    if isinstance(head_branch, str) and head_branch:
+        branches.add(head_branch)
+    if run.branch:
+        branches.add(run.branch)
+    return branches
+
+
 def run_task(
     task_id: str | UUID,
     team_id: int,
@@ -7503,7 +7523,7 @@ def run_task(
         if previous_state.run_source == RunSource.AGENT:
             run_source = RunSource.AGENT
         previous_branch = previous_state.pr_base_branch
-        if branch is not None and branch != previous_branch:
+        if branch is not None and branch != previous_branch and branch not in _branches_worked_on(previous_run):
             return contracts.TaskRunResult(
                 error=contracts.TaskValidationError(
                     kind="detail", detail="A resumed run must use its previous base branch. Omit branch to resume."
@@ -10136,3 +10156,30 @@ def post_pr_created_thread_update(run: TaskRun, pr_url: str) -> None:
             )
     except Exception:
         logger.exception("Failed to post pr-created thread update", extra={"task_id": str(run.task_id)})
+
+
+# --- Inbound GitHub App deliveries (entered from backend/webhook_consumers.py) ---
+
+
+def accept_github_pull_request(delivery: WebhookDelivery) -> None:
+    """The PR backstop that records a pull request the agent output never reported."""
+    # Deferred to keep the GitHub client off the facade import path.
+    from products.tasks.backend.webhooks import handle_pull_request_event  # noqa: PLC0415
+
+    handle_pull_request_event(dict(delivery.payload))
+
+
+def accept_github_pull_request_review(delivery: WebhookDelivery) -> None:
+    """A review on a PR a task opened, which can resume the run that is waiting on it."""
+    # Deferred to keep the GitHub client off the facade import path.
+    from products.tasks.backend.webhooks import handle_pull_request_review_event  # noqa: PLC0415
+
+    handle_pull_request_review_event(dict(delivery.payload))
+
+
+def accept_github_event_for_loops(delivery: WebhookDelivery) -> None:
+    """Every event type a loop trigger can match on, which fires the loops whose filters accept it."""
+    # Deferred to keep the Redis client off the facade import path.
+    from products.tasks.backend.loop_github_events import handle_github_event_for_loops  # noqa: PLC0415
+
+    handle_github_event_for_loops(delivery.event_type, dict(delivery.payload), delivery.delivery_id or "")
