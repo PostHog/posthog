@@ -37,12 +37,19 @@ REPLAY_GATE_DELETE_ERROR = (
     "This feature flag is used in session replay settings. Please remove it from replay settings before deleting."
 )
 
+# A team storing a recording gate in either column. Shared so a scan and a guard can't drift into
+# visiting different populations.
+STORES_A_REPLAY_GATE = Q(session_recording_linked_flag__isnull=False) | Q(
+    session_recording_trigger_groups__isnull=False
+)
+
 
 @frozen
 class TriggerGroupFlagRef:
     """One trigger group's reference to a feature flag, and where in the stored config it sits."""
 
     group_index: int
+    group_id: Any
     stored_flag: Any
     key: str | None
     flag_id: int | None
@@ -107,13 +114,20 @@ def _trigger_group_flag_key(stored_flag: Any) -> str | None:
     return None
 
 
+def trigger_groups_readable(trigger_groups: Any) -> bool:
+    """Whether a stored trigger groups column is shaped well enough to read references out of."""
+    return isinstance(trigger_groups, dict) and isinstance(trigger_groups.get("groups"), list)
+
+
 def trigger_group_flag_refs(trigger_groups: Any) -> list[TriggerGroupFlagRef]:
     """Every `conditions.flag` reference in a team's stored trigger groups.
 
     Empty for a column that gates on no flag and for one too malformed to read, since neither holds
-    a reference to act on.
+    a reference to act on; `trigger_groups_readable` separates those for the one caller that
+    reports on the stored shape. Groups carrying no `conditions.flag` yield nothing, since most gate
+    on events or URLs instead and counting them would bury the references that matter.
     """
-    if not isinstance(trigger_groups, dict) or not isinstance(trigger_groups.get("groups"), list):
+    if not trigger_groups_readable(trigger_groups):
         return []
 
     groups = trigger_groups["groups"]
@@ -126,6 +140,7 @@ def trigger_group_flag_refs(trigger_groups: Any) -> list[TriggerGroupFlagRef]:
         refs.append(
             TriggerGroupFlagRef(
                 group_index=index,
+                group_id=group.get("id"),
                 stored_flag=stored_flag,
                 key=_trigger_group_flag_key(stored_flag),
                 flag_id=stored_flag_id(stored_flag),
@@ -178,10 +193,9 @@ def replay_gated_flags_for_projects(project_ids: Collection[int]) -> Mapping[int
     in one project match a same-keyed flag in another. A project that gates on nothing is absent
     from the result rather than present and empty.
     """
-    stored = Team.objects.filter(
-        Q(session_recording_linked_flag__isnull=False) | Q(session_recording_trigger_groups__isnull=False),
-        project_id__in=project_ids,
-    ).values_list("project_id", "session_recording_linked_flag", "session_recording_trigger_groups")
+    stored = Team.objects.filter(STORES_A_REPLAY_GATE, project_id__in=project_ids).values_list(
+        "project_id", "session_recording_linked_flag", "session_recording_trigger_groups"
+    )
 
     flag_ids: dict[int, set[int]] = defaultdict(set)
     flag_keys: dict[int, set[str]] = defaultdict(set)
