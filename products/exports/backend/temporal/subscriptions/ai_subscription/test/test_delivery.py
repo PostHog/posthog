@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -20,6 +21,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     SLACK_MRKDWN_SECTION_LIMIT,
     TEAMS_REPORT_BLOCK_COUNT,
     TEAMS_TEXT_BLOCK_LIMIT,
+    QueryAccessRevokedError,
     SubscriptionReportContext,
     _build_ai_slack_message,
     _last_scheduled_report_cutoff,
@@ -885,6 +887,11 @@ class TestFreezePlanPersistence:
     These guard the freeze contract without touching the DB — the conditional persist write itself is
     exercised by the integration/activity suites."""
 
+    @pytest.fixture(autouse=True)
+    def _allow_query_access_at_generation(self) -> Iterator[None]:
+        with patch(f"{_DELIVERY}.creator_can_query", return_value=True):
+            yield
+
     def _subscription(self, ai_query_plan: dict | None) -> Subscription:
         return Subscription(
             id=42,
@@ -1047,6 +1054,32 @@ class TestFreezePlanPersistence:
             await build_ai_subscription_report(sub)
 
         resolve_context.assert_not_awaited()
+        generate.assert_not_awaited()
+
+    async def test_query_access_revoked_after_context_resolution_blocks_planner_work(self) -> None:
+        sub = self._subscription(ai_query_plan=None)
+        with (
+            patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(
+                f"{_DELIVERY}.resolve_report_context",
+                new=AsyncMock(return_value=self._empty_evidence()),
+            ),
+            patch(f"{_DELIVERY}.creator_can_query", return_value=False),
+            patch(
+                f"{_DELIVERY}.generate_ai_report",
+                new=AsyncMock(
+                    return_value=AiReportResult(
+                        markdown="# R",
+                        diagnostics=(),
+                        window_end_utc="2026-06-29T16:00:00+00:00",
+                        plan_to_persist=None,
+                    )
+                ),
+            ) as generate,
+            pytest.raises(QueryAccessRevokedError, match="query access"),
+        ):
+            await build_ai_subscription_report(sub)
+
         generate.assert_not_awaited()
 
     @parameterized.expand(

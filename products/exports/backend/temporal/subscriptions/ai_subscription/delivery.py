@@ -284,6 +284,14 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
 
     report_context = await resolve_report_context(subscription, context.context_selection)
 
+    creator_still_can_query = await database_sync_to_async(creator_can_query, thread_sensitive=False)(
+        user=context.user, team=context.team
+    )
+    if not creator_still_can_query:
+        raise QueryAccessRevokedError(
+            "AI subscription creator is unavailable or no longer has required project or query access; cannot deliver."
+        )
+
     include_images = subscription.includes_delivery_part("include_images")
     result = await generate_ai_report(
         team=context.team,
