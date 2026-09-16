@@ -289,13 +289,15 @@ if [ "$dream" = true ]; then
         echo "publish: a scheduled dream needs a nonempty summary file" >&2
         exit 1
     fi
-    case "$branch" in
-        dream/????-??-??) ;;
-        *)
-            branch="dream/$(date -u +%F)"
+    target_branch="dream/$(date -u +%F)"
+    if [ "$branch" != "$target_branch" ]; then
+        branch="$target_branch"
+        if git show-ref --verify --quiet "refs/heads/$branch"; then
+            git checkout "$branch"
+        else
             git checkout -b "$branch"
-            ;;
-    esac
+        fi
+    fi
     git add --all
     if ! git diff --cached --quiet; then
         git -c user.name="PostHog Context Layer" -c user.email="context-layer@posthog.com" \\

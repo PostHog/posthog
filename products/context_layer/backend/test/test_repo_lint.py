@@ -201,6 +201,8 @@ exit "${PUBLISH_HTTP_EXIT:-0}"
 """
         )
         (self.bin_dir / "curl").chmod(0o755)
+        (self.bin_dir / "date").write_text("#!/bin/sh\nprintf '2026-09-16\\n'\n")
+        (self.bin_dir / "date").chmod(0o755)
         self.summary_file = self.workspace / "dream summary.md"
         self.summary_file.write_text("Reviewed recent activity\nRemoved an expired priority")
         self.bundle = self.workspace / "received.bundle"
@@ -231,8 +233,10 @@ exit "${PUBLISH_HTTP_EXIT:-0}"
             text=True,
         )
 
-    @parameterized.expand([("unstaged",), ("staged",), ("committed",)])
+    @parameterized.expand([("unstaged",), ("staged",), ("committed",), ("existing_branch",)])
     def test_publish_sends_wiki_edits_and_summary_contents_as_text(self, change_state: str) -> None:
+        if change_state == "existing_branch":
+            self._git("branch", "dream/2026-09-16")
         (self.root / "areas").mkdir()
         page = self.root / "areas" / "analytics.md"
         page.write_text("---\nsummary: Analytics\nstatus: active\nsources: test\n---\n# Analytics\n")
@@ -250,7 +254,7 @@ exit "${PUBLISH_HTTP_EXIT:-0}"
         assert "<--form-string>\n<summary=Reviewed recent activity\nRemoved an expired priority>" in result.stdout
         assert "publish: landed" in result.stdout
         assert self._git("status", "--porcelain") == ""
-        assert self._git("branch", "--show-current").startswith("dream/")
+        assert self._git("branch", "--show-current") == "dream/2026-09-16"
         self._git("bundle", "verify", str(self.bundle))
         self._git("fetch", str(self.bundle), self._git("branch", "--show-current"))
         assert self._git("show", "FETCH_HEAD:areas/analytics.md") == page.read_text().strip()

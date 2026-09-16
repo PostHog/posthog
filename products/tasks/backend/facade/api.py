@@ -1166,7 +1166,7 @@ def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | N
 
 
 def get_latest_internal_task_run_for_organization(
-    organization_id: str | UUID, *, ai_stage: str, active_only: bool = False
+    organization_id: str | UUID, *, ai_stage: str, active_only: bool = False, terminal_only: bool = False
 ) -> contracts.TaskRunDTO | None:
     runs = TaskRun.objects.filter(
         team__organization_id=organization_id,
@@ -1183,6 +1183,8 @@ def get_latest_internal_task_run_for_organization(
                 TaskRun.Status.IN_PROGRESS,
             ]
         )
+    if terminal_only:
+        runs = runs.filter(status__in=_TERMINAL_TASK_RUN_STATUSES)
     run = runs.select_related("task", "task__created_by").order_by("-created_at", "-id").first()
     return _task_run_to_dto(run) if run is not None else None
 

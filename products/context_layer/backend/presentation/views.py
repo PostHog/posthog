@@ -299,6 +299,7 @@ def _land_commits(organization_id, request: Request) -> Response:  # noqa: ANN00
         # so a loop run must land its edits through the page endpoint instead.
         raise PermissionDenied("This loop can update only its context page, not land commit bundles.")
     is_task_run = INTERNAL_RUN_SCOPE in token_scopes
+    maintenance_run = None
     if is_task_run:
         maintenance_run = tasks_facade.get_latest_active_internal_task_run_for_organization(
             organization_id, ai_stage=facade.DREAM_AI_STAGE
@@ -319,6 +320,7 @@ def _land_commits(organization_id, request: Request) -> Response:  # noqa: ANN00
                 bundle_bytes,
                 branch=branch,
                 summary=serializer.validated_data.get("summary") or None,
+                task_run_id=maintenance_run.id if maintenance_run is not None else None,
             )
         else:
             head_sha = facade.land_commit_bundle(
