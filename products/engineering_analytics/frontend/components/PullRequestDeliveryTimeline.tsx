@@ -37,6 +37,14 @@ function endLabel(pr: PRTimelineApi): string {
     return pr.merged_at ? 'Merged' : pr.state === 'closed' ? 'Closed' : 'Now'
 }
 
+function pushMarkersNote(pr: PRTimelineApi, pushes: TimelinePush[] | null): string | null {
+    if (pushes === null) {
+        return pr.pushes > 0 ? 'Push markers appear once the CI runs below load.' : null
+    }
+    const markedPushes = new Set(pushes.map((push) => push.headSha)).size
+    return markedPushes < pr.pushes ? 'Markers show the newest pushes only.' : null
+}
+
 export function PullRequestDeliveryTimeline({
     pr,
     pushes,
@@ -56,7 +64,7 @@ export function PullRequestDeliveryTimeline({
     const start = segments[0].started_at
     const end = segments[segments.length - 1].ended_at
     const labelStep = Math.ceil(dayStarts.length / MAX_DAY_LABELS)
-    const markedAllPushes = pushes === null || new Set(pushes.map((push) => push.headSha)).size >= pr.pushes
+    const pushNote = pushMarkersNote(pr, pushes)
 
     return (
         <LemonCard
@@ -168,7 +176,7 @@ export function PullRequestDeliveryTimeline({
                         <span className="text-secondary">Pushes</span>
                         <span className="font-semibold tabular-nums">{pr.pushes}</span>
                     </div>
-                    {!markedAllPushes && <span className="text-tertiary">Markers show the newest pushes only.</span>}
+                    {pushNote && <span className="text-tertiary">{pushNote}</span>}
                 </div>
             </div>
 
