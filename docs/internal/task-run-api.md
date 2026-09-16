@@ -35,7 +35,7 @@ Older runs without a stored base branch use the repository default.
 Cloud resumes of agent-sourced runs require the agent-run feature flag and the internal-project restriction.
 Warm resumes of agent-sourced runs return an empty response without creating a sandbox.
 Agent-sourced runs do not reuse warm sandboxes.
-A request cannot select a different base branch for the restored snapshot.
+A request may send the previous base branch or a branch that run worked on; any other branch is refused.
 The bootstrap endpoint, `POST .../tasks/{task_id}/runs/`, does not accept the agent source.
 Agent-sourced runs use the read-only MCP permission preset.
 Run state updates cannot change or remove the run source or base branch.
