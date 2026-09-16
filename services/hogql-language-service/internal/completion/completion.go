@@ -48,6 +48,25 @@ var comparisonOperators = []string{"=", "!=", "<", "<=", ">", ">=", "LIKE", "ILI
 var commonFunctions = []string{"avg", "coalesce", "count", "countDistinct", "countIf", "if", "max", "min", "now", "sum", "sumIf", "toDate", "toDateTime", "uniq", "uniqExact"}
 var tableReference = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.$]*)(?:\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*))?`)
 var simpleHogQLIdentifier = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
+var hogQLKeywords = map[string]struct{}{
+	"ALL": {}, "AND": {}, "ANTI": {}, "ANY": {}, "ARRAY": {}, "AS": {}, "ASC": {}, "ASCENDING": {}, "ASOF": {},
+	"BETWEEN": {}, "BOTH": {}, "BY": {}, "CASE": {}, "CAST": {}, "CATCH": {}, "COHORT": {}, "COLLATE": {}, "COLUMNS": {},
+	"CROSS": {}, "CUBE": {}, "CURRENT": {}, "DATE": {}, "DAY": {}, "DESC": {}, "DESCENDING": {}, "DISTINCT": {},
+	"ELSE": {}, "END": {}, "EXCEPT": {}, "EXCLUDE": {}, "EXTRACT": {}, "FILL": {}, "FILTER": {}, "FINAL": {},
+	"FINALLY": {}, "FIRST": {}, "FN": {}, "FOLLOWING": {}, "FOR": {}, "FROM": {}, "FULL": {}, "FUN": {},
+	"GROUP": {}, "GROUPING": {}, "HAVING": {}, "HOUR": {}, "ID": {}, "IF": {}, "INF": {}, "INFINITY": {},
+	"IGNORE": {}, "ILIKE": {}, "IN": {}, "INCLUDE": {}, "INNER": {}, "INTERPOLATE": {}, "INTERVAL": {}, "IS": {},
+	"INTERSECT": {}, "JOIN": {}, "KEY": {}, "LAMBDA": {}, "LAST": {}, "LEADING": {}, "LEFT": {}, "LET": {},
+	"LIKE": {}, "LIMIT": {}, "LOCAL": {}, "MATERIALIZED": {}, "MINUTE": {}, "MONTH": {}, "NAME": {}, "NAN": {},
+	"NATURAL": {}, "NOT": {}, "NULL": {}, "NULLS": {}, "OFFSET": {}, "ON": {}, "OR": {},
+	"ORDER": {}, "OUTER": {}, "OVER": {}, "PARTITION": {}, "PIVOT": {}, "POSITIONAL": {}, "PRECEDING": {},
+	"PREWHERE": {}, "QUALIFY": {}, "QUARTER": {}, "RANGE": {}, "RECURSIVE": {}, "REPLACE": {}, "RETURN": {}, "RIGHT": {},
+	"ROLLUP": {}, "ROW": {}, "ROWS": {}, "SAMPLE": {}, "SELECT": {}, "SEMI": {}, "SETS": {}, "SETTINGS": {},
+	"SECOND": {}, "STEP": {}, "SUBSTRING": {}, "THEN": {}, "THROW": {}, "TIES": {}, "TIME": {}, "TIMESTAMP": {},
+	"TO": {}, "TOP": {}, "TOTALS": {}, "TRAILING": {}, "TRIM": {}, "TRUNCATE": {}, "TRY": {}, "TRY_CAST": {},
+	"UNBOUNDED": {}, "UNION": {}, "UNPIVOT": {}, "USING": {}, "VALUES": {}, "WEEK": {}, "WHEN": {},
+	"WHERE": {}, "WHILE": {}, "WINDOW": {}, "WITH": {}, "WITHIN": {}, "YEAR": {}, "YYYY": {}, "ZONE": {},
+}
 var hogQLIdentifierEscaper = strings.NewReplacer(
 	"\\", "\\\\",
 	"`", "``",
@@ -251,7 +270,7 @@ func suggestionInsertText(kind, name string) string {
 	insertText := name
 	switch kind {
 	case "field", "property":
-		insertText = quoteHogQLIdentifier(name)
+		insertText = quoteHogQLFieldIdentifier(name)
 	case "table":
 		parts := strings.Split(name, ".")
 		for index := range parts {
@@ -263,6 +282,13 @@ func suggestionInsertText(kind, name string) string {
 		return ""
 	}
 	return insertText
+}
+
+func quoteHogQLFieldIdentifier(name string) string {
+	if _, keyword := hogQLKeywords[strings.ToUpper(name)]; keyword {
+		return "`" + hogQLIdentifierEscaper.Replace(name) + "`"
+	}
+	return quoteHogQLIdentifier(name)
 }
 
 func quoteHogQLIdentifier(name string) string {

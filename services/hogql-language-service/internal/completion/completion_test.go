@@ -114,15 +114,21 @@ func TestCompletesFieldsForAlias(t *testing.T) {
 
 func TestCompletionQuotesIdentifierInsertionText(t *testing.T) {
 	schema := catalog.Prepare(&catalog.Catalog{Tables: map[string]catalog.Table{
+		"from":        {Name: "from", Type: "data_warehouse", Fields: map[string]catalog.Field{}},
 		"order-items": {Name: "order-items", Type: "data_warehouse", Fields: map[string]catalog.Field{}},
 		"orders": {Name: "orders", Type: "data_warehouse", Fields: map[string]catalog.Field{
 			"billing address": {Name: "billing address", Type: "string"},
+			"FROM":            {Name: "FROM", Type: "string"},
 			"order-total":     {Name: "order-total", Type: "float"},
 			"tick`value":      {Name: "tick`value", Type: "string"},
 		}},
 	}, Properties: map[string][]catalog.Property{}})
 
 	tableResult, err := Complete(schema, "SELECT * FROM order", len("SELECT * FROM order"), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keywordTableResult, err := Complete(schema, "SELECT * FROM fr", len("SELECT * FROM fr"), PositionEncodingUTF8, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +143,9 @@ func TestCompletionQuotesIdentifierInsertionText(t *testing.T) {
 		insertText string
 	}{
 		{result: tableResult, label: "order-items", insertText: "`order-items`"},
+		{result: keywordTableResult, label: "from", insertText: ""},
 		{result: fieldResult, label: "billing address", insertText: "`billing address`"},
+		{result: fieldResult, label: "FROM", insertText: "`FROM`"},
 		{result: fieldResult, label: "order-total", insertText: "`order-total`"},
 		{result: fieldResult, label: "tick`value", insertText: "`tick``value`"},
 	} {

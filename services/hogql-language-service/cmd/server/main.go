@@ -371,7 +371,7 @@ func (s *server) validate(w http.ResponseWriter, r *http.Request, authorization 
 	setRequestResult(r, "catalog_hit")
 	positionEncoding := input.PositionEncoding
 	if positionEncoding == "" {
-		positionEncoding = textposition.UTF8
+		positionEncoding = textposition.UTF16
 	}
 	result, err := validation.ValidateWithEncoding(current, input.Query, positionEncoding)
 	if err != nil {

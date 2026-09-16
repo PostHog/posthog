@@ -122,11 +122,13 @@ func TestValidateEncodesDiagnosticPositions(t *testing.T) {
 	utf16Start := len(utf16.Encode([]rune(query[:byteStart])))
 
 	for _, test := range []struct {
-		encoding string
-		start    int
+		encoding         string
+		responseEncoding string
+		start            int
 	}{
-		{encoding: "utf-8", start: byteStart},
-		{encoding: "utf-16", start: utf16Start},
+		{encoding: "utf-8", responseEncoding: "utf-8", start: byteStart},
+		{encoding: "utf-16", responseEncoding: "utf-16", start: utf16Start},
+		{responseEncoding: "utf-16", start: utf16Start},
 	} {
 		body, err := json.Marshal(map[string]any{"query": query, "positionEncoding": test.encoding})
 		if err != nil {
@@ -143,15 +145,15 @@ func TestValidateEncodesDiagnosticPositions(t *testing.T) {
 		if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 			t.Fatal(err)
 		}
-		if string(result.PositionEncoding) != test.encoding {
-			t.Fatalf("position encoding = %q, want %q", result.PositionEncoding, test.encoding)
+		if string(result.PositionEncoding) != test.responseEncoding {
+			t.Fatalf("position encoding = %q, want %q", result.PositionEncoding, test.responseEncoding)
 		}
 		if len(result.Diagnostics) != 1 {
 			t.Fatalf("diagnostics = %#v", result.Diagnostics)
 		}
 		diagnostic := result.Diagnostics[0]
 		if diagnostic.Start != test.start || diagnostic.End != test.start+len("missing") {
-			t.Fatalf("%s diagnostic span = [%d,%d), want [%d,%d)", test.encoding, diagnostic.Start, diagnostic.End, test.start, test.start+len("missing"))
+			t.Fatalf("%s diagnostic span = [%d,%d), want [%d,%d)", test.responseEncoding, diagnostic.Start, diagnostic.End, test.start, test.start+len("missing"))
 		}
 	}
 }
