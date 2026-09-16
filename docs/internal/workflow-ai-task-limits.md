@@ -37,10 +37,12 @@ A template asks for the wait by returning an `await` object next to its result, 
 `max_wait` is set by the template's author, never by the workflow author, and the engine caps it at 24 hours.
 The task template uses 190 minutes and the scout template 35 minutes: each product's own runtime cap plus slack, so the product's own timeout wake lands before the step's deadline.
 A step that reaches its deadline without a wake fails with a timeout.
-The wake arrives through the `$workflow_step_resume` internal event, keyed on the step's idempotency key, so any template that dispatches a run its owner can report on can use the same path.
+The wake is keyed on the step's idempotency key, so any template that dispatches a run its owner can report on can use the same path.
+With `WORKFLOWS_STEP_RESUME_JWT_SECRET` provisioned on Django and the plugin server, a Celery task posts the wake to the CDP API's `workflow_steps/resume` route with a scoped JWT and retries with backoff for about twelve minutes.
+Without the key, the wake is the `$workflow_step_resume` internal event, consumed by the subscription matcher.
 `CDP_HOGFLOW_AWAITED_STEPS_ENABLED` on the plugin server enables new waits. Existing waits still receive their results when this flag is off.
-A wake that lands while the step is still dispatching is counted and dropped, because the worker owns the job state until it parks.
-That step then fails at its own deadline. The `cdp_hogflow_step_resume` counter reports these as `job_running`.
+A wake that lands while the step is still dispatching cannot be applied, because the worker owns the job state until it parks. The `cdp_hogflow_step_resume` counter reports these as `job_running`.
+Over the API the route answers 409 and the Celery task retries; over the internal event the wake is dropped and the step fails at its own deadline.
 Leave the flag off until the API that emits the wake is deployed.
 A task that ends through the agent's `finish` tool completes a few seconds before its final message is saved.
 The step waits for that message (up to 30 seconds) rather than continuing with an empty one.
