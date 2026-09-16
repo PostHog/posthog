@@ -6,14 +6,16 @@ import {
   serializeContextDocument,
 } from "@posthog/core/canvas/contextDocument";
 import { spaceFilesFolder } from "@posthog/core/canvas/contextFiles";
-import { Button, Text } from "@posthog/quill";
-import type { Task } from "@posthog/shared/domain-types";
+import { Button, cn, Text } from "@posthog/quill";
+import { isTerminalStatus } from "@posthog/shared/domain-types";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelPageIcon } from "@posthog/ui/features/canvas/components/channelPages";
 import {
   buildGoalMeasurePrompt,
   goalMeasureTaskTitle,
 } from "@posthog/ui/features/canvas/contextPrompt";
+import { GOAL_MEASURE_AGENT } from "@posthog/ui/features/canvas/goalMeasureAgent";
+import { useChannelFeed } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import type { ContextDocumentStore } from "@posthog/ui/features/canvas/hooks/useContextDocumentStore";
 import { useGenerateContext } from "@posthog/ui/features/canvas/hooks/useGenerateContext";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
@@ -29,13 +31,14 @@ import {
 } from "@posthog/ui/primitives/PageHeader";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
-import { navigateToChannelTask } from "@posthog/ui/router/navigationBridge";
 import { useMemo, useState } from "react";
 import { ContextEmptyHero } from "./ContextEmptyHero";
 import { GoalsList } from "./GoalsList";
 import { KnowledgeList } from "./KnowledgeList";
 import { MarkdownFileDialog } from "./MarkdownFileDialog";
 import { SignalsMargin } from "./SignalsMargin";
+
+const COLUMN = "mx-auto w-full max-w-[1100px] px-8";
 
 interface SpaceContextPageProps {
   channelId: string;
@@ -65,10 +68,10 @@ export function SpaceContextPage({
 }: SpaceContextPageProps) {
   const [agentOpen, setAgentOpen] = useState(false);
   const [editingContextFile, setEditingContextFile] = useState(false);
-  const [measureTask, setMeasureTask] = useState<{
-    goal: string;
-    task: Task;
-  } | null>(null);
+  const [launchedMeasures, setLaunchedMeasures] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const { tasks: channelTasks } = useChannelFeed(channelId);
   const contextLayerEnabled = useContextLayerFlag();
   const { generate } = useGenerateContext();
   const doc = useMemo(
@@ -81,6 +84,18 @@ export function SpaceContextPage({
     doc.links.length === 0 &&
     doc.objects.length === 0;
   const referenceCount = doc.links.length + doc.objects.length;
+  const pendingMeasures = useMemo(() => {
+    const names = new Set<string>();
+    for (const goal of doc.goals) {
+      const title = goalMeasureTaskTitle(goal.name);
+      const task = [...channelTasks].reverse().find((t) => t.title === title);
+      const pending = task?.latest_run
+        ? !isTerminalStatus(task.latest_run.status)
+        : launchedMeasures.has(goal.name);
+      if (pending) names.add(goal.name);
+    }
+    return names;
+  }, [doc.goals, channelTasks, launchedMeasures]);
 
   const saveDoc = (next: ContextDocument) =>
     store.save(serializeContextDocument(next));
@@ -98,61 +113,64 @@ export function SpaceContextPage({
         contextLayerEnabled,
       }),
       title: goalMeasureTaskTitle(goal.name),
+      agent: GOAL_MEASURE_AGENT,
     });
-    if (task) setMeasureTask({ goal: goal.name, task });
+    if (task) setLaunchedMeasures((prev) => new Set(prev).add(goal.name));
   };
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <PageHeader>
-        <PageHeaderHeading>
-          <PageHeaderTitleRow>
-            <PageHeaderTitle>Context</PageHeaderTitle>
-            {store.versionLabel ? (
-              <PageHeaderChip icon={channelPageIcon("context", { size: 12 })}>
-                {store.versionLabel}
-              </PageHeaderChip>
-            ) : null}
-            {store.isRefreshing || store.isSaving ? (
-              <Spinner size="xs" aria-hidden="true" />
-            ) : null}
-            <PageHeaderActions>
-              {onOpenInWiki ? (
-                <Button variant="outline" size="sm" onClick={onOpenInWiki}>
-                  <ArrowSquareOutIcon size={14} />
-                  Open in wiki
-                </Button>
+      <PageHeader className="px-0">
+        <div className={COLUMN}>
+          <PageHeaderHeading>
+            <PageHeaderTitleRow>
+              <PageHeaderTitle>Context</PageHeaderTitle>
+              {store.versionLabel ? (
+                <PageHeaderChip icon={channelPageIcon("context", { size: 12 })}>
+                  {store.versionLabel}
+                </PageHeaderChip>
               ) : null}
-              {!isBlank ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setAgentOpen(true)}
-                >
-                  <SparkleIcon size={14} />
-                  Update with agent
-                </Button>
+              {store.isRefreshing || store.isSaving ? (
+                <Spinner size="xs" aria-hidden="true" />
               ) : null}
-            </PageHeaderActions>
-          </PageHeaderTitleRow>
-          <PageHeaderDescription>
-            {isBlank ? (
-              "Every agent working in this space reads this first."
-            ) : (
-              <>
-                {store.updatedAt ? (
-                  <>
-                    Updated <RelativeTimestamp timestamp={store.updatedAt} />
-                    {" · "}
-                  </>
+              <PageHeaderActions>
+                {onOpenInWiki ? (
+                  <Button variant="outline" size="sm" onClick={onOpenInWiki}>
+                    <ArrowSquareOutIcon size={14} />
+                    Open in wiki
+                  </Button>
                 ) : null}
-                {countLabel(doc.goals.length, "goal")}
-                {" · "}
-                {countLabel(referenceCount, "reference")}
-              </>
-            )}
-          </PageHeaderDescription>
-        </PageHeaderHeading>
+                {!isBlank ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAgentOpen(true)}
+                  >
+                    <SparkleIcon size={14} />
+                    Update with agent
+                  </Button>
+                ) : null}
+              </PageHeaderActions>
+            </PageHeaderTitleRow>
+            <PageHeaderDescription>
+              {isBlank ? (
+                "Every agent working in this space reads this first."
+              ) : (
+                <>
+                  {store.updatedAt ? (
+                    <>
+                      Updated <RelativeTimestamp timestamp={store.updatedAt} />
+                      {" · "}
+                    </>
+                  ) : null}
+                  {countLabel(doc.goals.length, "goal")}
+                  {" · "}
+                  {countLabel(referenceCount, "reference")}
+                </>
+              )}
+            </PageHeaderDescription>
+          </PageHeaderHeading>
+        </div>
       </PageHeader>
 
       {store.isLoading ? (
@@ -168,7 +186,7 @@ export function SpaceContextPage({
         </div>
       ) : (
         <div className="@container min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-6 px-8 pt-8 pb-24">
+          <div className={cn(COLUMN, "flex flex-col gap-6 pt-10 pb-24")}>
             {store.saveError ? (
               <Notice
                 tone="warning"
@@ -185,32 +203,6 @@ export function SpaceContextPage({
               />
             ) : null}
 
-            {measureTask ? (
-              <Notice
-                message={`An agent is writing the measure for "${measureTask.goal}". The number appears here when it publishes.`}
-                action={
-                  <>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        navigateToChannelTask(channelId, measureTask.task.id)
-                      }
-                    >
-                      Open task
-                    </Button>
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={() => setMeasureTask(null)}
-                    >
-                      Dismiss
-                    </Button>
-                  </>
-                }
-              />
-            ) : null}
-
             {isBlank ? (
               <ContextEmptyHero
                 channelName={channelName}
@@ -223,6 +215,7 @@ export function SpaceContextPage({
                   goals={doc.goals}
                   onChange={(goals) => saveDoc({ ...doc, goals })}
                   onAskAgentForMeasure={askAgentForMeasure}
+                  pendingMeasures={pendingMeasures}
                   isSaving={store.isSaving}
                 />
                 <div className="grid @4xl:grid-cols-[minmax(0,1fr)_300px] grid-cols-1 @4xl:gap-14 gap-10">

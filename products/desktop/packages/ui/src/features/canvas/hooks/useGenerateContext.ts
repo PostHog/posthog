@@ -20,6 +20,7 @@ import {
   buildContextGenerationPrompt,
   contextMdTaskTitle,
 } from "@posthog/ui/features/canvas/contextPrompt";
+import type { AgentChoice } from "@posthog/ui/features/canvas/goalMeasureAgent";
 import { channelFeedQueryKey } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import { channelFeedMessagesQueryKey } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
@@ -49,6 +50,8 @@ interface GenerateContextInput {
   prompt?: string;
   /** Title for the task when `prompt` is set. */
   title?: string;
+  /** Pin the runtime, adapter, model and effort instead of the composer's last-used ones. */
+  agent?: AgentChoice;
 }
 
 // Launches the session that builds a context's CONTEXT.md. The task runs
@@ -90,6 +93,7 @@ export function useGenerateContext() {
       workspaceMode = "cloud",
       prompt,
       title,
+      agent,
     }: GenerateContextInput): Promise<Task | null> => {
       setIsStarting(true);
       try {
@@ -103,13 +107,15 @@ export function useGenerateContext() {
         // inbox one-click flows do; the resolver validates against the gateway.
         // Without a model a cloud run is rejected server-side after the context
         // was already created — hard-stop with a clear toast instead.
-        let model = currentModel;
+        const chosenAdapter = agent?.adapter ?? adapter ?? "claude";
+        const preferredModel = agent?.model ?? currentModel;
+        let model = preferredModel;
         if (workspaceMode === "cloud") {
           model = cloudRegion
             ? await modelResolver.resolveDefaultModel(
                 getCloudUrlFromRegion(cloudRegion),
-                adapter ?? "claude",
-                currentModel,
+                chosenAdapter,
+                preferredModel,
               )
             : undefined;
           if (!model) {
@@ -132,7 +138,9 @@ export function useGenerateContext() {
               }),
             taskDescription: title ?? contextMdTaskTitle(channelName),
             workspaceMode,
-            adapter: adapter ?? "claude",
+            adapter: chosenAdapter,
+            runtime: agent?.runtime,
+            reasoningLevel: agent?.reasoningLevel,
             // Own the task on the channel so it lands in the context feed
             // (not just Recents).
             channelId,

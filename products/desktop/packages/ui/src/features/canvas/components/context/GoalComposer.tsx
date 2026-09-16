@@ -1,7 +1,6 @@
 import {
   ArrowLeftIcon,
   ChartBarIcon,
-  SparkleIcon,
   WarningCircleIcon,
 } from "@phosphor-icons/react";
 import {
@@ -47,9 +46,10 @@ function growToFit(el: HTMLTextAreaElement): void {
 }
 
 /**
- * One line in, a measured goal out. A sentence becomes HogQL through the
- * project's draft endpoint; pasted HogQL skips that. Either way the person
- * sees the query and its current value, adjusts the target, and saves.
+ * One line in, a goal out. A sentence saves the goal at once and hands the
+ * measure to an agent that reads the project's events and writes the query.
+ * Pasted HogQL skips the agent: the person sees the query and its current
+ * value, adjusts the target, and saves.
  */
 export function GoalComposer({
   initial,
@@ -78,17 +78,14 @@ export function GoalComposer({
 
   const isHogQL = looksLikeHogQL(sentence);
 
-  const draft = useMutation({
-    mutationFn: async (words: string) => {
-      if (!client) throw new Error("Not signed in.");
-      return client.draftHogQL(words.slice(0, 400));
-    },
-  });
   const run = useMutation({
     mutationFn: async (sql: string) => {
       if (!client) throw new Error("Not signed in.");
       const grid = await client.runHogQLQuery(sql);
-      return firstNumericCell(grid.results);
+      return {
+        value: firstNumericCell(grid.results),
+        rows: grid.results.length,
+      };
     },
   });
   const runMutate = run.mutate;
@@ -112,25 +109,6 @@ export function GoalComposer({
     setDirection(target.direction);
     setTargetValue(String(target.value));
     setDueDate(target.dueDate ?? "");
-  };
-
-  const proceed = async () => {
-    const text = sentence.trim();
-    if (!text || draft.isPending) return;
-    if (isHogQL) {
-      setMeasure({ kind: "hogql", sql: text });
-      if (!name.trim()) setName("Untitled goal");
-      setStep("review");
-      return;
-    }
-    const parsed = parseGoalSentence(text);
-    setName(parsed.name);
-    applyTarget(parsed.target);
-    const sql = await draft.mutateAsync(parsed.name).catch(() => null);
-    if (sql) {
-      setMeasure({ kind: "hogql", sql });
-      setStep("review");
-    }
   };
 
   const parsedTarget = targetValue.trim()
@@ -169,6 +147,18 @@ export function GoalComposer({
     });
   };
 
+  const proceed = async () => {
+    const text = sentence.trim();
+    if (!text || askedAgent) return;
+    if (isHogQL) {
+      setMeasure({ kind: "hogql", sql: text });
+      if (!name.trim()) setName("Untitled goal");
+      setStep("review");
+      return;
+    }
+    await askAgent();
+  };
+
   const onAskKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Escape") {
       onClose();
@@ -195,7 +185,7 @@ export function GoalComposer({
               growToFit(e.target);
             }}
             onKeyDown={onAskKeyDown}
-            disabled={draft.isPending}
+            disabled={askedAgent}
             spellCheck={!isHogQL}
             placeholder="Weekly completed checkouts above 1,200 by end of December"
             className={cn(
@@ -209,47 +199,24 @@ export function GoalComposer({
             <Text size="xxs" variant="muted">
               {isHogQL
                 ? "HogQL. The first cell of the first row is the value."
-                : "Say what should move, how far, and by when. Or paste HogQL."}
+                : "Say what should move, how far, and by when. An agent finds the events and writes the query."}
             </Text>
             <div className="flex items-center gap-2">
-              {draft.error ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void askAgent()}
-                  disabled={askedAgent || isSaving}
-                >
-                  <SparkleIcon size={13} />
-                  {askedAgent ? "Asked an agent" : "Ask an agent instead"}
-                </Button>
-              ) : null}
               <Button variant="default" size="sm" onClick={onClose}>
                 Cancel
               </Button>
               <Button
                 variant="primary"
                 size="sm"
-                disabled={!sentence.trim() || draft.isPending}
+                disabled={!sentence.trim() || askedAgent}
+                loading={askedAgent}
                 onClick={() => void proceed()}
               >
-                {draft.isPending ? <Spinner /> : null}
-                {draft.isPending ? "Writing the query" : "Next"}
-                {!draft.isPending ? <Kbd className="ml-1">↵</Kbd> : null}
+                {isHogQL ? "Next" : "Add goal"}
+                {!askedAgent ? <Kbd className="ml-1">↵</Kbd> : null}
               </Button>
             </div>
           </div>
-          {draft.error ? (
-            <div className="flex items-start gap-2 rounded-md bg-muted px-3 py-2">
-              <WarningCircleIcon
-                size={14}
-                className="mt-0.5 shrink-0 text-warning-foreground"
-              />
-              <Text size="xs">
-                {draft.error.message} Say which event or property counts, or
-                hand it to an agent that can look through the project.
-              </Text>
-            </div>
-          ) : null}
         </>
       ) : (
         <>
@@ -277,7 +244,8 @@ export function GoalComposer({
             measure={measure}
             onChange={(sql) => setMeasure({ kind: "hogql", sql })}
             onRun={(sql) => runMutate(sql)}
-            value={run.data ?? null}
+            value={run.data?.value ?? null}
+            rows={run.data?.rows ?? null}
             running={run.isPending}
             error={run.error?.message ?? null}
           />
@@ -368,6 +336,7 @@ function MeasureReview({
   onChange,
   onRun,
   value,
+  rows,
   running,
   error,
 }: {
@@ -375,6 +344,7 @@ function MeasureReview({
   onChange: (sql: string) => void;
   onRun: (sql: string) => void;
   value: number | null;
+  rows: number | null;
   running: boolean;
   error: string | null;
 }) {
@@ -389,6 +359,17 @@ function MeasureReview({
     );
   }
   const sql = measure?.kind === "hogql" ? measure.sql : "";
+  const label = error
+    ? error
+    : running
+      ? "Running"
+      : rows === 0
+        ? "No rows came back. Check the event name, for example $pageview."
+        : value === null && rows !== null
+          ? "No number in the first row. Return one row with one numeric cell."
+          : rows !== null && rows > 1
+            ? `First cell of the first row. The query returned ${rows} rows.`
+            : "Current value";
   return (
     <div className="flex flex-col gap-2 rounded-md border border-border bg-background">
       <textarea
@@ -402,13 +383,7 @@ function MeasureReview({
       />
       <div className="flex items-center justify-between gap-3 border-border border-t px-3 py-1.5">
         <Text size="xxs" variant="muted">
-          {error
-            ? error
-            : running
-              ? "Running"
-              : value === null
-                ? "Current value"
-                : "Current value"}
+          {label}
         </Text>
         <span className="font-semibold text-foreground text-sm tabular-nums">
           {running ? (

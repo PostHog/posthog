@@ -7,6 +7,8 @@ import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/util
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import type { ReactNode } from "react";
+import { SectionHeader } from "./SectionHeader";
 
 interface SignalsMarginProps {
   objects: ContextObject[];
@@ -23,33 +25,28 @@ export function SignalsMargin({ objects }: SignalsMarginProps) {
 
   return (
     <section className="flex flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-2">
-        <Text size="xs" weight="medium" variant="muted">
-          Signals
-        </Text>
-        <Text size="xxs" variant="muted">
-          last 7 days
-        </Text>
-      </div>
-      {objects.length === 0 ? (
-        <Text size="xxs" variant="muted">
-          Link what this space owns and the signals about it show here.
-        </Text>
-      ) : isLoading ? (
-        <div className="flex items-center gap-2 py-1">
-          <Spinner size="xs" aria-hidden="true" />
-          <Text size="xxs" variant="muted">
-            Reading signals
+      <SectionHeader
+        label="Signals"
+        action={
+          <Text size="xs" variant="muted">
+            last 7 days
           </Text>
-        </div>
+        }
+      />
+      {objects.length === 0 ? (
+        <SignalsNote>
+          Link what this space owns and the signals about it show here.
+        </SignalsNote>
+      ) : isLoading ? (
+        <SignalsNote leading={<Spinner size="xs" aria-hidden="true" />}>
+          Reading signals
+        </SignalsNote>
       ) : isError ? (
-        <Text size="xxs" variant="muted">
-          Signals could not be read.
-        </Text>
+        <SignalsNote>Signals could not be read.</SignalsNote>
       ) : signals.length === 0 ? (
-        <Text size="xxs" variant="muted">
+        <SignalsNote>
           Nothing about these objects in the last 7 days.
-        </Text>
+        </SignalsNote>
       ) : (
         <ul className="flex flex-col divide-y divide-border border-border border-y">
           {signals.map((signal, index) => (
@@ -75,7 +72,7 @@ function SignalRow({ signal }: { signal: SpaceSignal }) {
     : (meta?.label ?? humanize(signal.sourceProduct));
   const body = (
     <>
-      <span className="flex items-center gap-1.5 text-muted-foreground text-xxs">
+      <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
         {meta ? (
           <meta.Icon size={11} className="shrink-0" />
         ) : (
@@ -114,6 +111,23 @@ function SignalRow({ signal }: { signal: SpaceSignal }) {
         <div className="flex flex-col gap-1 py-2.5">{body}</div>
       )}
     </li>
+  );
+}
+
+function SignalsNote({
+  leading,
+  children,
+}: {
+  leading?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-2 border-border border-y py-4">
+      {leading}
+      <Text size="xs" variant="muted">
+        {children}
+      </Text>
+    </div>
   );
 }
 

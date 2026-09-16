@@ -27,7 +27,6 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
-  Text,
 } from "@posthog/quill";
 import {
   type ContextSources,
@@ -40,6 +39,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { AddContextDialog, type AddContextMode } from "./AddContextDialog";
 import { KIND_ICONS } from "./kindIcons";
+import { SectionHeader } from "./SectionHeader";
 import { SourceLogo } from "./SourceLogo";
 import { SpaceFileDialog } from "./SpaceFileDialog";
 import { connectLabel, unconnectedWarning } from "./sourceStatus";
@@ -78,7 +78,6 @@ export function KnowledgeList({
   const [openFile, setOpenFile] = useState<string | null>(null);
   const sources = useContextSources();
   const { mutateAsync: writePage } = useContextWikiPageMutation();
-  const hasKnowledge = knowledge.trim().length > 0;
 
   // CONTEXT.md is saved first so its head moves before the file is written;
   // the file is new, so it has no head to check and is created on the way in.
@@ -95,56 +94,60 @@ export function KnowledgeList({
   };
 
   return (
-    <section className="flex flex-col gap-1">
-      <div className="flex items-center justify-between gap-2">
-        <Text size="xs" weight="medium" variant="muted">
-          Business knowledge
-        </Text>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button variant="link-muted" size="xs" disabled={isSaving}>
-                <PlusIcon size={12} />
-                Add context
-              </Button>
-            }
-          />
-          <DropdownMenuContent align="end" sideOffset={4} className="min-w-56">
-            <DropdownMenuItem onClick={() => setAdding("link")}>
-              <LinkIcon size={14} />
-              Link…
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!filesFolder}
-              onClick={() => setAdding("markdown")}
+    <section className="flex flex-col gap-2">
+      <SectionHeader
+        label="Business knowledge"
+        action={
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button variant="link-muted" size="xs" disabled={isSaving}>
+                  <PlusIcon size={12} />
+                  Add context
+                </Button>
+              }
+            />
+            <DropdownMenuContent
+              align="end"
+              sideOffset={4}
+              className="min-w-56"
             >
-              <FileMdIcon size={14} />
-              Markdown file…
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!filesFolder}
-              onClick={() => setAdding("upload")}
-            >
-              <UploadSimpleIcon size={14} />
-              Upload a file…
-            </DropdownMenuItem>
-            {!filesFolder ? (
-              <DropdownMenuLabel>Files need the context wiki</DropdownMenuLabel>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+              <DropdownMenuItem onClick={() => setAdding("link")}>
+                <LinkIcon size={14} />
+                Link…
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!filesFolder}
+                onClick={() => setAdding("markdown")}
+              >
+                <FileMdIcon size={14} />
+                Markdown file…
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!filesFolder}
+                onClick={() => setAdding("upload")}
+              >
+                <UploadSimpleIcon size={14} />
+                Upload a file…
+              </DropdownMenuItem>
+              {!filesFolder ? (
+                <DropdownMenuLabel>
+                  Files need the context wiki
+                </DropdownMenuLabel>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        }
+      />
 
       <ul className="flex flex-col divide-y divide-border border-border border-y">
         <li>
           <KnowledgeRow
             icon={<FileMdIcon size={15} />}
             title="CONTEXT.md"
-            mono
             meta={
-              hasKnowledge
-                ? firstLine(knowledge)
-                : "Nothing written yet. What this is, how to work here, key files, gotchas."
+              firstLine(knowledge) ||
+              "Nothing written yet. What this is, how to work here, key files, gotchas."
             }
             onOpen={onOpenContextFile}
             trailing={<CaretRightIcon size={13} />}
@@ -157,7 +160,6 @@ export function KnowledgeList({
               <KnowledgeRow
                 icon={<FileMdIcon size={15} />}
                 title={fileDisplayName(link.target)}
-                mono
                 meta={link.note || "Markdown file, saved beside CONTEXT.md"}
                 onOpen={() => setOpenFile(link.target)}
                 onRemove={() =>
@@ -270,7 +272,6 @@ function LinkRow({
             .join(" · ") || (external ? null : link.target)
         )
       }
-      mono={!external && !link.note}
       onOpen={external ? () => openExternalUrl(link.target) : null}
       onRemove={onRemove}
       actions={
@@ -358,7 +359,6 @@ function KnowledgeRow({
   icon,
   title,
   meta,
-  mono = false,
   onOpen,
   onRemove,
   actions,
@@ -368,8 +368,6 @@ function KnowledgeRow({
   icon: ReactNode;
   title: string;
   meta: ReactNode;
-  /** File names read as code; a link's title reads as prose. */
-  mono?: boolean;
   onOpen: (() => void) | null;
   onRemove?: () => void;
   /** Controls that stay visible; the remove button only shows on hover. */
@@ -383,18 +381,11 @@ function KnowledgeRow({
         {icon}
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span
-          className={cn(
-            "truncate font-medium text-foreground text-xs",
-            mono && "font-mono",
-          )}
-        >
+        <span className="truncate font-medium text-foreground text-sm">
           {title}
         </span>
         {meta ? (
-          <span className="truncate text-muted-foreground text-xxs">
-            {meta}
-          </span>
+          <span className="truncate text-muted-foreground text-xs">{meta}</span>
         ) : null}
       </span>
     </>
@@ -445,10 +436,11 @@ function OpenGlyph() {
 }
 
 function firstLine(markdown: string): string {
-  const line = markdown
+  const body = markdown.replace(/^---\n[\s\S]*?\n---\n?/, "");
+  const line = body
     .split("\n")
     .map((l) => l.trim())
-    .find((l) => l.length > 0 && !l.startsWith("#"));
+    .find((l) => !l.startsWith("#") && /[\p{L}\p{N}]/u.test(l));
   return line ?? "";
 }
 
