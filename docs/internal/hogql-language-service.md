@@ -59,6 +59,7 @@ CTEs and aliased subqueries use the same rules, with identifier quoting for both
 Completion leaves `timestamp` unquoted, including qualified references such as `e.timestamp`; other keyword names still use conservative quoting.
 Multi-part physical table paths use HogQL's implicit double-underscore alias, for example `postgres__synced__orders.synced_id`; an explicit alias takes precedence.
 Equal field labels have a deterministic source order across completion pages.
+Unqualified completion uses fixed-width global ranks for `sortText`, so client sorting preserves server order across pages even for labels containing punctuation.
 Unique fields and already-qualified completion retain their existing details and insertion text.
 
 Select aliases follow the resolution order in `posthog/hogql/resolver.py` (`visit_select_query` and `visit_alias`).
@@ -66,6 +67,7 @@ An explicit alias becomes visible after its defining SELECT item, so later items
 WHERE, PREWHERE, GROUP BY, HAVING, ORDER BY, named WINDOW definitions, and LIMIT expressions can reference all SELECT aliases in their query.
 FROM and JOIN expressions cannot reference them, and aliases do not cross nested queries, CTE definitions, UNION branches, or statements.
 Alias lookup is case-sensitive, as in the Python resolver; completion prefix matching remains case-insensitive.
+An alias named `UUID` does not hide a source field named `uuid`; they can refer to different values.
 An alias takes precedence over an unqualified field with the same name, while qualified field lookup still uses the relation.
 Direct alias chains retain catalog types, and validation typo suggestions include visible aliases.
 

@@ -9,6 +9,7 @@ import (
 
 func fieldSuggestions(bindings analysis.Bindings, prefix string) []Suggestion {
 	var suggestions []Suggestion
+	// HogQL alias precedence is case-sensitive (resolver_utils.lookup_field_by_name).
 	aliases := map[string]bool{}
 	for alias := range bindings.SelectAliases(prefix) {
 		aliases[alias.Name] = true

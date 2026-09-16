@@ -172,21 +172,16 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		}
 		return left < right
 	})
-	for index := range suggestions {
-		suggestions[index].SortText = strconv.Itoa(suggestionRank(suggestions[index].Kind)) + "-" + strings.ToLower(suggestions[index].Label)
-		if suggestions[index].Kind == "field" {
-			suggestions[index].SortText += "-" + suggestions[index].Label
-			if suggestions[index].InsertText != "" {
-				suggestions[index].SortText += "-" + suggestions[index].InsertText
-			}
-		}
-	}
 	result := Result{Suggestions: suggestions, Total: len(suggestions)}
 	if offset > len(suggestions) {
 		offset = len(suggestions)
 	}
 	end := min(offset+PageSize, len(suggestions))
 	result.Suggestions = suggestions[offset:end]
+	for index := range result.Suggestions {
+		// Global ranks preserve client-side page order even when labels contain punctuation.
+		result.Suggestions[index].SortText = fmt.Sprintf("%020d", offset+index)
+	}
 	if end < len(suggestions) {
 		result.NextCursor = encodeCursor(end)
 	}

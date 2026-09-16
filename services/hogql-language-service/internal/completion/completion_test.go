@@ -186,6 +186,9 @@ func TestCompletesFieldsForAlias(t *testing.T) {
 			{Label: "SHARED", Detail: "string from b", InsertText: "b.SHARED"}, {Label: "shared", Detail: "string from a", InsertText: "a.shared"},
 		}},
 		{"select alias precedence", "SELECT e.event AS uuid FROM events AS e JOIN events AS other ON 1 = 1 ORDER BY uu|", []Suggestion{{Label: "uuid", Detail: "string"}}},
+		{"case-sensitive select alias precedence", "SELECT e.properties AS UUID FROM events AS e JOIN events AS other ON 1 = 1 ORDER BY uu|", []Suggestion{
+			{Label: "UUID", Detail: "json"}, {Label: "uuid", Detail: "string from e", InsertText: "e.uuid"}, {Label: "uuid", Detail: "string from other", InsertText: "other.uuid"},
+		}},
 		{"qualified join stays unqualified", "SELECT e.uu| FROM events AS e JOIN events AS other ON 1 = 1", []Suggestion{{Label: "uuid", Detail: "string"}}},
 		{"nested alias shadow", "SELECT * FROM events AS e WHERE uuid IN (SELECT uu| FROM events AS e)", []Suggestion{{Label: "uuid", Detail: "string"}}},
 		{"cte scope isolation", "WITH t AS (SELECT uu| FROM events AS e) SELECT * FROM t JOIN events AS other ON 1 = 1", []Suggestion{{Label: "uuid", Detail: "string"}}},
@@ -419,8 +422,14 @@ func TestCompletionFieldLookupWorkBudget(t *testing.T) {
 
 func TestProjectionPaginationAndLimits(t *testing.T) {
 	var items []string
+	var names []string
 	for index := 0; index < PageSize+2; index++ {
-		items = append(items, fmt.Sprintf("amount AS field_%02d", index))
+		name := fmt.Sprintf("field_%02d", index)
+		if index == PageSize {
+			name = names[index-1] + "$x"
+		}
+		names = append(names, name)
+		items = append(items, "amount AS "+name)
 	}
 	items = append(items, "amount AS field_00")
 	for _, source := range []string{
@@ -432,12 +441,17 @@ func TestProjectionPaginationAndLimits(t *testing.T) {
 		query := strings.Replace(source, "|", "", 1)
 		cursor := ""
 		var fields []string
+		previousSortText := ""
 		for {
 			result, err := Complete(testCatalog(), query, position, PositionEncodingUTF8, cursor)
 			if err != nil || result.Total != PageSize+2 || len(result.Suggestions) > PageSize {
 				t.Fatalf("result = %#v, err = %v", result, err)
 			}
 			for _, suggestion := range result.Suggestions {
+				if suggestion.SortText <= previousSortText {
+					t.Fatalf("query %q: sort key %q does not follow %q", query, suggestion.SortText, previousSortText)
+				}
+				previousSortText = suggestion.SortText
 				fields = append(fields, suggestion.Label)
 			}
 			cursor = result.NextCursor
@@ -452,7 +466,7 @@ func TestProjectionPaginationAndLimits(t *testing.T) {
 			t.Fatalf("fields = %#v", fields)
 		}
 		for index, name := range fields {
-			if name != fmt.Sprintf("field_%02d", index) {
+			if name != names[index] {
 				t.Fatalf("fields = %#v", fields)
 			}
 		}
