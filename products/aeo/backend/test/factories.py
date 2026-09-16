@@ -6,12 +6,12 @@ from posthog.models.team import Team
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 
 
-def create_citation_check(team: Team, label: str) -> AEOCitationCheck:
+def create_citation_check(team: Team, label: str) -> uuid.UUID:
     with team_scope(team.pk):
         prompt = AEOPrompt.objects.create(
             team=team, prompt=f"is {label} cited?", prompt_hash=label, prompt_source=AEOPrompt.Source.MANUAL
         )
-        return AEOCitationCheck.objects.create(
+        check = AEOCitationCheck.objects.create(
             team=team,
             prompt=prompt,
             run_id=uuid.uuid4(),
@@ -21,3 +21,4 @@ def create_citation_check(team: Team, label: str) -> AEOCitationCheck:
             engine="exa-answer",
             model="exa-answer",
         )
+    return check.pk
