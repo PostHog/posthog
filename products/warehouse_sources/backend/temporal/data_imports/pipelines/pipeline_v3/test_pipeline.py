@@ -476,16 +476,17 @@ class TestLaneFanOut:
         assert [len(w.batch_results) for w in writers] == [1, 1]
         assert writers[0].row_count == 0
 
-    async def test_a_batch_that_arrives_empty_is_still_staged(self) -> None:
+    async def test_a_batch_that_arrives_empty_is_staged_by_the_primary_lane_only(self) -> None:
         # Every non-CDC source is one lane with no transform, and reaches here with an empty table
         # whenever its source yields one. Skipping it would move job completion from the load
-        # consumer to the workflow for those syncs.
-        writers = [_lane_writer("users")]
+        # consumer to the workflow for those syncs. A companion has no job until it holds rows,
+        # so staging the empty batch there would open one for nothing.
+        writers = [_lane_writer("users"), _lane_writer("users_cdc", billable=False)]
         pipeline = self._pipeline(writers)
 
         await self._process(pipeline, pa.table({"id": pa.array([], pa.int64())}))
 
-        assert len(writers[0].batch_results) == 1
+        assert [len(writer.batch_results) for writer in writers] == [1, 0]
 
     async def test_each_lane_ends_with_its_own_final_batch(self) -> None:
         writers = [_lane_writer("users"), _lane_writer("users_cdc", billable=False)]

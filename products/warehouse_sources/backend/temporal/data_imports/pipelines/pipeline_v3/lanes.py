@@ -231,6 +231,10 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             # The history lane's first match reads the table's rows at its position; keep that
             # off the event loop the heartbeat runs on.
             lane_table = await asyncio.to_thread(lane.transform, pa_table) if lane.transform is not None else pa_table
+            # A companion opens its job on its first rows, so an empty batch gives it nothing to
+            # stage and no reason to exist yet.
+            if index > 0 and not lane_table.num_rows:
+                continue
             # Only a lane that filtered the batch away sits this index out. A batch that arrived
             # empty is still staged, as it is on a single-table run.
             #
