@@ -14,7 +14,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.models.user import User
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.scopes import effective_ceiling
 
 from ee.api.agentic_provisioning.accounts import handle_existing_user, handle_new_user
@@ -95,7 +95,7 @@ class AccountRequestsView(ProvisioningAPIView):
 
         region = (configuration.get("region") or "US").upper()
 
-        existing_user = User.objects.filter(email=email).first()
+        existing_user = EmailLookupHandler.get_user_by_email(email, is_active=None)
 
         if existing_user:
             return Response(

@@ -20,6 +20,7 @@ from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredential
 from posthog.api.authentication import EmailVerificationPending, axes_locked_out, is_email_verified_for_login
 from posthog.auth import SessionAuthentication, WebAuthnAuthenticationResponse, WebauthnBackend
 from posthog.event_usage import report_user_logged_in
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.models import User
@@ -489,7 +490,7 @@ class WebAuthnSignupRegistrationViewSet(viewsets.ViewSet):
             )
 
         # Check if email is already registered
-        if User.objects.filter(email__iexact=email).exists():
+        if EmailLookupHandler.users_matching_email(email).exists():
             return Response(
                 {"error": "An account with this email already exists."},
                 status=status.HTTP_400_BAD_REQUEST,
