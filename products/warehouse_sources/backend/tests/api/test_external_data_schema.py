@@ -127,18 +127,21 @@ class TestExternalDataSchema(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("expected_source_error", Exception("Invalid API Key provided"), False),
+            ("non_retryable_source_error", Exception("Invalid API Key provided"), False),
+            ("retryable_source_error", Exception("Request rate limit exceeded"), False),
             ("unclassified_error", RuntimeError("schema parser exploded"), True),
         ]
     )
     @mock.patch("products.warehouse_sources.backend.presentation.views.external_data_schema.capture_exception")
-    def test_incremental_fields_capture_depends_on_non_retryable_classification(
+    def test_incremental_fields_capture_depends_on_source_error_classification(
         self, _name, raised_exception, should_capture, mock_capture_exception
     ):
         # `validate_credentials` above this call already probed the same connection successfully, so
-        # a failure the source itself classifies as non-retryable (e.g. bad credentials, an
-        # unreachable host) is an expected customer/upstream condition and must not flood error
-        # tracking - mirrors `refresh_schemas`'s equivalent classification.
+        # a failure the source itself classifies is an expected customer/upstream condition and must
+        # not flood error tracking - mirrors `refresh_schemas`'s equivalent classification. A
+        # retryable classification counts too: a source that moves a condition from the
+        # non-retryable map to the retryable one still declares it self-recovering, so the guard
+        # must read both or that move starts minting error-tracking issues.
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.STRIPE,

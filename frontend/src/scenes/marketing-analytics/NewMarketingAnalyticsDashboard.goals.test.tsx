@@ -59,6 +59,14 @@ describe('Dashboard goal suggestions', () => {
         const unmountSetup = setupPlanLogic.mount()
         const view = render(<NewMarketingAnalyticsDashboard />)
         try {
+            await screen.findByText('Suggested conversion goals (1)')
+            expect(
+                screen
+                    .getByText('Suggested conversion goals (1)')
+                    .closest('[aria-expanded]')
+                    ?.getAttribute('aria-expanded')
+            ).toBe('false')
+            fireEvent.click(screen.getByText('Suggested conversion goals (1)'))
             await screen.findByText('Mark a revenue goal')
             fireEvent.click(screen.getByText('Suggested conversion goals (1)'))
             expect(localStorage.getItem('marketing-goal-suggestions-expanded')).toBe('false')

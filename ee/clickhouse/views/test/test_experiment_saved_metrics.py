@@ -3,9 +3,13 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
 
@@ -279,6 +283,77 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         # make sure experiment in question was updated as well
         self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 0)
         self.assertEqual(ExperimentToSavedMetric.objects.filter(experiment_id=exp_id).count(), 0)
+
+    def test_retrieve_returns_linked_experiments_with_running_state(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Linked metric",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        saved_metric_id = response.json()["id"]
+
+        def _create_experiment(name: str, ff_key: str, start_date: str | None) -> int:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/",
+                {
+                    "name": name,
+                    "feature_flag_key": ff_key,
+                    "start_date": start_date,
+                    "parameters": None,
+                    "filters": {"events": [{"order": 0, "id": "$pageview"}], "properties": []},
+                    "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            return response.json()["id"]
+
+        running_id = _create_experiment("Running experiment", "linked-running", "2021-12-01T10:23")
+        draft_id = _create_experiment("Draft experiment", "linked-draft", None)
+        deleted_id = _create_experiment("Deleted experiment", "linked-deleted", "2021-12-01T10:23")
+        Experiment.objects.filter(pk=deleted_id).update(deleted=True)
+
+        # An experiment with object-level access "none" must not leak through the shared metric
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        other_user = self._create_user("private-owner@posthog.com")
+        private_flag = FeatureFlag.objects.create(team=self.team, key="linked-private", created_by=other_user)
+        private_experiment = Experiment.objects.create(
+            team=self.team,
+            name="Private experiment",
+            created_by=other_user,
+            feature_flag=private_flag,
+            start_date="2021-12-01T10:23:00Z",
+            filters={},
+        )
+        ExperimentToSavedMetric.objects.create(
+            experiment=private_experiment, saved_metric_id=saved_metric_id, metadata={"type": "primary"}
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(private_experiment.pk), access_level="none"
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        linked = {experiment["id"]: experiment for experiment in response.json()["linked_experiments"]}
+        self.assertEqual(set(linked.keys()), {running_id, draft_id})
+        self.assertTrue(linked[running_id]["is_running"])
+        self.assertEqual(linked[running_id]["name"], "Running experiment")
+        self.assertFalse(linked[draft_id]["is_running"])
+
+        # List responses skip link resolution to stay one query per page
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"][0]["linked_experiments"], [])
 
     def test_create_saved_metric_without_uuid_added_to_experiment_is_ordered(self) -> None:
         response = self.client.post(

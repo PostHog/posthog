@@ -76,6 +76,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
     TEMPORARY_HOST_RESOLUTION_PREFIX,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UNKNOWN_RESOURCE_PREFIX
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -236,6 +237,13 @@ TRANSIENT_EGRESS_MESSAGE = (
     "clears on its own; the next sync runs on schedule."
 )
 
+# Copy for a table the running worker has no schema for. The web pods and the workers deploy
+# separately, so a newly shipped table is selectable before every worker can sync it.
+NEW_TABLE_NOT_READY_MESSAGE = (
+    "This table was added to PostHog too recently for this sync to pick it up. Nothing is wrong "
+    "with your source; the next sync runs on schedule."
+)
+
 TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE = (
     "Your source's API was temporarily unavailable, so this sync couldn't finish. The next sync runs on schedule."
 )
@@ -280,6 +288,7 @@ Transient_Error_Messages: dict[str, str] = {
         "Check that the host name is correct and that its DNS records are answering; the next sync "
         "runs on schedule."
     ),
+    UNKNOWN_RESOURCE_PREFIX: NEW_TABLE_NOT_READY_MESSAGE,
     "502 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     "503 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     "504 Server Error": TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
