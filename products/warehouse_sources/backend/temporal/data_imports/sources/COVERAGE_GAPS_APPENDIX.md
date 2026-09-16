@@ -1088,7 +1088,7 @@ Note: PostHog's registered api_docs_url (https://docs.buildbetter.app/) no longe
 
 ## Buildkite — gaps
 
-Today (9): `agents`, `builds`, `jobs`, `organizations`, `pipelines`, `teams`, `test_suite_runs`, `test_suite_tests`, `test_suites`
+Today (13): `agents`, `builds`, `cluster_queues`, `jobs`, `organization_members`, `organizations`, `pipeline_schedules`, `pipelines`, `team_pipelines`, `teams`, `test_suite_runs`, `test_suite_tests`, `test_suites`
 
 Diffed against: <https://buildkite.com/docs/llms.txt>
 
@@ -1097,13 +1097,13 @@ Diffed against: <https://buildkite.com/docs/llms.txt>
 - [x] `analytics/organizations/{org}/suites/{suite}/tests (Test Engine tests, label=flaky)` — per-test pass/fail and flaky labelling — the core use case for anyone importing CI data (high)
 - [x] `analytics/organizations/{org}/suites` — the suite list the two Test Engine child tables fan out over, and a lookup in its own right (high)
 - [x] `organizations/{org}/teams` — lookup table resolving team ownership of the pipelines we already sync (high)
-- [ ] `organizations/{org}/teams/{team}/pipelines` — membership table joining teams to pipelines, needed to attribute build cost per team (high)
-- [ ] `organizations/{org}/members` — lookup resolving the user IDs that appear as build creators and job agents (high)
-- [ ] `organizations/{org}/clusters/{cluster}/queues` — lookup resolving the queue an agent or job ran on — required for agent capacity and cost analysis (medium)
+- [x] `organizations/{org}/teams/{team}/pipelines` — membership table joining teams to pipelines, needed to attribute build cost per team (high)
+- [x] `organizations/{org}/members` — lookup resolving the user IDs that appear as build creators and job agents (high)
+- [x] `organizations/{org}/clusters/{cluster}/queues` — lookup resolving the queue an agent or job ran on — required for agent capacity and cost analysis (medium)
 - [ ] `organizations/{org}/clusters` — lookup resolving cluster IDs carried on agents and queues (medium)
 - [ ] `organizations/{org}/pipelines/{pipeline}/builds/{number}/artifacts` — artifact inventory and sizes per build, useful for storage and output tracking (medium)
 - [ ] `organizations/{org}/teams/{team}/members` — membership table joining users to teams (medium)
-- [ ] `organizations/{org}/pipelines/{pipeline}/schedules` — explains which builds are scheduled vs triggered — a common breakdown dimension on build volume (medium)
+- [x] `organizations/{org}/pipelines/{pipeline}/schedules` — explains which builds are scheduled vs triggered — a common breakdown dimension on build volume (medium)
 - [ ] `organizations/{org}/pipelines/{pipeline}/builds/{number}/annotations` — build annotations carry test summaries and custom CI reporting output (low)
 
 Note: Buildkite publishes a complete machine-readable docs index at /docs/llms.txt with one line per REST resource; every endpoint below is named there.
