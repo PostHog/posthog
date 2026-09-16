@@ -325,7 +325,7 @@ export interface PersonBulkDeleteResponseApi {
     events_queued_for_deletion: boolean
     /** Whether recording deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
     recordings_queued_for_deletion: boolean
-    /** Persons that could not be deleted. Each entry contains 'person_uuid'. Contact support if this persists. */
+    /** Persons that could not be deleted. Each entry contains 'person_uuid' and 'step', the deletion step that failed for that person. Contact support if this persists. */
     deletion_errors?: PersonBulkDeleteResponseApiDeletionErrorsItem[]
 }
 

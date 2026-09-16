@@ -1,16 +1,19 @@
 import uuid as uuid_lib
 import asyncio
 import builtins
-from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterable, Iterator
+from dataclasses import field
 from datetime import timedelta
+from enum import StrEnum
 from typing import cast
 
 from django.conf import settings
 
 import structlog
+from prometheus_client import Counter
 from temporalio import common
 
+from posthog.dataclasses import frozen
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Detail, LogActivityEntry, bulk_log_activity
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -33,10 +36,68 @@ from products.ai_training.backend.facade.api import queue_person_training_deleti
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+class PersonDeletionStep(StrEnum):
+    """The steps of a person deletion, in the order they run. Each failure names exactly one."""
+
+    RESOLVE_PERSONS = "resolve_persons"
+    FETCH_DISTINCT_IDS = "fetch_distinct_ids"
+    QUEUE_TRAINING_DELETION = "queue_training_deletion"
+    QUEUE_RECORDING_DELETION = "queue_recording_deletion"
+    TOMBSTONE_CLICKHOUSE = "tombstone_clickhouse"
+    DELETE_POSTGRES = "delete_postgres"
+
+
+PERSON_DELETION_STEP_FAILURES_COUNTER = Counter(
+    "posthog_person_deletion_step_failures_total",
+    "Person deletion steps that raised, labelled by the step so a failing dependency is visible on its own.",
+    labelnames=["step"],
+)
+
+
+@frozen
+class PersonDeletionFailure:
+    step: PersonDeletionStep
+    # None when the step failed before any person was resolved.
+    person_uuid: uuid_lib.UUID | None
+    error: str
+
+
+@frozen
 class PersonProfileDeletionResult:
     deleted_count: int
-    errors: list[uuid_lib.UUID] = field(default_factory=list)
+    failures: list[PersonDeletionFailure] = field(default_factory=list)
+
+    @property
+    def errors(self) -> list[uuid_lib.UUID]:
+        """Distinct UUIDs of persons that failed at any step, in first-failure order."""
+        seen: dict[uuid_lib.UUID, None] = {}
+        for failure in self.failures:
+            if failure.person_uuid is not None:
+                seen.setdefault(failure.person_uuid, None)
+        return list(seen)
+
+
+def _record_step_failure(
+    failures: builtins.list[PersonDeletionFailure],
+    *,
+    step: PersonDeletionStep,
+    team_id: int,
+    exc: Exception,
+    person_uuids: Iterable[uuid_lib.UUID | None],
+) -> None:
+    """Record one step failure. Call from inside the ``except`` block so the traceback is logged."""
+    uuids = list(person_uuids) or [None]
+    PERSON_DELETION_STEP_FAILURES_COUNTER.labels(step=step.value).inc()
+    logger.exception(
+        "person_deletion.step_failed",
+        step=step.value,
+        team_id=team_id,
+        person_count=len([u for u in uuids if u is not None]),
+        person_uuids=[str(u) for u in uuids[:20] if u is not None],
+        error_type=type(exc).__name__,
+    )
+    error = f"{type(exc).__name__}: {exc}"
+    failures.extend(PersonDeletionFailure(step=step, person_uuid=u, error=error) for u in uuids)
 
 
 def resolve_persons_for_deletion(
@@ -132,14 +193,27 @@ def process_queued_person_deletion(
     through with keyset pagination. There is no unbounded fallback: a failed page fetch marks
     that person as an error and skips it in every later step, so the caller can retry it.
     Persons that no longer exist (already deleted by an earlier attempt) resolve to nothing.
+
+    Every failure is recorded against the step it happened in. The profile delete only runs
+    when the steps before it succeeded, because it removes the distinct IDs a retry of those
+    steps would need.
     """
     from posthog.personhog_client.client import personhog_call
 
-    persons = personhog_call(
-        "resolve_persons_for_queued_deletion",
-        lambda: _fetch_persons_by_uuids_via_personhog(team_id, person_uuids, distinct_id_limit=0),
-        caller_tag="persons/deletion-resolve",
-    )
+    failures: builtins.list[PersonDeletionFailure] = []
+    requested = [uuid_lib.UUID(u) for u in person_uuids]
+
+    try:
+        persons = personhog_call(
+            "resolve_persons_for_queued_deletion",
+            lambda: _fetch_persons_by_uuids_via_personhog(team_id, person_uuids, distinct_id_limit=0),
+            caller_tag="persons/deletion-resolve",
+        )
+    except Exception as exc:
+        _record_step_failure(
+            failures, step=PersonDeletionStep.RESOLVE_PERSONS, team_id=team_id, exc=exc, person_uuids=requested
+        )
+        return PersonProfileDeletionResult(deleted_count=0, failures=failures)
 
     def _fetch_distinct_ids(person_id: int) -> builtins.list[DistinctIdForPerson]:
         return personhog_call(
@@ -152,26 +226,60 @@ def process_queued_person_deletion(
 
     distinct_ids_by_person: dict[int, builtins.list[DistinctIdForPerson]] = {}
     fetched: builtins.list[Person] = []
-    errors: builtins.list[uuid_lib.UUID] = []
     for person in persons:
         try:
             distinct_ids_by_person[person.pk] = _fetch_distinct_ids(person.pk)
-        except Exception:
-            logger.exception("Failed to fetch distinct IDs for person deletion", person_uuid=str(person.uuid))
-            errors.append(person.uuid)
+        except Exception as exc:
+            _record_step_failure(
+                failures,
+                step=PersonDeletionStep.FETCH_DISTINCT_IDS,
+                team_id=team_id,
+                exc=exc,
+                person_uuids=[person.uuid],
+            )
             continue
         person._distinct_ids = [d.id for d in distinct_ids_by_person[person.pk]]
         fetched.append(person)
 
-    if delete_profile or delete_recordings:
-        queue_person_training_deletion(
-            team_id, [distinct_id for person in fetched for distinct_id in person.distinct_ids]
-        )
-    if delete_recordings:
-        queue_person_recording_deletion(team_id, fetched, actor=actor, queue_ai_training_deletion=False)
+    fetched_uuids = [person.uuid for person in fetched]
+    prerequisites_ok = True
+    if fetched and (delete_profile or delete_recordings):
+        try:
+            queue_person_training_deletion(
+                team_id, [distinct_id for person in fetched for distinct_id in person.distinct_ids]
+            )
+        except Exception as exc:
+            prerequisites_ok = False
+            _record_step_failure(
+                failures,
+                step=PersonDeletionStep.QUEUE_TRAINING_DELETION,
+                team_id=team_id,
+                exc=exc,
+                person_uuids=fetched_uuids,
+            )
+    if fetched and delete_recordings:
+        try:
+            queue_person_recording_deletion(team_id, fetched, actor=actor, queue_ai_training_deletion=False)
+        except Exception as exc:
+            prerequisites_ok = False
+            _record_step_failure(
+                failures,
+                step=PersonDeletionStep.QUEUE_RECORDING_DELETION,
+                team_id=team_id,
+                exc=exc,
+                person_uuids=fetched_uuids,
+            )
 
-    if not delete_profile:
-        return PersonProfileDeletionResult(deleted_count=0, errors=errors)
+    if not delete_profile or not fetched:
+        return PersonProfileDeletionResult(deleted_count=0, failures=failures)
+    if not prerequisites_ok:
+        logger.warning(
+            "person_deletion.profile_delete_skipped",
+            team_id=team_id,
+            person_count=len(fetched),
+            reason="a step before the profile delete failed; the persons stay for the retry",
+        )
+        return PersonProfileDeletionResult(deleted_count=0, failures=failures)
 
     result = _tombstone_and_delete_persons(
         team_id,
@@ -181,7 +289,7 @@ def process_queued_person_deletion(
         was_impersonated=was_impersonated,
         organization_id=organization_id,
     )
-    return PersonProfileDeletionResult(deleted_count=result.deleted_count, errors=[*errors, *result.errors])
+    return PersonProfileDeletionResult(deleted_count=result.deleted_count, failures=[*failures, *result.failures])
 
 
 def _tombstone_and_delete_persons(
@@ -201,17 +309,32 @@ def _tombstone_and_delete_persons(
     task ran) still records the deletion, with no user attached.
     """
     deleted: builtins.list[Person] = []
-    errors: builtins.list[uuid_lib.UUID] = []
+    failures: builtins.list[PersonDeletionFailure] = []
     for person in persons:
         try:
             delete_person(person=person, distinct_ids=distinct_ids_for(person))
             deleted.append(person)
-        except Exception:
-            logger.exception("Failed to delete person", person_uuid=str(person.uuid))
-            errors.append(person.uuid)
+        except Exception as exc:
+            _record_step_failure(
+                failures,
+                step=PersonDeletionStep.TOMBSTONE_CLICKHOUSE,
+                team_id=team_id,
+                exc=exc,
+                person_uuids=[person.uuid],
+            )
 
     if deleted:
-        delete_persons_from_postgres(team_id, deleted)
+        try:
+            delete_persons_from_postgres(team_id, deleted)
+        except Exception as exc:
+            _record_step_failure(
+                failures,
+                step=PersonDeletionStep.DELETE_POSTGRES,
+                team_id=team_id,
+                exc=exc,
+                person_uuids=[person.uuid for person in deleted],
+            )
+            deleted = []
 
     if organization_id is not None:
         bulk_log_activity(
@@ -230,7 +353,7 @@ def _tombstone_and_delete_persons(
             ]
         )
 
-    return PersonProfileDeletionResult(deleted_count=len(deleted), errors=errors)
+    return PersonProfileDeletionResult(deleted_count=len(deleted), failures=failures)
 
 
 def queue_person_event_deletion(

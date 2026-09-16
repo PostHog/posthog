@@ -1,4 +1,5 @@
 import uuid as uuid_lib
+from collections import Counter
 from collections.abc import Iterator
 
 from django.http import HttpRequest
@@ -96,7 +97,14 @@ def delete_persons_async(
         deleted_count=result.deleted_count,
         error_count=len(result.errors),
     )
-    if result.errors:
-        raise PersonDeletionIncomplete(
-            f"{len(result.errors)} of {len(person_uuids)} persons failed to process for team {team_id}"
+    if result.failures:
+        failures_by_step = Counter(failure.step.value for failure in result.failures)
+        logger.error(
+            "delete_persons_async incomplete",
+            team_id=team_id,
+            person_count=len(person_uuids),
+            failures_by_step=dict(failures_by_step),
+            failed_person_uuids=[str(u) for u in result.errors[:20]],
         )
+        summary = ", ".join(f"{step}={count}" for step, count in failures_by_step.items())
+        raise PersonDeletionIncomplete(f"team {team_id}: {len(result.errors)} persons failed ({summary})")

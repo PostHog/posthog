@@ -525,8 +525,7 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         data = resp.json()
         assert data["persons_found"] == 2
         assert data["persons_deleted"] == 1
-        assert len(data["deletion_errors"]) == 1
-        assert data["deletion_errors"][0]["person_uuid"] == str(p1.uuid)
+        assert data["deletion_errors"] == [{"person_uuid": str(p1.uuid), "step": "tombstone_clickhouse"}]
 
         calls = self._assert_personhog_called("delete_persons")
         if calls:

@@ -298,7 +298,8 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
     deletion_errors = serializers.ListField(
         child=serializers.DictField(),
         required=False,
-        help_text="Persons that could not be deleted. Each entry contains 'person_uuid'. Contact support if this persists.",
+        help_text="Persons that could not be deleted. Each entry contains 'person_uuid' and 'step', the deletion "
+        "step that failed for that person. Contact support if this persists.",
     )
 
 
@@ -925,7 +926,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 queue_ai_training_deletion=False,
             )
             persons_deleted = result.deleted_count
-            errors = [{"person_uuid": str(u)} for u in result.errors]
+            errors = [
+                {"person_uuid": str(failure.person_uuid), "step": failure.step.value}
+                for failure in result.failures
+                if failure.person_uuid is not None
+            ]
 
         if delete_events:
             queue_person_event_deletion(self.team_id, persons, actor=cast(User, request.user))

@@ -7,7 +7,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.models.person import Person
-from posthog.models.person.bulk_delete import PersonProfileDeletionResult
+from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
 from posthog.tasks.delete_persons import PersonDeletionIncomplete, delete_persons_async, queue_person_deletion
 
 
@@ -58,9 +58,16 @@ class TestDeletePersonsAsync(SimpleTestCase):
     def test_raises_when_some_persons_failed_so_celery_retries(self) -> None:
         with patch(
             "posthog.tasks.delete_persons.process_queued_person_deletion",
-            return_value=PersonProfileDeletionResult(deleted_count=1, errors=[uuid4()]),
+            return_value=PersonProfileDeletionResult(
+                deleted_count=1,
+                failures=[
+                    PersonDeletionFailure(
+                        step=PersonDeletionStep.FETCH_DISTINCT_IDS, person_uuid=uuid4(), error="RuntimeError: x"
+                    )
+                ],
+            ),
         ):
-            with self.assertRaises(PersonDeletionIncomplete):
+            with self.assertRaises(PersonDeletionIncomplete) as raised:
                 delete_persons_async.run(
                     team_id=1,
                     person_uuids=["a", "b"],
@@ -70,6 +77,7 @@ class TestDeletePersonsAsync(SimpleTestCase):
                     organization_id=None,
                     was_impersonated=False,
                 )
+        assert "fetch_distinct_ids=1" in str(raised.exception)
 
     def test_completes_quietly_when_all_deleted(self) -> None:
         with patch(

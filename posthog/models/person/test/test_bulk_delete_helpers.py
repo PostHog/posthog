@@ -9,6 +9,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person
 from posthog.models.person.bulk_delete import (
+    PersonDeletionStep,
     _start_recording_workflows,
     delete_persons_profile,
     process_queued_person_deletion,
@@ -168,7 +169,7 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         log = ActivityLog.objects.get(team_id=self.team.pk, scope="Person", item_id=str(p.pk))
         assert log.user is None
 
-    def test_does_not_log_when_the_postgres_delete_fails(self):
+    def test_failed_postgres_delete_is_named_and_not_logged_as_deleted(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
         with (
             patch("posthog.models.person.bulk_delete.delete_person"),
@@ -176,9 +177,8 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
                 "posthog.models.person.bulk_delete.delete_persons_from_postgres",
                 side_effect=RuntimeError("personhog down"),
             ),
-            self.assertRaises(RuntimeError),
         ):
-            process_queued_person_deletion(
+            result = process_queued_person_deletion(
                 self.team.pk,
                 [str(p.uuid)],
                 delete_profile=True,
@@ -187,6 +187,8 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
                 was_impersonated=False,
                 organization_id=self.organization.id,
             )
+        assert result.deleted_count == 0
+        assert [(f.step, f.person_uuid) for f in result.failures] == [(PersonDeletionStep.DELETE_POSTGRES, p.uuid)]
         assert not ActivityLog.objects.filter(team_id=self.team.pk, scope="Person").exists()
 
     def test_skips_persons_that_no_longer_exist(self):
@@ -228,7 +230,60 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
                 organization_id=self.organization.id,
             )
         assert result.deleted_count == 0
-        assert result.errors == [p.uuid]
+        assert [(f.step, f.person_uuid) for f in result.failures] == [(PersonDeletionStep.FETCH_DISTINCT_IDS, p.uuid)]
+        assert "RuntimeError: personhog down" in result.failures[0].error
+        ch_delete.assert_not_called()
+        pg_delete.assert_not_called()
+
+    def test_resolve_failure_is_recorded_for_every_requested_person(self):
+        uuids = [uuid4(), uuid4()]
+        with patch(
+            "posthog.models.person.bulk_delete._fetch_persons_by_uuids_via_personhog",
+            side_effect=RuntimeError("personhog down"),
+        ):
+            result = process_queued_person_deletion(
+                self.team.pk,
+                [str(u) for u in uuids],
+                delete_profile=True,
+                delete_recordings=False,
+                actor=self.user,
+                was_impersonated=False,
+                organization_id=self.organization.id,
+            )
+        assert [(f.step, f.person_uuid) for f in result.failures] == [
+            (PersonDeletionStep.RESOLVE_PERSONS, u) for u in uuids
+        ]
+
+    @parameterized.expand(
+        [
+            ("training", "queue_person_training_deletion", PersonDeletionStep.QUEUE_TRAINING_DELETION),
+            ("recordings", "_start_recording_workflows", PersonDeletionStep.QUEUE_RECORDING_DELETION),
+        ]
+    )
+    def test_failed_prerequisite_step_is_named_and_blocks_the_profile_delete(self, _name, target, step):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        patches = {
+            "queue_person_training_deletion": patch("posthog.models.person.bulk_delete.queue_person_training_deletion"),
+            "_start_recording_workflows": patch("posthog.models.person.bulk_delete._start_recording_workflows"),
+        }
+        patches[target] = patch(f"posthog.models.person.bulk_delete.{target}", side_effect=RuntimeError("down"))
+        with (
+            patches["queue_person_training_deletion"],
+            patches["_start_recording_workflows"],
+            patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
+            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
+        ):
+            result = process_queued_person_deletion(
+                self.team.pk,
+                [str(p.uuid)],
+                delete_profile=True,
+                delete_recordings=True,
+                actor=self.user,
+                was_impersonated=False,
+                organization_id=self.organization.id,
+            )
+        assert result.deleted_count == 0
+        assert [(f.step, f.person_uuid) for f in result.failures] == [(step, p.uuid)]
         ch_delete.assert_not_called()
         pg_delete.assert_not_called()
 
