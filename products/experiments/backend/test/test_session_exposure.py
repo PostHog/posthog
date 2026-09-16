@@ -21,6 +21,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.replay_linkage import (
     IN_SESSION_EXPOSURE_ACTIVATION_REASON,
+    IN_SESSION_EXPOSURE_NO_EVENT_IN_SESSION_REASON,
     IN_SESSION_EXPOSURE_NOT_OBSERVED_YET_REASON,
     IN_SESSION_EXPOSURE_UNMATCHABLE_REASON,
     exposed_distinct_ids_select,
@@ -155,7 +156,7 @@ class TestResolveInSessionExposureSemantics(BaseTest):
                 team=self.team, project_id=self.team.project_id, event=event, property="$session_id"
             )
 
-    def test_available_without_fallback_when_the_exposure_event_is_session_linked(self) -> None:
+    def test_available_when_the_exposure_event_is_session_linked(self) -> None:
         experiment = self._experiment()
         self._observe_event(DEFAULT_EXPOSURE_EVENT, session_linked=True)
 
@@ -163,19 +164,33 @@ class TestResolveInSessionExposureSemantics(BaseTest):
 
         assert semantics.unavailable_reason is None
         assert semantics.session_exposure is not None
-        assert semantics.uses_stamped_fallback is False
+        assert semantics.session_exposure.is_seekable_evidence is True
 
-    def test_available_but_flags_the_stamped_fallback_for_a_server_side_default_event(self) -> None:
-        # The default event is observed but never with a session id, so evidence is the stamped flag
-        # property. The scope still answers, but the copy must say the flag was active, not that the
-        # exposure was captured, so the caveat has to reach the tab.
+    def test_unavailable_for_a_server_side_default_event(self) -> None:
+        # The default event is observed but never with a session id, so the only evidence left is the
+        # stamped flag property. That says the flag was active in the session, not that the person was
+        # enrolled there, so this surface refuses it rather than listing sessions it can't seek in.
         experiment = self._experiment()
         self._observe_event(DEFAULT_EXPOSURE_EVENT, session_linked=False)
 
         semantics = resolve_in_session_exposure_semantics(self.team, experiment)
 
-        assert semantics.unavailable_reason is None
-        assert semantics.uses_stamped_fallback is True
+        assert semantics.unavailable_reason == IN_SESSION_EXPOSURE_NO_EVENT_IN_SESSION_REASON
+        assert semantics.session_exposure is None
+
+    @parameterized.expand([("session_linked", True, False), ("server_side_default_event", False, True)])
+    def test_used_fallback_still_reports_the_stand_in_the_session_buckets_read(
+        self, _name: str, session_linked: bool, expected_used_fallback: bool
+    ) -> None:
+        # The recordings list refuses the stand-in at the verdict, not at the seam. Dropping it from
+        # the seam instead would silently change which sessions the buckets aggregate over.
+        experiment = self._experiment()
+        self._observe_event(DEFAULT_EXPOSURE_EVENT, session_linked=session_linked)
+
+        exposure = resolve_session_exposure(self.team, experiment, event_names=frozenset())
+
+        assert exposure.used_fallback is expected_used_fallback
+        assert exposure.is_seekable_evidence is not expected_used_fallback
 
     @parameterized.expand(
         [
@@ -230,7 +245,7 @@ class TestResolveInSessionExposureSemantics(BaseTest):
             semantics = resolve_in_session_exposure_semantics(self.team, experiment)
 
         assert semantics.session_exposure is not None
-        assert semantics.uses_stamped_fallback is False
+        assert semantics.session_exposure.is_seekable_evidence is True
         assert EXPERIMENT_EXPOSURE_EVENT in _string_constants(semantics.session_exposure.condition(["control"]))
 
     def test_unavailable_for_activation_criteria(self) -> None:

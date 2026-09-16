@@ -1500,7 +1500,6 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 exposure_scope: effectiveExposureScope,
                 in_session_available: inSessionExposure?.available ?? null,
                 in_session_unavailable_reason: inSessionExposure?.unavailable_reason ?? null,
-                in_session_uses_stamped_fallback: inSessionExposure?.uses_stamped_fallback ?? null,
                 behavior_comparison_available: behaviorComparisonAvailable,
                 behavior_comparison_unavailable_reason: behaviorComparisonUnavailableReason,
             }),
