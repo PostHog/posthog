@@ -622,7 +622,9 @@ def fetch_spend_rows(start_dt: datetime) -> list[SpendRow]:
             JSONExtractString(properties, 'ai_stage') AS ai_stage,
             JSONExtractString(properties, 'task_title') AS task_title,
             JSONExtractString(properties, 'task_run_id') AS task_run_id,
-            JSONExtractString(properties, '$ai_is_error') = 'true' AS is_error,
+            -- Read the raw value, because the property lands as a JSON boolean or a JSON string.
+            -- `posthog/models/ai_events/sql.py` reads it the same way.
+            JSONExtractRaw(properties, '$ai_is_error') IN ('true', '"true"') AS is_error,
             toFloat64OrZero(JSONExtractString(properties, '$ai_input_tokens')) AS input_tokens,
             toFloat64OrZero(JSONExtractString(properties, '$ai_output_tokens')) AS output_tokens,
             toFloat64OrZero(JSONExtractString(properties, '$ai_cache_read_input_tokens')) AS cache_read,
