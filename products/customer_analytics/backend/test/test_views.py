@@ -922,6 +922,26 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(response.json()["tags"], ["vip"])
         self.assertEqual(list(account.tagged_items.values_list("tag__name", flat=True)), ["vip"])
 
+    def test_update_rejects_an_over_long_tag(self):
+        account = self._create_account()
+
+        response = self.client.patch(
+            f"{self.endpoint_base}{account.id}/",
+            {"tags": ["x" * 256]},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertFalse(account.tagged_items.exists())
+
+    def test_update_accepts_a_numeric_tag(self):
+        account = self._create_account()
+
+        response = self.client.patch(f"{self.endpoint_base}{account.id}/", {"tags": [123]}, format="json")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["tags"], ["123"])
+
     def test_list_filters_by_tags(self):
         billing_tag = Tag.objects.create(name="billing", team=self.team)
         urgent_tag = Tag.objects.create(name="urgent", team=self.team)

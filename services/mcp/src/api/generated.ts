@@ -509,7 +509,11 @@ export namespace Schemas {
          * @nullable
          */
       properties?: AccountProperties;
-      /** Tag names attached to the account. Pass a list to replace existing tags. Blank names are dropped. */
+      /**
+         * Tag names attached to the account. Pass a list to replace existing tags (up to 100, 255 characters each). Blank names are dropped.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
       tags?: string[];
       /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
       readonly notebooks: readonly string[];
@@ -64105,7 +64109,11 @@ export namespace Schemas {
          * @nullable
          */
       properties?: PatchedAccountProperties;
-      /** Tag names attached to the account. Pass a list to replace existing tags. Blank names are dropped. */
+      /**
+         * Tag names attached to the account. Pass a list to replace existing tags (up to 100, 255 characters each). Blank names are dropped.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
       tags?: string[];
       /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
       readonly notebooks?: readonly string[];

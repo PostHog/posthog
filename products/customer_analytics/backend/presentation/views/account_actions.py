@@ -77,6 +77,24 @@ _UPDATE_ERROR_RESPONSES = {
 }
 
 
+def _validation_error_response(serializer: serializers.Serializer) -> Response:
+    """A 400 carrying the serializer's errors, with every mapping key as a string.
+
+    DRF keys a list field's per-item errors by integer index, and ``SafeJSONRenderer`` refuses a
+    non-string key, so rendering the raw errors raises after the view returns and the client gets
+    a 500 with no body.
+    """
+    return Response({"error": _stringify_keys(serializer.errors)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _stringify_keys(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _stringify_keys(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_stringify_keys(item) for item in value]
+    return value
+
+
 def _update_error_response(result: contracts.ExternalAccountUpdateResult) -> Response:
     if result.error == contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION:
         return Response(
@@ -227,7 +245,7 @@ def handle_account_get(team: Team, external_id: str) -> Response:
 def handle_account_create(request: Request, team: Team) -> Response:
     serializer = ExternalAccountCreateSerializer(data=request.data)
     if not serializer.is_valid():
-        return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        return _validation_error_response(serializer)
     data = serializer.validated_data
 
     external_id = data["external_id"].strip()
@@ -256,7 +274,7 @@ def handle_account_create(request: Request, team: Team) -> Response:
 def handle_account_update(request: Request, team: Team) -> Response:
     serializer = ExternalAccountUpdateSerializer(data=request.data)
     if not serializer.is_valid():
-        return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        return _validation_error_response(serializer)
     data = serializer.validated_data
 
     external_id = data["external_id"].strip()
@@ -282,7 +300,7 @@ def handle_account_update(request: Request, team: Team) -> Response:
 def handle_account_set_properties(request: Request, team: Team) -> Response:
     serializer = ExternalAccountCustomPropertiesSerializer(data=request.data)
     if not serializer.is_valid():
-        return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        return _validation_error_response(serializer)
     data = serializer.validated_data
 
     external_id = data["external_id"].strip()

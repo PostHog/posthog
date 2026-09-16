@@ -2037,9 +2037,15 @@ class AccountViewSet(
 
 
 def _account_tags_input(serializer) -> list[str] | None:
-    """Tags exactly as the client supplied them (raw initial data), so ``None`` (omitted)
-    is distinguished from ``[]`` (clear) — matching ``TaggedItemSerializerMixin``."""
-    return serializer.initial_data.get("tags")
+    """The account's new tag names, or ``None`` when the client omitted the field.
+
+    Presence comes from the raw data, so ``None`` (omitted) stays distinct from ``[]`` (clear),
+    matching ``TaggedItemSerializerMixin``. The names themselves come from ``validated_data``,
+    which has coerced each one to a string — the facade contract rejects anything else.
+    """
+    if "tags" not in serializer.initial_data:
+        return None
+    return list(serializer.validated_data.tags)
 
 
 @extend_schema(

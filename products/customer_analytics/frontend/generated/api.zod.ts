@@ -186,6 +186,10 @@ export const accountsCreateBodyNameMax = 400
 
 export const accountsCreateBodyExternalIdMax = 400
 
+export const accountsCreateBodyTagsItemMax = 255
+
+export const accountsCreateBodyTagsMax = 100
+
 export const AccountsCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(accountsCreateBodyNameMax).describe('Human-readable name of the account.'),
@@ -226,10 +230,11 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
                 "Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
             ),
         tags: zod
-            .array(zod.string())
+            .array(zod.string().max(accountsCreateBodyTagsItemMax))
+            .max(accountsCreateBodyTagsMax)
             .optional()
             .describe(
-                'Tag names attached to the account. Pass a list to replace existing tags. Blank names are dropped.'
+                'Tag names attached to the account. Pass a list to replace existing tags (up to 100, 255 characters each). Blank names are dropped.'
             ),
         slack_summary_cadence: zod
             .union([
@@ -286,6 +291,10 @@ export const accountsUpdateBodyNameMax = 400
 
 export const accountsUpdateBodyExternalIdMax = 400
 
+export const accountsUpdateBodyTagsItemMax = 255
+
+export const accountsUpdateBodyTagsMax = 100
+
 export const AccountsUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(accountsUpdateBodyNameMax).describe('Human-readable name of the account.'),
@@ -326,10 +335,11 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
                 "Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
             ),
         tags: zod
-            .array(zod.string())
+            .array(zod.string().max(accountsUpdateBodyTagsItemMax))
+            .max(accountsUpdateBodyTagsMax)
             .optional()
             .describe(
-                'Tag names attached to the account. Pass a list to replace existing tags. Blank names are dropped.'
+                'Tag names attached to the account. Pass a list to replace existing tags (up to 100, 255 characters each). Blank names are dropped.'
             ),
         slack_summary_cadence: zod
             .union([
@@ -352,6 +362,10 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
 export const accountsPartialUpdateBodyNameMax = 400
 
 export const accountsPartialUpdateBodyExternalIdMax = 400
+
+export const accountsPartialUpdateBodyTagsItemMax = 255
+
+export const accountsPartialUpdateBodyTagsMax = 100
 
 export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -397,10 +411,11 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
                 "Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
             ),
         tags: zod
-            .array(zod.string())
+            .array(zod.string().max(accountsPartialUpdateBodyTagsItemMax))
+            .max(accountsPartialUpdateBodyTagsMax)
             .optional()
             .describe(
-                'Tag names attached to the account. Pass a list to replace existing tags. Blank names are dropped.'
+                'Tag names attached to the account. Pass a list to replace existing tags (up to 100, 255 characters each). Blank names are dropped.'
             ),
         slack_summary_cadence: zod
             .union([

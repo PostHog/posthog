@@ -329,6 +329,12 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(200, response.status_code, response.json())
         self.assertEqual(response.json()["tags"], ["enterprise"])
 
+    def test_patch_renders_a_400_for_an_over_long_tag(self):
+        response = self._patch({"external_id": "acme-1", "tags": ["x" * 201]})
+
+        self.assertEqual(400, response.status_code)
+        self.assertIn("tags", response.json()["error"])
+
     def test_patch_sets_tags_replacing_existing(self):
         self._patch({"external_id": "acme-1", "tags": ["enterprise"]})
         response = self._patch({"external_id": "acme-1", "tags": ["priority"], "tags_mode": "set"})
