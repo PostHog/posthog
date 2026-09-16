@@ -12,6 +12,7 @@ import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { OBSERVATION_LIST_FILTER_KEYS, OBSERVATION_LIST_URL_PARAM_KEYS } from '../replay_scanners/types'
+import { searchBreadcrumb } from '../search/observationQueries'
 import { scannerBreadcrumb } from '../utils/breadcrumbs'
 import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
@@ -65,8 +66,7 @@ export function observationParentUrl(
  */
 export function scannerReturnParams(searchParams: Record<string, unknown>): Record<string, string> {
     const params: Record<string, string> = {}
-    // `tab` and `q` (the Search tab's query) sit alongside the observations table's own params.
-    for (const key of ['tab', 'q', ...OBSERVATION_LIST_URL_PARAM_KEYS]) {
+    for (const key of ['tab', 'q', 'scanner', 'similar', ...OBSERVATION_LIST_URL_PARAM_KEYS]) {
         const value = searchParams[key]
         // The router coerces a param by shape: `page=2` to a number, `q=true` to a boolean. Keep every
         // scalar and stringify it; dropping the coerced ones would lose that filter on the way back.
@@ -303,8 +303,11 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
         }
         // Point the breadcrumb at whatever owns this observation, so "back" returns there instead of the vision home.
         const setParentBreadcrumb = (observation: ReplayObservationApi): void => {
+            const returnParams = scannerReturnParams(router.values.searchParams)
             replayObservationSceneLogic().actions.setParentBreadcrumb(
-                observationParentBreadcrumb(observation, scannerReturnParams(router.values.searchParams))
+                returnParams.tab === 'search'
+                    ? searchBreadcrumb(returnParams)
+                    : observationParentBreadcrumb(observation, returnParams)
             )
         }
         return {

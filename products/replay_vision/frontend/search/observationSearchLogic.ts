@@ -26,23 +26,21 @@ import {
 } from '../generated/api'
 import type { ObservationSearchResultApi } from '../generated/api.schemas'
 import { ReplayScannerTab } from '../replay_scanners/replayScannerSceneLogic'
+import { readSimilarSearchIntent } from './observationQueries'
 
 // The server's MAX_SEARCH_LIMIT. A larger value would 400.
 const SEARCH_RESULT_LIMIT = 50
 
 // Client-side paging over the single ranked response. Not in the URL, where the observations table owns `page`.
-export const SEARCH_PAGE_SIZE = 10
+export const SEARCH_PAGE_SIZE = 9
 
 // Relative to the best match, because distances are only comparable within one response.
-const STRONG_MATCH_MARGIN = 0.05
+const TOP_MATCH_MARGIN = 0.05
 // The server's error code when the organization has not allowed AI data processing.
 const AI_CONSENT_REQUIRED_CODE = 'ai_data_processing_not_approved'
-// Enough to recall a working phrasing, few enough to stay a single row of chips.
-const RECENT_QUERIES_LIMIT = 5
+const RECENT_QUERIES_LIMIT = 4
 
 export interface ObservationSearchLogicProps {
-    /** Scope the search to one scanner. Null searches every scanner the user can read. */
-    scannerId: string | null
     /** Keys the persisted recent searches, so one project's queries never show in another. */
     teamId: number | null
     /** Also keys the persisted recent searches, so another account on this browser starts empty. */
@@ -59,11 +57,13 @@ export interface observationSearchLogicValues {
     query: string
     recentQueries: string[]
     results: ObservationSearchResultApi[] | null
+    scannerId: string | null
     searchedQuery: string | null
     searching: boolean
-    strongMatchDistanceCutoff: number | null
+    sourceObservationId: string | null
     suggestedQueries: string[]
     suggestedQueriesLoading: boolean
+    topMatchDistanceCutoff: number | null
     truncated: boolean
 }
 
@@ -93,12 +93,21 @@ export interface observationSearchLogicActions {
     searchFailure: () => {
         value: true
     }
+    searchSimilar: (
+        query: string,
+        sourceObservationId: string
+    ) => {
+        query: string
+        sourceObservationId: string
+    }
     searchSuccess: (
         results: ObservationSearchResultApi[],
         query: string,
-        truncated: boolean
+        truncated: boolean,
+        remember?: boolean
     ) => {
         query: string
+        remember: boolean
         results: ObservationSearchResultApi[]
         truncated: boolean
     }
@@ -107,6 +116,9 @@ export interface observationSearchLogicActions {
     }
     setQuery: (query: string) => {
         query: string
+    }
+    setScannerId: (scannerId: string | null) => {
+        scannerId: string | null
     }
 }
 
@@ -118,7 +130,7 @@ export interface observationSearchLogicMeta {
         pageResults: (results: ObservationSearchResultApi[] | null, page: number) => ObservationSearchResultApi[]
         pageStartIndex: (page: number) => number
         pageEndIndex: (pageStartIndex: number, pageResults: ObservationSearchResultApi[]) => number
-        strongMatchDistanceCutoff: (results: ObservationSearchResultApi[] | null) => number | null
+        topMatchDistanceCutoff: (results: ObservationSearchResultApi[] | null) => number | null
     }
 }
 
@@ -144,16 +156,24 @@ function captureSearchOutcome(
 export const observationSearchLogic = kea<observationSearchLogicType>([
     path(['products', 'replay_vision', 'frontend', 'search', 'observationSearchLogic']),
     props({} as ObservationSearchLogicProps),
-    key((props) => `${props.userId ?? 'user'}:${props.teamId ?? 'team'}:${props.scannerId ?? 'cross-scanner'}`),
+    key((props) => `${props.userId ?? 'user'}:${props.teamId ?? 'team'}`),
 
     actions({
         setQuery: (query: string) => ({ query }),
+        setScannerId: (scannerId: string | null) => ({ scannerId }),
         setPage: (page: number) => ({ page }),
         search: true,
-        searchSuccess: (results: ObservationSearchResultApi[], query: string, truncated: boolean) => ({
+        searchSimilar: (query: string, sourceObservationId: string) => ({ query, sourceObservationId }),
+        searchSuccess: (
+            results: ObservationSearchResultApi[],
+            query: string,
+            truncated: boolean,
+            remember: boolean = true
+        ) => ({
             results,
             query,
             truncated,
+            remember,
         }),
         searchFailure: true,
         clearSearch: true,
@@ -164,7 +184,22 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
             '' as string,
             {
                 setQuery: (_, { query }) => query,
+                searchSimilar: (_, { query }) => query,
                 clearSearch: () => '',
+            },
+        ],
+        scannerId: [
+            null as string | null,
+            {
+                setScannerId: (_, { scannerId }) => scannerId,
+            },
+        ],
+        sourceObservationId: [
+            null as string | null,
+            {
+                searchSimilar: (_, { sourceObservationId }) => sourceObservationId,
+                setQuery: () => null,
+                clearSearch: () => null,
             },
         ],
         // null until the first search, so the empty state can tell "not searched yet" from "no matches".
@@ -181,6 +216,7 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 search: () => true,
                 searchSuccess: () => false,
                 searchFailure: () => false,
+                clearSearch: () => false,
             },
         ],
         searchedQuery: [
@@ -190,13 +226,12 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 clearSearch: () => null,
             },
         ],
-        // Per search scope, in this browser only: a cheap way back to a phrasing that found something.
         recentQueries: [
             [] as string[],
             { persist: true },
             {
-                searchSuccess: (state, { query, results }) =>
-                    results.length > 0
+                searchSuccess: (state, { query, results, remember }) =>
+                    remember && results.length > 0
                         ? [query, ...state.filter((recent) => recent !== query)].slice(0, RECENT_QUERIES_LIMIT)
                         : state,
             },
@@ -218,7 +253,7 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
         ],
     }),
 
-    loaders(({ props }) => ({
+    loaders(({ values }) => ({
         suggestedQueries: [
             [] as string[],
             {
@@ -228,7 +263,7 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                     if (!teamId || router.values.searchParams.q) {
                         return []
                     }
-                    const scope = props.scannerId ? { scanner_id: props.scannerId } : undefined
+                    const scope = values.scannerId ? { scanner_id: values.scannerId } : undefined
                     // The view is what keeps a scanner's suggestions refreshing; it is a separate POST so the read
                     // stays side-effect free, and nothing here waits on it.
                     void visionObservationsSearchViewedCreate(String(teamId), scope).catch(() => undefined)
@@ -261,26 +296,33 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
             (pageStartIndex: number, pageResults: ObservationSearchResultApi[]): number =>
                 pageStartIndex + pageResults.length,
         ],
-        // Null when the tag would not separate anything, so it is never shown on every result.
-        strongMatchDistanceCutoff: [
+        // Null when the tiers would not separate anything, so a lone tier is never labeled.
+        topMatchDistanceCutoff: [
             (s) => [s.results],
             (results: ObservationSearchResultApi[] | null): number | null => {
                 if (!results || results.length < 2) {
                     return null
                 }
-                const cutoff = Math.min(...results.map((r) => r.distance)) + STRONG_MATCH_MARGIN
+                const cutoff = Math.min(...results.map((r) => r.distance)) + TOP_MATCH_MARGIN
                 return results.some((r) => r.distance > cutoff) ? cutoff : null
             },
         ],
     }),
 
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, values }) => ({
         // Emptying the input (the field's clear button included) is how a person gets back to the empty state.
         setQuery: ({ query }) => {
             if (!query.trim() && values.searchedQuery !== null) {
                 actions.clearSearch()
             }
         },
+        setScannerId: () => {
+            actions.loadSuggestedQueries()
+            if (values.searchedQuery !== null || values.searching) {
+                actions.search()
+            }
+        },
+        searchSimilar: () => actions.search(),
         search: async (_, breakpoint) => {
             const query = values.query.trim()
             if (!query) {
@@ -292,17 +334,23 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 actions.searchFailure()
                 return
             }
+            const sourceObservationId = values.sourceObservationId
             try {
                 const response = await visionObservationsSearchRetrieve(String(teamId), {
                     q: query,
                     limit: SEARCH_RESULT_LIMIT,
-                    ...(props.scannerId ? { scanner_id: props.scannerId } : {}),
+                    ...(values.scannerId ? { scanner_id: values.scannerId } : {}),
                 })
                 // Drop out-of-order responses. The newest search owns the results.
                 breakpoint()
-                const results = response.results ?? []
-                captureSearchOutcome(props.scannerId, { succeeded: true, result_count: results.length })
-                actions.searchSuccess(results, query, response.truncated ?? false)
+                // The source of a "find similar" search is its own nearest neighbour.
+                const results = (response.results ?? []).filter((r) => r.observation.id !== sourceObservationId)
+                captureSearchOutcome(values.scannerId, { succeeded: true, result_count: results.length })
+                // Cleared while in flight: the late response must not refill the card.
+                if (!values.searching) {
+                    return
+                }
+                actions.searchSuccess(results, query, response.truncated ?? false, sourceObservationId === null)
             } catch (error: any) {
                 if (error instanceof Error && isBreakpoint(error)) {
                     throw error
@@ -310,7 +358,7 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 // Drop out-of-order failures, like the success path above. A newer search owns the outcome,
                 // so an older failure must not skew the capture, raise a toast, or stop the spinner.
                 breakpoint()
-                captureSearchOutcome(props.scannerId, {
+                captureSearchOutcome(values.scannerId, {
                     succeeded: false,
                     error_status: error?.status,
                     error_code: error?.code,
@@ -335,42 +383,69 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
         actions.loadSuggestedQueries()
     }),
 
-    actionToUrl(({ values }) => ({
-        search: () => [
+    actionToUrl(({ values }) => {
+        const withScope = (
+            q: string | undefined
+        ): [string, Record<string, unknown>, Record<string, unknown>, { replace: boolean }] => [
             router.values.location.pathname,
             {
                 ...router.values.searchParams,
-                q: values.query.trim() || undefined,
+                q,
+                scanner: values.scannerId ?? undefined,
+                similar: values.sourceObservationId ?? undefined,
             },
             router.values.hashParams,
             { replace: true },
-        ],
-        clearSearch: () => [
-            router.values.location.pathname,
-            { ...router.values.searchParams, q: undefined },
-            router.values.hashParams,
-            { replace: true },
-        ],
-    })),
+        ]
+        return {
+            // Observation prose stays out of the URL (see markSimilarSearchIntent).
+            search: () => withScope(values.sourceObservationId ? undefined : values.query.trim() || undefined),
+            clearSearch: () => withScope(undefined),
+            setScannerId: () => withScope(router.values.searchParams.q),
+        }
+    }),
 
-    urlToAction(({ actions, props, values }) => ({
-        [props.scannerId ? urls.replayVision(props.scannerId) : urls.replayVision()]: (_, searchParams) => {
-            if (searchParams.tab !== ReplayScannerTab.Search) {
-                return
-            }
-            // kea-router decodes ?q=true to a boolean, so stringify instead of dropping it.
-            const raw = searchParams.q
-            const q = typeof raw === 'string' ? raw : raw != null ? String(raw) : ''
-            // Run a deep-linked query once. Comparing against the trimmed input blocks the actionToUrl
-            // echo of an interactive search, and stops a failed query (which never reaches searchedQuery)
-            // from re-firing on every unrelated URL change while it still fills the input.
-            if (q && q !== values.searchedQuery && q !== values.query.trim()) {
-                actions.setQuery(q)
-                actions.search()
-            } else if (!q && values.searchedQuery !== null) {
-                // The URL lost its query (back navigation, or a tab switch dropped it), so show the empty state.
-                actions.clearSearch()
-            }
-        },
-    })),
+    urlToAction(({ actions, values }) => {
+        return {
+            [urls.replayVision()]: (_: unknown, searchParams: Record<string, unknown>) => {
+                if (searchParams.tab !== ReplayScannerTab.Search) {
+                    return
+                }
+                const scanner = typeof searchParams.scanner === 'string' ? searchParams.scanner : null
+                if (scanner !== values.scannerId) {
+                    actions.setScannerId(scanner)
+                }
+                const similar = typeof searchParams.similar === 'string' ? searchParams.similar : ''
+                if (similar) {
+                    if (similar === values.sourceObservationId) {
+                        return
+                    }
+                    const similarQuery = readSimilarSearchIntent(similar)
+                    if (similarQuery) {
+                        actions.searchSimilar(similarQuery, similar)
+                    } else {
+                        // A pasted link has no stored query, so drop the param instead of looking filtered.
+                        router.actions.replace(
+                            router.values.location.pathname,
+                            { ...searchParams, similar: undefined },
+                            router.values.hashParams
+                        )
+                    }
+                    return
+                }
+                // kea-router decodes ?q=true to a boolean, so stringify instead of dropping it.
+                const raw = searchParams.q
+                const q = typeof raw === 'string' ? raw : raw != null ? String(raw) : ''
+                // Run a deep-linked query once. The trimmed-input check blocks the actionToUrl echo and keeps
+                // a failed query from re-firing on unrelated URL changes.
+                if (q && q !== values.searchedQuery && q !== values.query.trim()) {
+                    actions.setQuery(q)
+                    actions.search()
+                } else if (!q && values.searchedQuery !== null && values.sourceObservationId === null) {
+                    // The URL lost its query (back navigation, or a tab switch dropped it), so show the empty state.
+                    actions.clearSearch()
+                }
+            },
+        }
+    }),
 ])
