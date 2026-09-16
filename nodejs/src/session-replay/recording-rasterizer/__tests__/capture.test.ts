@@ -59,6 +59,7 @@ function mockPlayer(overrides: Partial<Record<keyof PlayerController, any>> = {}
     return {
         page: mockPage,
         prepareBrowserForCapture: jest.fn(),
+        observeSegments: jest.fn(),
         installCallbackErrorGuards: jest.fn().mockResolvedValue(undefined),
         startPlayback: jest.fn().mockResolvedValue(undefined),
         isEnded: jest.fn().mockReturnValue(false),

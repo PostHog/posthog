@@ -53,6 +53,9 @@ export type PlayerMessage =
     | { type: 'ended' }
     | { type: 'error'; code: string; message: string; retryable: boolean }
     | { type: 'inactivity_periods'; periods: InactivityPeriod[] }
+    // The host stamps its capture frame counter on arrival, which is what makes the
+    // video-time map a measurement of the file instead of a prediction from segment math.
+    | { type: 'segment_entered'; index: number }
 
 export const PLAYER_EMIT_FN = '__posthog_player_emit__'
 export const PLAYER_CONFIG_KEY = '__posthog_player_config__'

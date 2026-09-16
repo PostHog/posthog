@@ -28,6 +28,8 @@ export class PlayerController {
         inactivityPeriods: [] as InactivityPeriod[],
     }
 
+    private onSegmentEntered: ((index: number) => void) | null = null
+
     private startedResolve: (() => void) | null = null
     private errorReject: ((err: RasterizationError) => void) | null = null
     private playbackError: RasterizationError | null = null
@@ -88,6 +90,9 @@ export class PlayerController {
                 break
             case 'inactivity_periods':
                 this.state.inactivityPeriods = msg.periods
+                break
+            case 'segment_entered':
+                this.onSegmentEntered?.(msg.index)
                 break
         }
     }
@@ -239,7 +244,17 @@ export class PlayerController {
         return this.state.inactivityPeriods
     }
 
+    /**
+     * Subscribe to the segments the player reaches, so the capture loop can stamp each one
+     * with the number of frames already in the file. Without a subscriber the segment goes
+     * unmeasured and the video-time map falls back to segment math for it.
+     */
+    observeSegments(onSegmentEntered: (index: number) => void): void {
+        this.onSegmentEntered = onSegmentEntered
+    }
+
     dispose(): void {
+        this.onSegmentEntered = null
         this.startedResolve = null
         this.errorReject = null
         this.playbackError = null

@@ -66,8 +66,10 @@ export class MetadataFooter {
             this.metaStatusEl.textContent = '[RECORDING ENDED]'
         } else {
             const ts = this.firstTimestamp + Math.max(0, this.replayer.getCurrentTime())
+            // Half-open, to match how PlaybackController assigns a boundary timestamp to the
+            // segment after it. The burned-in status and the video-time map have to agree.
             const isIdle = this.segments.some(
-                (seg) => !seg.isActive && ts >= seg.startTimestamp && ts <= seg.endTimestamp
+                (seg) => !seg.isActive && ts >= seg.startTimestamp && ts < seg.endTimestamp
             )
             if (isIdle) {
                 this.metaStatusEl.className = 'status-idle'

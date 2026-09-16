@@ -50,6 +50,10 @@ export class HostBridge {
         this.emit({ type: 'inactivity_periods', periods })
     }
 
+    signalSegmentEntered(index: number): void {
+        this.emit({ type: 'segment_entered', index })
+    }
+
     // --- Config ---
 
     /**

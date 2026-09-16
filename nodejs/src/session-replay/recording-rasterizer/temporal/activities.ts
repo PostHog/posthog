@@ -133,7 +133,11 @@ async function rasterizeRecordingActivity(
         RasterizationMetrics.observeSetup('success', timings.setup_s)
         RasterizationMetrics.observeCapture('success', timings.capture_s)
 
-        const periods = computeVideoTimestamps(result.inactivity_periods)
+        const periods = computeVideoTimestamps(
+            result.inactivity_periods,
+            result.segment_video_starts,
+            result.capture_duration_s
+        )
 
         progress.phase = 'upload'
         onProgress()

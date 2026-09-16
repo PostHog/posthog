@@ -150,6 +150,7 @@ export async function rasterizeRecording(
             frame_count: captureResult.frame_count,
             truncated: captureResult.truncated,
             inactivity_periods: captureResult.inactivity_periods,
+            segment_video_starts: captureResult.segment_video_starts,
             timings: { setup_s: setupS, capture_s: captureResult.timings.capture_s },
         }
     } finally {

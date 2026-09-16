@@ -8,6 +8,7 @@ import {
     InactivityPeriod,
     RasterizationProgress,
     RecordingResult,
+    SegmentVideoStart,
 } from '~/session-replay/recording-rasterizer/types'
 import { elapsed } from '~/session-replay/recording-rasterizer/utils'
 
@@ -21,7 +22,10 @@ export async function capturePlayback(
     progress: RasterizationProgress | null = null,
     log: Logger = createLogger()
 ): Promise<
-    Pick<RecordingResult, 'capture_duration_s' | 'frame_count' | 'truncated' | 'inactivity_periods' | 'timings'>
+    Pick<
+        RecordingResult,
+        'capture_duration_s' | 'frame_count' | 'truncated' | 'inactivity_periods' | 'segment_video_starts' | 'timings'
+    >
 > {
     const captureStart = process.hrtime()
     const ffmpegStderr: string[] = []
@@ -30,6 +34,14 @@ export async function capturePlayback(
     // Install CDP guards before captureVideo — it wraps createCDPSession
     // to inject screenshot format and gate beginFrame on pending stylesheets.
     player.prepareBrowserForCapture(captureConfig.screenshotFormat, captureConfig.screenshotQuality)
+    // First arrival wins: a position that bounces back over a boundary must not move a
+    // segment's start later than the frame it was first shown on.
+    const segmentStartFrames = new Map<number, number>()
+    player.observeSegments((index) => {
+        if (!segmentStartFrames.has(index)) {
+            segmentStartFrames.set(index, frameCount)
+        }
+    })
 
     const page = player.page
 
@@ -211,11 +223,17 @@ export async function capturePlayback(
     const rawDurationS = frameCount / captureConfig.outputFps
     const captureDurationS = captureConfig.trim ? Math.min(rawDurationS, captureConfig.trim) : rawDurationS
 
+    const segmentVideoStarts: SegmentVideoStart[] = [...segmentStartFrames].map(([index, frame]) => ({
+        index,
+        video_s: +(frame / captureConfig.outputFps).toFixed(3),
+    }))
+
     return {
         capture_duration_s: captureDurationS,
         frame_count: frameCount,
         truncated,
         inactivity_periods: inactivityPeriods,
+        segment_video_starts: segmentVideoStarts,
         timings: { setup_s: 0, capture_s: elapsed(captureStart) },
     }
 }

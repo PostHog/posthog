@@ -44,6 +44,7 @@ const baseCaptureResult = {
     frame_count: 120,
     truncated: false,
     inactivity_periods: [],
+    segment_video_starts: [],
     timings: { setup_s: 0, capture_s: 2.5 },
 }
 

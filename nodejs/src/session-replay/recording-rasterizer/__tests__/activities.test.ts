@@ -74,6 +74,7 @@ function baseRecordingResult(_videoPath: string, overrides: Partial<RecordingRes
         frame_count: 72,
         truncated: false,
         inactivity_periods: [{ ts_from_s: 0, ts_to_s: 10, active: true }],
+        segment_video_starts: [{ index: 0, video_s: 0 }],
         timings: { setup_s: 1.5, capture_s: 3.2 },
         ...overrides,
     }
@@ -104,20 +105,23 @@ describe('rasterizeRecordingActivity', () => {
         ]
         mockSuccessfulRecording({
             playback_speed: 1,
+            // The file runs past the 5s of active session the segments describe, because
+            // the capture ramp and the cut both cost frames.
+            capture_duration_s: 5.4,
             inactivity_periods: inactivityPeriods,
         })
 
         const result = await rasterizeRecordingActivity(baseInput({ playback_speed: 1 }))
 
         expect(result.s3_uri).toBe('s3://test-bucket/exports/mp4/team-1/task-1/uuid.mp4')
-        expect(result.video_duration_s).toBe(3.0)
+        expect(result.video_duration_s).toBe(5.4)
         expect(result.playback_speed).toBe(1)
         expect(result.show_metadata_footer).toBe(false)
         expect(result.truncated).toBe(false)
         expect(result.file_size_bytes).toBeGreaterThan(0)
 
-        expect(result.inactivity_periods[0]).toMatchObject({ recording_ts_from_s: 0, recording_ts_to_s: 5 })
-        expect(result.inactivity_periods[1]).toMatchObject({ recording_ts_from_s: 5, recording_ts_to_s: 5 })
+        expect(result.inactivity_periods[0]).toMatchObject({ recording_ts_from_s: 0, recording_ts_to_s: 5.4 })
+        expect(result.inactivity_periods[1]).toMatchObject({ recording_ts_from_s: 5.4, recording_ts_to_s: 5.4 })
 
         expect(result.timings.total_s).toBeGreaterThan(0)
         expect(result.timings.setup_s).toBe(1.5)
