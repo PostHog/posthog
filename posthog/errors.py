@@ -119,6 +119,15 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
 # stopped on back into the same message, and the echo carries no row marker of its own.
 ROW_DUMP_PATTERN = re.compile(r"^Row \d+:\r?\nColumn \d+,\s+name: .+?,\s+type: .+?,\s+parsed text:", re.MULTILINE)
 
+# The diagnostic ClickHouse prints for the failing column when the row did split correctly and one
+# value does not fit the column type. Both wordings name the type: "is not like" for a value a
+# number or date column reads as empty, "garbage after" for a value it reads only in part. A row
+# that really did mis-split names the delimiter or the line ending instead, so this marker tells a
+# file whose quoting is wrong from a file whose value is wrong.
+TYPED_VALUE_MISMATCH_PATTERN = re.compile(
+    r"^(?:Column \d+,.*)?ERROR: (?:text .* is not like |garbage after )", re.MULTILINE
+)
+
 
 def _is_delimited_row_split_mismatch(message: str) -> bool:
     """Tell a mis-split row of a warehouse file from the other causes of code 27.
@@ -127,8 +136,17 @@ def _is_delimited_row_split_mismatch(message: str) -> bool:
     structure the reader rejects. Only a row input format prints the per-column dump, so that dump
     is the marker. It is also why the message stays fixed: it repeats whole rows of the customer's
     file.
+
+    The dump on its own is not enough. ClickHouse prints the row above the failing one in full, so
+    a file that split into the right number of columns and only holds a value of the wrong type
+    carries a dump of parsed text too. The failing column's own diagnostic separates the two, and
+    only a mis-split gets the quote advice.
     """
-    return "Cannot parse input:" in message and ROW_DUMP_PATTERN.search(message) is not None
+    return (
+        "Cannot parse input:" in message
+        and ROW_DUMP_PATTERN.search(message) is not None
+        and TYPED_VALUE_MISMATCH_PATTERN.search(message) is None
+    )
 
 
 def wrap_clickhouse_query_error(err: Exception) -> Exception:

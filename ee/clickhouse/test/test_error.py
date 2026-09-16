@@ -278,6 +278,92 @@ from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQ
             "CHQueryErrorCannotParseInputAssertionFailed",
         ),
         (
+            # A CSV row that did split into the right number of columns, where one value doesn't
+            # fit the column type. ClickHouse dumps the row above the failing one in full, so the
+            # message carries parsed text as well. The quote setting is not the fix, and the
+            # message names the column and the value, so this one stays internal.
+            ServerException(
+                "DB::Exception: Cannot parse input: expected ',' before: 'gold,2026-03-04\\n': "
+                "(at row 9)\n: \nRow 8:\n"
+                'Column 0,   name: amount,   type: Int64,  parsed text: "42"\n'
+                'Column 1,   name: tier,     type: String, parsed text: "silver"\n'
+                "\nRow 9:\n"
+                'Column 0,   name: amount,   type: Int64,  ERROR: text "gold,2026-03-04<LINE FEED>" '
+                "is not like Int64\n"
+                ": (in file/uri example-bucket/exports/orders.csv): While executing "
+                "ParallelParsingBlockInputFormat. Stack trace:\n\n"
+                "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000015979590",
+                code=27,
+            ),
+            "CHQueryErrorCannotParseInputAssertionFailed",
+            "Code: 27.\nDB::Exception: Cannot parse input: expected ',' before: 'gold,2026-03-04\\n': "
+            "(at row 9)\n: \nRow 8:\n"
+            'Column 0,   name: amount,   type: Int64,  parsed text: "42"\n'
+            'Column 1,   name: tier,     type: String, parsed text: "silver"\n'
+            "\nRow 9:\n"
+            'Column 0,   name: amount,   type: Int64,  ERROR: text "gold,2026-03-04<LINE FEED>" '
+            "is not like Int64\n"
+            ": (in file/uri example-bucket/exports/orders.csv): While executing "
+            "ParallelParsingBlockInputFormat. Stack trace:\n\n"
+            "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000015979590",
+            27,
+            "CHQueryErrorCannotParseInputAssertionFailed",
+        ),
+        (
+            # The same wrong-value shape on a nullable column, which is what a file-backed table
+            # usually infers. ClickHouse reads the value as empty and reports what is left over,
+            # so the failing column names the type in its own wording. This stays internal too.
+            ServerException(
+                "DB::Exception: Cannot parse input: expected ',' before: 'gold,2026-03-04\\n': "
+                "(at row 9)\n: \nRow 8:\n"
+                'Column 0,   name: amount,   type: Nullable(Int64),  parsed text: "42"\n'
+                'Column 1,   name: tier,     type: Nullable(String), parsed text: "silver"\n'
+                "\nRow 9:\n"
+                "Column 0,   name: amount,   type: Nullable(Int64),  parsed text: <EMPTY>\n"
+                'ERROR: garbage after Nullable(Int64): "gold,2026-03-04<LINE FEED>"\n'
+                ": (in file/uri example-bucket/exports/orders.csv): While executing "
+                "ParallelParsingBlockInputFormat. Stack trace:\n\n"
+                "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000015979590",
+                code=27,
+            ),
+            "CHQueryErrorCannotParseInputAssertionFailed",
+            "Code: 27.\nDB::Exception: Cannot parse input: expected ',' before: 'gold,2026-03-04\\n': "
+            "(at row 9)\n: \nRow 8:\n"
+            'Column 0,   name: amount,   type: Nullable(Int64),  parsed text: "42"\n'
+            'Column 1,   name: tier,     type: Nullable(String), parsed text: "silver"\n'
+            "\nRow 9:\n"
+            "Column 0,   name: amount,   type: Nullable(Int64),  parsed text: <EMPTY>\n"
+            'ERROR: garbage after Nullable(Int64): "gold,2026-03-04<LINE FEED>"\n'
+            ": (in file/uri example-bucket/exports/orders.csv): While executing "
+            "ParallelParsingBlockInputFormat. Stack trace:\n\n"
+            "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000015979590",
+            27,
+            "CHQueryErrorCannotParseInputAssertionFailed",
+        ),
+        (
+            # A mis-split row as ClickHouse really reports one: the dump ends with the failing
+            # column's diagnostic, which names the delimiter it could not find. The quote advice
+            # belongs to this shape, so narrowing the wrong-value shapes out must keep it.
+            ServerException(
+                "Code: 27. DB::Exception: Cannot parse input: expected ',' before: "
+                "'Inc\",London,2026-03-05\\n': (at row 12)\n: \nRow 11:\n"
+                'Column 0,   name: account,   type: Nullable(String), parsed text: "Acme, Ltd"\n'
+                'Column 1,   name: city,      type: Nullable(String), parsed text: "Bristol"\n'
+                "\nRow 12:\n"
+                "Column 0,   name: account,   type: Nullable(String), parsed text: "
+                '"<DOUBLE QUOTE>Widgets<DOUBLE QUOTE>"\n'
+                'ERROR: There is no delimiter (,). "I" found instead.\n'
+                ": (in file/uri example-bucket/exports/accounts.csv): While executing "
+                "ParallelParsingBlockInputFormat. Stack trace:\n\n"
+                "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000015979590",
+                code=27,
+            ),
+            "CHQueryErrorDelimitedRowSplitMismatch",
+            DELIMITED_ROW_SPLIT_MISMATCH_MESSAGE,
+            27,
+            "CHQueryErrorCannotParseInputAssertionFailed",
+        ),
+        (
             # Same code again, raised by a value that fails to convert inside a query. Nothing here
             # is about a file, and the message carries the value, so it stays internal too.
             ServerException(
