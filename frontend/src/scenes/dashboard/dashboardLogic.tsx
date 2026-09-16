@@ -171,6 +171,8 @@ export interface RefreshStatus {
     refreshed?: boolean
     error?: Error
     errored?: boolean
+    /** Query ID of the request that failed, which the stored insight does not carry */
+    queryId?: string
     timer?: Date | null
 }
 
@@ -896,10 +898,12 @@ export interface dashboardLogicActions {
     }
     setRefreshError: (
         shortId: InsightShortId,
-        error?: Error
+        error?: Error,
+        queryId?: string
     ) => {
         error: Error | undefined
         shortId: InsightShortId
+        queryId: string | undefined
     }
     setRefreshStatus: (
         shortId: InsightShortId,
@@ -1415,7 +1419,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             loading,
             queued,
         }),
-        setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
+        setRefreshError: (shortId: InsightShortId, error?: Error, queryId?: string) => ({ shortId, error, queryId }),
         /** Number of insights enrolled in the current refresh cycle, captured up front. */
         setRefreshTilesTotal: (total: number) => ({ total }),
         abortQuery: (payload: { queryId: string; queryStartTime: number; shortId: InsightShortId }) => payload,
@@ -2305,9 +2309,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                   : { refreshed: true, timer: state[shortId]?.timer || null },
                         ])
                     ) as Record<string, RefreshStatus>,
-                setRefreshError: (state, { shortId, error }) => ({
+                setRefreshError: (state, { shortId, error, queryId }) => ({
                     ...state,
-                    [shortId]: { errored: true, error, timer: state[shortId]?.timer || null },
+                    [shortId]: { errored: true, error, queryId, timer: state[shortId]?.timer || null },
                 }),
                 refreshDashboardItems: () => ({}),
                 // Drop only the aborted tile so sibling tiles still in flight stay tracked; wiping the
@@ -4061,6 +4065,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             actions.setRefreshStatus(insight.short_id, true, true)
 
+            const queryId = uuid()
+
             try {
                 breakpoint()
 
@@ -4072,7 +4078,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     currentTeamId,
                     insight,
                     dashboardId,
-                    uuid(),
+                    queryId,
                     'force_blocking',
                     undefined,
                     effectiveRefreshFilters,
@@ -4092,16 +4098,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
                     const queryError = getInsightQueryError(refreshedInsight)
                     if (queryError) {
-                        actions.setRefreshError(insight.short_id, queryError)
+                        actions.setRefreshError(insight.short_id, queryError, queryId)
                     } else {
                         dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                         actions.setRefreshStatus(insight.short_id)
                     }
                 } else {
-                    actions.setRefreshError(insight.short_id)
+                    actions.setRefreshError(insight.short_id, undefined, queryId)
                 }
             } catch (e: any) {
-                actions.setRefreshError(insight.short_id, e)
+                actions.setRefreshError(insight.short_id, e, queryId)
             }
         },
         refreshDashboardItems: async ({ action, forceRefresh, previewUnsavedFilters }, breakpoint) => {
@@ -4191,7 +4197,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
                             const queryError = getInsightQueryError(refreshedInsight)
                             if (queryError) {
-                                actions.setRefreshError(insight.short_id, queryError)
+                                actions.setRefreshError(insight.short_id, queryError, queryId)
                                 tilesErroredCount++
                             } else {
                                 dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
@@ -4210,7 +4216,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 )
                             }
                         } else {
-                            actions.setRefreshError(insight.short_id)
+                            actions.setRefreshError(insight.short_id, undefined, queryId)
                             tilesErroredCount++
                         }
                     } catch (e: any) {
@@ -4219,7 +4225,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id })
                             tilesAbortedCount++
                         } else {
-                            actions.setRefreshError(insight.short_id, e)
+                            actions.setRefreshError(insight.short_id, e, queryId)
                             tilesErroredCount++
                         }
                     }

@@ -2936,6 +2936,28 @@ describe('dashboardLogic', () => {
                 getInsightWithRetrySpy.mockRestore()
             })
 
+            it('records the query ID of a refresh that failed before the server answered', async () => {
+                const dashboard = dashboards[5]
+                const insight = dashboard.tiles[0].insight!
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockRejectedValue(new Error('Network request failed'))
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerDashboardRefresh()
+                }).toFinishAllListeners()
+
+                // The stored insight keeps the query status of an earlier, successful run, so the
+                // failing request's own client_query_id is the only handle on what broke.
+                const requestedQueryId = getInsightWithRetrySpy.mock.calls[0][3]
+                expect(logic.values.refreshStatus[insight.short_id]).toMatchObject({
+                    errored: true,
+                    queryId: requestedQueryId,
+                })
+
+                getInsightWithRetrySpy.mockRestore()
+            })
+
             it('automatic refresh reloads stale insights (but not fresh ones)', async () => {
                 const dashboard = dashboards[5]
                 const staleInsight = {
