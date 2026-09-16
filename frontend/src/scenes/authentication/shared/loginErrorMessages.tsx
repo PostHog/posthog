@@ -35,6 +35,8 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     verified_domain_required:
         "Your organization only allows members with a verified email domain. Contact your organization's admin for access.",
     oauth_cancelled: "Sign in was cancelled. Please try again when you're ready.",
+    oauth_state_lost:
+        'Your sign-in attempt expired, or it started in another browser tab. Close any other sign-in tabs, then sign in again from this page. If it keeps happening, check that your browser allows cookies for this site.',
     reauth_user_mismatch:
         "You signed in with a different account. Please try again with the account you're logged in as.",
     invalid_invite:
