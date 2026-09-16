@@ -1167,6 +1167,11 @@ Returns:
 
 If the provider returns an empty response, the signal is treated as unsafe with threat type `provider_safety_filter`.
 
+A block fires a `signal_blocked_by_safety_filter` event in the internal project, carrying the threat type and explanation but never the signal text.
+The text of a blocked signal is kept for the safety-filter judge scout in the LLM analytics store instead: the activity captures an `$ai_span` named `safety_filter_block` (`BLOCKED_SIGNAL_SPAN_NAME`) through the SDK's AI capture lane, with the description and source in `$ai_input_state` and the verdict in `$ai_output_state`.
+That lands in `posthog.ai_events`, which drops content after its retention period (30 days by default), and the block event links to it through `$ai_trace_id`.
+The pipeline keeps this copy itself because the LLM gateway that served the call is not a reliable source: the Go gateway's mirrored generation events carry no input or output.
+
 This is the first line of defense; it prevents adversarial signals from consuming embedding / search / matching work.
 
 ### Report safety judge (`backend/temporal/report_safety_judge.py`)
