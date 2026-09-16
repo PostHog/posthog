@@ -173,6 +173,33 @@ describe('mergeSplitPersonLogic', () => {
             expect(refreshScopeId).toEqual(String(MOCK_TEAM_ID))
         })
 
+        it.each([
+            ['drops a main distinct ID that moved off the person', 'user-456', null],
+            ['keeps a main distinct ID that is still on the person', URL_DISTINCT_ID, URL_DISTINCT_ID],
+        ])('%s', async (_, mainDistinctId, expected) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/persons/123/': { ...MOCK_PERSON, distinct_ids: [URL_DISTINCT_ID] },
+                },
+                post: {
+                    '/api/person/123/split/': () => [400, STALE_DISTINCT_ID_RESPONSE],
+                },
+            })
+            logic.actions.setSelectedPersonToAssignSplit(mainDistinctId)
+            logic.actions.setSplitMode('partial')
+            logic.actions.setDistinctIdsToSplit(['user-456'])
+
+            await expectLogic(logic, () => {
+                logic.actions.execute()
+            })
+                .toDispatchActions(['execute', 'splitRejected', 'executeSuccess'])
+                .toFinishListeners()
+
+            // "all" mode submits this ID as `main_distinct_id`, and the backend splits every
+            // distinct ID off the person when no ID on it matches.
+            await expectLogic(logic).toMatchValues({ selectedPersonToAssignSplit: expected })
+        })
+
         it('still recovers when the current distinct IDs cannot be loaded', async () => {
             useMocks({
                 get: {

@@ -205,6 +205,10 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
             null as null | string,
             {
                 setSelectedPersonToAssignSplit: (_, { id }) => id,
+                // The refresh rebuilds the picker options. A selection that is missing from them
+                // still submits, and the backend splits every distinct ID off when none matches.
+                splitRejected: (state, { distinctIds }) =>
+                    state && distinctIds && !distinctIds.includes(state) ? null : state,
             },
         ],
         splitMode: [
