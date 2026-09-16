@@ -1,6 +1,6 @@
 # Inbox ranking Dagster dags
 
-Dagster jobs for the Self-driving Inbox report-ranking model: the **dataset** dag (daily snapshots) and the **training** dag (daily per-head XGBoost candidates + champion pointer), sibling subpackages sharing `common.py`.
+Dagster jobs for the Self-driving Inbox report-ranking model: the **dataset** dag (daily snapshots), the **training** dag (daily per-head XGBoost candidates + champion pointer) and the **shadow** dag (the model's order against the order the inbox serves), sibling subpackages sharing `common.py`.
 
 ```text
 inbox_ranking/
@@ -14,6 +14,11 @@ inbox_ranking/
 │   ├── heads.py      # the v0 outcome heads
 │   ├── train.py      # per-head XGBoost fit + holdout/null metrics
 │   └── promotion.py  # the champion promotion rule
+├── shadow/
+│   ├── dag.py        # the shadow eval asset + job + schedule
+│   ├── metrics.py    # served lists, outcome attribution, NDCG/MRR over three orders
+│   ├── queries.py    # HogQL for the served lists and the engagements that followed
+│   └── telemetry.py  # the shadow grade as an event
 └── tests/
 ```
 
@@ -131,7 +136,29 @@ The training job is S3-only, so it can run on a laptop against copies of the pro
 
 Nothing here touches the prod bucket: the reader credential is read-only and the dag writes only to the local bucket.
 
-### Configuration
+## The shadow dag
+
+`inbox_ranking_shadow_job` runs daily at 09:30 UTC on the same partition definition (gated like the other two) and writes one object:
+
+```text
+s3://<bucket>/<prefix>/
+└── inbox_ranking_shadow_eval/v1/dt=YYYY-MM-DD/   one row per (model, outcome, order)
+```
+
+Every other read of this model is offline. The holdout grades the recipe, the unseen read grades the model on reports it never saw, and neither compares the model against the list people actually get, which is still the fixed `-is_suggested_reviewer,status,-updated_at` sort in `products/signals/backend/views.py`. Nothing serves a model rank, so the model cannot be measured by what people clicked on it. What can be measured is the counterfactual, from data already flowing.
+
+- **One `Inbox reports impressed` event is one ranked list.** The event carries every report the render showed and the rank it showed it at, so the served order is recorded exactly. Repeated renders of the same list are collapsed to the earliest one: the event fires on every render, so scrolling a list back into view otherwise outweighs everyone else's reading.
+- **A report is relevant to a list when the same person opened it or acted on it within 30 minutes of seeing it there.** `open` and `action` are the two outcomes, defined exactly as the heads of the same name, so each head's order is graded against its own outcome. A window of hours would credit a list for a report the person came back to from a link.
+- **A list uses only the scores that existed when it was served.** The unseen scores are per scoring day, and a dt=D candidate is fit at 06:00 on D+1, so a score is counterfactually available from D+1 06:00 and not before. A report impressed on its birth day joins nothing at all: the daily job that scores it has not run. That is the residual `score_coverage` reports, and closing it needs scoring at birth (Part B), not a different join.
+- **Three orders are graded on exactly the same rows**: `model` (descending score of the head, ties broken on the served rank), `heuristic` (the rank the list served), and `random` (seeded permutations, reported with their spread — the chance line a gap has to clear). Each gets NDCG@5, NDCG@10 and MRR, averaged over the lists that had the outcome. A list with no outcome has no ideal ranking to normalize against, and a list of one is ordered identically by everything, so neither is graded.
+- **Position bias is not corrected for, and cannot be.** Every recorded open happened under the served order, so a report the heuristic put first had more chance of being opened than one it put twentieth, whatever either order thinks of it. That flatters the heuristic line. `positive_served_rank_mean` reports how concentrated the outcomes were at the top of the served list, so the size of the effect sits next to the numbers it distorts. A gap that survives it is real; a narrow one is not evidence of anything.
+- **A grade groups by family and role, not by version.** A report is scored on the day it is born, so one day of lists is ranked by whichever version scored each of its reports. That is the serving situation — the champion pointer a sweep would load moves the same way — and `model_versions` counts how many versions a grade mixed.
+
+`inbox_ranking_shadow_ranking_graded` carries each grade to the dashboard: `model_name`, `model_role`, `outcome`, `ranking_order`, the three metrics (plus `_std` on the random line), `positive_served_rank_mean`, and the run-level `served_lists`, `served_rows` and `score_coverage` on every row, so a day whose lists were mostly unscored can be filtered out without a join. The chart is a trends insight broken down on `ranking_order`.
+
+Like the dataset job, this one reads the dogfood project's ClickHouse, so it cannot run on a laptop against S3 copies the way the training job can. It reads; it changes nothing anyone sees. Whether a model rank is stamped onto the list response, behind a flag, is the serving decision this read exists to inform.
+
+## Configuration
 
 | Setting                                | Default         | Meaning                                                                                                                                                                                                             |
 | -------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -141,20 +168,21 @@ Nothing here touches the prod bucket: the reader credential is read-only and the
 | `INBOX_RANKING_TRAINING_HOLDOUT_DAYS`  | `7`             | Trailing days of reports that grade a candidate.                                                                                                                                                                    |
 | `INBOX_RANKING_AUTO_PROMOTE`           | `false`         | Whether a winning candidate rewrites `champion.json`; off, the decision is only logged.                                                                                                                             |
 | `INBOX_RANKING_PROMOTION_MIN_DAYS`     | `3`             | Minimum age of the champion before another promotion.                                                                                                                                                               |
+| `INBOX_RANKING_SHADOW_SCORE_LOOKBACK_DAYS` | `60`        | How many scores partitions back the shadow read looks for a score that already existed when a list was served.                                                                                                       |
 
 Writes use boto3: ambient AWS config (the node role) when the dedicated bucket is set, the `OBJECT_STORAGE_*` endpoint and credentials otherwise. Readers (project-level warehouse tables, model training) use a separate read-only credential provisioned with the bucket.
 
-### ClickHouse posture
+## ClickHouse posture
 
 All reads route to the offline cluster replicas on Cloud (`etl_workload()`), carry the dagster run in `log_comment`, and the cross-team embeddings scan runs under explicit time/memory/spill guards (see `queries.py` for why that scan has no `team_id` sort-key prefix and why that is acceptable).
 
-### Operating it
+## Operating it
 
 - Backfill any day range from the Dagster UI; partitions start 2026-04-01 (the label epoch). Every asset sits in the `inbox_ranking_etl` pool so concurrent partitions don't each start their own fleet-wide embeddings scan — the pool's limit is a Dagster deployment setting, provisioned with the bucket.
 - Failures alert `#alerts-self-driving` (owner `team-self-driving`); assets retry twice with a 60s delay before failing a run. A UI-launched materialization runs under Dagster's implicit `__ASSET_JOB`, which carries no owner tag, so alert routing falls back to matching the `inbox_report_`, `inbox_signal_`, and `inbox_ranking_` asset-name prefixes.
 - The job is capped at 3h via `dagster/max_runtime` — the seven label streams run sequentially, each allowed up to 600s, and the join and S3 writes come after them.
 
-### Deletion and retention
+## Deletion and retention
 
 Partitions are immutable history, so a report deleted later keeps its rows (and vector) in partitions written before the deletion.
 The embedding tombstone nulls the vector in every partition built after it, and `status='deleted'` flows through state from then on.

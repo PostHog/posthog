@@ -1,0 +1,348 @@
+"""Shadow evaluation: the model's order against the order the inbox served.
+
+Every read the ranking model has today is offline. The holdout grades the recipe, the unseen read
+grades the model on reports it never saw, and neither one compares the model against the list
+people actually get, which is still a fixed sort. This module builds that comparison from data
+already flowing: one `Inbox reports impressed` event is one ranked list, the unseen scores say how
+the model would have ordered it, and the opens and actions that follow the impression say which
+rows were worth the top of the list.
+
+Three orders are graded on each list, on exactly the same rows:
+
+- `model`, descending score of the head whose outcome is being graded;
+- `heuristic`, the rank the list served, which is what the person saw;
+- `random`, seeded permutations, the chance line a gap has to clear.
+
+Pure functions over frames; `shadow/dag.py` owns the ClickHouse, S3 and telemetry plumbing.
+
+**Position bias is not corrected for.** Every recorded open happened under the served order, so a
+report the heuristic put first had more chance to be opened than one it put twentieth, whatever
+either order thinks of it. That flatters the heuristic line and no re-ranking of logged clicks can
+remove it. `positive_served_rank_mean` reports how concentrated the outcomes were at the top of
+the served list, so the size of the effect is visible next to the numbers it distorts.
+"""
+
+import datetime
+from collections.abc import Iterator, Mapping, Sequence
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from posthog.dataclasses import frozen
+
+# The outcomes graded, named after the head that predicts each one, so the model order of a head is
+# graded against that head's own outcome.
+OPEN_OUTCOME = "open"
+ACTION_OUTCOME = "action"
+OUTCOMES: tuple[str, ...] = (OPEN_OUTCOME, ACTION_OUTCOME)
+
+MODEL_ORDER = "model"
+HEURISTIC_ORDER = "heuristic"
+RANDOM_ORDER = "random"
+
+NDCG_CUTOFFS: tuple[int, ...] = (5, 10)
+
+# Seeded and fixed, so re-grading the same day reports the same chance line.
+RANDOM_PERMUTATIONS = 25
+RANDOM_SEED = 0
+
+# How long after seeing a list an engagement still counts as that list's. Opens land within
+# minutes of the impression; a window of hours would credit a list for a report the person came
+# back to from a link or a notification.
+ATTRIBUTION_WINDOW = datetime.timedelta(minutes=30)
+
+# When a dt=D score becomes something a sweep could have served: the training job is scheduled at
+# 06:00 UTC the next morning, so a score is counterfactually available from D+1 06:00 and not
+# before. Comparing on snapshot day alone would let a list served at 03:00 use a model that had
+# not been fit yet.
+SCORE_AVAILABLE_AFTER = datetime.timedelta(days=1, hours=6)
+
+# A list of one is ranked identically by every order, so it separates nothing and only adds weight
+# to the average.
+MIN_LIST_SIZE = 2
+
+SCORE_JOIN_COLUMNS = ("report_id", "snapshot_date", "model_name", "model_version", "model_role", "head", "score")
+
+
+def outcome_column(outcome: str) -> str:
+    return f"outcome_{outcome}"
+
+
+@frozen
+class RankingGrade:
+    """One model, one outcome, one order, over the lists that had that outcome.
+
+    `model_versions` counts the distinct model versions in the group: a report is scored on the day
+    it is born, so a day of lists is ranked by whichever version was current when each of its
+    reports appeared. That is the serving situation, not a mixing bug — the champion pointer a
+    sweep would load moves the same way.
+    """
+
+    model_name: str
+    model_role: str
+    model_versions: int
+    outcome: str
+    ranking_order: str
+    # Lists that had at least one of this outcome and at least MIN_LIST_SIZE scored rows. A list
+    # with no outcome has no ideal ranking to score against, so it is not graded.
+    lists: int
+    reports: int
+    mean_list_size: float
+    ndcg_5: float | None
+    ndcg_10: float | None
+    mrr: float | None
+    # Spread across the seeded draws, so the random line carries its own noise band. None for the
+    # two deterministic orders.
+    ndcg_5_std: float | None
+    ndcg_10_std: float | None
+    mrr_std: float | None
+    # Mean served rank of the rows that drew the outcome: how much of the outcome the top of the
+    # served list already collected, which is the size of the position bias in these numbers.
+    positive_served_rank_mean: float | None
+
+    def metrics(self) -> dict[str, int | float | None]:
+        return {
+            "lists": self.lists,
+            "reports": self.reports,
+            "mean_list_size": self.mean_list_size,
+            "ndcg_5": self.ndcg_5,
+            "ndcg_10": self.ndcg_10,
+            "mrr": self.mrr,
+            "ndcg_5_std": self.ndcg_5_std,
+            "ndcg_10_std": self.ndcg_10_std,
+            "mrr_std": self.mrr_std,
+            "positive_served_rank_mean": self.positive_served_rank_mean,
+        }
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "model_name": self.model_name,
+            "model_role": self.model_role,
+            "model_versions": self.model_versions,
+            "outcome": self.outcome,
+            "ranking_order": self.ranking_order,
+            **self.metrics(),
+        }
+
+
+@frozen
+class ServedList:
+    """One impression's rows, as three aligned arrays: was it engaged with, what the model scored
+    it, and where the list put it."""
+
+    relevance: np.ndarray
+    score: np.ndarray
+    served_rank: np.ndarray
+
+
+def score_available_at(snapshot_date: pd.Series) -> pd.Series:
+    """The instant each scoring day's scores could first have been served."""
+    return pd.to_datetime(snapshot_date, utc=True) + SCORE_AVAILABLE_AFTER
+
+
+def deduplicate_lists(impressions: pd.DataFrame) -> pd.DataFrame:
+    """One row per (list, report), keeping the earliest render of each distinct list.
+
+    The impression event fires on every render, so scrolling a list back into view re-sends the
+    same ranking. Left alone, one person's scrolling outweighs everyone else's reading, and the
+    orders are all graded on the same duplicated lists. Two renders are the same list when the same
+    person saw the same reports at the same ranks in the same place.
+    """
+    if impressions.empty:
+        return impressions
+    per_list = (
+        impressions.sort_values(["impression_id", "served_rank"])
+        .groupby("impression_id", sort=False)
+        .agg(
+            distinct_id=("distinct_id", "first"),
+            tab=("tab", "first"),
+            scope=("scope", "first"),
+            impressed_at=("impressed_at", "min"),
+            reports=("report_id", tuple),
+            ranks=("served_rank", tuple),
+        )
+    )
+    keep = set(
+        per_list.sort_values("impressed_at")
+        .drop_duplicates(subset=["distinct_id", "tab", "scope", "reports", "ranks"])
+        .index
+    )
+    return impressions.loc[impressions["impression_id"].isin(keep)]
+
+
+def with_outcomes(impressions: pd.DataFrame, outcomes: pd.DataFrame) -> pd.DataFrame:
+    """`impressions` with one boolean column per outcome: did this person engage with this report
+    within the attribution window of seeing it in this list."""
+    engaged = impressions.copy()
+    for outcome in OUTCOMES:
+        engaged[outcome_column(outcome)] = False
+    if impressions.empty or outcomes.empty:
+        return engaged
+    pairs = impressions[["impression_id", "distinct_id", "report_id", "impressed_at"]].merge(
+        outcomes, on=["distinct_id", "report_id"], how="inner"
+    )
+    within = (pairs["timestamp"] >= pairs["impressed_at"]) & (
+        pairs["timestamp"] < pairs["impressed_at"] + ATTRIBUTION_WINDOW
+    )
+    attributed = pairs.loc[within]
+    keys = list(zip(engaged["impression_id"], engaged["report_id"], strict=True))
+    for outcome in OUTCOMES:
+        hits = set(
+            map(tuple, attributed.loc[attributed["outcome"] == outcome, ["impression_id", "report_id"]].to_numpy())
+        )
+        engaged[outcome_column(outcome)] = [key in hits for key in keys]
+    return engaged
+
+
+def join_scores(lists: pd.DataFrame, scores: pd.DataFrame) -> pd.DataFrame:
+    """One row per (list, report, model, head), carrying the newest score that existed when the
+    list was served.
+
+    A report is scored on the day it is born, so a list served on its birth day joins nothing: the
+    daily job that would have scored it has not run yet. Those rows are the residual the coverage
+    number reports, and they cannot be recovered without scoring at birth.
+    """
+    if lists.empty or scores.empty:
+        return lists.head(0).merge(scores.head(0), on="report_id", how="inner")
+    joined = lists.merge(scores, on="report_id", how="inner")
+    joined = joined.loc[joined["available_at"] <= joined["impressed_at"]]
+    return joined.sort_values("snapshot_date").drop_duplicates(
+        subset=["impression_id", "report_id", "model_name", "model_role", "head"], keep="last"
+    )
+
+
+def score_coverage(lists: pd.DataFrame, joined: pd.DataFrame) -> float | None:
+    """Share of served rows a model score was available for. The number the whole read rests on:
+    before this asset it was zero, because no scoring moment was ever paired with a served list."""
+    if lists.empty:
+        return None
+    covered = joined.drop_duplicates(subset=["impression_id", "report_id"])
+    return float(len(covered) / len(lists))
+
+
+def served_lists(rows: pd.DataFrame, outcome: str) -> list[ServedList]:
+    """The gradeable lists of one (model, head) group.
+
+    A list with no outcome is dropped: NDCG has no ideal ranking to normalize against and the
+    reciprocal rank has no hit, so every order would score the same nothing.
+    """
+    column = outcome_column(outcome)
+    lists: list[ServedList] = []
+    for _, group in rows.groupby("impression_id", sort=True):
+        relevance = group[column].to_numpy(dtype=float)
+        if len(group) < MIN_LIST_SIZE or relevance.sum() == 0:
+            continue
+        lists.append(
+            ServedList(
+                relevance=relevance,
+                score=group["score"].to_numpy(dtype=float),
+                served_rank=group["served_rank"].to_numpy(dtype=float),
+            )
+        )
+    return lists
+
+
+def _dcg(relevance: np.ndarray, k: int) -> float:
+    top = relevance[:k]
+    return float((top / np.log2(np.arange(2, len(top) + 2))).sum())
+
+
+def ndcg_at_k(relevance_in_order: np.ndarray, k: int) -> float:
+    """Binary-relevance NDCG at `k`, normalized by the best this list could have done."""
+    ideal = _dcg(np.sort(relevance_in_order)[::-1], k)
+    return _dcg(relevance_in_order, k) / ideal if ideal else 0.0
+
+
+def reciprocal_rank(relevance_in_order: np.ndarray) -> float:
+    hits = np.flatnonzero(relevance_in_order)
+    return float(1.0 / (hits[0] + 1)) if len(hits) else 0.0
+
+
+def _order_metrics(ordered: Sequence[np.ndarray]) -> dict[str, float]:
+    """Mean of each metric over the lists, each already in the order being graded."""
+    return {
+        **{f"ndcg_{k}": float(np.mean([ndcg_at_k(relevance, k) for relevance in ordered])) for k in NDCG_CUTOFFS},
+        "mrr": float(np.mean([reciprocal_rank(relevance) for relevance in ordered])),
+    }
+
+
+def _model_ordered(lists: Sequence[ServedList]) -> list[np.ndarray]:
+    # Ties break on the served rank, so a model that scores a whole list alike neither gains nor
+    # loses against the heuristic on it.
+    return [entry.relevance[np.lexsort((entry.served_rank, -entry.score))] for entry in lists]
+
+
+def _heuristic_ordered(lists: Sequence[ServedList]) -> list[np.ndarray]:
+    return [entry.relevance[np.argsort(entry.served_rank, kind="stable")] for entry in lists]
+
+
+def _random_draws(lists: Sequence[ServedList]) -> Iterator[list[np.ndarray]]:
+    rng = np.random.default_rng(RANDOM_SEED)
+    for _ in range(RANDOM_PERMUTATIONS):
+        yield [rng.permutation(entry.relevance) for entry in lists]
+
+
+def _random_metrics(lists: Sequence[ServedList]) -> dict[str, float | None]:
+    """Mean and spread of each metric across the seeded draws."""
+    draws = [_order_metrics(ordered) for ordered in _random_draws(lists)]
+    metrics: dict[str, float | None] = {}
+    for name in draws[0]:
+        values = [draw[name] for draw in draws]
+        metrics[name] = float(np.mean(values))
+        metrics[f"{name}_std"] = float(np.std(values))
+    return metrics
+
+
+def _positive_served_rank_mean(lists: Sequence[ServedList]) -> float | None:
+    ranks = np.concatenate([entry.served_rank[entry.relevance > 0] for entry in lists])
+    return float(ranks.mean()) if len(ranks) else None
+
+
+def grade_lists(joined: pd.DataFrame) -> list[RankingGrade]:
+    """Three grades per (model, outcome): the model's order, the served order, and chance.
+
+    Grouping is by model family and role rather than version for the reason `RankingGrade` gives:
+    one day's lists are ranked by whichever version scored each report at its birth.
+    """
+    grades: list[RankingGrade] = []
+    if joined.empty:
+        return grades
+    for (model_name, model_role, head), rows in joined.groupby(["model_name", "model_role", "head"], sort=True):
+        if head not in OUTCOMES:
+            continue
+        lists = served_lists(rows, str(head))
+        if not lists:
+            continue
+        shared: dict[str, Any] = {
+            "model_name": str(model_name),
+            "model_role": str(model_role),
+            "model_versions": int(rows["model_version"].nunique()),
+            "outcome": str(head),
+            "lists": len(lists),
+            "reports": sum(len(entry.relevance) for entry in lists),
+            "mean_list_size": float(np.mean([len(entry.relevance) for entry in lists])),
+            "positive_served_rank_mean": _positive_served_rank_mean(lists),
+        }
+        grades.extend(
+            _grade(shared, ranking_order=order, metrics=metrics)
+            for order, metrics in (
+                (MODEL_ORDER, _order_metrics(_model_ordered(lists))),
+                (HEURISTIC_ORDER, _order_metrics(_heuristic_ordered(lists))),
+                (RANDOM_ORDER, _random_metrics(lists)),
+            )
+        )
+    return grades
+
+
+def _grade(shared: Mapping[str, Any], *, ranking_order: str, metrics: Mapping[str, float | None]) -> RankingGrade:
+    return RankingGrade(
+        ranking_order=ranking_order,
+        ndcg_5=metrics.get("ndcg_5"),
+        ndcg_10=metrics.get("ndcg_10"),
+        mrr=metrics.get("mrr"),
+        ndcg_5_std=metrics.get("ndcg_5_std"),
+        ndcg_10_std=metrics.get("ndcg_10_std"),
+        mrr_std=metrics.get("mrr_std"),
+        **shared,
+    )

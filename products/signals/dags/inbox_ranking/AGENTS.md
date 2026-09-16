@@ -24,6 +24,15 @@ Read `README.md` first for what the dataset is and how partitions behave. This f
 - The champion is compared to a candidate on the candidate's holdout, through the champion's `<head>.holdout.ubj` (the train-only fit). Keep writing that file: without it the gate falls back to the champion's stored AUC, which was measured on a different set of reports.
 - The example builder reads labels aligned to the state spine (`assemble_snapshot`): no label row means all-zero labels, not "absent". It drops rows whose `features_observed_at` is a backfill (`STATE_LAG_LIMIT`) and, for status-derived heads, rows that fail `label_provenance_ok`.
 
+## Shadow dag specifics
+
+- The shadow read grades a model that is not serving. It must stay read-only: nothing here writes a rank into a list response, and the serving decision is Part B.
+- A list may only use a score that already existed when it was served (`SCORE_AVAILABLE_AFTER`, the training schedule's next-morning run). Loosening that to "scored on an earlier day" backdates a model onto lists it could not have ranked, and the number stops being a counterfactual.
+- Grade every order on the same rows. Dropping a report from one order and not another, or grading the model on its covered subset while the heuristic keeps the whole list, makes the gap unreadable.
+- **Never present the heuristic line without the position-bias caveat.** Every logged outcome happened under the served order, so the heuristic is being graded on the clicks it caused. No re-ranking of logged clicks removes that; `positive_served_rank_mean` is how the effect stays visible.
+- `open` and `action` are the outcomes because they are the heads of the same name. A new outcome means a head that predicts it, not a new relevance rule bolted onto the grader.
+- Coverage is the number that says whether a day means anything. It is reported on the asset and on every event; a day of unscored lists is not a day the model did badly.
+
 ## Invariants — do not break
 
 - `dt=` partitions are **immutable snapshots** with deterministic object keys; the only mutation ever applied is an idempotent re-run of the same partition. The exception is `inbox_signal_embeddings`, an emission log whose partition holds only that day's inserts — see the README's signal-grain section before touching it. Its re-run must stay **additive** (union with the existing object): the source drops rows it already archived, so a plain overwrite destroys history that exists nowhere else.
