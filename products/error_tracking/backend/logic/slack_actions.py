@@ -102,7 +102,10 @@ def _claim_click(issue: ErrorTrackingIssue, action: str) -> bool:
 
 
 def _release_click(issue: ErrorTrackingIssue, action: str) -> None:
-    # A failed mutation must not block an immediate retry for the rest of the window.
+    # Released as soon as the mutation is done, success or failure: the claim only
+    # covers two clicks racing through the mutation. Once it has committed, the
+    # status re-read answers a late click, and holding the claim for the rest of the
+    # window would call a real second resolve (after a reopen) "already".
     try:
         get_client().delete(_claim_key(issue, action))
     except Exception:
@@ -132,9 +135,8 @@ def resolve_issue_from_slack(
             user=user,
             was_impersonated=False,
         )
-    except Exception:
+    finally:
         _release_click(issue, "resolve")
-        raise
     return "ok_moved" if moved else "ok"
 
 
@@ -157,7 +159,6 @@ def assign_issue_to_user_from_slack(
         issue_mutations.assign_issue(
             issue.team_id, issue.id, {"type": "user", "id": user.id}, user=user, was_impersonated=False
         )
-    except Exception:
+    finally:
         _release_click(issue, f"assign:{user.id}")
-        raise
     return "ok_moved" if moved else "ok"

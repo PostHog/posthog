@@ -125,6 +125,16 @@ class TestSlackIssueActions(BaseTest):
         assert self.issue.status == ErrorTrackingIssue.Status.RESOLVED
         assert new_issue.status == ErrorTrackingIssue.Status.ACTIVE
 
+    def test_resolve_again_right_after_a_reopen_counts(self):
+        # The claim is released once the first resolve commits, so a reopen from the
+        # app followed by a second click inside the window is a real resolve.
+        assert resolve_issue_from_slack(self.issue.id, integration=self.integration, user=self.user) == "ok"
+        ErrorTrackingIssue.objects.filter(id=self.issue.id).update(status=ErrorTrackingIssue.Status.ACTIVE)
+
+        assert resolve_issue_from_slack(self.issue.id, integration=self.integration, user=self.user) == "ok"
+        self.issue.refresh_from_db()
+        assert self.issue.status == ErrorTrackingIssue.Status.RESOLVED
+
     def test_second_click_inside_the_claim_window_is_reported_as_already(self):
         # The status re-read can miss a concurrent click; the claim catches it.
         with patch("products.error_tracking.backend.logic.slack_actions._claim_click", return_value=False):
