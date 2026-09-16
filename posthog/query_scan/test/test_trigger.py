@@ -27,6 +27,7 @@ from posthog.hogql.query_stats import QueryStats, RecordedExecution
 
 from posthog.clickhouse.query_tagging import AccessMethod, Feature, reset_query_tags, tag_queries
 from posthog.clickhouse.workload import Workload
+from posthog.event_usage import EventSource
 from posthog.models.team.team import Team
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.job import InlineOutcome
@@ -161,8 +162,14 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert self.delay.call_args.kwargs["killed"] is True
         assert self.delay.call_args.kwargs["duration_ms"] == 999
 
-    def test_an_mcp_run_is_analyzed_under_log_only_despite_its_api_key(self) -> None:
-        tag_queries(access_method=AccessMethod.PERSONAL_API_KEY, feature=Feature.MCP)
+    @parameterized.expand(
+        [
+            ("a posthog ai tool", {"feature": Feature.MCP}),
+            ("the query endpoint behind the mcp server", {"source": EventSource.MCP}),
+        ]
+    )
+    def test_an_mcp_run_is_analyzed_under_log_only_despite_its_api_key(self, _name, tags) -> None:
+        tag_queries(access_method=AccessMethod.PERSONAL_API_KEY, **tags)
 
         result = self._trigger(flag=LOG_ONLY_FLAG)
 
@@ -173,6 +180,7 @@ class TestQueryScanTrigger(SimpleTestCase):
         [
             ("a personal api key", {"access_method": AccessMethod.PERSONAL_API_KEY}),
             ("an mcp agent on oauth", {"access_method": AccessMethod.OAUTH, "feature": Feature.MCP}),
+            ("the mcp server on oauth", {"access_method": AccessMethod.OAUTH, "source": EventSource.MCP}),
         ]
     )
     def test_an_api_or_mcp_run_under_show_is_analyzed_before_its_response(self, _name, tags) -> None:

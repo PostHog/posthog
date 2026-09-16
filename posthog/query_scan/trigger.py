@@ -25,6 +25,7 @@ from posthog.hogql.query_stats import QueryStats, RecordedExecution
 
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, is_api_key_access_method
 from posthog.clickhouse.workload import Workload
+from posthog.event_usage import MCP_TRANSPORT_EVENT_SOURCES
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.query_scan.event_filter import classify_event_filter
@@ -83,8 +84,10 @@ SkipReason = Literal[
 
 def _is_mcp_run() -> bool:
     """An MCP agent reads the findings in the block above its results, whichever key or token it
-    authenticates with, so the skip for API callers with nowhere to read advice leaves it out."""
-    return get_query_tag_value("feature") == Feature.MCP
+    authenticates with, so the skip for API callers with nowhere to read advice leaves it out. A
+    call the MCP server proxies to the query endpoint carries the ``source`` the request middleware
+    tagged; a PostHog AI tool it invokes carries the feature."""
+    return get_query_tag_value("feature") == Feature.MCP or get_query_tag_value("source") in MCP_TRANSPORT_EVENT_SOURCES
 
 
 def _runs_inline(flag: QueryScanFlag) -> bool:
