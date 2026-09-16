@@ -96,18 +96,21 @@ func addBinding(scope *queryScope, name, alias string, binding Relation) {
 	}
 }
 
+func (s *queryScope) visibleCTEs(position int) []*cteBinding {
+	for index, cte := range s.ctes {
+		if contains(cte.query, position, position) {
+			return s.ctes[:index]
+		}
+	}
+	return s.ctes
+}
+
 func resolveCTE(scope *queryScope, name string, position int) *cteBinding {
 	for current := scope; current != nil; current = current.parent {
-		limit := len(current.ctes)
-		for index, cte := range current.ctes {
-			if contains(cte.query, position, position) {
-				limit = index
-				break
-			}
-		}
-		for index := limit - 1; index >= 0; index-- {
-			if strings.EqualFold(current.ctes[index].name, name) {
-				return current.ctes[index]
+		ctes := current.visibleCTEs(position)
+		for index := len(ctes) - 1; index >= 0; index-- {
+			if strings.EqualFold(ctes[index].name, name) {
+				return ctes[index]
 			}
 		}
 	}

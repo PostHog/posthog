@@ -43,6 +43,7 @@ const (
 )
 
 var keywords = []string{"SELECT", "FROM", "WHERE", "GROUP BY", "ORDER BY", "LIMIT", "JOIN", "AS", "CASE", "NULL", "TRUE", "FALSE", "NOT"}
+var queryStarters = []catalog.Entry{{Name: "SELECT"}, {Name: "WITH"}}
 var betweenSeparator = []string{"AND"}
 var predicateContinuations = []string{"AND", "OR", "GROUP BY", "ORDER BY", "LIMIT"}
 var comparisonOperators = []string{"=", "!=", "<", "<=", ">", ">=", "LIKE", "ILIKE", "IN", "NOT IN", "IS NULL", "IS NOT NULL", "BETWEEN", "NOT BETWEEN"}
@@ -101,6 +102,16 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 	if mode == completionModeNone {
 		return Result{Suggestions: []Suggestion{}}, nil
 	}
+	if mode == completionModeStatementStart {
+		entries := func(yield func(catalog.Entry) bool) {
+			for _, entry := range queryStarters {
+				if hasLowerPrefix(entry.Name, lowerPrefix) && !yield(entry) {
+					return
+				}
+			}
+		}
+		return indexedResult(entries, "keyword", offset, nil), nil
+	}
 	repaired := query[:start] + "__posthog_cursor__" + query[position:]
 	document, bindings, qualified, parseErr := cursorBindings(schema, repaired, start, qualifier)
 
@@ -118,7 +129,11 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		}
 		return indexedResult(entries, "field", offset, parseErr), nil
 	} else if mode == completionModeTable {
-		return indexedResult(slices.Values(schema.Tables().Prefix(lowerPrefix)), "table", offset, parseErr), nil
+		result := tableResult(schema, bindings, lowerPrefix, offset, parseErr)
+		if document != nil && document.LimitError() != nil {
+			return Result{}, document.LimitError()
+		}
+		return result, nil
 	} else if mode == completionModeComparison {
 		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
 	} else if mode == completionModeBetweenSeparator {
