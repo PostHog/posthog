@@ -3331,6 +3331,85 @@ describe('maxThreadLogic', () => {
             expect(logic.values.threadLoading).toBe(false)
             expect(logic.values.cancelLoading).toBe(false)
         })
+
+        it('clears the loading flags even when the cancel request keeps failing', async () => {
+            const cancelSpy = jest
+                .spyOn(api.conversations, 'cancel')
+                .mockRejectedValue(new ApiError('Load failed', undefined))
+            const toastSpy = jest.spyOn(lemonToast, 'error')
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            await expectLogic(logic).toMatchValues({ conversationLoading: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.stopGeneration()
+            }).toFinishAllListeners()
+
+            expect(cancelSpy).toHaveBeenCalledTimes(2)
+            expect(toastSpy).toHaveBeenCalledWith('Failed to cancel the generation.')
+            expect(logic.values.conversationLoading).toBe(false)
+            expect(logic.values.streamingActive).toBe(false)
+            expect(logic.values.threadLoading).toBe(false)
+            expect(logic.values.cancelLoading).toBe(false)
+        })
+
+        it('retries the idempotent cancel once, so a dropped request stays silent', async () => {
+            const cancelSpy = jest
+                .spyOn(api.conversations, 'cancel')
+                .mockRejectedValueOnce(new ApiError('Load failed', undefined))
+                .mockResolvedValueOnce(undefined)
+            const toastSpy = jest.spyOn(lemonToast, 'error')
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+
+            await expectLogic(logic, () => {
+                logic.actions.stopGeneration()
+            }).toFinishAllListeners()
+
+            expect(cancelSpy).toHaveBeenCalledTimes(2)
+            expect(toastSpy).not.toHaveBeenCalledWith('Failed to cancel the generation.')
+        })
+
+        it('shows the message the cancel endpoint reports under `error`', async () => {
+            jest.spyOn(api.conversations, 'cancel').mockRejectedValue(
+                new ApiError('Unprocessable Entity', 422, undefined, { error: 'Failed to cancel conversation' })
+            )
+            const toastSpy = jest.spyOn(lemonToast, 'error')
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+
+            await expectLogic(logic, () => {
+                logic.actions.stopGeneration()
+            }).toFinishAllListeners()
+
+            expect(toastSpy).toHaveBeenCalledWith('Failed to cancel conversation')
+        })
+
+        it('stays quiet when the thread logic unmounts mid-cancel', async () => {
+            let resolveCancel: (() => void) | undefined
+            jest.spyOn(api.conversations, 'cancel').mockImplementation(
+                () =>
+                    new Promise<void>((resolve) => {
+                        resolveCancel = resolve
+                    })
+            )
+            const toastSpy = jest.spyOn(lemonToast, 'error')
+
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            logic.actions.stopGeneration()
+
+            // Teardown happens before the request resolves, so the composer is already usable
+            expect(logic.values.threadLoading).toBe(false)
+
+            logic.unmount()
+            resolveCancel?.()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(toastSpy).not.toHaveBeenCalledWith('Failed to cancel the generation.')
+
+            // Remount so the shared afterEach unmount stays balanced
+            logic.mount()
+        })
     })
 
     describe('multiQuestionFormPending selector', () => {
