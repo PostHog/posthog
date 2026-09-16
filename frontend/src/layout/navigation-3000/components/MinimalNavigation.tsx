@@ -14,7 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { classicEmbedContext } from '../classicEmbed'
+import { classicEmbedContext } from '../classicEmbedContext'
 import { navigation3000Logic } from '../navigationLogic'
 import { ZenModeButton } from './ZenModeButton'
 

@@ -6,7 +6,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import { classicEmbedContext } from '~/layout/navigation-3000/classicEmbed'
+import { classicEmbedContext } from '~/layout/navigation-3000/classicEmbedContext'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { PROJECT_TREE_KEY, ProjectTree } from '../ProjectTree/ProjectTree'

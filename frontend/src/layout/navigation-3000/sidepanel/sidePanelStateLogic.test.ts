@@ -5,7 +5,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
-import * as classicEmbed from '../classicEmbed'
+import * as classicEmbed from '../classicEmbedContext'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 describe('sidePanelStateLogic', () => {

@@ -13,7 +13,7 @@ import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { AvailableFeature, SidePanelTab } from '~/types'
 
 import type { TeamPublicType, TeamType } from '../../../types'
-import { classicEmbedContext } from '../classicEmbed'
+import { classicEmbedContext } from '../classicEmbedContext'
 import { sidePanelContextLogic } from './sidePanelContextLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 import type { SidePanelSceneContext } from './types'

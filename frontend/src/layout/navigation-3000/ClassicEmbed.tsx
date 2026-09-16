@@ -10,7 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { ClassicEmbedContext, isClassicEmbedPath } from './classicEmbed'
+import { ClassicEmbedContext, isClassicEmbedPath } from './classicEmbedContext'
 
 export function ClassicEmbed({
     context,

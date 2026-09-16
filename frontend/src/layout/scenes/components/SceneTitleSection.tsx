@@ -30,7 +30,7 @@ import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
 import { UseMaxToolOptions, useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 
-import { classicEmbedContext } from '~/layout/navigation-3000/classicEmbed'
+import { classicEmbedContext } from '~/layout/navigation-3000/classicEmbedContext'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'

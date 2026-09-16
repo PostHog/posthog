@@ -24,7 +24,7 @@ import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
-import { classicEmbedContext } from '~/layout/navigation-3000/classicEmbed'
+import { classicEmbedContext } from '~/layout/navigation-3000/classicEmbedContext'
 import {
     NavExperimentTab,
     PANEL_NAVBAR_COLLAPSE_THRESHOLD,
