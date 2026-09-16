@@ -1425,7 +1425,6 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(ValueError) as caught:
             self._run(0.5)
         message = str(caught.exception)
-        # The message must name both layouts and a recovery that works.
         self.assertIn("0.1, 0.5, 1", message)
         self.assertIn("0.2, 0.6, 2", message)
         self.assertIn("Group by", message)
