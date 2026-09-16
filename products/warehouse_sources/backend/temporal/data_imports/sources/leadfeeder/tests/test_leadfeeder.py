@@ -446,6 +446,35 @@ class TestUnifiedRequests:
         assert visit_reqs[0]["json"] == {"start_date": "2026-06-15", "end_date": "2026-07-02"}
         assert visit_reqs[0]["params"]["account_id"] == "1"
 
+    @parameterized.expand(
+        [
+            ("configured_start_date", {"start_date_config": "2026-09-01"}),
+            ("incremental_watermark", {"db_incremental_field_last_value": datetime(2026, 9, 1, tzinfo=UTC)}),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    @time_machine.travel("2026-07-02", tick=False)
+    def test_future_start_is_clamped_to_today_instead_of_syncing_nothing(
+        self, _name: str, source_kwargs: dict[str, Any], MockSession
+    ) -> None:
+        # A start after today inverts the range, so the window split yields no window at all and the
+        # sync reports success without asking the vendor for a single row.
+        session = MockSession.return_value
+        requests = _wire_full(
+            session,
+            [
+                _unified_response([_item("1", "account")]),
+                _unified_response([_item("100", "company_location")]),
+            ],
+        )
+        rows = _rows(_source("leads", _make_manager(), api_version=LEADFEEDER_API_2026_08_07, **source_kwargs))
+
+        company_reqs = [r for r in requests if "/v1/web-visits/companies" in r["url"]]
+        assert [(r["params"]["start_date"], r["params"]["end_date"]) for r in company_reqs] == [
+            ("2026-07-02", "2026-07-02")
+        ]
+        assert [row["id"] for row in rows] == ["100"]
+
 
 class TestUnifiedOffsetLimit:
     def test_page_cap_keeps_every_requested_page_inside_the_vendor_offset_limit(self) -> None:

@@ -399,6 +399,16 @@ def _unified_leadfeeder_source(
         else _default_start_date(start_date_config)
     )
     end = datetime.now(UTC).date()
+    if start > end:
+        # A future start (clock skew, bad cursor data, or a mistyped start date) inverts the range, and
+        # _date_windows yields no window for it. The sync would then report success without reading a
+        # row, and the watermark would never advance. Clamp to today so the latest day still syncs.
+        logger.warning(
+            "Leadfeeder %s start date %s is in the future; syncing today instead",
+            endpoint,
+            start.isoformat(),
+        )
+        start = end
     fan_out = _UnifiedFanOut(client=client, endpoint=endpoint, config=config, team_id=team_id, job_id=job_id)
 
     def _fanned() -> Iterator[list[dict[str, Any]]]:
