@@ -13,6 +13,7 @@ import { getDashboardTileDisplayName } from '../dashboardUtils'
 
 interface DashboardErrorTileItemProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     tile: DashboardTile<QueryBasedInsightModel>
+    dashboardId?: number | null
     canEnterEditModeFromEdge?: boolean
     onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
@@ -26,6 +27,7 @@ interface DashboardErrorTileItemProps extends React.HTMLAttributes<HTMLDivElemen
 function DashboardErrorTileItemInternal(
     {
         tile,
+        dashboardId,
         canEnterEditModeFromEdge,
         children,
         className,
@@ -62,6 +64,8 @@ function DashboardErrorTileItemInternal(
             />
             <InsightErrorState
                 title="There is a problem loading this dashboard tile."
+                dashboardId={dashboardId}
+                tileId={tile.id}
                 onRetry={onRetry}
                 retryLoading={retryLoading}
                 placement={placement}

@@ -816,6 +816,9 @@ export interface InsightErrorStateProps {
     titleStatus?: number | null
     query?: Record<string, any> | Node | null
     queryId?: string | null
+    /** Identifies the failing dashboard tile in telemetry, where there is no query metadata to identify it by */
+    dashboardId?: number | null
+    tileId?: number | null
     retryAfter?: string | null
     retryLoading?: boolean
     placement?: DashboardPlacement | 'SavedInsightGrid'
@@ -831,6 +834,8 @@ export function InsightErrorState({
     titleStatus,
     query,
     queryId,
+    dashboardId,
+    tileId,
     retryAfter,
     retryLoading = false,
     placement,
@@ -857,8 +862,11 @@ export function InsightErrorState({
     useOnMountEffect(() => {
         posthog.capture('insight error message shown', {
             error_type: 'server',
+            status: titleStatus ?? null,
             query_kind: queryKindForReporting(query),
             query_id: queryId ?? null,
+            dashboard_id: dashboardId ?? null,
+            tile_id: tileId ?? null,
         })
     })
 
