@@ -76,8 +76,6 @@ class TestResolveAIRunDefaults(APIBaseTest):
         assert resolved.source == "team"
         assert resolved.model == "claude-opus-4-8"
 
-    # A pi preference steers clients that preselect a harness, and reports no adapter
-    # so ACP-only consumers can decline it — Slack does, and the ACP run injection does.
     def test_pi_preference_resolves_without_an_adapter(self):
         self._set_user({"runtime": "pi", "model": "gpt-5.6-terra", "reasoning_effort": "high"})
         resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
@@ -279,8 +277,6 @@ class TestCreateRunAppliesDefaults(APIBaseTest):
         assert "model" not in run.state
         assert "ai_defaults_source" not in run.state
 
-    # Without the runtime guard in `apply_ai_run_defaults`, a pi default's model would
-    # inject into an ACP run's state against no adapter.
     def test_pi_default_never_injects_into_acp_run_state(self):
         update_team_ai_run_preferences(
             self.team.id, runtime="pi", runtime_adapter=None, model="gpt-5.6-terra", reasoning_effort=None

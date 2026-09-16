@@ -57,9 +57,6 @@ def _central_run_default(team_id: int, user_id: int | None) -> ResolvedAIRunConf
     )
 
     resolved = ai_run_defaults.resolve_ai_run_defaults(team_id, user_id)
-    # Slack runs are ACP, so a default naming the Pi runtime is not what a mention here
-    # would launch on; defer to Slack's own floor instead of coercing the pi model onto
-    # a derived adapter.
     return resolved if resolved.model and resolved.runtime == "acp" else None
 
 

@@ -209,8 +209,6 @@ def _resolve_from_preferences(
     if runtime is not None and runtime not in {Task.Runtime.ACP.value, Task.Runtime.PI.value}:
         return None
     if runtime == Task.Runtime.PI.value:
-        # A pi preference carries no adapter and no catalogue to judge an effort
-        # against; the Pi runtime clamps the effort per model at launch.
         if runtime_adapter is not None:
             return None
         return ResolvedAIRunConfig(
