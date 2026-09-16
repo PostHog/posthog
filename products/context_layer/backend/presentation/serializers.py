@@ -1,3 +1,5 @@
+from typing import Any
+
 from rest_framework import serializers
 
 from products.context_layer.backend.facade.api import DREAM_BRANCH_RE, PAGE_MAX_BYTES
@@ -22,6 +24,26 @@ class WikiTreeSerializer(serializers.Serializer):
     )
 
 
+class WikiPageQuerySerializer(serializers.Serializer):
+    path = serializers.CharField(help_text="Repo-relative Markdown path of the page to read.")
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Character offset from next_offset."
+    )
+    limit = serializers.IntegerField(
+        required=False, min_value=1, max_value=12000, help_text="Maximum characters to read. Omit for the full page."
+    )
+    head_sha = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Head from the first chunk. Required for continuation. A changed head returns 409.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["offset"] and (not attrs.get("head_sha") or not attrs.get("limit")):
+            raise serializers.ValidationError("To continue, pass the head_sha and limit from the first read.")
+        return attrs
+
+
 class WikiPageSerializer(serializers.Serializer):
     """Response shape for one wiki page."""
 
@@ -31,6 +53,12 @@ class WikiPageSerializer(serializers.Serializer):
         help_text="Commit sha the content was read at; pass back as `base_head` on writes."
     )
     updated_at = serializers.DateTimeField(help_text="When this page was last changed in the wiki history.")
+    offset = serializers.IntegerField(help_text="Character offset of this chunk.")
+    total_length = serializers.IntegerField(help_text="Character length of the complete page.")
+    next_offset = serializers.IntegerField(allow_null=True, help_text="Next character offset, or null when complete.")
+    complete = serializers.BooleanField(
+        help_text="True when no further chunks remain. Do not write a page until all chunks are read."
+    )
 
 
 class DreamRunSerializer(serializers.Serializer):
