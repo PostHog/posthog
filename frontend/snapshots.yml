@@ -5104,6 +5104,26 @@ snapshots:
         hash: v1.k794b7964.fda088b86665fa1e7f42ac158d9c5acf12b2afc030a90ad385d3d0fe16170d46.WqmQ9-wSSHQj0J-kUbJKkFI8DhDljOP6queW3e6jxDQ
     marketing-analytics-customer-acquisition-cards--unconfigured--light:
         hash: v1.k794b7964.40240d162f715f3da0d8363e08797fb8a9c131852a5d6356c892424e25dfa35c.yeHaH7ecKHVh7IOwmerxuVPzSGclQrUDBwWnoPV0rmw
+    marketing-analytics-retention-return-table--all-users--dark:
+        hash: v1.k794b7964.6264efbb674f1d2ad948b6e8856f69a094d69e17470207337238c52738d18184.joOXUxWScKUZyVj5-taM4nWB9gqzB22I8iJwgRauNOA
+    marketing-analytics-retention-return-table--all-users--light:
+        hash: v1.k794b7964.0a973ec5c9d94ed2ee1f27fc8a4c413a4e6fad4e5d680feb6261ecb0b453bfc5.68pa0YliERtpe8_vooGChjNDotzdaAyCJISwOQhQQCc
+    marketing-analytics-retention-return-table--default--dark:
+        hash: v1.k794b7964.10eab46ec9f4b1ab6c0e0498982027ca451613de6a5ea37cdf9d8ce79c5095eb.T7Q483dORAWSLxcHH1-RJKXoIMORzWToVbXG9NWnH-o
+    marketing-analytics-retention-return-table--default--light:
+        hash: v1.k794b7964.9d6ff8a78cbd4f810f13b52e75d22b678cdcd2c010759549320925170b33e178.dsdL6bi8UEmgPTT-jxSNxEq_YNbF4N2zy1TduLsuP48
+    marketing-analytics-retention-return-table--empty--dark:
+        hash: v1.k794b7964.340da8ad1ed4d91b6472e7d0215f0295b10602067d123d4484f0fe09c7e0826f.bS8-9AzKCXQ3Ix-27-wnVZVQ-wBS6f2w_UOxMz807Js
+    marketing-analytics-retention-return-table--empty--light:
+        hash: v1.k794b7964.12d9c04519b4fe33eb084b9bf5e8f53ceaa40b26d72afc84d5ded8d9451cfabd.pc7H0RaMxKWFfVOC732sIVNsuUfsjW4w38I4ZE1esEo
+    marketing-analytics-retention-return-table--loading--dark:
+        hash: v1.k794b7964.4c5e4473e31b1954db9a041ce022e6a92c629e454852cf218bddac0e276996bc.X7-47Ixxi7BCYLdzTO-QV84Aphv2l2O8_hnePWNOsXs
+    marketing-analytics-retention-return-table--loading--light:
+        hash: v1.k794b7964.bbd1f61aa361508eb73402430de6089089a7fb8a70159eb5870a1a52f062f8cd.bEjl2HcNNGwb28FByp5V9ElTvVwcKt1aM7X95MK6qhM
+    marketing-analytics-retention-return-table--narrow--dark:
+        hash: v1.k794b7964.67019271111dca09ef78b22f652cf4be578fbc74f62881191546aa0b87ca1f22.OklZvNuLCnUMgEpeiqSv1xX4BjoPdpG9UznSvj3oMUY
+    marketing-analytics-retention-return-table--narrow--light:
+        hash: v1.k794b7964.dfae60d8f5ec1e691c1d49e8da9c7d72cb260dd0be46e20c58497786d4a338b9.fdcRFY9rIoQ9yxTtOAwwv1iSidqzbGlYHbaWTDbVlKo
     mcp-apps-actions--list--light:
         hash: v1.k794b7964.7bdc20fc1da4e4a172e15101a23f9e72b257280598a56a9883080d8af7a12614.Wz5K1jifC5KxYKDSFTcNkoO4TiCkjFVZxxeVsObrZfo
     mcp-apps-actions--multi-step--light:
