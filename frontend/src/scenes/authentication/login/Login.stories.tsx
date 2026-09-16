@@ -1,4 +1,5 @@
 import { WEBSITE_REFERRER, setDocumentReferrer } from 'scenes/authentication/shared/authReferrer.mock'
+import { setLastLoginMethodCookie } from 'scenes/authentication/shared/lastLoginMethod.mock'
 import {
     PENDING_OAUTH_CONNECTION_FIXTURE,
     setPendingOAuthConnectionCookie,
@@ -25,6 +26,7 @@ type StoryArgs = {
     generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent'
     pendingOAuthConnection: boolean
     arrivedFromWebsite: boolean
+    hasLoggedInBefore: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -53,6 +55,7 @@ const meta: Meta<StoryArgs> = {
         },
         pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
         arrivedFromWebsite: { control: 'boolean', name: 'Arrived from posthog.com' },
+        hasLoggedInBefore: { control: 'boolean', name: 'Has logged in before' },
     },
     args: {
         cloud: true,
@@ -65,6 +68,7 @@ const meta: Meta<StoryArgs> = {
         generalError: 'none',
         pendingOAuthConnection: false,
         arrivedFromWebsite: false,
+        hasLoggedInBefore: true,
     },
 }
 export default meta
@@ -80,11 +84,13 @@ const Template: StoryFn<StoryArgs> = ({
     generalError,
     pendingOAuthConnection,
     arrivedFromWebsite,
+    hasLoggedInBefore,
 }) => {
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
     // Set synchronously: the scene reads the cookie while it mounts during this same render.
     setPendingOAuthConnectionCookie(pendingOAuthConnection ? PENDING_OAUTH_CONNECTION_FIXTURE : null)
     setDocumentReferrer(arrivedFromWebsite ? WEBSITE_REFERRER : '')
+    setLastLoginMethodCookie(hasLoggedInBefore ? 'password' : null)
 
     useStorybookMocks({
         get: {
@@ -131,7 +137,7 @@ const Template: StoryFn<StoryArgs> = ({
         }
     }, [generalError])
 
-    return <Login />
+    return <Login key={String(hasLoggedInBefore)} />
 }
 
 export const Default: StoryFn<StoryArgs> = Template.bind({})
@@ -161,3 +167,7 @@ EmailVerification.args = { generalError: 'code_based_verification_sent' }
 export const ArrivedFromWebsite: StoryFn<StoryArgs> = Template.bind({})
 ArrivedFromWebsite.storyName = 'Arrived from posthog.com'
 ArrivedFromWebsite.args = { arrivedFromWebsite: true }
+
+export const FirstLoginOnThisBrowser: StoryFn<StoryArgs> = Template.bind({})
+FirstLoginOnThisBrowser.storyName = 'First login on this browser'
+FirstLoginOnThisBrowser.args = { hasLoggedInBefore: false }
