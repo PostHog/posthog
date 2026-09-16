@@ -622,6 +622,21 @@ def test_grading_an_older_pool_still_drops_an_outcome_that_predates_the_score():
     assert graded["in_cohort"].to_dict() == {"a": True, "b": False}
 
 
+def test_grading_a_status_label_head_drops_a_newborn_outcome_from_the_scoring_day():
+    # build_examples reads label_provenance_ok on the scoring snapshot too, and no scores column
+    # carries that verdict, so grading the row would accept a label the builder can still refuse.
+    head = HEADS_BY_NAME["dismiss_wrong"]
+    scores = _scores(["a", "b"], label_at_scoring=[False, True])
+    labels = _labels(
+        ["a", "b"],
+        wrong_dismissal_count=[1, 1],
+        impression_unit_count=[1, 1],
+        label_provenance_ok=[True, True],
+    )
+    graded = graded_rows(scores, labels, head, pool=POOL_NAME).set_index("report_id")
+    assert graded["in_cohort"].to_dict() == {"a": True, "b": False}
+
+
 def test_head_grades_report_counts_and_an_undefined_auc_on_a_single_class():
     head = HEADS_BY_NAME["open"]
     labels = _labels(["a", "e"], open_count=[1, 0])

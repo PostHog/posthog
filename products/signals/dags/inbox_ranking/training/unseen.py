@@ -437,12 +437,18 @@ def graded_rows(head_scores: pd.DataFrame, labels: pd.DataFrame, head: Head, *, 
     cohort too, because that outcome belongs to an earlier scoring moment. A newborn was scored on
     its own birth day, which has no earlier moment, so that row is graded. Same rule as
     `build_examples`.
+
+    A status-label head is the exception, and keeps the exclusion in every pool. `build_examples`
+    reads `label_provenance_ok` on the scoring snapshot as well as on the grading one, while a
+    scores row carries no scoring-day verdict for this side to read. Grading a birth-day outcome
+    here would therefore accept a label the builder can still refuse. Carrying that verdict on the
+    score row is what lifts the exception.
     """
     ids = pd.Index(head_scores["report_id"])
     aligned = labels.reindex(ids)
     aligned.index = head_scores.index
     in_cohort = ids.isin(labels.index) & head.cohort(aligned).to_numpy()
-    if pool != POOL_NAME:
+    if pool != POOL_NAME or head.status_labels:
         in_cohort &= ~head_scores["label_at_scoring"].fillna(False).to_numpy(dtype=bool)
     if head.status_labels and "label_provenance_ok" in aligned:
         in_cohort &= aligned["label_provenance_ok"].fillna(False).to_numpy(dtype=bool)
