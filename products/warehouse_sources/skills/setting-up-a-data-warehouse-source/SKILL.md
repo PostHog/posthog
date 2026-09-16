@@ -149,7 +149,11 @@ field definitions. The response is a dict keyed by source type. Each entry descr
   - Other fields are sensitive by type and carry no `secret` flag. A `password` field is always sensitive. A
     `file-upload` field is always sensitive, whatever the uploaded file holds. An `ssh-tunnel` field declares no
     child fields, but its `password`, `passphrase` and `private_key` values are sensitive.
-  - Collect every sensitive field through `data-warehouse-source-connect-link`, never in chat.
+  - Collect every sensitive field through `data-warehouse-source-connect-link`, never in chat. The connect page
+    returns a `credential_id` that `data-warehouse-source-setup` and `external-data-sources-create` both accept in
+    `payload`. `external-data-sources-db-schema` does not accept it — that call reads the raw values. So the
+    advanced flow cannot discover tables from a stored credential. Prefer the one-step setup for any source that
+    declares a sensitive field.
   - `switch-group` and `select` options nest their own `fields` array. Read those the same way.
 - `featured`, `unreleasedSource` — use to gauge readiness. Skip sources marked `unreleasedSource: true` unless the
   user explicitly asked for a preview.
