@@ -4321,12 +4321,13 @@ class HogFlowViewSet(
                     before_update is not None
                     and before_update.status != HogFlow.State.ACTIVE
                     and before_update.draft is not None
-                    and "actions" in serializer.validated_data
+                    and set(DRAFT_CONTENT_FIELDS) <= set(self.request.data.keys())
                 ):
                     # A draft staged while the flow was active survives a disable. The editor shows
-                    # that draft merged over the live row, so a full graph save here already carries
-                    # the draft's content. Keeping the draft would make the editor merge the older
-                    # draft over this save and silently revert the edit.
+                    # that draft merged over the live row and saves every content field, so this
+                    # save already carries the draft's content. Keeping the draft would make the
+                    # editor merge the older draft over this save and silently revert the edit. A
+                    # partial save keeps the draft, because it would drop staged fields it omits.
                     serializer.save(draft=None, draft_updated_at=None, draft_encrypted_inputs=None)
                 else:
                     serializer.save()

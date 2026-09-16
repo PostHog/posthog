@@ -8,6 +8,7 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.workflows.backend.api.hog_flow import DRAFT_CONTENT_FIELDS
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 
@@ -65,6 +66,13 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert disable.status_code == 200, disable.json()
         assert HogFlow.objects.get(pk=flow_id).draft is not None
         return flow_id
+
+    def _editor_save_payload(self, flow_id: str, url: str) -> dict:
+        flow = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
+        payload = {field: flow[field] for field in DRAFT_CONTENT_FIELDS}
+        payload.update(flow["draft"] or {})
+        payload["actions"] = [_trigger_action(), _webhook_action(url=url)]
+        return payload
 
     def _patch_actions_via_mcp(self, flow_id: str, url: str = "https://changed.example.com"):
         # Graph content edits over MCP go through the surgical graph endpoint (a plain update
@@ -266,7 +274,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
             create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
             flow_id = create.json()["id"]
 
-        payload: dict = {"actions": [_trigger_action(), _webhook_action(url="https://saved.example.com")]}
+        payload = self._editor_save_payload(flow_id, url="https://saved.example.com")
         if stage_draft:
             payload["stage_draft"] = True
         response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
@@ -278,10 +286,16 @@ class TestHogFlowDraftPublish(APIBaseTest):
         live_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.actions if a["type"] == "function"]
         assert live_urls == ["https://saved.example.com"]
 
-    def test_metadata_save_on_disabled_flow_keeps_staged_draft(self):
+    @parameterized.expand(
+        [
+            ("metadata_only", {"name": "Renamed"}),
+            ("partial_content", {"actions": [_trigger_action(), _webhook_action(url="https://saved.example.com")]}),
+        ]
+    )
+    def test_partial_save_on_disabled_flow_keeps_staged_draft(self, _name: str, payload: dict):
         flow_id = self._create_disabled_flow_with_staged_draft()
 
-        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"name": "Renamed"})
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
         assert response.status_code == 200, response.json()
         draft = HogFlow.objects.get(pk=flow_id).draft
         assert draft is not None
