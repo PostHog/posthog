@@ -18,6 +18,7 @@ import {
     parseFailureReason,
     parseIneligibleReason,
 } from '../replay_scanners/types'
+import { markSimilarSearchIntent, similarSearchUrl } from '../search/observationQueries'
 import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
 import { readReasoning, scannerLabel } from '../utils/observation'
 import { CitedMarkdown } from './CitedMarkdown'
@@ -448,6 +449,7 @@ export function ObservationDockCard({
     // The prompt is the question the scan judged, so it gives the verdict its meaning. Show it inline here so a
     // reader does not have to open the details page to know what "Yes" answered.
     const prompt = snapshot ? (configFromSnapshot(snapshot)?.prompt ?? null) : null
+    const similarUrl = observation.status === 'succeeded' ? similarSearchUrl(observation) : null
     // Summarizers excluded: their primary output already is the full text
     const reasoning =
         observation.status === 'succeeded' && scannerType !== 'summarizer' ? readReasoning(observation) : null
@@ -473,6 +475,16 @@ export function ObservationDockCard({
                     <Link to={urls.replayVisionObservation(observation.id)} className="text-xs whitespace-nowrap">
                         View details
                     </Link>
+                    {similarUrl && (
+                        <Link
+                            to={similarUrl}
+                            onClick={() => markSimilarSearchIntent(observation)}
+                            className="text-xs whitespace-nowrap"
+                            data-attr="vision-dock-find-similar"
+                        >
+                            Find similar
+                        </Link>
+                    )}
                 </div>
             </div>
 
