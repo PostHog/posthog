@@ -37,13 +37,11 @@ describe('workflowProposalsLogic', () => {
         is_stale: false,
         status: 'suggested',
         created_via: 'mcp',
-        source_type: 'scout',
         source_id: 'run:1:finding:subject',
         created_by: null,
         created_at: '2026-05-01T00:00:00.000Z',
         resolved_at: null,
         resolved_by: null,
-        resolution_note: '',
         applied_version: null,
     }
 

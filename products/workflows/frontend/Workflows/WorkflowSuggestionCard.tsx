@@ -15,8 +15,8 @@ import { workflowProposalsLogic } from './workflowProposalsLogic'
 import { WorkflowSuggestionDetails } from './WorkflowSuggestionDetails'
 import { WorkflowSuggestionEvidence } from './WorkflowSuggestionEvidence'
 
-// `source_type` is declared by the caller, so an agent could label itself a person. The label reads
-// `created_via`, which comes from the transport; the declared type stays in the details.
+// The label reads `created_via`, which the server derives from the request, so a caller cannot
+// label its own suggestion as a person's.
 const ARRIVED_VIA_LABELS: Record<WorkflowProposalCreatedViaEnumApi, string> = {
     self_driving: 'Suggested by PostHog',
     mcp: 'Suggested by an agent',
@@ -38,9 +38,7 @@ export function WorkflowSuggestionCard({ id, proposal }: { id: string; proposal:
                 <div className="flex flex-col gap-1 grow">
                     <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold">{proposal.title}</span>
-                        <Tooltip
-                            title={`Read from the request this suggestion arrived on. It declared itself as a ${proposal.source_type}.`}
-                        >
+                        <Tooltip title="Read from the request this suggestion arrived on.">
                             <LemonTag type="highlight">
                                 {proposal.created_via === 'web' && proposal.created_by
                                     ? `Suggested by ${proposal.created_by.first_name || proposal.created_by.email}`
