@@ -1,4 +1,25 @@
+import posthog from 'posthog-js'
+
 import { getCookie } from 'lib/api'
+
+import { usersRetrieve } from '~/generated/core/api'
+
+type ImpersonationFailureCause =
+    | 'popup_blocked'
+    | 'admin_auth_cancelled'
+    | 'loginas_request_failed'
+    | 'rejected'
+    | 'unknown'
+
+class AdminLoginAsError extends Error {
+    readonly failureCause: ImpersonationFailureCause
+
+    constructor(failureCause: ImpersonationFailureCause, message: string) {
+        super(message)
+        this.name = 'AdminLoginAsError'
+        this.failureCause = failureCause
+    }
+}
 
 async function ensureAdminOAuth2(): Promise<void> {
     const authCheckResponse = await fetch('/admin/auth_check', {
@@ -23,7 +44,7 @@ async function ensureAdminOAuth2(): Promise<void> {
     )
 
     if (!authWindow) {
-        throw new Error('Popup blocked. Please allow popups for this site and try again.')
+        throw new AdminLoginAsError('popup_blocked', 'Popup blocked. Please allow popups for this site and try again.')
     }
 
     // Resolve ONLY once the popup confirms success via `oauth2_complete`. A popup that closes
@@ -62,7 +83,12 @@ async function ensureAdminOAuth2(): Promise<void> {
                 gracePeriodTimeout = setTimeout(() => {
                     if (!completed) {
                         cleanup()
-                        reject(new Error('Admin authentication was cancelled. Please try impersonating again.'))
+                        reject(
+                            new AdminLoginAsError(
+                                'admin_auth_cancelled',
+                                'Admin authentication was cancelled. Please try impersonating again.'
+                            )
+                        )
                     }
                 }, 500)
             }
@@ -76,7 +102,7 @@ export interface AdminLoginAsParams {
     readOnly: boolean
 }
 
-export async function adminLoginAs({ userId, reason, readOnly }: AdminLoginAsParams): Promise<void> {
+async function startImpersonation({ userId, reason, readOnly }: AdminLoginAsParams): Promise<void> {
     await ensureAdminOAuth2()
 
     const loginResponse = await fetch(`/admin/login/user/${userId}/`, {
@@ -94,6 +120,33 @@ export async function adminLoginAs({ userId, reason, readOnly }: AdminLoginAsPar
     })
 
     if (!loginResponse.ok) {
-        throw new Error(`django-loginas request resulted in status ${loginResponse.status}`)
+        throw new AdminLoginAsError(
+            'loginas_request_failed',
+            `Impersonation request failed with status ${loginResponse.status}. Try again, and report it if it keeps happening.`
+        )
+    }
+
+    // django-loginas answers a rejected attempt with a redirect back to the referer, so the
+    // followed request lands on a 200 that is indistinguishable from a success. Ask the API who
+    // we are now instead of trusting the status.
+    const me = await usersRetrieve('@me')
+    if (!me.is_impersonated) {
+        throw new AdminLoginAsError(
+            'rejected',
+            'PostHog refused the impersonation. The user may be a staff member, or may have opted out of impersonation.'
+        )
+    }
+}
+
+export async function adminLoginAs(params: AdminLoginAsParams): Promise<void> {
+    try {
+        await startImpersonation(params)
+    } catch (error) {
+        posthog.capture('impersonation_failed', {
+            cause: error instanceof AdminLoginAsError ? error.failureCause : 'unknown',
+            target_user_id: params.userId,
+            read_only: params.readOnly,
+        })
+        throw error
     }
 }
