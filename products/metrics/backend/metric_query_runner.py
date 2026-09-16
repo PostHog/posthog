@@ -148,17 +148,34 @@ def _histogram_quantile(quantile: float, bounds: list[float], counts: list[float
 _MAX_SHOWN_BOUNDS = 6
 
 
-def _render_bounds(bounds: Sequence[float]) -> str:
-    shown = ", ".join(f"{bound:g}" for bound in bounds[:_MAX_SHOWN_BOUNDS])
+def _render_bounds(bounds: Sequence[float], difference: int) -> str:
+    """Render the head of a layout. `repr` round-trips, so two close bounds stay apart."""
+    shown = ", ".join(repr(bound) for bound in bounds[:_MAX_SHOWN_BOUNDS])
     if len(bounds) > _MAX_SHOWN_BOUNDS:
         shown += ", ..."
-    return f"[{shown}] ({len(bounds)} buckets)"
+    apart = ""
+    if _MAX_SHOWN_BOUNDS <= difference < len(bounds):
+        # Name the bound that separates this layout when the head cannot.
+        apart = f", bound {difference + 1} is {bounds[difference]!r}"
+    # Only the counts array says how many buckets a layout has, so count boundaries.
+    return f"[{shown}] ({len(bounds)} boundaries{apart})"
+
+
+def _first_disagreement(layouts: set[tuple[float, ...]]) -> int:
+    """Return the first index where the layouts hold different bounds."""
+    shortest = min(len(layout) for layout in layouts)
+    for index in range(shortest):
+        if len({layout[index] for layout in layouts}) > 1:
+            return index
+    return shortest
 
 
 def _bounds_mismatch_message(time: str, labels: dict[str, str], layouts: set[tuple[float, ...]]) -> str:
     """Explain which point mixes bucket layouts, and how to separate them."""
     where = f" for {', '.join(f'{key}={value}' for key, value in labels.items())}" if labels else ""
-    rendered = "; ".join(sorted(_render_bounds(layout) for layout in layouts))
+    # Point every layout at the disagreement, so two of them never render alike.
+    difference = _first_disagreement(layouts)
+    rendered = "; ".join(sorted(_render_bounds(layout, difference) for layout in layouts))
     return (
         f"the series reporting this histogram at {time}{where} use {len(layouts)} different bucket layouts, "
         f"so their counts cannot be added together: {rendered}. "
