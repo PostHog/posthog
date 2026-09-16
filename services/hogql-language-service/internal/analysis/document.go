@@ -183,6 +183,14 @@ func (b Bindings) UniqueRelations() iter.Seq[Relation] {
 }
 
 func (b Bindings) PropertyNamespace(parts []string) (string, bool) {
+	if len(parts) >= 2 {
+		_, bound := b.Relation(parts[0])
+		if _, shadowed := b.SelectAlias(parts[0]); shadowed {
+			if len(parts) == 2 || !bound {
+				return "", false
+			}
+		}
+	}
 	if len(parts) > 2 {
 		if _, bound := b.Relation(parts[0]); !bound && resolveCTE(b.scope, parts[0], b.position) != nil {
 			return "", false
