@@ -2,7 +2,6 @@ import os
 import time
 import warnings
 import subprocess
-import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from functools import partial
 from typing import TYPE_CHECKING, Any
@@ -11,7 +10,7 @@ from urllib.parse import quote_plus
 import pytest
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
 
-from _pytest.junitxml import bin_xml_escape
+from _pytest.junitxml import ET, bin_xml_escape
 
 if TYPE_CHECKING:
     from _pytest.terminal import TerminalReporter
