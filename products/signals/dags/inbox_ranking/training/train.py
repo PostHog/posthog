@@ -66,6 +66,9 @@ class HeadMetrics:
     # The mean predicted score next to `holdout_positive_rate`, the rate it was predicting, and the
     # decile error between them. Both read the rows the head was capped to, and `cap_examples` keeps
     # every positive, so a family under a row budget reports its sample's raised rate. Read per family.
+    # Both also read the train-only fit, while the candidate that ships and the unseen side grades is
+    # the refit on every row. A refit moves the predicted probabilities without moving their rank, so
+    # part of a gap to the unseen numbers is the refit rather than holdout optimism.
     holdout_mean_score: float | None = None
     holdout_expected_calibration_error: float | None = None
 

@@ -183,9 +183,10 @@ def holdout_calibration_events(
     *, partition_key: str, run_id: str, model_name: str, rows: Sequence[Mapping[str, Any]]
 ) -> list[TrainingEvent]:
     """The same read on the candidate's holdout. The properties match the unseen event, so one
-    insight holds both lines and the gap between them is the holdout optimism. The role is stamped
-    rather than grouped on: a run grades only the candidate it just fit, and without it a chart
-    filtered to the candidate keeps the unseen line and drops this one."""
+    insight holds both lines and a gap between them points at holdout optimism. These rows score the
+    train-only fit and the unseen rows score the refit that ships, so the refit moves the gap too.
+    The role is stamped rather than grouped on: a run grades only the candidate it just fit, and
+    without it a chart filtered to the candidate keeps the unseen line and drops this one."""
     return [
         TrainingEvent(
             event=HOLDOUT_CALIBRATION_EVENT,
