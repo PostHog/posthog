@@ -1038,7 +1038,17 @@ _NIX_FREED_PATTERN = re.compile(r"([0-9]*\.?[0-9]+)\s*(B|KiB|MiB|GiB|TiB)\s+free
 _NIX_FREED_UNITS = {"b": 1, "kib": 1024, "mib": 1024**2, "gib": 1024**3, "tib": 1024**4}
 
 
-def _nix_dead_paths() -> list[str]:
+@dataclass(frozen=True)
+class NixStoreSize:
+    """Bytes held by a set of store paths, and whether nix sized all of them."""
+
+    total: float
+    complete: bool
+
+
+def _nix_dead_paths() -> list[str] | None:
+    """List the store paths no live generation references, or None when nix could not answer."""
+
     try:
         result = subprocess.run(
             ["nix-store", "--gc", "--print-dead"],
@@ -1048,20 +1058,23 @@ def _nix_dead_paths() -> list[str]:
             timeout=_NIX_PROBE_TIMEOUT,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        return []
+        return None
     if result.returncode != 0:
-        return []
+        return None
     return [line.strip() for line in result.stdout.splitlines() if line.startswith("/nix/store/")]
 
 
-def _nix_paths_size(paths: Sequence[str]) -> float:
+def _nix_paths_size(paths: Sequence[str]) -> NixStoreSize:
     total = 0.0
+    complete = True
     for start in range(0, len(paths), _NIX_QUERY_CHUNK):
-        total += _nix_chunk_size(paths[start : start + _NIX_QUERY_CHUNK])
-    return total
+        chunk = _nix_chunk_size(paths[start : start + _NIX_QUERY_CHUNK])
+        total += chunk.total
+        complete = complete and chunk.complete
+    return NixStoreSize(total=total, complete=complete)
 
 
-def _nix_chunk_size(chunk: Sequence[str]) -> float:
+def _nix_chunk_size(chunk: Sequence[str]) -> NixStoreSize:
     """Sum the store sizes of one batch, stepping over paths nix no longer considers valid.
 
     `nix-store -q --size` answers in argument order and then aborts on the first invalid
@@ -1083,7 +1096,7 @@ def _nix_chunk_size(chunk: Sequence[str]) -> float:
                 timeout=_NIX_PROBE_TIMEOUT,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired):
-            break
+            return NixStoreSize(total=total, complete=False)
         answered = result.stdout.split()
         for token in answered:
             try:
@@ -1093,10 +1106,10 @@ def _nix_chunk_size(chunk: Sequence[str]) -> float:
         if result.returncode == 0:
             break
         if _NIX_INVALID_PATH_ERROR not in result.stderr:
-            break
+            return NixStoreSize(total=total, complete=False)
         remaining = remaining[len(answered) + 1 :]
 
-    return total
+    return NixStoreSize(total=total, complete=True)
 
 
 def _parse_nix_freed(text: str) -> float:
@@ -1118,15 +1131,23 @@ def _estimate_nix_store(repo_root: Path) -> CleanupEstimate:
 
     click.echo("   Scanning the Nix store for unreachable paths...")
     dead = _nix_dead_paths()
+    if dead is None:
+        return CleanupEstimate(
+            total_size=0.0,
+            items=[],
+            details=["   Could not read the Nix store. Retry when no other process holds the store lock."],
+            available=False,
+        )
     if not dead:
         return CleanupEstimate(total_size=0.0, items=[], details=["   No unreachable store paths."])
 
-    total = _nix_paths_size(dead)
-    details = [
-        f"   {len(dead)} unreachable store path(s), about {_format_size(total)}.",
-        "   Command to run: nix-store --gc",
-    ]
-    return CleanupEstimate(total_size=total, items=[], details=details)
+    size = _nix_paths_size(dead)
+    measured = "about" if size.complete else "at least"
+    details = [f"   {len(dead)} unreachable store path(s), {measured} {_format_size(size.total)}."]
+    if not size.complete:
+        details.append("   Some paths could not be measured, so the collection frees more than that.")
+    details.append("   Command to run: nix-store --gc")
+    return CleanupEstimate(total_size=size.total, items=[], details=details)
 
 
 def _cleanup_nix_store(estimate: CleanupEstimate, _: Path) -> CleanupStats:

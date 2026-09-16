@@ -30,6 +30,7 @@ from hogli_commands.doctor import (
     _container_mounts,
     _copy_volume,
     _docker_reclaimable,
+    _estimate_nix_store,
     _estimate_sccache,
     _find_service_container,
     _find_volume_mount,
@@ -1909,7 +1910,9 @@ def test_nix_chunk_size_resumes_past_an_invalid_path(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
 
     paths = ["/nix/store/a", "/nix/store/b", "/nix/store/c", "/nix/store/d"]
-    assert _nix_chunk_size(paths) == pytest.approx(700.0)
+    size = _nix_chunk_size(paths)
+    assert size.total == pytest.approx(700.0)
+    assert size.complete is True
 
 
 def test_nix_chunk_size_gives_up_on_a_failure_that_is_not_an_invalid_path(
@@ -1926,8 +1929,48 @@ def test_nix_chunk_size_gives_up_on_a_failure_that_is_not_an_invalid_path(
 
     monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
 
-    assert _nix_chunk_size([f"/nix/store/{index}" for index in range(50)]) == 0.0
+    size = _nix_chunk_size([f"/nix/store/{index}" for index in range(50)])
+    assert size.total == 0.0
+    assert size.complete is False
     assert calls == 1
+
+
+@pytest.mark.parametrize("failure", ["timeout", "returncode"])
+def test_estimate_nix_store_reports_a_failed_scan_rather_than_an_empty_store(
+    monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    # A probe that times out behind the store lock used to answer like a clean store,
+    # so the command told people there was nothing to reclaim.
+    def fake_run(cmd: Sequence[str], **kwargs: object) -> SimpleNamespace:
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(list(cmd), 1)
+        return SimpleNamespace(returncode=1, stdout="", stderr="error: unable to lock the database")
+
+    monkeypatch.setattr("hogli_commands.doctor.shutil.which", lambda _: "/usr/bin/nix-store")
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+
+    estimate = _estimate_nix_store(Path("/repo"))
+
+    assert estimate.available is False
+    assert any("Could not read the Nix store" in detail for detail in estimate.details)
+
+
+def test_estimate_nix_store_says_when_it_could_not_size_every_dead_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Listing the dead paths can succeed while sizing them times out, and the partial
+    # total must not read as the whole of what the collection frees.
+    def fake_run(cmd: Sequence[str], **kwargs: object) -> SimpleNamespace:
+        if "--print-dead" in cmd:
+            return SimpleNamespace(returncode=0, stdout="/nix/store/a\n/nix/store/b\n", stderr="")
+        raise subprocess.TimeoutExpired(list(cmd), 1)
+
+    monkeypatch.setattr("hogli_commands.doctor.shutil.which", lambda _: "/usr/bin/nix-store")
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+
+    estimate = _estimate_nix_store(Path("/repo"))
+
+    assert estimate.available is True
+    assert any("2 unreachable store path(s), at least" in detail for detail in estimate.details)
+    assert any("could not be measured" in detail for detail in estimate.details)
 
 
 @pytest.mark.parametrize("target", ["home", "home_parent", "root", "repo_root"])
