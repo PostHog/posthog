@@ -10,7 +10,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from posthog.test.base import BaseTest
@@ -51,7 +51,12 @@ from products.signals.backend.scout_harness import (
 )
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
-from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, failure_streak_pause_threshold
+from products.signals.backend.scout_harness.limits import (
+    STALE_RUN_CUTOFF_S,
+    UPSTREAM_RETRY_MAX_ATTEMPTS,
+    failure_streak_pause_threshold,
+    upstream_retry_backoff_s,
+)
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import (
     _EXTERNAL_MCP_LISTING_CAP,
@@ -69,6 +74,7 @@ from products.signals.backend.scout_harness.runner import (
     _ai_stage,
     _create_run_row,
     _failure_streak_runs_in_window,
+    _read_run_metrics,
     arun_signals_scout,
 )
 from products.signals.backend.scout_harness.skill_loader import (
@@ -79,6 +85,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     resolve_scout_acting_user_id,
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
+from products.signals.backend.scout_harness.tools.structured_output import STRUCTURED_OUTPUT_COUNT_KEY
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutInput,
     RunSignalsScoutOutput,
@@ -2210,6 +2217,17 @@ async def test_successful_run_captures_run_started_event(ateam, aerrors_skill):
             "TaskRun reached terminal status=failed (cause: upstream_provider_failure: API Error: 429)",
             "upstream_provider_failure",
         ),
+        # A provider rate limit, the category the classifier used to miss entirely.
+        (
+            AgentTurnFailed(
+                "TaskRun reached terminal status=failed (cause: upstream_rate_limit: rate limit exceeded)",
+                category="upstream_rate_limit",
+                agent_message="rate limit exceeded",
+            ),
+            "AgentTurnFailed",
+            "TaskRun reached terminal status=failed (cause: upstream_rate_limit: rate limit exceeded)",
+            "upstream_rate_limit",
+        ),
         # Older agent build: no classification to carry, so the event stays as it is today.
         (
             AgentTurnFailed(
@@ -2298,9 +2316,9 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
     # produce nothing. Nothing else in the harness notices, so the breaker has to.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam, "close-out")
 
-    async def _run_once(*, failing: bool, capture, triggered_by: str = "schedule"):
+    async def _run_once(*, failing: bool, capture, triggered_by: str = "schedule", failure=None):
         start = (
-            AsyncMock(side_effect=RuntimeError("poll_for_turn: timed out after 900s"))
+            AsyncMock(side_effect=failure or RuntimeError("poll_for_turn: timed out after 900s"))
             if failing
             else _fake_start_invoking_hook(session, result)
         )
@@ -2335,6 +2353,20 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
     # the threshold is sized on the schedule's cadence, so counting rapid manual retries
     # would let a burst of them pause a daily lane within minutes of a platform blip.
     await _run_once(failing=True, capture=capture, triggered_by="manual")
+    config = await _reload()
+    assert config.consecutive_failure_count == 1
+
+    # A provider refusal is not evidence about this lane: it fails every due lane at once, so
+    # counting it would walk healthy scouts toward a pause whose cause was never theirs.
+    await _run_once(
+        failing=True,
+        capture=capture,
+        failure=AgentTurnFailed(
+            "TaskRun reached terminal status=failed (cause: upstream_rate_limit: rate limit exceeded)",
+            category="upstream_rate_limit",
+            agent_message="rate limit exceeded",
+        ),
+    )
     config = await _reload()
     assert config.consecutive_failure_count == 1
 
@@ -3126,6 +3158,109 @@ async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_canno
         assert resume.call_args.kwargs["origin_key"] == workflow_origin_key
         assert resume.call_args.kwargs["status"] == (outcome if outcome in ("completed", "cancelled") else "failed")
         assert resume.call_args.kwargs["raise_on_error"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "triggered_by,attempts_before_success,expected_attempts",
+    [
+        # A provider refusal clears on the next attempt, so the lane still gets its scan
+        # instead of going quiet for the whole tick.
+        ("schedule", 1, 2),
+        # A provider that stays down is not retried forever.
+        ("schedule", 99, UPSTREAM_RETRY_MAX_ATTEMPTS),
+        # An off-schedule trigger holds a deterministic workflow id, so a backoff there would
+        # refuse the person's next "run now" rather than recover this one.
+        ("manual", 1, 1),
+    ],
+)
+async def test_workflow_retries_a_scheduled_run_the_provider_refused(
+    triggered_by, attempts_before_success, expected_attempts
+):
+    attempts = 0
+    slept: list[timedelta] = []
+
+    def _output(*, retryable_upstream: bool) -> RunSignalsScoutOutput:
+        return RunSignalsScoutOutput(
+            run_id="abc",
+            task_run_id="def",
+            status="failed" if retryable_upstream else "completed",
+            runtime_s=1.5,
+            skill_name="signals-scout-errors",
+            skill_version=2,
+            retryable_upstream=retryable_upstream,
+        )
+
+    async def execute_activity(activity_function, input=None, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        return _output(retryable_upstream=attempts <= attempts_before_success)
+
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.execute_activity",
+            side_effect=execute_activity,
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.sleep",
+            new=AsyncMock(side_effect=lambda delay: slept.append(delay)),
+        ),
+        # The workflow logger and the patch gate both resolve replay state off the workflow
+        # event loop, which a direct call to `run` has no access to.
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.logger"),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.patched",
+            return_value=True,
+        ),
+    ):
+        output = await RunSignalsScoutWorkflow().run(
+            RunSignalsScoutInput(team_id=7, skill_name="signals-scout-errors", triggered_by=triggered_by)
+        )
+
+    assert attempts == expected_attempts
+    # Each wait is longer than the last, so a refusal that outlasts the first backoff is not
+    # retried at the same cadence.
+    assert slept == [timedelta(seconds=upstream_retry_backoff_s(a)) for a in range(1, expected_attempts)]
+    assert output.status == ("failed" if attempts <= attempts_before_success else "completed")
+
+
+class TestReadRunMetrics(BaseTest):
+    def _run(self, **columns: Any) -> SignalScoutRun:
+        config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
+        return SignalScoutRun.objects.create(
+            team=self.team,
+            task_run=_make_task_run(self.team),
+            scout_config=config,
+            skill_name="signals-scout-general",
+            skill_version=1,
+            **columns,
+        )
+
+    @parameterized.expand(
+        [
+            ("nothing written", {}, False),
+            ("emitted a finding", {"emitted_count": 1}, True),
+            ("authored a report", {"emitted_report_ids": ["r-1"]}, True),
+            ("edited a report", {"edited_report_ids": ["r-2"]}, True),
+            ("recorded structured output", {"metadata": {STRUCTURED_OUTPUT_COUNT_KEY: 3}}, True),
+            ("null report columns", {"emitted_report_ids": None, "edited_report_ids": None}, False),
+            ("unrelated metadata only", {"metadata": {"report_channel": "signal"}}, False),
+        ]
+    )
+    def test_wrote_output_covers_every_durable_channel(
+        self, _name: str, columns: dict[str, Any], expected: bool
+    ) -> None:
+        run = self._run(**columns)
+        assert _read_run_metrics(run.id, self.team.id).wrote_output is expected
+
+    def test_emitted_count_stays_the_finding_tally(self) -> None:
+        run = self._run(emitted_report_ids=["r-1"], edited_report_ids=["r-2"])
+        metrics = _read_run_metrics(run.id, self.team.id)
+        assert metrics.emitted_count == 0
+        assert metrics.wrote_output is True
+
+    def test_missing_row_reads_as_no_output(self) -> None:
+        assert _read_run_metrics(uuid7(), self.team.id).wrote_output is False
 
 
 class TestScoutCosts(BaseTest):

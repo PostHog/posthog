@@ -58,6 +58,37 @@ describe("classifyAgentError", () => {
       "Claude AI usage limit reached. Your limit will reset at 3pm.",
       "subscription_usage_limit",
     ],
+    // Shared-capacity refusals whose prose carries no HTTP status. These used to fall through
+    // to "agent_error", so a provider running out of capacity read as a broken agent.
+    ["rate limit exceeded: please try again later", "upstream_rate_limit"],
+    [
+      "stream disconnected before completion: we are processing too many requests",
+      "upstream_rate_limit",
+    ],
+    [
+      "Selected model is at capacity. Please try a different model.",
+      "upstream_rate_limit",
+    ],
+    // A defect whose text only mentions rate limiting stays a defect, so it keeps feeding the
+    // failure-streak breaker instead of being exempted as an upstream refusal.
+    ["agent exited while reading the rate limit dashboard", "agent_error"],
+    ["the checked endpoint returns too many requests errors", "agent_error"],
+    // Something other than the model running out of capacity is not a provider refusal. These
+    // wordings come from services a run reaches through its own tools, so exempting them would
+    // hide a lane that fails every time it calls one.
+    ["ClickHouse is at capacity. Try again later.", "agent_error"],
+    [
+      "The query was deferred because the cluster is at capacity.",
+      "agent_error",
+    ],
+    ["local queue is at capacity", "agent_error"],
+    // A rate-limited status keeps the provider-failure category it already had.
+    ["API Error: 429 rate limit exceeded", "upstream_provider_failure"],
+    // The spend limit quotes a rate limit but stops this run alone, so it stays permanent.
+    [
+      "API Error: 429 Rate limit exceeded: This agent run reached its spend limit.",
+      "task_spend_limit",
+    ],
     ["API Error: 400 invalid request", "agent_error"],
     // 413 is a hard client rejection, never a transient upstream failure.
     ["API Error: 413 Payload Too Large", "agent_error"],
@@ -78,6 +109,7 @@ describe("isRetryableUpstreamErrorClassification", () => {
     ["upstream_connection_error", true],
     ["upstream_timeout", true],
     ["upstream_provider_failure", true],
+    ["upstream_rate_limit", true],
     ["content_block_rejection", false],
     ["turn_ended_without_response", false],
     ["subscription_usage_limit", false],
@@ -130,6 +162,11 @@ describe("sanitizeAgentErrorCause", () => {
       "Request timed out after sending private repository content",
       "upstream_timeout",
       "upstream_timeout",
+    ],
+    [
+      "rate limit exceeded: private provider body",
+      "upstream_rate_limit",
+      "upstream_rate_limit",
     ],
     ["agent process exited", "agent_error", "agent process exited"],
   ] as const)("sanitizes %j as %j", (message, classification, expected) => {
