@@ -10,7 +10,7 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import type { PRTimelineApi } from '../generated/api.schemas'
 import { compactAgeLabel, percent } from '../lib/format'
-import { NIGHT_START_OFFSET_HOURS, SEGMENT_KIND_STYLES, segmentBackground } from '../lib/pullRequestDayView'
+import { SEGMENT_KIND_STYLES, dayStartsBetween, segmentBackground } from '../lib/pullRequestDayView'
 import {
     MilestoneKind,
     TimelinePush,
@@ -20,8 +20,8 @@ import {
     trackAxis,
 } from '../lib/pullRequestTimeline'
 import { PullRequestTimelineLegend } from './PullRequestTimelineLegend'
+import { PullRequestTimelineTrack } from './PullRequestTimelineTrack'
 
-const HOUR_MS = 3600 * 1000
 const TIME_FORMAT = 'ddd D MMM HH:mm'
 const MAX_DAY_LABELS = 8
 
@@ -46,18 +46,15 @@ export function PullRequestDeliveryTimeline({
     pushes: TimelinePush[]
 }): JSX.Element {
     const axis = trackAxis(pr)
-    const span = axis.toMs - axis.fromMs
-    const clip = (ms: number): number => Math.min(Math.max(ms, axis.fromMs), axis.toMs)
-    const left = (ms: number): string => `${(100 * (clip(ms) - axis.fromMs)) / span}%`
-    const width = (fromMs: number, toMs: number): string => `${(100 * (clip(toMs) - clip(fromMs))) / span}%`
+    const left = (ms: number): string => `${(100 * (ms - axis.fromMs)) / (axis.toMs - axis.fromMs)}%`
+    const dayStarts = dayStartsBetween(axis.fromMs, axis.toMs)
 
     const { wholeSeconds, groups, longest } = timeInStates(pr)
     const milestones = timelineMilestones(pr, pushes)
     const segments = pr.segments
     const start = segments[0].started_at
     const end = segments[segments.length - 1].ended_at
-    const isOpen = pr.state === 'open'
-    const labelStep = Math.ceil(axis.dayStarts.length / MAX_DAY_LABELS)
+    const labelStep = Math.ceil(dayStarts.length / MAX_DAY_LABELS)
     const pushCount = milestones.filter((milestone) => milestone.kind === 'push').length
 
     return (
@@ -103,68 +100,10 @@ export function PullRequestDeliveryTimeline({
                 })}
             </div>
 
-            <div className="relative h-6 overflow-hidden rounded-sm">
-                {axis.dayStarts.map((day) => {
-                    const dayMs = day.valueOf()
-                    const weekend = day.day() === 0 || day.day() === 6
-                    return (
-                        <div key={dayMs}>
-                            {weekend && (
-                                <div
-                                    className="absolute inset-y-0 bg-fill-secondary"
-                                    style={{ left: left(dayMs), width: width(dayMs, dayMs + 24 * HOUR_MS) }}
-                                />
-                            )}
-                            <div
-                                className="absolute inset-y-0 bg-fill-tertiary"
-                                style={{
-                                    left: left(dayMs + NIGHT_START_OFFSET_HOURS * HOUR_MS),
-                                    width: width(dayMs + NIGHT_START_OFFSET_HOURS * HOUR_MS, dayMs + 24 * HOUR_MS),
-                                }}
-                            />
-                            {dayMs > axis.fromMs && (
-                                <div
-                                    className="absolute inset-y-0 w-px bg-border-primary"
-                                    style={{ left: left(dayMs) }}
-                                />
-                            )}
-                        </div>
-                    )
-                })}
-                {segments.map((segment, index) => {
-                    const live = isOpen && index === segments.length - 1
-                    const seconds = dayjs(segment.ended_at).diff(dayjs(segment.started_at), 'second')
-                    return (
-                        <Tooltip
-                            key={segment.started_at}
-                            title={`${SEGMENT_KIND_STYLES[segment.kind].label} · ${compactAgeLabel(seconds)}${live ? ' so far' : ''} · from ${dayjs(segment.started_at).format(TIME_FORMAT)}`}
-                        >
-                            <div
-                                className="absolute inset-y-0.5 min-w-0.5 rounded-sm"
-                                style={{
-                                    left: left(dayjs(segment.started_at).valueOf()),
-                                    width: width(
-                                        dayjs(segment.started_at).valueOf(),
-                                        dayjs(segment.ended_at).valueOf()
-                                    ),
-                                    ...segmentBackground(segment.kind),
-                                }}
-                            />
-                        </Tooltip>
-                    )
-                })}
-                {isOpen && (
-                    <Tooltip title={`Now, ${dayjs(end).format(TIME_FORMAT)}`}>
-                        <div
-                            className="absolute inset-y-0 w-[3px] -translate-x-px rounded-sm bg-[var(--text-3000)]"
-                            style={{ left: left(dayjs(end).valueOf()) }}
-                        />
-                    </Tooltip>
-                )}
-            </div>
+            <PullRequestTimelineTrack pr={pr} fromMs={axis.fromMs} toMs={axis.toMs} className="h-6" />
 
             <div className="relative mt-1 h-4 overflow-hidden text-[10px] text-tertiary">
-                {axis.dayStarts.map((day, index) =>
+                {dayStarts.map((day, index) =>
                     day.valueOf() > axis.fromMs && index % labelStep === 0 ? (
                         <span
                             key={day.valueOf()}

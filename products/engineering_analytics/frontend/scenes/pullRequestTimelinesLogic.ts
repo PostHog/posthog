@@ -95,10 +95,8 @@ export const pullRequestTimelinesLogic = kea<pullRequestTimelinesLogicType>([
                 loadTimelines: async () =>
                     await engineeringAnalyticsPullRequestTimelines(String(ApiConfig.getCurrentProjectId()), {
                         ...deliveryScopeParams(props.scope),
-                        // The backend applies date_to even to a single pull request, so the window stays off.
-                        ...(props.scope.kind === 'pull_request'
-                            ? {}
-                            : { date_from: values.dateFrom ?? undefined, date_to: values.dateTo ?? undefined }),
+                        date_from: values.dateFrom ?? undefined,
+                        date_to: values.dateTo ?? undefined,
                         source_id: props.sourceId ?? undefined,
                     }),
             },

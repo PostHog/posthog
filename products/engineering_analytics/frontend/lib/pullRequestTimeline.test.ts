@@ -1,4 +1,5 @@
 import { PRTimelineApi, PRTimelineSegmentKindEnumApi as Kind } from '../generated/api.schemas'
+import { dayStartsBetween } from './pullRequestDayView'
 import { timeInStates, timelineMilestones, trackAxis } from './pullRequestTimeline'
 
 const HOUR = 3600 * 1000
@@ -108,10 +109,13 @@ describe('pullRequestTimeline', () => {
         const axis = trackAxis(
             pr([[Kind.WaitingForReview, -7, 30]]) // 03:00 on Wednesday to 16:00 on Thursday
         )
+        const dayStarts = dayStartsBetween(axis.fromMs, axis.toMs)
 
-        expect(axis.dayStarts[0].toISOString()).toBe('2026-06-30T06:00:00.000Z')
-        expect(axis.dayStarts[0].valueOf()).toBeLessThanOrEqual(axis.fromMs)
-        expect(axis.dayStarts[axis.dayStarts.length - 1].valueOf()).toBeLessThan(axis.toMs)
-        expect(axis.dayStarts).toHaveLength(3)
+        expect(dayStarts.map((day) => day.toISOString())).toEqual([
+            '2026-06-30T06:00:00.000Z',
+            '2026-07-01T06:00:00.000Z',
+            '2026-07-02T06:00:00.000Z',
+        ])
+        expect(dayStarts[0].valueOf()).toBeLessThanOrEqual(axis.fromMs)
     })
 })

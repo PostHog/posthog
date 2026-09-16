@@ -1,10 +1,10 @@
 // One pull request's timeline on its own clock: time per state, grouped by who can move it on, and its
 // milestones. Pure functions, so the pull request page's arithmetic is testable without a render.
 
-import { Dayjs, dayjs } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 
 import { PRTimelineApi, PRTimelineSegmentKindEnumApi as Kind } from '../generated/api.schemas'
-import { SEGMENT_LEGEND_GROUPS, rowOrigin } from './pullRequestDayView'
+import { SEGMENT_LEGEND_GROUPS, secondsBetween } from './pullRequestDayView'
 
 const MINUTE_MS = 60 * 1000
 
@@ -28,10 +28,6 @@ export interface TimeInStates {
     /** In legend order. A group with no time in any of its states drops out. */
     groups: StateTimeGroup[]
     longest: StateTime | null
-}
-
-function secondsBetween(start: string, end: string): number {
-    return dayjs(end).diff(dayjs(start), 'second')
 }
 
 export function timeInStates(pr: PRTimelineApi): TimeInStates {
@@ -109,9 +105,6 @@ export function timelineMilestones(pr: PRTimelineApi, pushes: TimelinePush[]): M
 export interface TrackAxis {
     fromMs: number
     toMs: number
-    /** 06:00 local on each day the axis touches. The first one is at or before fromMs, so a night that
-     *  began before the timeline still shades its start. */
-    dayStarts: Dayjs[]
 }
 
 /** One pull request has no sibling rows to line up with, so the axis is its own span, padded. */
@@ -120,11 +113,5 @@ export function trackAxis(pr: PRTimelineApi): TrackAxis {
     const start = segments.length ? dayjs(segments[0].started_at).valueOf() : 0
     const end = segments.length ? dayjs(segments[segments.length - 1].ended_at).valueOf() : 0
     const pad = Math.max(0.02 * (end - start), 10 * MINUTE_MS)
-    const fromMs = start - pad
-    const toMs = end + pad
-    const dayStarts: Dayjs[] = []
-    for (let day = rowOrigin(dayjs(fromMs).toISOString(), 'days'); day.valueOf() < toMs; day = day.add(1, 'day')) {
-        dayStarts.push(day)
-    }
-    return { fromMs, toMs, dayStarts }
+    return { fromMs: start - pad, toMs: end + pad }
 }

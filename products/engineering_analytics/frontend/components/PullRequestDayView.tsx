@@ -16,6 +16,7 @@ import {
     DayViewGroup,
     DayViewRow,
     SEGMENT_KIND_STYLES,
+    rowOrigin,
     segmentBackground,
 } from '../lib/pullRequestDayView'
 import { withCurrentScope } from '../lib/scope'
@@ -30,16 +31,15 @@ function DayViewRowItem({
     row,
     alignment,
     days,
-    generatedAt,
     sourceId,
 }: {
     row: DayViewRow
     alignment: DayViewAlignment
     days: number
-    generatedAt: string
     sourceId: string | null
 }): JSX.Element {
     const { pr } = row
+    const origin = rowOrigin(pr.started_at, alignment)
     const highlight = SEGMENT_KIND_STYLES[row.highlightKind]
     const hover = [
         pr.title,
@@ -63,7 +63,12 @@ function DayViewRowItem({
                     <span className="truncate text-[11px] text-secondary">{pr.title}</span>
                 </Link>
             </Tooltip>
-            <PullRequestTimelineTrack pr={pr} alignment={alignment} days={days} generatedAt={generatedAt} />
+            <PullRequestTimelineTrack
+                pr={pr}
+                fromMs={origin.valueOf()}
+                toMs={origin.add(days, 'day').valueOf()}
+                className="h-3.5"
+            />
             <span className="text-right text-[11px] tabular-nums text-tertiary">
                 {row.isOpen && <span className="mr-1 inline-block size-1.5 rounded-full bg-success align-middle" />}
                 {compactAgeLabel(row.lengthSeconds)}
@@ -170,7 +175,6 @@ export function PullRequestDayView({
                                     row={row}
                                     alignment={alignment}
                                     days={days}
-                                    generatedAt={timelines?.generated_at ?? ''}
                                     sourceId={sourceId}
                                 />
                             ))}

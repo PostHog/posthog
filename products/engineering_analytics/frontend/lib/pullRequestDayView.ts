@@ -156,7 +156,7 @@ export interface DayViewGroup {
     rows: DayViewRow[]
 }
 
-function secondsBetween(start: string, end: string): number {
+export function secondsBetween(start: string, end: string): number {
     return dayjs(end).diff(dayjs(start), 'second')
 }
 
@@ -249,6 +249,16 @@ export function rowOrigin(startedAt: string, alignment: DayViewAlignment): Dayjs
     const dayStart = shifted.startOf('day')
     const origin = alignment === 'weeks' ? dayStart.subtract((dayStart.day() + 6) % 7, 'day') : dayStart
     return origin.add(DAY_START_HOUR, 'hour')
+}
+
+/** 06:00 local on each day from the one at or before fromMs up to toMs, so a night that began before
+ *  fromMs still shades its start. */
+export function dayStartsBetween(fromMs: number, toMs: number): Dayjs[] {
+    const days: Dayjs[] = []
+    for (let day = rowOrigin(dayjs(fromMs).toISOString(), 'days'); day.valueOf() < toMs; day = day.add(1, 'day')) {
+        days.push(day)
+    }
+    return days
 }
 
 export function hoursFromOrigin(origin: Dayjs, at: string): number {
