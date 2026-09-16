@@ -30,6 +30,7 @@ from products.tasks.backend.exceptions import (
     SandboxMissingRepositoryError,
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
+from products.tasks.backend.logic.services.launch_preparation_metrics import launch_preparation_metric_context
 from products.tasks.backend.logic.services.sandbox import (
     REPO_READY_FILE,
     SNAPSHOT_KIND_DIRECTORY,
@@ -679,10 +680,14 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     """
     ctx = input.context
 
-    with log_activity_execution(
-        "start_agent_server",
-        sandbox_id=input.sandbox_id,
-        **ctx.to_log_context(),
+    with (
+        log_activity_execution("start_agent_server", sandbox_id=input.sandbox_id, **ctx.to_log_context()),
+        launch_preparation_metric_context(
+            boot_path=input.boot_path,
+            runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+            origin_product=ctx.origin_product,
+            used_snapshot=input.used_snapshot,
+        ),
     ):
         emit_agent_log(ctx.run_id, "debug", "Starting agent server")
 
@@ -812,10 +817,14 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     ctx = input.context
 
-    with log_activity_execution(
-        "launch_agent_server",
-        sandbox_id=input.sandbox_id,
-        **ctx.to_log_context(),
+    with (
+        log_activity_execution("launch_agent_server", sandbox_id=input.sandbox_id, **ctx.to_log_context()),
+        launch_preparation_metric_context(
+            boot_path=input.boot_path,
+            runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+            origin_product=ctx.origin_product,
+            used_snapshot=input.used_snapshot,
+        ),
     ):
         emit_agent_log(ctx.run_id, "debug", "Launching agent server (deferred readiness)")
 
@@ -875,10 +884,14 @@ def mark_repo_ready(input: MarkRepoReadyInput) -> None:
 def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOutput:
     ctx = input.context
 
-    with log_activity_execution(
-        "await_agent_server_ready",
-        sandbox_id=input.sandbox_id,
-        **ctx.to_log_context(),
+    with (
+        log_activity_execution("await_agent_server_ready", sandbox_id=input.sandbox_id, **ctx.to_log_context()),
+        launch_preparation_metric_context(
+            boot_path=input.boot_path,
+            runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+            origin_product=ctx.origin_product,
+            used_snapshot=input.used_snapshot,
+        ),
     ):
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         agentsh_domains = _agentsh_domains_for(ctx)
