@@ -433,6 +433,10 @@ def _terminates_early(query: ast.SelectQuery) -> bool:
 
 def _set_terminates_early(query: ast.SelectSetQuery) -> bool:
     """True when a row limit outside `query` still caps what its branches read."""
+    # An offset on the set has to produce and discard the rows it skips, which is why
+    # _terminates_early rejects one on a plain query too.
+    if query.offset is not None:
+        return False
     return all(node.set_operator in _EARLY_TERMINATING_SET_OPERATORS for node in query.subsequent_select_queries)
 
 

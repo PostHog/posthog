@@ -92,6 +92,11 @@ class TestFindUnprunedEventsScans(SimpleTestCase):
                 "SELECT * FROM (SELECT event FROM events EXCEPT SELECT event FROM events) LIMIT 1",
                 2,
             ),
+            (
+                "a set offset still reads what it skips",
+                "SELECT * FROM ((SELECT * FROM events) UNION ALL (SELECT * FROM events) LIMIT 1 OFFSET 500) LIMIT 1",
+                2,
+            ),
         ]
     )
     def test_scan_classification(self, _name: str, query: str, expected: int) -> None:
