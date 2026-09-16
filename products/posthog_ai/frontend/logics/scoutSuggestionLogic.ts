@@ -120,7 +120,8 @@ export interface scoutSuggestionLogicMeta {
             slackIntegrationId: number | null,
             slackChannel: string | null,
             currentProjectId: number | null,
-            createdScoutLoading: boolean
+            createdScoutLoading: boolean,
+            slackIntegrations: IntegrationType[] | undefined
         ) => string | null
         scoutUrl: (createdScout: SignalScoutCreateResponseApi | null) => string | null
     }
@@ -244,12 +245,19 @@ export const scoutSuggestionLogic: LogicWrapper<scoutSuggestionLogicType> = kea<
             ): ScoutSuggestionCadence => cadenceOverride ?? suggestion?.scout.cadence ?? 'weekly',
         ],
         createDisabledReason: [
-            (s) => [s.slackIntegrationId, s.slackChannel, s.currentProjectId, s.createdScoutLoading],
+            (s) => [
+                s.slackIntegrationId,
+                s.slackChannel,
+                s.currentProjectId,
+                s.createdScoutLoading,
+                s.slackIntegrations,
+            ],
             (
                 slackIntegrationId: number | null,
                 slackChannel: string | null,
                 currentProjectId: number | null,
-                createdScoutLoading: boolean
+                createdScoutLoading: boolean,
+                slackIntegrations: IntegrationType[] | undefined
             ): string | null => {
                 if (createdScoutLoading) {
                     return 'Creating the scout'
@@ -258,7 +266,7 @@ export const scoutSuggestionLogic: LogicWrapper<scoutSuggestionLogicType> = kea<
                     return 'Project is still loading'
                 }
                 if (slackIntegrationId === null) {
-                    return 'Connect Slack first'
+                    return slackIntegrations?.length ? 'Choose a Slack workspace first' : 'Connect Slack first'
                 }
                 if (!slackChannel) {
                     return 'Choose a Slack channel first'

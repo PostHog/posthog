@@ -1,3 +1,4 @@
+import json
 from datetime import date
 
 from posthog.test.base import BaseTest
@@ -8,13 +9,16 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.posthog_ai.backend.turn_suggestions.classifier import (
+    CLASSIFIER_MODEL,
     NotebookDraft,
     ScoutCadence,
     ScoutDraft,
     TurnIntent,
     TurnVerdict,
+    classify_turn,
     render_turn_prompt,
 )
+from products.posthog_ai.backend.turn_suggestions.dispatch import enqueue_turn_suggestion
 from products.posthog_ai.backend.turn_suggestions.service import (
     TURN_SUGGESTION_METHOD,
     TurnSuggestionOutcome,
@@ -38,6 +42,29 @@ def _agent_text(text: str) -> dict:
     return _notification(
         "session/update",
         {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}},
+    )
+
+
+def _agent_final(text: str, message_id: str | None = "m1") -> dict:
+    update: dict = {"sessionUpdate": "agent_message", "content": {"type": "text", "text": text}}
+    if message_id is not None:
+        update["messageId"] = message_id
+    return _notification("session/update", {"update": update})
+
+
+def _builtin_tool_call(tool_call_id: str, tool_name: str, raw_input: dict) -> dict:
+    return _notification(
+        "session/update",
+        {
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCallId": tool_call_id,
+                "title": tool_name,
+                "status": "completed",
+                "rawInput": raw_input,
+                "_meta": {"claudeCode": {"toolName": tool_name}},
+            }
+        },
     )
 
 
@@ -150,6 +177,46 @@ class TestBuildTurnTranscript(SimpleTestCase):
 
         assert [(call.name, call.status) for call in transcript.tool_calls] == [("execute-sql", "completed")]
 
+    @parameterized.expand([("with_message_id", "m1"), ("without_message_id", None)])
+    def test_a_closing_agent_message_replaces_its_streamed_chunks(self, _name: str, final_message_id: str | None):
+        entries = [
+            _user_message("q"),
+            _notification(
+                "session/update",
+                {
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "messageId": "m1",
+                        "content": {"type": "text", "text": "You had 412 "},
+                    }
+                },
+            ),
+            _notification(
+                "session/update",
+                {
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "messageId": "m1",
+                        "content": {"type": "text", "text": "signups."},
+                    }
+                },
+            ),
+            _agent_final("You had 412 signups.", final_message_id),
+        ]
+
+        transcript = build_turn_transcript(entries)
+
+        assert transcript.assistant_text == "You had 412 signups."
+
+    def test_builtin_tools_keep_their_name_and_a_preview_of_their_input(self):
+        entries = [_user_message("q"), _builtin_tool_call("t1", "Bash", {"command": "ls -la", "timeout": 5})]
+
+        transcript = build_turn_transcript(entries)
+
+        assert [(call.name, call.args_preview, call.from_posthog) for call in transcript.tool_calls] == [
+            ("Bash", "ls -la", False)
+        ]
+
     def test_only_the_turn_after_the_last_user_message_is_kept(self):
         entries = [
             *_metric_turn(),
@@ -181,6 +248,96 @@ class TestBuildTurnTranscript(SimpleTestCase):
         assert "How many signups did we get this week?" in prompt
         assert "- query-trends [completed]: " in prompt
         assert "posthog_untrusted_context" not in prompt
+
+
+def _gateway_reply(payload: dict) -> MagicMock:
+    client = MagicMock()
+    client.with_options.return_value = client
+    client.chat.completions.create.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content=json.dumps(payload)))]
+    )
+    return client
+
+
+_REPLY = {
+    "intent": "metric_state",
+    "recurring": True,
+    "confidence": 0.9,
+    "title": "Get this every week in Slack",
+    "description": "A scout can rerun this each week.",
+    "scout_display_name": "Weekly signups",
+    "scout_description": "Counts signups weekly.",
+    "scout_prompt": "# Weekly signups",
+    "cadence": "weekly",
+    "notebook_title": "",
+    "notebook_summary": "",
+}
+
+
+class TestClassifyTurn(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("recurring_metric", _REPLY, "scout"),
+            (
+                "diagnostic",
+                {
+                    **_REPLY,
+                    "intent": "diagnostic",
+                    "recurring": False,
+                    "scout_prompt": "",
+                    "notebook_title": "Why signups dropped",
+                    "notebook_summary": "A checkout error.",
+                },
+                "notebook",
+            ),
+            ("knowledge", {**_REPLY, "intent": "knowledge", "recurring": False, "scout_prompt": ""}, None),
+        ]
+    )
+    def test_maps_the_gateway_reply_onto_an_offer(self, _name: str, reply: dict, offer: str | None):
+        client = _gateway_reply(reply)
+
+        with patch("products.posthog_ai.backend.turn_suggestions.classifier.get_llm_client", return_value=client):
+            verdict = classify_turn(build_turn_transcript(_metric_turn()), team_id=1, today=date(2026, 9, 16))
+
+        assert verdict is not None
+        assert verdict.offers_scout is (offer == "scout")
+        assert verdict.offers_notebook is (offer == "notebook")
+        request = client.chat.completions.create.call_args.kwargs
+        assert request["model"] == CLASSIFIER_MODEL
+        assert request["response_format"]["json_schema"]["strict"] is True
+
+    @parameterized.expand([("prose", "I cannot tell."), ("invalid_shape", json.dumps({"intent": "metric_state"}))])
+    def test_unusable_replies_return_none(self, _name: str, content: str):
+        client = _gateway_reply({})
+        client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=MagicMock(content=content))])
+
+        with patch("products.posthog_ai.backend.turn_suggestions.classifier.get_llm_client", return_value=client):
+            assert classify_turn(build_turn_transcript(_metric_turn()), team_id=1, today=date(2026, 9, 16)) is None
+
+
+class TestEnqueueTurnSuggestion(BaseTest):
+    def _run(self, origin_product: str, mode: str):
+        task = Task.objects.create(
+            team=self.team, title="t", description="d", origin_product=origin_product, created_by=self.user
+        )
+        return task.create_run(mode=mode)
+
+    @parameterized.expand(
+        [
+            ("posthog_ai_interactive", Task.OriginProduct.POSTHOG_AI, "interactive", True),
+            ("posthog_ai_background", Task.OriginProduct.POSTHOG_AI, "background", False),
+            ("other_product", Task.OriginProduct.USER_CREATED, "interactive", False),
+        ]
+    )
+    def test_only_interactive_posthog_ai_runs_are_classified(self, _name: str, origin: str, mode: str, expected: bool):
+        task_run = self._run(origin, mode)
+
+        with patch("products.posthog_ai.backend.tasks.generate_turn_suggestion_task.delay") as delay:
+            assert enqueue_turn_suggestion(task_run) is expected
+
+        assert delay.called is expected
+        if expected:
+            assert delay.call_args.kwargs == {"run_id": str(task_run.id)}
 
 
 class TestGenerateTurnSuggestion(BaseTest):
@@ -287,6 +444,25 @@ class TestGenerateTurnSuggestion(BaseTest):
 
         assert outcome.reason == reason
         self.mocks["classify"].assert_not_called()
+
+    def test_falls_back_to_the_stored_log_when_the_live_stream_is_gone(self):
+        self.mocks["stream"].return_value = []
+        log_lines = "\n".join(json.dumps(entry) for entry in _metric_turn()) + "\nnot json\n"
+
+        with patch(f"{SERVICE}.read_task_run_logs", return_value=log_lines):
+            outcome = generate_turn_suggestion(str(self.task_run.id))
+
+        assert outcome.status == "emitted"
+        transcript = self.mocks["classify"].call_args.args[0]
+        assert transcript.last_human_message == "How many signups did we get this week?"
+
+    def test_classifier_failure_is_recorded_and_not_published(self):
+        self.mocks["classify"].return_value = None
+
+        outcome = generate_turn_suggestion(str(self.task_run.id))
+
+        assert outcome == TurnSuggestionOutcome(status="failed", reason="classifier_failed")
+        self.mocks["publish"].assert_not_called()
 
     def test_second_report_of_the_same_turn_is_deduplicated(self):
         self.mocks["redis"].return_value.set.return_value = False

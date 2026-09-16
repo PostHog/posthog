@@ -1,6 +1,12 @@
 import type { SignalScoutCreateApi } from 'products/signals/frontend/generated/api.schemas'
 
-import type { ScoutSuggestionCadence, ScoutTurnSuggestion, TurnSuggestion } from '../types/streamTypes'
+import type {
+    NotebookSuggestionDraft,
+    ScoutSuggestionCadence,
+    ScoutSuggestionDraft,
+    ScoutTurnSuggestion,
+    TurnSuggestion,
+} from '../types/streamTypes'
 import type { PosthogTurnSuggestionParams } from '../types/wireTypes'
 
 const CADENCES: readonly ScoutSuggestionCadence[] = ['daily', 'weekly']
@@ -29,6 +35,25 @@ const FALLBACK_COPY: Record<TurnSuggestion['kind'], { title: string; description
     },
 }
 
+function parseScoutDraft(scout: PosthogTurnSuggestionParams['scout']): ScoutSuggestionDraft | null {
+    if (!scout || !nonEmptyString(scout.displayName) || !nonEmptyString(scout.body) || !isCadence(scout.cadence)) {
+        return null
+    }
+    return {
+        displayName: scout.displayName,
+        description: nonEmptyString(scout.description) ? scout.description : '',
+        body: scout.body,
+        cadence: scout.cadence,
+    }
+}
+
+function parseNotebookDraft(notebook: PosthogTurnSuggestionParams['notebook']): NotebookSuggestionDraft | null {
+    if (!notebook || !nonEmptyString(notebook.title)) {
+        return null
+    }
+    return { title: notebook.title, summary: nonEmptyString(notebook.summary) ? notebook.summary : '' }
+}
+
 /** Narrows a `_posthog/turn_suggestion` frame; anything the card cannot act on is dropped. */
 export function parseTurnSuggestionParams(params: unknown): TurnSuggestion | null {
     if (!params || typeof params !== 'object') {
@@ -50,28 +75,11 @@ export function parseTurnSuggestionParams(params: unknown): TurnSuggestion | nul
         description: nonEmptyString(description) ? description : FALLBACK_COPY[kind].description,
     }
     if (kind === 'scout') {
-        if (!scout || !nonEmptyString(scout.displayName) || !nonEmptyString(scout.body) || !isCadence(scout.cadence)) {
-            return null
-        }
-        return {
-            ...base,
-            kind,
-            scout: {
-                displayName: scout.displayName,
-                description: nonEmptyString(scout.description) ? scout.description : '',
-                body: scout.body,
-                cadence: scout.cadence,
-            },
-        }
+        const draft = parseScoutDraft(scout)
+        return draft ? { ...base, kind, scout: draft } : null
     }
-    if (!notebook || !nonEmptyString(notebook.title)) {
-        return null
-    }
-    return {
-        ...base,
-        kind,
-        notebook: { title: notebook.title, summary: nonEmptyString(notebook.summary) ? notebook.summary : '' },
-    }
+    const draft = parseNotebookDraft(notebook)
+    return draft ? { ...base, kind, notebook: draft } : null
 }
 
 /** Five-field cron in the project timezone: 09:00 every day, or 09:00 every Monday. */

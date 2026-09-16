@@ -165,13 +165,27 @@ def build_turn_transcript(entries: list[dict[str, Any]]) -> TurnTranscript:
     """
     human_messages: list[str] = []
     prompt_fallbacks: list[str] = []
-    assistant_parts: list[str] = []
+    # Assistant text by message id, in arrival order. Chunks append; a closing `agent_message`
+    # carries the whole text and replaces them, matching how the thread fold finalizes a bubble.
+    assistant_messages: dict[str, str] = {}
     tool_calls: dict[str, _ToolCallAccumulator] = {}
 
     def start_turn(text: str) -> None:
         human_messages.append(text)
-        assistant_parts.clear()
+        assistant_messages.clear()
         tool_calls.clear()
+
+    def record_assistant_text(update: dict[str, Any], text: str, *, final: bool) -> None:
+        message_id = update.get("messageId")
+        key = message_id if isinstance(message_id, str) and message_id else "current"
+        if final:
+            # The wire is not consistent about carrying the id on the finalize, so it closes the
+            # last open message when its own id is unknown.
+            if key == "current" and assistant_messages:
+                key = next(reversed(assistant_messages))
+            assistant_messages[key] = text
+            return
+        assistant_messages[key] = assistant_messages.get(key, "") + text
 
     for entry in entries:
         notification = entry.get("notification")
@@ -202,7 +216,7 @@ def build_turn_transcript(entries: list[dict[str, Any]]) -> TurnTranscript:
             content = update.get("content")
             chunk = content.get("text") if isinstance(content, dict) and content.get("type") == "text" else None
             if isinstance(chunk, str) and chunk:
-                assistant_parts.append(chunk)
+                record_assistant_text(update, chunk, final=kind == "agent_message")
             continue
         if kind not in {"tool_call", "tool_call_update"}:
             continue
@@ -226,7 +240,9 @@ def build_turn_transcript(entries: list[dict[str, Any]]) -> TurnTranscript:
 
     return TurnTranscript(
         human_messages=tuple(human_messages),
-        assistant_text=_truncate_text("".join(assistant_parts), ASSISTANT_TEXT_LIMIT),
+        assistant_text=_truncate_text(
+            "\n\n".join(text for text in assistant_messages.values() if text), ASSISTANT_TEXT_LIMIT
+        ),
         tool_calls=tuple(
             TranscriptToolCall(
                 name=accumulator.name or "unknown",

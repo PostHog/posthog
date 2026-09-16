@@ -4011,21 +4011,28 @@ def read_task_run_stream_entries(run_id: str | UUID) -> list[dict]:
 
 
 def publish_task_run_stream_notification(run_id: str | UUID, method: str, params: dict) -> bool:
-    """Write a server-originated ``_posthog/*`` notification into the run's live stream.
+    """Write a server-originated ``_posthog/*`` notification to the run's live stream and its S3 log.
 
-    Reaches the thread the way an agent-server frame would; it is not appended to the S3 log, so a
-    reload after the stream expires does not replay it.
+    The live write reaches connected threads the way an agent-server frame would; the log append is
+    what a later bootstrap replays, so the frame survives the stream's expiry. Returns whether the
+    live write landed; a failed log append is logged and does not fail the call.
     """
-    from products.tasks.backend.logic.stream.redis_stream import (
-        publish_task_run_stream_event,  # noqa: PLC0415 — keep redis off the api import path
+    from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 — keep redis off the api import path
+        publish_task_run_stream_event,
     )
     from products.tasks.backend.redis import (
         run_uses_dedicated_stream,  # noqa: PLC0415 — keep redis off the api import path
     )
 
+    run = TaskRun.objects.filter(id=run_id).first()
+    if run is None:
+        return False
     event = {"type": "notification", "notification": {"method": method, "params": params}}
-    state = TaskRun.objects.filter(id=run_id).values_list("state", flat=True).first()
-    stream_id = publish_task_run_stream_event(str(run_id), event, run_uses_dedicated_stream(state))
+    stream_id = publish_task_run_stream_event(str(run_id), event, run_uses_dedicated_stream(run.state))
+    try:
+        run.append_log([event], lock_attempts=1)
+    except Exception:
+        logger.warning("task_run_stream_notification_log_append_failed run_id=%s", run_id, exc_info=True)
     return stream_id is not None
 
 
