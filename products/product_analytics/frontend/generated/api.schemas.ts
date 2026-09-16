@@ -5556,6 +5556,10 @@ export interface ExperimentVariantResultFrequentistApi {
     covariate_sum?: number | null
     covariate_sum_product?: number | null
     covariate_sum_squares?: number | null
+    /** True when CUPED variance reduction shaped `delta` and the interval, so neither matches the raw sums. */
+    cuped_adjusted?: boolean | null
+    /** Relative difference against the baseline, as estimated by the test that produced the interval. */
+    delta?: number | null
     denominator_sum?: number | null
     denominator_sum_squares?: number | null
     key: string
@@ -5573,10 +5577,16 @@ export interface ExperimentVariantResultFrequentistApi {
 
 export interface ExperimentVariantResultBayesianApi {
     chance_to_win?: number | null
+    /** Credible level the `significant` decision used, so the frontend can print `chance_to_win` consistently with it. */
+    ci_level?: number | null
     covariate_sum?: number | null
     covariate_sum_product?: number | null
     covariate_sum_squares?: number | null
     credible_interval?: number[] | null
+    /** True when CUPED variance reduction shaped `delta` and the interval, so neither matches the raw sums. */
+    cuped_adjusted?: boolean | null
+    /** Relative difference against the baseline, as estimated by the test that produced the interval. */
+    delta?: number | null
     denominator_sum?: number | null
     denominator_sum_squares?: number | null
     key: string
