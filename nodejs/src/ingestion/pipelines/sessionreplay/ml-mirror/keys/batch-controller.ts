@@ -20,7 +20,7 @@ export interface MlRecordingKey extends SessionKey {
     mlIdentity: MlKeyIdentity
 }
 
-export class MlPrivacyBatchController implements KeyStore, RecordingEncryptor {
+export class MlKeyBatchController implements KeyStore, RecordingEncryptor {
     private readonly publish = pLimit(8)
     private batch?: MlKeyBatch
     private deferred: Array<(sideEffects: (promises: Promise<unknown>[]) => Promise<void>) => Promise<void>> = []

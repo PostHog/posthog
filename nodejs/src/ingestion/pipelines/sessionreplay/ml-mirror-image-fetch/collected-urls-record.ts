@@ -2,8 +2,8 @@ import type { UrlPolicyDecline } from '@posthog/replay-anonymizer'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
-import type { MlDataKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/crypto'
-import { identityDigest } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/schema'
+import type { MlDataKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/crypto'
+import { identityDigest } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
 
 import { ImageFetchBlockReason, isImageFetchBlockReason } from './block-reason'
 import { tryCanonicalizeUrl } from './politeness-key'

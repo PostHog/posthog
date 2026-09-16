@@ -1,6 +1,6 @@
 import { Counter, Histogram } from 'prom-client'
 
-import { MlWireVersion } from './privacy/schema'
+import { MlWireVersion } from './keys/schema'
 
 export type MlProducedLane = 'image' | 'url' | 'metadata'
 

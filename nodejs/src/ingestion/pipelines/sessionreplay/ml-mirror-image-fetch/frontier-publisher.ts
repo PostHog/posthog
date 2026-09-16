@@ -2,7 +2,7 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
 import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-transport'
-import { encryptedKafkaValue } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/transport'
+import { encryptedKafkaValue } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
 
 import {
     FetchCandidate,
