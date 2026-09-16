@@ -1,5 +1,6 @@
 ---
 name: signals-scout-health-checks
+scout-display-name: Health checks
 description: >
   Signals scout over PostHog's own health checks. Bundles the project's active health issues by
   kind, weights them by blast radius, and surfaces the ones worth acting on.
