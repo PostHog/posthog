@@ -93,9 +93,10 @@ def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) ->
     table from Team, so re-stamping per team would be an N+1.
     """
     teams = get_teams_generic(REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
-    if not teams:
-        return CacheRefreshCounts(successful=0, failed=0)
-
+    # An empty run falls through to the push below rather than returning early, because
+    # Pushgateway keeps serving the last value pushed: skipping the push would latch a
+    # drained backlog at whatever the last busy run saw. Django resolves `team__in=[]`
+    # without a query, so the fall-through costs an empty run nothing.
     team_by_id = {team.id: team for team in teams}
     configs = dict(RemoteConfig.objects.filter(team__in=teams).values_list("team_id", "config"))
 
@@ -123,6 +124,8 @@ def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) ->
         # This sweep is a fork of `refresh_expiring_caches` (it batch-loads configs to
         # avoid an N+1), so the backlog gauge the generic sweep pushes has to be passed
         # here too. Without it this cache is the one hole in a fleet-wide series.
+        # Unbounded by `limit`, so a backlog of entries for deleted teams still reads as
+        # saturation on a run that resolved no teams to refresh.
         expiry_backlog=count_expiring_caches(REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours),
     )
     return CacheRefreshCounts(successful=successful, failed=failed)

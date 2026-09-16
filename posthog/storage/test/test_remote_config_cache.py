@@ -79,13 +79,22 @@ class TestRefreshExpiringRemoteConfigCaches(BaseTest):
         _, kwargs = mock_hypercache.set_cache_value_redis_only.call_args
         assert kwargs["track_expiry"] is True
 
+    @patch("posthog.storage.remote_config_cache.push_hypercache_teams_processed_metrics")
     @patch("posthog.storage.cache_expiry_manager.get_client")
-    def test_returns_zero_when_nothing_expiring(self, mock_get_client):
+    def test_an_empty_run_still_reports_its_counts_and_backlog(self, mock_get_client, mock_push):
         mock_redis = MagicMock()
         mock_get_client.return_value = mock_redis
         mock_redis.zrangebyscore.return_value = []
+        mock_redis.zcount.return_value = 0
 
         assert refresh_expiring_caches(ttl_threshold_hours=24) == CacheRefreshCounts(successful=0, failed=0)
+
+        # Pushgateway keeps serving the last value pushed, so a run that returned before
+        # pushing would leave a drained backlog reading as the last busy run's count.
+        push_kwargs = mock_push.call_args.kwargs
+        assert push_kwargs["successful"] == 0
+        assert push_kwargs["failed"] == 0
+        assert push_kwargs["expiry_backlog"] == 0
 
 
 class TestCleanupStaleRemoteConfigExpiryTracking(BaseTest):
