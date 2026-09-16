@@ -9856,7 +9856,7 @@
         }
     },
     "scout-config-list": {
-        "description": "List the per-scout configs for this project. Each scout has one row with its schedule (rolling `run_interval_minutes`, or a project-local cron `run_cron_schedule` when set), `enabled` flag, and `emit` (dry-run) posture, and output destinations. A freshly authored scout appears once its config is registered: immediately via `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run, how often, whether they emit findings to the inbox, and where those findings are delivered. Pair with `scout-config-update` to tune them.",
+        "description": "List the per-scout configs for this project. Each scout has one row with the `display_name` people read, the `skill_name` that is its permanent identity, its schedule (rolling `run_interval_minutes`, or a project-local cron `run_cron_schedule` when set), `enabled` flag, and `emit` (dry-run) posture, and output destinations. A freshly authored scout appears once its config is registered: immediately via `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run, how often, whether they emit findings to the inbox, and where those findings are delivered. Pass `search` to narrow the list to the scouts matching a substring of either name. Pair with `scout-config-update` to tune them.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List scout configs",
@@ -9898,7 +9898,7 @@
         }
     },
     "scout-create": {
-        "description": "Create a custom scout skill and its runnable config in one atomic call. Any valid skill name works and the `signals-scout-` prefix is optional. Pass the complete markdown prompt in `body`; include project-specific event or signal names, thresholds, investigation steps, and report criteria there. The server always grants the report-channel tools. Optional `files` bundle reference material, while `config` controls the rolling or cron schedule, enabled and dry-run posture, and typed output destinations such as Slack (a channel to post into, or users to DM directly). Repeating the same definition is safe and applies any supplied config fields. Reusing the name for a different definition returns a conflict.",
+        "description": "Create a custom scout skill and its runnable config in one atomic call. Give it a `display_name`, the label people read, kept exactly as written, and the server generates the scout's permanent skill name from it, adding a numeric suffix when that name is taken, so two scouts may share a label without sharing an identity. Pass `name` instead to choose that identifier yourself; any valid skill name works and the `signals-scout-` prefix is optional. Pass the complete markdown prompt in `body`; include project-specific event or signal names, thresholds, investigation steps, and report criteria there. The server always grants the report-channel tools. Optional `files` bundle reference material, while `config` controls the rolling or cron schedule, enabled and dry-run posture, and typed output destinations such as Slack (a channel to post into, or users to DM directly). Repeating the same definition is safe and applies any supplied config fields. Reusing an explicit `name` for a different definition returns a conflict.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Create a scout",
