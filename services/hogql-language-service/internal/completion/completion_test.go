@@ -173,6 +173,9 @@ func TestCompletesFieldsForAlias(t *testing.T) {
 		{"warehouse qualifier", "WITH recent AS (SELECT uuid AS synced_id FROM events) SELECT synced_| FROM postgres.synced.orders JOIN recent ON 1 = 1", []Suggestion{
 			{Label: "synced_id", Detail: "string from postgres__synced__orders", InsertText: "postgres__synced__orders.synced_id"}, {Label: "synced_id", Detail: "string from recent", InsertText: "recent.synced_id"},
 		}},
+		{"quoted warehouse segment", "WITH recent AS (SELECT uuid AS synced_id FROM events) SELECT synced_| FROM `postgres.synced`.orders JOIN recent ON 1 = 1", []Suggestion{
+			{Label: "synced_id", Detail: "string from `postgres.synced__orders`", InsertText: "`postgres.synced__orders`.synced_id"}, {Label: "synced_id", Detail: "string from recent", InsertText: "recent.synced_id"},
+		}},
 		{"quoted field", "WITH t AS (SELECT uuid AS `user id` FROM events) SELECT us| FROM t AS a JOIN t AS b ON 1 = 1", []Suggestion{
 			{Label: "user id", Detail: "string from a", InsertText: "a.`user id`"}, {Label: "user id", Detail: "string from b", InsertText: "b.`user id`"},
 		}},
@@ -235,8 +238,8 @@ func TestCompletesFieldsForAlias(t *testing.T) {
 						t.Errorf("inserted query %q is invalid: %#v", completed, checked)
 					}
 				}
-				if index > 0 && fields[index-1].Label == actual.Label && fields[index-1].SortText == actual.SortText {
-					t.Errorf("indistinguishable sort keys: %#v", fields)
+				if index > 0 && fields[index-1].SortText >= actual.SortText {
+					t.Errorf("sort keys disagree with page order: %#v", fields)
 				}
 			}
 		})
@@ -755,6 +758,7 @@ func TestCompleteContextualCatalogStaysWithinLatencyBudget(t *testing.T) {
 		callsPerSample int
 	}{
 		{name: "contextual catalog", query: "SELECT countD FROM table_0500", position: len("SELECT countD"), callsPerSample: 100},
+		{name: "joined fields", query: "SELECT column_ FROM table_0500 AS a JOIN table_0500 AS b ON 1 = 1", position: len("SELECT column_"), callsPerSample: 100},
 		{name: "adversarial interval expression", query: intervalQuery, position: len(intervalQuery), callsPerSample: 20},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -807,6 +811,7 @@ func BenchmarkCompleteContextualCatalog(b *testing.B) {
 	}{
 		{name: "operator", query: "SELECT * FROM table_0500 WHERE column_10 ", position: len("SELECT * FROM table_0500 WHERE column_10 ")},
 		{name: "function prefix", query: "SELECT countD FROM table_0500", position: len("SELECT countD")},
+		{name: "joined fields", query: "SELECT column_ FROM table_0500 AS a JOIN table_0500 AS b ON 1 = 1", position: len("SELECT column_")},
 		{name: "repeated interval", query: "SELECT * FROM table_0500 WHERE column_10 BETWEEN " + strings.Repeat("INTERVAL ", 1000) + "1 DAY ", position: len("SELECT * FROM table_0500 WHERE column_10 BETWEEN ") + len("INTERVAL ")*1000 + len("1 DAY ")},
 	} {
 		b.Run(benchmark.name, func(b *testing.B) {

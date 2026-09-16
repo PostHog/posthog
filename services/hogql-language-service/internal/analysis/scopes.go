@@ -196,7 +196,7 @@ func normalizeHogQLTableReferences(query string) (string, map[string]string) {
 	return string(normalized), originalNames
 }
 
-func tableReference(expr *clickhouse.TableExpr) (name, alias string, start, end int, qualified, ok bool) {
+func tableReference(expr *clickhouse.TableExpr) (name, alias, implicitAlias string, start, end int, ok bool) {
 	node := expr.Expr
 	if aliased, isAlias := node.(*clickhouse.AliasExpr); isAlias {
 		node = aliased.Expr
@@ -206,13 +206,15 @@ func tableReference(expr *clickhouse.TableExpr) (name, alias string, start, end 
 	}
 	identifier, isTable := node.(*clickhouse.TableIdentifier)
 	if !isTable || identifier.Table == nil {
-		return "", "", 0, 0, false, false
+		return "", "", "", 0, 0, false
 	}
 	name = identifier.Table.Name
+	implicitAlias = name
 	if identifier.Database != nil {
 		name = identifier.Database.Name + "." + name
+		implicitAlias = identifier.Database.Name + "__" + identifier.Table.Name
 	}
-	return name, alias, int(identifier.Pos()), int(identifier.End()), identifier.Database != nil, true
+	return name, alias, implicitAlias, int(identifier.Pos()), int(identifier.End()), true
 }
 
 func bindSubquery(expr *clickhouse.TableExpr, scopes []*queryScope, budget *projectionBudget) bool {

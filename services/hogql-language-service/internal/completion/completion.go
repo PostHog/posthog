@@ -174,8 +174,11 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 	})
 	for index := range suggestions {
 		suggestions[index].SortText = strconv.Itoa(suggestionRank(suggestions[index].Kind)) + "-" + strings.ToLower(suggestions[index].Label)
-		if suggestions[index].Kind == "field" && suggestions[index].InsertText != "" {
-			suggestions[index].SortText += "-" + suggestions[index].InsertText
+		if suggestions[index].Kind == "field" {
+			suggestions[index].SortText += "-" + suggestions[index].Label
+			if suggestions[index].InsertText != "" {
+				suggestions[index].SortText += "-" + suggestions[index].InsertText
+			}
 		}
 	}
 	result := Result{Suggestions: suggestions, Total: len(suggestions)}

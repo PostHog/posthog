@@ -97,7 +97,7 @@ func (s *Statement) analyze() {
 		if bindSubquery(expr, s.scopes, s.budget) {
 			return true
 		}
-		name, alias, start, end, qualified, ok := tableReference(expr)
+		name, alias, implicitAlias, start, end, ok := tableReference(expr)
 		if !ok {
 			return true
 		}
@@ -111,13 +111,14 @@ func (s *Statement) analyze() {
 		}
 		if original, exists := s.originalTableNames[strings.ToLower(name)]; exists {
 			name = original
+			implicitAlias = strings.ReplaceAll(original, ".", "__")
 		}
 		table, exists := s.schema.Table(name)
 		s.tables = append(s.tables, TableReference{Name: name, Start: start, End: end, Known: exists})
 		if exists {
-			if alias == "" && qualified {
+			if alias == "" && implicitAlias != name {
 				// HogQL registers multi-part table paths under a double-underscore alias.
-				alias = strings.ReplaceAll(name, ".", "__")
+				alias = implicitAlias
 			}
 			addBinding(scope, name, alias, Relation{name: name, table: table})
 		}
