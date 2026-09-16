@@ -30,7 +30,7 @@ MATERIALIZED_VIEW = "daily_totals_mv"
 
 
 @pytest.fixture
-def materialized_view() -> Iterator[None]:
+def materialized_view(db: None) -> Iterator[None]:
     with psycopg.connect(_get_test_database_url(), autocommit=True) as conn:
         conn.execute(f"DROP SCHEMA IF EXISTS {SCHEMA} CASCADE")
         conn.execute(f"CREATE SCHEMA {SCHEMA}")

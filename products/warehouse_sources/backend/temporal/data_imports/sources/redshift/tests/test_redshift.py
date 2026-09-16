@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, call, patch
@@ -456,17 +457,27 @@ class TestGetTableMetadata:
 
         assert table.type == "view"
 
-    def test_populates_numeric_precision_and_scale_for_decimals(self, impl, cursor):
+    @pytest.mark.parametrize(
+        "catalog_precision,catalog_scale,expected",
+        [
+            (10, 2, (10, 2)),
+            # `numeric(18,0)` reports a scale of 0, which is a value, not a missing one: swapping it
+            # for the default made `decimal128(18,18)`, which cannot hold an integer.
+            (18, 0, (18, 0)),
+            (None, None, (38, 18)),
+        ],
+    )
+    def test_populates_numeric_precision_and_scale_for_decimals(
+        self, impl, cursor, catalog_precision, catalog_scale, expected
+    ):
         cursor.execute.return_value = cursor
         cursor.fetchone.return_value = (False,)
-        cursor.__iter__.return_value = iter(
-            [
-                ("amount", "decimal", "NO", 10, 2),
-            ]
-        )
+        cursor.__iter__.return_value = iter([("amount", "decimal", "NO", catalog_precision, catalog_scale)])
+
         table = impl.get_table_metadata(cursor, "public", "orders")
-        assert table.columns[0].numeric_precision == 10
-        assert table.columns[0].numeric_scale == 2
+
+        assert (table.columns[0].numeric_precision, table.columns[0].numeric_scale) == expected
+        assert str(table.columns[0].to_arrow_field().type) == f"decimal128({expected[0]}, {expected[1]})"
 
     def test_reads_columns_from_pg_catalog_when_information_schema_hides_the_relation(self, impl, cursor):
         # Without the fallback a materialized view the role can read but `information_schema`
@@ -477,6 +488,7 @@ class TestGetTableMetadata:
         cursor.fetchall.return_value = [
             ("public", "daily_totals", "day", "date", "NO"),
             ("public", "daily_totals", "total", "numeric(18,2)", "YES"),
+            ("public", "daily_totals", "units", "numeric(18)", "YES"),
         ]
 
         table = impl.get_table_metadata(cursor, "public", "daily_totals")
@@ -485,8 +497,9 @@ class TestGetTableMetadata:
         assert [(c.name, c.data_type, c.nullable) for c in table.columns] == [
             ("day", "date", False),
             ("total", "numeric", True),
+            ("units", "numeric", True),
         ]
-        assert (table.columns[1].numeric_precision, table.columns[1].numeric_scale) == (18, 2)
+        assert [(c.numeric_precision, c.numeric_scale) for c in table.columns[1:]] == [(18, 2), (18, 0)]
         catalog_sql, catalog_params = cursor.execute.call_args.args
         assert "pg_catalog.pg_attribute" in catalog_sql
         assert catalog_params == {"schema": "public", "table": "daily_totals", "internal_column": "padb_internal%"}
@@ -965,8 +978,7 @@ class TestHasDuplicatePrimaryKeys:
 # ---------------------------------------------------------------------------
 
 
-def _columns_conn(*fetches: list) -> tuple[MagicMock, MagicMock]:
-    """A connection whose cursor answers successive `fetchall` calls with `fetches`, then nothing."""
+def _columns_conn(*fetches: list[tuple[Any, ...]]) -> tuple[MagicMock, MagicMock]:
     conn = MagicMock()
     cur = MagicMock()
     cur.__enter__.return_value = cur

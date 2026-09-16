@@ -816,7 +816,7 @@ class RedshiftColumn(Column):
             case "smallint" | "int2":
                 arrow_type = pa.int16()
             case "numeric" | "decimal":
-                if not self.numeric_precision or not self.numeric_scale:
+                if self.numeric_precision is None or self.numeric_scale is None:
                     raise TypeError("expected `numeric_precision` and `numeric_scale` to be `int`, got `NoneType`")
                 arrow_type = build_pyarrow_decimal_type(self.numeric_precision, self.numeric_scale)
             case "real" | "float4":
@@ -1022,7 +1022,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         cursor: Any,
         selected_schema: Optional[str],
         names: list[str] | None,
-        listed: list[Any],
+        listed: list[tuple[Any, ...]],
     ) -> list[str]:
         """Display names that `information_schema.columns` returned no rows for, but that should exist.
 
@@ -1526,8 +1526,10 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         columns = []
         for row in rows:
             if row.data_type in numeric_data_types:
-                numeric_precision = row.numeric_precision or DEFAULT_NUMERIC_PRECISION
-                numeric_scale = row.numeric_scale or DEFAULT_NUMERIC_SCALE
+                numeric_precision = (
+                    row.numeric_precision if row.numeric_precision is not None else DEFAULT_NUMERIC_PRECISION
+                )
+                numeric_scale = row.numeric_scale if row.numeric_scale is not None else DEFAULT_NUMERIC_SCALE
             else:
                 numeric_precision = None
                 numeric_scale = None
