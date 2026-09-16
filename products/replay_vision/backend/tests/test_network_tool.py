@@ -36,7 +36,7 @@ def _payload(*offsets_s: int, captured: bool = True) -> SessionNetworkPayload:
     )
 
 
-@dataclass
+@dataclass(frozen=True)
 class _Call:
     name: str
     args: dict[str, Any]
