@@ -10507,6 +10507,10 @@ export const DashboardTemplatesListScope = {
 
 export type DashboardsListParams = {
     /**
+     * Optional. Exclude dashboards that PostHog generated.
+     */
+    exclude_generated?: boolean
+    /**
      * Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included.
      */
     folder?: string

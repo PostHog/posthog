@@ -63,6 +63,7 @@ export const DashboardsListParams = () => zod.object({
 })
 
 export const DashboardsListQueryParams = () => zod.object({
+    exclude_generated: zod.boolean().optional().describe('Optional. Exclude dashboards that PostHog generated.'),
     folder: zod
         .string()
         .optional()

@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import type { DashboardBasicApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
@@ -12,7 +14,6 @@ import { pinnedDashboardsModel } from '~/models/pinnedDashboardsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { DashboardBasicType } from '~/types'
 
 import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
@@ -93,7 +94,7 @@ describe('aiFirstHomepageLogic', () => {
                 id: index,
                 name: `Dashboard ${index}`,
                 pinned: true,
-            })) as DashboardBasicType[]
+            })) as DashboardBasicApi[]
         )
         recentItemsModel.actions.loadRecentsSuccess(createFileSystemEntries('Recent'))
 

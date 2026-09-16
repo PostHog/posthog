@@ -2,6 +2,8 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import type { DashboardBasicApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
+
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { navigateToHref } from 'lib/utils/navigateToHref'
 import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
@@ -20,7 +22,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'
-import { Conversation, ConversationType, DashboardBasicType, SidePanelTab } from '~/types'
+import { Conversation, ConversationType, SidePanelTab } from '~/types'
 
 import type { ConversationDetail, TeamPublicType, TeamType } from '../../../types'
 import { HOMEPAGE_IDLE_DRAFT_KEY, HOMEPAGE_TAB_ID } from './constants'
@@ -107,7 +109,7 @@ export interface aiFirstHomepageLogicValues {
     conversationId: string | null // maxLogic
     threadLogicKey: string // maxLogic
     dashboardsLoading: boolean // pinnedDashboardsModel
-    pinnedDashboards: DashboardBasicType[] // pinnedDashboardsModel
+    pinnedDashboards: DashboardBasicApi[] // pinnedDashboardsModel
     cachedRecents: FileSystemEntry[] // recentItemsModel
     recentsHasLoaded: boolean // recentItemsModel
     homepage: SceneTab | null // sceneLogic
@@ -215,7 +217,7 @@ export interface aiFirstHomepageLogicMeta {
         ) => boolean
         mode: (layoutState: LayoutState) => HomepageMode
         animationPhase: (layoutState: LayoutState) => AnimationPhase
-        pinnedDashboardItems: (pinnedDashboards: DashboardBasicType[]) => HomepageGridItem[]
+        pinnedDashboardItems: (pinnedDashboards: DashboardBasicApi[]) => HomepageGridItem[]
         gridItems: (
             pinnedDashboardItems: HomepageGridItem[],
             recentItems: FileSystemEntry[],
@@ -401,17 +403,8 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         ],
         pinnedDashboardItems: [
             (s) => [s.pinnedDashboards],
-            (
-                pinnedDashboards: (
-                    | DashboardBasicType
-                    | import('~/types').DashboardType<
-                          import('~/types').QueryBasedInsightModel<
-                              import('~/queries/schema/schema-general').Node<Record<string, any>>
-                          >
-                      >
-                )[]
-            ): HomepageGridItem[] => {
-                const toGridItem = (d: DashboardBasicType): HomepageGridItem => ({
+            (pinnedDashboards: DashboardBasicApi[]): HomepageGridItem[] => {
+                const toGridItem = (d: DashboardBasicApi): HomepageGridItem => ({
                     id: `dashboard-${d.id}`,
                     label: d.name || `Dashboard ${d.id}`,
                     href: urls.dashboard(d.id),

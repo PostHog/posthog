@@ -2463,6 +2463,12 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
                 location=OpenApiParameter.QUERY,
                 description="Optional. Return only pinned dashboards.",
             ),
+            OpenApiParameter(
+                "exclude_generated",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Exclude dashboards that PostHog generated.",
+            ),
         ],
     ),
     # Dashboards nest insight payloads via `tiles[].insight`, so the deprecated-`dashboards`-field

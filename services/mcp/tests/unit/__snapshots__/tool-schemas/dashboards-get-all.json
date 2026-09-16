@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "exclude_generated": {
+            "description": "Optional. Exclude dashboards that PostHog generated.",
+            "type": "boolean"
+        },
         "folder": {
             "description": "Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included.",
             "type": "string"

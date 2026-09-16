@@ -14,7 +14,7 @@ describe('pinnedDashboardsModel', () => {
         let dashboardId = 1
         useMocks({
             get: {
-                '/api/environments/:team_id/dashboards/': () => [
+                '/api/projects/:team_id/dashboards/': () => [
                     200,
                     { results: [{ id: dashboardId, name: `Dashboard ${dashboardId}` }] },
                 ],
