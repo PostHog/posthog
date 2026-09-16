@@ -211,7 +211,7 @@ test('a proto claims the consumers that generate from it rather than every lane'
     }
 
     const generatedDirs = [
-        'common/personhog_proto',
+        'packages/personhog-proto',
         'nodejs/src/common/generated/personhog',
         'rust/personhog-proto',
     ]
@@ -337,7 +337,7 @@ test('every proto tree is declared, with the crate that compiles it', () => {
 // stubs" and agrees with an empty domain list. The directory side catches that.
 test('every proto tree declaring a stub consumer has stubs there, and no other tree does', () => {
     const stubRoots = [
-        ['common/personhog_proto', PYTHON],
+        ['packages/personhog-proto', PYTHON],
         ['nodejs/src/common/generated', NODE],
     ]
     for (const [root, domain] of stubRoots) {

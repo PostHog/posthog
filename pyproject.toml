@@ -212,6 +212,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    { include-group = "proto-codegen" },
     "aioresponses==0.7.6",
     "autoevals==0.2.0",
     "boto3-stubs[s3]~=1.38.30",
@@ -236,7 +237,6 @@ dev = [
     "pyinstrument~=5.1",
     "pytest-rerunfailures~=16.1",
     "time-machine==3.5.0",
-    "grpcio-tools~=1.71.0",
     "ipython~=9.3.0",
     "mypy~=2.1.0",
     "mypy-extensions~=1.1.0",
@@ -264,7 +264,6 @@ dev = [
     "python-dateutil~=2.9.0",
     "requests-mock~=1.12.1",
     "responses==0.23.1",
-    "ruff~=0.15.20",
     "stpyv8==13.1.201.22; sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64')",
     "syrupy~=4.9.1",
     "tach~=0.34",
@@ -314,7 +313,7 @@ exclude-newer = "7 days"
 exclude-newer-package = { granian = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
 
 [tool.uv.workspace]
-members = ["tools/hogli", "tools/owners", "common/personhog_proto"]
+members = ["tools/hogli", "tools/owners", "packages/personhog-proto"]
 
 [tool.uv.sources]
 hogli = { workspace = true }
@@ -398,7 +397,7 @@ select = [
 [tool.ruff.lint.per-file-ignores]
 # protoc's _pb2.py files import dependencies for the side effect of loading their descriptors
 # into the pool before AddSerializedFile(). ruff must not strip or move those imports.
-"common/personhog_proto/**/*_pb2.py" = ["F401", "E402"]
+"packages/personhog-proto/**/*_pb2.py" = ["F401", "E402"]
 # deltalite's test suite bootstraps its harness/planner via sys.path (the package is a
 # maturin-built extension living under rust/, not part of the Django app), so imports
 # are necessarily lazy / post-path-insert (PLC0415, E402); the planner's small CLI
@@ -496,7 +495,7 @@ exclude_gitignore = true
 # (both resolve to top-level module "conftest")
 # rust/deltalite/python: pytest suite for the maturin-built extension; nothing Django
 # imports it and it has its own CI (ci-deltalite-python.yml).
-exclude = ["^(bin/.*|tools/.*|common/personhog_proto/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
+exclude = ["^(bin/.*|tools/.*|packages/personhog-proto/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"
@@ -533,7 +532,7 @@ exclude = [
     "bin/**",
     "manage.py",
     "posthog/hogql/grammar/**",
-    "common/personhog_proto/**",
+    "packages/personhog-proto/**",
     "posthog/schema.py",
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",

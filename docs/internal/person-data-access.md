@@ -60,5 +60,6 @@ Do not copy these patterns into new code: bulk hydration of persons with propert
 
 ## Related docs
 
+- [Personhog Python bindings](../../packages/personhog-proto/README.md) are installed by `uv sync`; regenerate them after changing the proto definitions.
 - [`posthog/personhog_client/README.md`](../../posthog/personhog_client/README.md) — client usage, routed helpers, testing with the fake client.
 - Direct ORM or raw SQL access to person tables is banned entirely; the personhog client README lists the covered tables.
