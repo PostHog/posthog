@@ -4,6 +4,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import posthog from 'lib/posthog-typed'
+import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -220,10 +221,12 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
             },
         ],
         // Persisted so a team with many scanners lands on the ones they follow instead of the whole
-        // fleet on every visit. Browser-local until per-user pins exist, so it does not cross devices.
+        // fleet on every visit. Keyed by team so a selection made on one team never carries into
+        // another team's feed, where those scanner ids do not exist and would hide every result.
+        // Browser-local until per-user pins exist, so it does not cross devices.
         scannerIdsFilter: [
             [] as string[],
-            { persist: true },
+            { persist: true, prefix: `${getCurrentTeamIdOrNone() ?? 'unknown'}__` },
             {
                 setScannerIdsFilter: (_, { scannerIds }) => scannerIds,
                 restoreFeedFilters: (_, { scannerIds }) => scannerIds,
@@ -232,7 +235,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
         ],
         tagsFilter: [
             [] as string[],
-            { persist: true },
+            { persist: true, prefix: `${getCurrentTeamIdOrNone() ?? 'unknown'}__` },
             {
                 setTagsFilter: (_, { tags }) => tags,
                 restoreFeedFilters: (_, { tags }) => tags,
