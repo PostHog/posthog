@@ -4,7 +4,7 @@ import {
     DynamoDBClient,
     PutItemCommand,
 } from '@aws-sdk/client-dynamodb'
-import { GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
+import { DecryptCommand, GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
 import { S3Client } from '@aws-sdk/client-s3'
 import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
@@ -77,20 +77,20 @@ describe('ML session key batches', () => {
     let store: MlSessionKeyStore
     let reader: MlKeyReader
     let generated: number
+    let kmsSend: jest.Mock
 
     beforeEach(() => {
         boundary = new DynamoBoundary()
         generated = 0
+        kmsSend = jest.fn((command) => {
+            if (command instanceof GenerateDataKeyCommand) {
+                const bytes = Buffer.alloc(32, ++generated)
+                return Promise.resolve({ Plaintext: bytes, CiphertextBlob: bytes })
+            }
+            return Promise.resolve({ Plaintext: command.input.CiphertextBlob })
+        })
         encryption = new MlKeyEncryption(
-            {
-                send: jest.fn((command) => {
-                    if (command instanceof GenerateDataKeyCommand) {
-                        const bytes = Buffer.alloc(32, ++generated)
-                        return Promise.resolve({ Plaintext: bytes, CiphertextBlob: bytes })
-                    }
-                    return Promise.resolve({ Plaintext: command.input.CiphertextBlob })
-                }),
-            } as unknown as KMSClient,
+            { send: kmsSend } as unknown as KMSClient,
             'test-key',
             1000,
             60000,
@@ -288,6 +288,37 @@ describe('ML session key batches', () => {
         await committing
         expect(inFlight.get(session.teamId, session.sessionId)).toBeUndefined()
         expect((await reader.read(locations)).size).toBe(0)
+    })
+
+    it('keeps using a key whose row names the organization the team used to belong to', async () => {
+        const first = await store.prepare([session])
+        await first.commit()
+        const location = tableKeyString(sessionKeyId(session.teamId, session.sessionId))
+        const stored = boundary.items.get(location)!
+        const moved = { ...session, organizationId: 'organization-new' }
+        encryption.clear()
+        const next = await store.prepare([moved])
+        const keys = next.get(moved.teamId, moved.sessionId)!
+        expect(keys.session.wrapped).toEqual(Buffer.from(stored.wrapped_key!.B!))
+        expect(keys.session.identity.organizationId).toBe(session.organizationId)
+        const unwrap = kmsSend.mock.calls
+            .map(([command]) => command)
+            .find((command) => command instanceof DecryptCommand)
+        expect(unwrap?.input.EncryptionContext?.organization_id).toBe(session.organizationId)
+        await next.commit()
+        expect(boundary.items.get(location)).toEqual(stored)
+    })
+
+    it('drops the sessions behind a stored key that has no wrapped key and no tombstone', async () => {
+        const first = await store.prepare([session])
+        await first.commit()
+        const location = tableKeyString(sessionKeyId(session.teamId, session.sessionId))
+        const { wrapped_key: _wrapped, ...stored } = boundary.items.get(location)!
+        boundary.items.set(location, stored)
+        const next = await store.prepare([session])
+        expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
+        await next.commit()
+        expect(boundary.items.get(location)).toEqual(stored)
     })
 
     it('adopts a competing writer key', async () => {
