@@ -40,6 +40,7 @@ def repo_path(tmp_path: Path) -> Path:
     (tmp_path / "a.py").write_text("x = 1\n")
     subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, env=env)
     subprocess.run(["git", "commit", "-q", "-m", "Init"], cwd=tmp_path, check=True, env=env)
+    subprocess.run(["git", "remote", "add", "origin", "https://github.com/o/r.git"], cwd=tmp_path, check=True, env=env)
     return tmp_path
 
 
@@ -97,3 +98,12 @@ def test_run_scan_fails_when_every_scout_fails(team, repo_path: Path) -> None:
         run_scan(request, scouts=(BrokenScout(),))
 
     assert ReaperInventory.objects.get(repository="o/r", scope="flags").status == "idle"
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_run_scan_refuses_a_checkout_it_cannot_match_to_the_repository(team, repo_path: Path, tmp_path: Path) -> None:
+    subprocess.run(["git", "remote", "remove", "origin"], cwd=repo_path, check=True)
+    request = ScanRequest(team_id=team.id, repository="o/r", scope="flags", repo_path=repo_path)
+
+    with pytest.raises(RuntimeError, match="no GitHub origin"):
+        run_scan(request, scouts=(StubScout(),))
