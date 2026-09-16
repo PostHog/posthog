@@ -149,14 +149,14 @@ async def test_each_tick_starts_independent_delivery(
                     if event.event_type == EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED
                 ]
                 assert len(evaluations) == 1
-                evaluation = evaluations[0]
-                assert evaluation.workflow_type.name == "alerts-product-check-due"
-                assert evaluation.task_queue.name == settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE
-                assert evaluation.workflow_execution_timeout.ToTimedelta() == dt.timedelta(seconds=40)
-                assert evaluation.retry_policy.maximum_attempts == 1
+                evaluation_event = evaluations[0]
+                assert evaluation_event.workflow_type.name == "alerts-product-check-due"
+                assert evaluation_event.task_queue.name == settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE
+                assert evaluation_event.workflow_execution_timeout.ToTimedelta() == dt.timedelta(seconds=40)
+                assert evaluation_event.retry_policy.maximum_attempts == 1
                 assert parent.first_execution_run_id is not None
-                assert parent.first_execution_run_id in evaluation.workflow_id
-                evaluation_handle = client.get_workflow_handle(evaluation.workflow_id)
+                assert parent.first_execution_run_id in evaluation_event.workflow_id
+                evaluation_handle = client.get_workflow_handle(evaluation_event.workflow_id)
                 evaluation_description = await evaluation_handle.describe()
                 assert evaluation_description.status == WorkflowExecutionStatus.COMPLETED
                 evaluation_run_id = evaluation_description.run_id
