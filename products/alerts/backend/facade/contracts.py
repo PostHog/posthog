@@ -14,6 +14,21 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 
+class SourceKind(StrEnum):
+    LOGS = "logs"
+    INSIGHT = "insight"
+
+
+@frozen
+class DemandDiscoveryInputs:
+    cutoff: str
+
+
+@frozen
+class AlertDemand:
+    configuration_ids_by_source: dict[SourceKind, list[str]]
+
+
 class DestinationType(StrEnum):
     SLACK = "slack"
     DISCORD = "discord"
