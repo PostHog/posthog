@@ -4,6 +4,7 @@ use std::time::Duration;
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use common_kafka::kafka_producer::create_kafka_producer;
+use common_metrics::tokio_monitor::TokioRuntimeMonitor;
 use common_metrics::{setup_metrics_routes_with_overrides, Matcher};
 use dashmap::DashMap;
 use envconfig::Envconfig;
@@ -138,6 +139,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let authority_metrics_handle = manager.register(
         "authority-metrics",
+        ComponentOptions::new().is_observability(true),
+    );
+    let tokio_monitor_handle = manager.register(
+        "tokio-runtime-monitor",
         ComponentOptions::new().is_observability(true),
     );
 
@@ -452,6 +457,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // One clock for the process: the coordination session claims and
     // surrenders it, the data plane reads it per request.
     let authority = Arc::new(AuthorityClock::unclaimed());
+
+    {
+        let handle = tokio_monitor_handle;
+        tokio::spawn(async move {
+            let _guard = handle.process_scope();
+            TokioRuntimeMonitor::new(
+                &tokio::runtime::Handle::current(),
+                "personhog_leader",
+                Duration::from_secs(5),
+            )
+            .run(handle.shutdown_signal())
+            .await;
+        });
+    }
+
     // Publish the live headroom whether or not the gate is armed: the
     // question before enabling it is how close this fleet routinely runs
     // to the margin, and that has to be answerable from a deployment
