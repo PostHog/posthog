@@ -32,6 +32,9 @@ class SnsProvider(WebhookProvider):
     # unconfigured one answers like a route that was never registered rather than confirming it
     # exists with a 500 a prober can flood the error logs with.
     unconfigured_status = 404
+    # SNS retries a delivery on a non-2xx, and a subscription whose confirmation callback failed
+    # stays unconfirmed until one is retried, so an unaccepted delivery must not be receipted.
+    retry_status = 502
 
     def __init__(self, *, app: str = "default", topic_arns_setting: str) -> None:
         self.app = app

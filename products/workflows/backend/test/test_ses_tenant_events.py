@@ -15,6 +15,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.x509.oid import NameOID
+from parameterized import parameterized
 
 from posthog.ingress.contracts import WebhookDelivery
 
@@ -191,9 +192,19 @@ class TestSesTenantEventsEndpoint(TestCase):
         assert response.status_code == 404
         assert not self.sync_mock.delay.called
 
-    def test_confirms_a_verified_subscription(self) -> None:
-        with patch("products.workflows.backend.services.ses_tenant_events.requests.get") as get_mock:
+    @parameterized.expand(
+        [
+            ("callback_succeeds", None, 202),
+            ("callback_fails", requests.RequestException("boom"), 502),
+        ]
+    )
+    def test_confirms_a_verified_subscription(
+        self, _name: str, callback_error: Exception | None, expected_status: int
+    ) -> None:
+        with patch(
+            "products.workflows.backend.services.ses_tenant_events.requests.get", side_effect=callback_error
+        ) as get_mock:
             response = self._post(_signed(_subscription_confirmation()))
 
-        assert response.status_code == 202
+        assert response.status_code == expected_status
         get_mock.assert_called_once_with(SUBSCRIBE_URL, timeout=5)

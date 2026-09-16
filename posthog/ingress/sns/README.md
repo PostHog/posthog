@@ -36,6 +36,8 @@ The SES events endpoint names `WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS`.
 The subscription handshake is an event type, not a pre-dispatch response.
 Confirming a subscription means calling AWS back, which is a consumer's business rather than the transport's, so a consumer registers for `SubscriptionConfirmation` separately from `Notification`.
 An unknown topic logs `ingress_sns_unknown_topic` and answers like a bad signature.
+SNS retries a delivery on a non-2xx, so this incarnation sets `retry_status` to 502.
+A delivery no consumer accepted is then not receipted, which is what lets a failed confirmation callback be tried again.
 
 ## Consumers
 

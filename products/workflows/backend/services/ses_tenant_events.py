@@ -49,7 +49,8 @@ def _confirm_subscription(message: Mapping[str, Any]) -> None:
     """Call back the SubscribeURL AWS sent, which completes the SNS subscription handshake."""
     subscribe_url = message.get("SubscribeURL")
     # Raised rather than dropped, here and on a failed callback: the message is signed and from our
-    # own topic, so either one leaves the subscription unconfirmed and needs an operator to see it.
+    # own topic, so either one leaves the subscription unconfirmed. Raising costs the request its
+    # receipt, because the SNS incarnation sets a retry status, so SNS sends the handshake again.
     if not isinstance(subscribe_url, str) or not is_valid_sns_url(subscribe_url):
         raise ValueError("SNS subscription confirmation carries a SubscribeURL that is not AWS's")
     requests.get(subscribe_url, timeout=5).raise_for_status()
