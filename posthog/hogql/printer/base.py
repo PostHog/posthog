@@ -204,21 +204,33 @@ class BasePrinter(Visitor[str]):
             raise QueryError(f"LIMIT percent is not allowed in {self.DIALECT_NAME} dialect")
         return f"LIMIT {self.visit(limit)}"
 
+    def _assert_valid_row_count(self, value: ast.Expr, clause: str) -> None:
+        """Check that `value` works as the row count of a LIMIT or OFFSET clause in this dialect.
+
+        Default: permitted. ClickHouse overrides to reject expressions it cannot read as a number.
+        """
+        return
+
     def _append_select_limit_and_offset(
         self, clauses: list[str | None], node: ast.SelectQuery, limit: ast.Expr | None
     ) -> None:
         if limit is not None:
             if node.limit_with_ties:
                 self._assert_with_ties_supported()
+            # `limit` can arrive wrapped in a row-count cap, so validate what the query itself asked for.
+            if node.limit is not None:
+                self._assert_valid_row_count(node.limit, "LIMIT")
             clauses.append(self._render_select_query_limit_clause(limit, bool(node.limit_percent)))
             if node.limit_with_ties:
                 clauses.append("WITH TIES")
 
         if node.offset is not None:
+            self._assert_valid_row_count(node.offset, "OFFSET")
             clauses.append(f"OFFSET {self.visit(node.offset)}")
 
     def _append_set_limit_and_offset(self, sql: str, node: ast.SelectSetQuery) -> str:
         if node.limit is not None:
+            self._assert_valid_row_count(node.limit, "LIMIT")
             limit_str = self.visit(node.limit)
             if node.limit_percent:
                 limit_str = self._render_set_query_limit_percent(node.limit, limit_str)
@@ -229,6 +241,7 @@ class BasePrinter(Visitor[str]):
             else:
                 sql += f" LIMIT {limit_str}"
         if node.offset is not None:
+            self._assert_valid_row_count(node.offset, "OFFSET")
             offset_str = self.visit(node.offset)
             if self.pretty:
                 sql = sql.rstrip() + f"\n{self.indent(1)}OFFSET {offset_str}"
@@ -465,6 +478,9 @@ class BasePrinter(Visitor[str]):
                 limit = ast.Constant(value=max_limit)
 
         if node.limit_by is not None:
+            self._assert_valid_row_count(node.limit_by.n, "LIMIT BY count")
+            if node.limit_by.offset_value is not None:
+                self._assert_valid_row_count(node.limit_by.offset_value, "LIMIT BY offset")
             clauses.append(
                 f"LIMIT {self.visit(node.limit_by.n)} {f'OFFSET {self.visit(node.limit_by.offset_value)}' if node.limit_by.offset_value else ''} BY {', '.join([self.visit(expr) for expr in node.limit_by.exprs])}"
             )

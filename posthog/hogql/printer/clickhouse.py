@@ -121,6 +121,19 @@ ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
 )
 
 
+def _find_non_numeric_constant(value: ast.Expr) -> ast.Constant | None:
+    """Return the constant that stops `value` from being a row count, or None if there is none.
+
+    ClickHouse folds arithmetic on constants, so it reads `(10 - 1) * 100` as an offset, but
+    rejects the whole statement when the same shape holds a NULL or a string.
+    """
+    if isinstance(value, ast.Constant):
+        return None if isinstance(value.value, (int, float)) else value
+    if isinstance(value, ast.ArithmeticOperation):
+        return _find_non_numeric_constant(value.left) or _find_non_numeric_constant(value.right)
+    return None
+
+
 class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
 
@@ -144,6 +157,18 @@ class ClickHousePrinter(BasePrinter):
         if not is_percent:
             return f"LIMIT {self.visit(limit)}"
         return f"LIMIT {self._limit_percent_constant_value(limit)}"
+
+    def _assert_valid_row_count(self, value: ast.Expr, clause: str) -> None:
+        constant = _find_non_numeric_constant(value)
+        if constant is None:
+            return
+        if constant.value is None:
+            raise QueryError(
+                f"{clause} must be a number, but this query has NULL there. "
+                f"If a query variable sets {clause}, give that variable a value.",
+                node=value,
+            )
+        raise QueryError(f"{clause} must be a number, but this query has {constant.value!r} there.", node=value)
 
     def _limit_percent_constant_value(self, limit: ast.Expr) -> float:
         if not isinstance(limit, ast.Constant) or not isinstance(limit.value, (int, float)):

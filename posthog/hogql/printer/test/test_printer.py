@@ -390,6 +390,31 @@ class TestPrinter(BaseTest):
             "LIMIT percent with expressions is not supported in clickhouse dialect",
         )
 
+    @parameterized.expand(
+        [
+            ("offset_null", "select 1 from events offset null", "OFFSET must be a number, but this query has NULL"),
+            (
+                "offset_null_in_arithmetic",
+                "select 1 from events offset (null - 1) * 10000",
+                "OFFSET must be a number, but this query has NULL",
+            ),
+            ("offset_string", "select 1 from events offset '10'", "OFFSET must be a number, but this query has '10'"),
+            ("limit_null", "select 1 from events limit null", "LIMIT must be a number, but this query has NULL"),
+            (
+                "limit_by_count_null",
+                "select 1 from events limit null by event",
+                "LIMIT BY count must be a number, but this query has NULL",
+            ),
+            (
+                "limit_by_offset_null",
+                "select 1 from events limit 1 offset null by event",
+                "LIMIT BY offset must be a number, but this query has NULL",
+            ),
+        ]
+    )
+    def test_row_count_must_be_numeric(self, _name: str, query: str, expected_error: str):
+        self._assert_query_error(query, expected_error)
+
     def test_union_distinct(self):
         expr = parse_select("""select 1 as id union distinct select 2 as id""")
         response = to_printed_hogql(expr, self.team)

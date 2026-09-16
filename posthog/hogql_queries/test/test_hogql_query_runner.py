@@ -257,6 +257,23 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result_false = runner_false.calculate()
         self.assertEqual(result_false.results[0][0], 1)
 
+    def test_unset_variable_in_offset_raises_exposed_error(self):
+        variable = InsightVariable.objects.create(team=self.team, name="Page", code_name="page", type="Number")
+        variable_id = str(variable.id)
+
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select event from events limit 100 offset ({variables.page} - 1) * 10000",
+                variables={
+                    variable_id: HogQLVariable(code_name=variable.code_name, variableId=variable_id, isNull=True)
+                },
+            )
+        )
+
+        with self.assertRaises(QueryError) as context:
+            runner.calculate()
+        self.assertIn("OFFSET must be a number", str(context.exception))
+
     def test_invalid_connection_id_raises_exposed_hogql_error(self):
         runner = self._create_runner(
             HogQLQuery(
