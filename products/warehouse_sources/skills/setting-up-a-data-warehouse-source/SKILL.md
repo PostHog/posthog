@@ -182,11 +182,15 @@ source setup page rather than trying to collect tokens in chat. OAuth is about _
 flows; OAuth sources still use polling bulk sync, not webhooks.
 
 Gather the required credentials from the user. Never ask for more fields than the wizard entry says are required —
-asking for an unnecessary `port` when the source doesn't need one confuses users.
+asking for an unnecessary `port` when the source doesn't need one confuses users. Gather the sensitive fields
+through `data-warehouse-source-connect-link`, not in chat — see the field rules above for which ones those are.
 
 ### Step 2 — Validate credentials and discover tables
 
-Call `external-data-sources-db-schema` with `source_type` plus all credential fields. This does two things at once:
+Call `external-data-sources-db-schema` with `source_type` plus all credential fields. This call reads raw values
+and is not exposed over MCP, so an MCP agent stops here and uses the one-step setup instead.
+
+It does two things at once:
 
 1. Validates the credentials against the live source. Returns 400 with a `message` if anything is wrong (bad host,
    wrong password, permission denied). Show the error verbatim — it's often actionable ("password authentication
