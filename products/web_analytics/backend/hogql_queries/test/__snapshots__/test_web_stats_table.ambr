@@ -1,22 +1,13 @@
 # serializer version: 1
 # name: TestWebStatsTableQueryRunner.test_all_time
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_all_time.1
@@ -154,22 +145,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_avg_time_on_multiple_routes_and_users
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_avg_time_on_multiple_routes_and_users.1
@@ -264,22 +246,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_avg_time_on_page_multiple_users
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_avg_time_on_page_multiple_users.1
@@ -374,22 +347,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_avg_time_on_page_one_user
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_avg_time_on_page_one_user.1
@@ -484,22 +448,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate.1
@@ -584,22 +539,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_one_user
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_one_user.1
@@ -684,22 +630,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_path_cleaning
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_path_cleaning.1
@@ -784,22 +721,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_with_multiple_pathname_filters
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_with_multiple_pathname_filters.1
@@ -884,22 +812,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_with_property
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_with_property.1
@@ -1047,22 +966,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_cohort_test_filters.1
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_cohort_test_filters.2
@@ -1610,22 +1520,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate.1
@@ -1684,22 +1585,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_one_user
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_one_user.1
@@ -1758,22 +1650,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_path_cleaning
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_path_cleaning.1
@@ -1832,22 +1715,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_with_property
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_with_property.1
@@ -1949,22 +1823,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_anchors_all_properties_to_one_event
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_anchors_all_properties_to_one_event.1
@@ -2084,22 +1949,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_excludes_sessionless_events
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_excludes_sessionless_events.1
@@ -2161,22 +2017,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_flag_flips_initial_breakdowns
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_flag_flips_initial_breakdowns.1
@@ -2401,22 +2248,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_ignores_conversion_goal_events
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_ignores_conversion_goal_events.1
@@ -2485,22 +2323,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_ignores_non_pageview_first_event
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_ignores_non_pageview_first_event.1
@@ -2725,22 +2554,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_drill_down_filters_0_channel_type
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_drill_down_filters_0_channel_type.1
@@ -2863,22 +2683,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_drill_down_filters_1_utm_source
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_drill_down_filters_1_utm_source.1
@@ -2999,22 +2810,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_drill_down_filters_2_referring_domain
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_drill_down_filters_2_referring_domain.1
@@ -3135,22 +2937,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_0_multi_value_exact
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_0_multi_value_exact.1
@@ -3219,22 +3012,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_1_multi_value_exact_matching_both
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_1_multi_value_exact_matching_both.1
@@ -3303,22 +3087,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_2_single_element_list
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_2_single_element_list.1
@@ -3387,22 +3162,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_3_empty_list
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_3_empty_list.1
@@ -3464,22 +3230,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_4_multi_value_is_not
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_attribution_rewrites_list_valued_filters_4_multi_value_is_not.1
@@ -3548,22 +3305,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_channel_type_buckets_0_referral_unknown_domain
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_channel_type_buckets_0_referral_unknown_domain.1
@@ -3626,22 +3374,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_channel_type_buckets_1_gad_source_only
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_channel_type_buckets_1_gad_source_only.1
@@ -3704,22 +3443,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_channel_type_buckets_2_bare_direct
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_first_pageview_channel_type_buckets_2_bare_direct.1
@@ -3782,22 +3512,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_concatenates_host_and_path_0_Page
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_concatenates_host_and_path_0_Page.1
@@ -3845,22 +3566,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_concatenates_host_and_path_1_InitialPage
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_concatenates_host_and_path_1_InitialPage.1
@@ -3919,22 +3631,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_concatenates_host_and_path_2_ExitPage
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_concatenates_host_and_path_2_ExitPage.1
@@ -3993,22 +3696,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_exit_page_breakdown_counts_correctly
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_exit_page_breakdown_counts_correctly.1
@@ -4067,22 +3761,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_false_returns_path_only_0_Page
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_false_returns_path_only_0_Page.1
@@ -4130,22 +3815,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_false_returns_path_only_1_InitialPage
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_false_returns_path_only_1_InitialPage.1
@@ -4203,22 +3879,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_false_returns_path_only_2_ExitPage
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_false_returns_path_only_2_ExitPage.1
@@ -4276,22 +3943,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_initial_page_breakdown_with_bounce_rate
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_initial_page_breakdown_with_bounce_rate.1
@@ -4351,22 +4009,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_page_breakdown_groups_same_paths_on_different_hosts_separately
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_include_host_page_breakdown_groups_same_paths_on_different_hosts_separately.1
@@ -4543,22 +4192,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_is_not_set_filter
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_is_not_set_filter.1
@@ -4615,22 +4255,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_language_filter
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_language_filter.1
@@ -4678,22 +4309,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_limit
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_limit.1
@@ -4827,22 +4449,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_no_session_id
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_no_session_id.1
@@ -4996,22 +4609,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_null_in_utm_tags
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_null_in_utm_tags.1
@@ -5068,22 +4672,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_null_prev_pageview_duration_excluded_from_p90
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_null_prev_pageview_duration_excluded_from_p90.1
@@ -5178,22 +4773,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters.1
@@ -5241,22 +4827,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_applied_in_order
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_applied_in_order.1
@@ -5304,22 +4881,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_capture_group_backreference
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_capture_group_backreference.1
@@ -5367,22 +4935,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_cleanable_path_property
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_cleanable_path_property.1
@@ -5431,22 +4990,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_cleaned_path_property
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_cleaned_path_property.1
@@ -5539,22 +5089,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_multiple_capture_groups
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_multiple_capture_groups.1
@@ -5602,22 +5143,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_with_order_field_and_baseline_urls
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_with_order_field_and_baseline_urls.1
@@ -5665,22 +5197,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_same_user_multiple_sessions
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_same_user_multiple_sessions.1
@@ -5860,22 +5383,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_bounce_rate
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_bounce_rate.1
@@ -6284,22 +5798,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_views
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_views.1
@@ -6390,22 +5895,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_visitors
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_sorting_by_visitors.1
@@ -6496,22 +5992,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_source_medium_campaign
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_source_medium_campaign.1
@@ -6572,22 +6059,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_time_on_page_caps_at_24_hours
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_time_on_page_caps_at_24_hours.1
@@ -6724,22 +6202,13 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_timezone_filter_with_invalid_timezone_offset
   '''
-  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  
+  SELECT toTimeZone(timestamp, 'UTC')
   FROM events
-  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 1 SETTINGS readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
+  WHERE team_id = 99999
+    AND timestamp > toDateTime64('2015-01-01 00:00:00', 6, 'UTC')
+  ORDER BY toDate(timestamp) ASC, timestamp ASC
+  LIMIT 1
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_timezone_filter_with_invalid_timezone_offset.1
