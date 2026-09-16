@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/react'
 import { useMountedLogic } from 'kea'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -42,29 +43,36 @@ type Story = StoryObj<typeof McpSharedFilters>
 
 export const Empty: Story = {}
 
-export const Active: Story = {
-    play: () => {
-        const team = teamLogic.values.currentTeam
-        if (team) {
-            teamLogic.actions.loadCurrentTeamSuccess({
-                ...team,
-                test_account_filters: [
-                    {
-                        key: 'email',
-                        type: PropertyFilterType.Person,
-                        operator: PropertyOperator.IContains,
-                        value: '@example.com',
-                    },
-                ],
-            })
+const applyActiveFilters = async (): Promise<void> => {
+    await waitFor(() => {
+        if (!mcpAnalyticsFiltersLogic.isMounted()) {
+            throw new Error('Shared filter logic is not mounted')
         }
-        mcpAnalyticsFiltersLogic.actions.setPropertyFilters(FILTERS)
-        mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true)
-    },
+    })
+    const team = teamLogic.values.currentTeam
+    if (team) {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...team,
+            test_account_filters: [
+                {
+                    key: 'email',
+                    type: PropertyFilterType.Person,
+                    operator: PropertyOperator.IContains,
+                    value: '@example.com',
+                },
+            ],
+        })
+    }
+    mcpAnalyticsFiltersLogic.actions.setPropertyFilters(FILTERS)
+    mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true)
+}
+
+export const Active: Story = {
+    play: applyActiveFilters,
 }
 
 export const Narrow: Story = {
-    ...Active,
+    play: applyActiveFilters,
     decorators: [
         (Story) => (
             <div className="w-[520px] max-w-full">
