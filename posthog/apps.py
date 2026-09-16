@@ -249,14 +249,8 @@ class PostHogConfig(AppConfig):
             # any such entries and only adds lazy-load semantics on top.
             admin.site._registry = LazyAdminRegistry(admin.site._registry)
         elif settings.TEST:
-            # Django 5.x generates the admin `app_list` URL pattern as a regex
-            # matching only the app_labels registered at URL-resolution time.
-            # Without the lazy registry, models registered later (e.g. `cdp`
-            # via a transitive test import) enter `_registry` but the frozen
-            # URL regex doesn't include them, causing NoReverseMatch when
-            # `_build_app_dict` tries to reverse their app_url. Eagerly
-            # registering all admin models here ensures the URL pattern covers
-            # every app_label from the start.
+            # Django 5.x freezes the app_list URL regex at resolution time;
+            # late @admin.register calls add to _registry but miss the regex.
             from posthog.admin import register_all_admin
 
             register_all_admin()
