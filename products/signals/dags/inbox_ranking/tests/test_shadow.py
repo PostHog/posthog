@@ -29,6 +29,11 @@ from products.signals.dags.inbox_ranking.shadow.metrics import (
     with_outcomes,
 )
 from products.signals.dags.inbox_ranking.shadow.queries import IMPRESSION_LISTS_SQL, OUTCOMES_SQL, hogql_rows
+from products.signals.dags.inbox_ranking.shadow.telemetry import (
+    SHADOW_RANKING_GRADED_EVENT,
+    SHADOW_RUN_COMPLETED_EVENT,
+    shadow_grade_events,
+)
 from products.signals.dags.inbox_ranking.training.unseen import UNSEEN_SCORES_TABLE
 
 DAY = datetime.date(2026, 9, 10)
@@ -336,6 +341,41 @@ def test_load_scores_reads_the_window_and_names_the_family_of_older_objects():
         pd.Timestamp(old_day, tz="UTC") + SCORE_AVAILABLE_AFTER,
         pd.Timestamp(new_day, tz="UTC") + SCORE_AVAILABLE_AFTER,
     ]
+
+
+def test_a_day_that_graded_nothing_still_reports_a_run():
+    # A day whose lists had no score available at impression time grades nothing, and without a
+    # run event that is byte-identical to a run that crashed before capturing anything.
+    rows = _lists(_served("first", [UUID_A, UUID_B]))
+    joined = rows.assign(
+        outcome_open=[True, False],
+        outcome_action=False,
+        model_name="tabular_xgb",
+        model_version="2026-09-09",
+        model_role="champion",
+        head="open",
+        score=[0.9, 0.1],
+    )
+
+    empty = shadow_grade_events(run_id="run-1", served_rows=12, served_lists=3, run_score_coverage=0.0, grades=[])
+    graded = shadow_grade_events(
+        run_id="run-1",
+        served_rows=2,
+        served_lists=1,
+        run_score_coverage=1.0,
+        grades=grade_lists(joined, served_rows=len(rows)),
+    )
+
+    assert [event.event for event in empty] == [SHADOW_RUN_COMPLETED_EVENT]
+    assert empty[0].properties == {
+        "run_id": "run-1",
+        "served_rows": 12,
+        "served_lists": 3,
+        "run_score_coverage": 0.0,
+        "grades": 0,
+    }
+    # The run event rides alongside the three orders, never instead of them.
+    assert [event.event for event in graded] == [SHADOW_RUN_COMPLETED_EVENT, *[SHADOW_RANKING_GRADED_EVENT] * 3]
 
 
 def test_grade_rows_match_the_parquet_schema_exactly():
