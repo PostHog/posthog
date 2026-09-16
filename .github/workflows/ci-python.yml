@@ -274,6 +274,11 @@ jobs:
               run: |
                   python3 bin/build-taxonomy-json.py --check
 
+            - name: Check if the generated object-tag registries are up to date
+              shell: bash
+              run: |
+                  python3 bin/build-object-tags-registry.py --check
+
             # Warn-only while the pre-existing violation backlog settles: findings annotate
             # the diff and land in the shared CI report comment, never a job failure.
             # Scoped to the PR's own diff because C901 stays off repo-wide. Skip on

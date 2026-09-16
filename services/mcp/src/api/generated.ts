@@ -56558,6 +56558,7 @@ export namespace Schemas {
      * * `experiment` - experiment
      * * `survey` - survey
      * * `ticket` - ticket
+     * * `report` - report
      * * `trace` - trace
      * * `eval` - eval
      * * `event` - event
@@ -56578,6 +56579,7 @@ export namespace Schemas {
       Experiment: 'experiment',
       Survey: 'survey',
       Ticket: 'ticket',
+      Report: 'report',
       Trace: 'trace',
       Eval: 'eval',
       Event: 'event',
@@ -62802,6 +62804,7 @@ export namespace Schemas {
        * * `experiment` - experiment
        * * `survey` - survey
        * * `ticket` - ticket
+       * * `report` - report
        * * `trace` - trace
        * * `eval` - eval
        * * `event` - event
@@ -91926,6 +91929,7 @@ export namespace Schemas {
        * * `experiment` - experiment
        * * `survey` - survey
        * * `ticket` - ticket
+       * * `report` - report
        * * `trace` - trace
        * * `eval` - eval
        * * `event` - event
