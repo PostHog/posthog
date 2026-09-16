@@ -23,6 +23,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models.integration import Integration
 
 from products.tasks.backend.facade import loops as loops_facade
+from products.tasks.backend.facade.api import TaskRunStatus
 from products.tasks.backend.facade.run_config import (
     PUBLIC_REASONING_EFFORTS,
     RuntimeAdapter,
@@ -733,6 +734,11 @@ class LoopRunPageSerializer(serializers.Serializer):
 
 
 class LoopRunsQuerySerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=TaskRunStatus.choices,
+        required=False,
+        help_text="Only return runs with this status. Use failed to read errors even when canvas state is unavailable.",
+    )
     cursor = serializers.CharField(
         required=False, help_text="Opaque pagination cursor from a previous response's `next_cursor`."
     )
