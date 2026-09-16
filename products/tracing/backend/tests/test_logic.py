@@ -65,8 +65,28 @@ class TestTranslateSpanFilter(SimpleTestCase):
 
     @parameterized.expand(
         [
+            # The API returns all three ids as hex, while the columns store base64, so each one
+            # needs converting or a filter on a value the API just handed out matches zero rows.
+            ("trace_id", "trace_id", "00000000000000000000000000000001", "AAAAAAAAAAAAAAAAAAAAAQ=="),
+            ("span_id", "span_id", "0000000000000001", "AAAAAAAAAAE="),
+            ("parent_span_id", "parent_span_id", "0000000000000001", "AAAAAAAAAAE="),
+        ]
+    )
+    def test_hex_ids_convert_to_base64(self, _name, key, value, expected):
+        span_filter = _span_filter(key, value)
+        translate_span_filter(span_filter)
+        self.assertEqual(span_filter.value, expected)
+
+    def test_hex_id_list_converts_to_base64(self):
+        span_filter = _span_filter("parent_span_id", ["0000000000000001", "0000000000000002"])
+        translate_span_filter(span_filter)
+        self.assertEqual(span_filter.value, ["AAAAAAAAAAE=", "AAAAAAAAAAI="])
+
+    @parameterized.expand(
+        [
             ("status_code", "status_code", 2, ["2"]),
             ("kind", "kind", "3", ["3"]),
+            ("parent_span_id", "parent_span_id", "0000000000000001", "AAAAAAAAAAE="),
         ]
     )
     def test_translation_is_idempotent(self, _name, key, value, expected):

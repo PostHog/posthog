@@ -196,7 +196,7 @@ def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
     instances, so `kind`/`status_code` normalisation must accept its own already-translated
     output (ints / digit strings) and not collapse it to `[]` on the second pass.
     """
-    if span_filter.key in ("trace_id", "span_id"):
+    if span_filter.key in ("trace_id", "span_id", "parent_span_id"):
         # `_normalise_to_base64` is a no-op on already-base64 values (16/8-byte ids
         # always encode to padding-suffixed strings that fail `int(_, 16)`).
         if isinstance(span_filter.value, list):
