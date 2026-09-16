@@ -139,11 +139,13 @@ def load_scores(client, bucket: str, prefix: str, dates: list[datetime.date]) ->
         table = read_parquet_if_exists(client, bucket, partition_object_key(prefix, UNSEEN_SCORES_TABLE, key))
         if table is None or table.num_rows == 0:
             continue
-        frames.append(with_model_names(table.to_pandas())[list(SCORE_JOIN_COLUMNS)])
+        # Down to the graded heads before the frame is kept: a partition holds a row per readable
+        # head, this read grades two of the seven, and the whole lookback window is held at once.
+        frame = with_model_names(table.to_pandas())[list(SCORE_JOIN_COLUMNS)]
+        frames.append(frame.loc[frame["head"].isin(OUTCOMES)])
     if not frames:
         return pd.DataFrame(columns=[*SCORE_JOIN_COLUMNS, "available_at"])
     scores = pd.concat(frames, ignore_index=True)
-    scores = scores.loc[scores["head"].isin(OUTCOMES)]
     return scores.assign(available_at=score_available_at(scores["snapshot_date"]))
 
 
