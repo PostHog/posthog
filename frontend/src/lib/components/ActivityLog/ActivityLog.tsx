@@ -14,6 +14,7 @@ import {
     ActivityLogLogicProps,
     activityLogLogic,
 } from 'lib/components/ActivityLog/activityLogLogic'
+import { AgentAttribution } from 'lib/components/ActivityLog/AgentAttribution'
 import { ActivityChange, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -204,6 +205,7 @@ export const ActivityLogRow = ({
                     {logItem.extendedDescription && (
                         <div className="ActivityLogRow__description__extended">{logItem.extendedDescription}</div>
                     )}
+                    <AgentAttribution logItem={logItem} />
                     <div className="text-secondary flex items-center gap-1.5">
                         <TZLabel time={logItem.created_at} />
                         {logItem.client && (

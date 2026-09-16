@@ -54,6 +54,8 @@ export type TicketTagsMatch = 'any' | 'all'
 export type AITriageStatus = 'in_progress' | 'done'
 export type AITriageResult =
     | 'persisted'
+    | 'suggested'
+    | 'escalated_with_findings'
     | 'escalated_with_best'
     | 'escalated_no_reply'
     | 'skipped_unactionable'
@@ -75,6 +77,15 @@ export interface AITriage {
     run_id?: string
     ai_trace_id?: string
     missing?: string[]
+    verdict?: 'answerable' | 'blocked_on_customer' | 'blocked_on_knowledge' | 'out_of_scope'
+    blocker?: 'none' | 'customer_info' | 'knowledge' | 'contradiction'
+    unknowns?: string[]
+    clarifying_questions?: string[]
+    investigation_summary?: string
+    draft_confidence?: number
+    validator_confidence?: number
+    coverage?: number
+    grounded?: boolean
     cost?: {
         sandbox_seconds?: number
         llm_calls?: number
@@ -283,6 +294,8 @@ export const slaOptions: { value: TicketSlaState | 'all'; label: string }[] = [
 
 export const aiTriageResultLabel: Record<AITriageResult, string> = {
     persisted: 'Resolved',
+    suggested: 'Suggested reply',
+    escalated_with_findings: 'Escalated with notes',
     escalated_with_best: 'Escalated with draft',
     escalated_no_reply: 'Escalated, no draft',
     skipped_unactionable: 'Skipped',
@@ -305,6 +318,8 @@ export function aiTriageResultTagType(result: AITriageResult): AITriageTagType {
     switch (result) {
         case 'persisted':
             return 'success'
+        case 'suggested':
+        case 'escalated_with_findings':
         case 'escalated_with_best':
         case 'escalated_no_reply':
             return 'warning'
