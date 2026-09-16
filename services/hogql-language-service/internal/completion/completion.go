@@ -180,20 +180,22 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 }
 
 func indexedResult(entries []catalog.Entry, kind string, offset int, parseErr error) Result {
-	result := Result{Total: len(entries)}
-	if offset > len(entries) {
-		offset = len(entries)
-	}
-	end := min(offset+PageSize, len(entries))
-	result.Suggestions = make([]Suggestion, end-offset)
+	result := Result{Suggestions: make([]Suggestion, 0, min(PageSize, len(entries)))}
 	rank := strconv.Itoa(suggestionRank(kind)) + "-"
-	for index, entry := range entries[offset:end] {
-		result.Suggestions[index] = Suggestion{
-			Label: entry.Name, Kind: kind, Detail: entry.Type, InsertText: suggestionInsertText(kind, entry.Name), SortText: rank + strings.ToLower(entry.Name),
+	for _, entry := range entries {
+		if !supportedHogQLIdentifier(entry.Name) {
+			continue
 		}
+		if result.Total >= offset && len(result.Suggestions) < PageSize {
+			result.Suggestions = append(result.Suggestions, Suggestion{
+				Label: entry.Name, Kind: kind, Detail: entry.Type, InsertText: suggestionInsertText(kind, entry.Name), SortText: rank + strings.ToLower(entry.Name),
+			})
+		}
+		result.Total++
 	}
-	if end < len(entries) {
-		result.NextCursor = encodeCursor(end)
+	nextOffset := offset + len(result.Suggestions)
+	if nextOffset < result.Total {
+		result.NextCursor = encodeCursor(nextOffset)
 	}
 	if parseErr != nil {
 		result.ParseError = parseErr.Error()
@@ -261,6 +263,9 @@ func fallbackBindings(query string, schema *catalog.PreparedCatalog) map[string]
 
 func appendFields(out []Suggestion, table *catalog.PreparedTable, lowerPrefix string) []Suggestion {
 	for _, field := range table.Fields.Prefix(lowerPrefix) {
+		if !supportedHogQLIdentifier(field.Name) {
+			continue
+		}
 		out = append(out, Suggestion{Label: field.Name, Kind: "field", Detail: field.Type, InsertText: suggestionInsertText("field", field.Name)})
 	}
 	return out
@@ -274,7 +279,7 @@ func suggestionInsertText(kind, name string) string {
 	case "table":
 		parts := strings.Split(name, ".")
 		for index := range parts {
-			parts[index] = quoteHogQLIdentifier(parts[index])
+			parts[index] = quoteHogQLFieldIdentifier(parts[index])
 		}
 		insertText = strings.Join(parts, ".")
 	}
@@ -282,6 +287,10 @@ func suggestionInsertText(kind, name string) string {
 		return ""
 	}
 	return insertText
+}
+
+func supportedHogQLIdentifier(name string) bool {
+	return !strings.Contains(name, "%")
 }
 
 func quoteHogQLFieldIdentifier(name string) string {

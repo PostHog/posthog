@@ -114,12 +114,14 @@ func TestCompletesFieldsForAlias(t *testing.T) {
 
 func TestCompletionQuotesIdentifierInsertionText(t *testing.T) {
 	schema := catalog.Prepare(&catalog.Catalog{Tables: map[string]catalog.Table{
-		"from":        {Name: "from", Type: "data_warehouse", Fields: map[string]catalog.Field{}},
-		"order-items": {Name: "order-items", Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+		"from":          {Name: "from", Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+		"order-items":   {Name: "order-items", Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+		"percent%table": {Name: "percent%table", Type: "data_warehouse", Fields: map[string]catalog.Field{}},
 		"orders": {Name: "orders", Type: "data_warehouse", Fields: map[string]catalog.Field{
 			"billing address": {Name: "billing address", Type: "string"},
 			"FROM":            {Name: "FROM", Type: "string"},
 			"order-total":     {Name: "order-total", Type: "float"},
+			"percent%field":   {Name: "percent%field", Type: "string"},
 			"tick`value":      {Name: "tick`value", Type: "string"},
 		}},
 	}, Properties: map[string][]catalog.Property{}})
@@ -129,6 +131,10 @@ func TestCompletionQuotesIdentifierInsertionText(t *testing.T) {
 		t.Fatal(err)
 	}
 	keywordTableResult, err := Complete(schema, "SELECT * FROM fr", len("SELECT * FROM fr"), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unsupportedTableResult, err := Complete(schema, "SELECT * FROM percent", len("SELECT * FROM percent"), PositionEncodingUTF8, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +149,7 @@ func TestCompletionQuotesIdentifierInsertionText(t *testing.T) {
 		insertText string
 	}{
 		{result: tableResult, label: "order-items", insertText: "`order-items`"},
-		{result: keywordTableResult, label: "from", insertText: ""},
+		{result: keywordTableResult, label: "from", insertText: "`from`"},
 		{result: fieldResult, label: "billing address", insertText: "`billing address`"},
 		{result: fieldResult, label: "FROM", insertText: "`FROM`"},
 		{result: fieldResult, label: "order-total", insertText: "`order-total`"},
@@ -153,6 +159,43 @@ func TestCompletionQuotesIdentifierInsertionText(t *testing.T) {
 		if !ok || suggestion.InsertText != test.insertText {
 			t.Fatalf("suggestion %q = %#v, want insert text %q", test.label, suggestion, test.insertText)
 		}
+	}
+	for _, test := range []struct {
+		result Result
+		label  string
+	}{
+		{result: fieldResult, label: "percent%field"},
+		{result: unsupportedTableResult, label: "percent%table"},
+	} {
+		if suggestion, ok := findSuggestion(test.result.Suggestions, test.label); ok {
+			t.Fatalf("unsupported suggestion %q = %#v", test.label, suggestion)
+		}
+	}
+}
+
+func TestCompletionPaginationSkipsUnsupportedIdentifiers(t *testing.T) {
+	tables := make(map[string]catalog.Table, PageSize+2)
+	for index := range PageSize + 1 {
+		name := fmt.Sprintf("table_%02d", index)
+		tables[name] = catalog.Table{Name: name, Type: "data_warehouse", Fields: map[string]catalog.Field{}}
+	}
+	tables["table_%"] = catalog.Table{Name: "table_%", Type: "data_warehouse", Fields: map[string]catalog.Field{}}
+	schema := catalog.Prepare(&catalog.Catalog{Tables: tables, Properties: map[string][]catalog.Property{}})
+	query := "SELECT * FROM table_"
+
+	first, err := Complete(schema, query, len(query), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Complete(schema, query, len(query), PositionEncodingUTF8, first.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Total != PageSize+1 || len(first.Suggestions) != PageSize || first.NextCursor == "" {
+		t.Fatalf("first page = %#v", first)
+	}
+	if second.Total != PageSize+1 || len(second.Suggestions) != 1 || second.NextCursor != "" {
+		t.Fatalf("second page = %#v", second)
 	}
 }
 
