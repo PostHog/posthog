@@ -9,6 +9,7 @@ import {
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConstants,
     MarketingAnalyticsOrderBy,
+    MarketingAnalyticsOverviewMetric,
     MarketingAnalyticsTableQuery,
     NativeMarketingSource,
     NodeKind,
@@ -154,6 +155,20 @@ export const MAX_ATTRIBUTION_WINDOW_DAYS = 90
 export const MIN_ATTRIBUTION_WINDOW_DAYS = 1
 export const DEFAULT_ATTRIBUTION_WINDOW_DAYS = 90
 export const DEFAULT_ATTRIBUTION_MODE = AttributionMode.LastTouch
+
+// Object.values on a string enum follows declaration order, which the backend also treats as the
+// default card order.
+export const DEFAULT_OVERVIEW_METRICS: MarketingAnalyticsOverviewMetric[] = Object.values(
+    MarketingAnalyticsOverviewMetric
+)
+
+export const OVERVIEW_METRIC_LABELS: Record<MarketingAnalyticsOverviewMetric, string> = {
+    [MarketingAnalyticsOverviewMetric.Visitors]: 'Visitors',
+    [MarketingAnalyticsOverviewMetric.SessionDuration]: 'Avg. session duration',
+    [MarketingAnalyticsOverviewMetric.ReturnRate30d]: '30-day return rate',
+    [MarketingAnalyticsOverviewMetric.ConversionRate]: 'Conversion rate',
+    [MarketingAnalyticsOverviewMetric.Revenue]: 'Revenue',
+}
 
 export const ATTRIBUTION_WINDOW_OPTIONS = [
     { value: 1, label: '1 day' },

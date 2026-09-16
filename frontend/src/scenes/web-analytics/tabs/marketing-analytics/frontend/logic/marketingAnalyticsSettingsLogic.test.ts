@@ -2,11 +2,12 @@ import { expectLogic } from 'kea-test-utils'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ConversionGoalFilter, NodeKind } from '~/queries/schema/schema-general'
+import { ConversionGoalFilter, MarketingAnalyticsOverviewMetric, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
 
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
+import { DEFAULT_OVERVIEW_METRICS } from './utils'
 
 describe('marketing settings project changes', () => {
     beforeEach(() => initKeaTests())
@@ -51,6 +52,36 @@ describe('marketing settings project changes', () => {
             expect(logic.values.conversion_goals).toEqual(goals)
             expect(logic.values.savedMarketingAnalyticsConfig.conversion_goals).toEqual(goals)
         }
+        logic.unmount()
+    })
+
+    it('persists chosen overview metrics and reads an unset project as the default set', async () => {
+        const logic = marketingAnalyticsSettingsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () =>
+            logic.actions.updateOverviewMetrics([
+                MarketingAnalyticsOverviewMetric.Revenue,
+                MarketingAnalyticsOverviewMetric.Visitors,
+            ])
+        )
+            .toDispatchActions([
+                teamLogic.actionCreators.updateCurrentTeam({
+                    marketing_analytics_config: { overview_metrics: ['revenue', 'visitors'] },
+                }),
+            ])
+            .toFinishAllListeners()
+
+        await expectLogic(logic, () =>
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...teamLogic.values.currentTeam!,
+                marketing_analytics_config: { overview_metrics: [] },
+            } as TeamType)
+        ).toFinishAllListeners()
+
+        expect(logic.values.overview_metrics).toEqual([])
+        expect(logic.values.overviewMetrics).toEqual(DEFAULT_OVERVIEW_METRICS)
         logic.unmount()
     })
 })

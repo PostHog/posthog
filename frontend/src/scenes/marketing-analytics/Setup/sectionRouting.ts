@@ -10,6 +10,7 @@ export const SECTION_LABEL: Record<SetupSection, string> = {
     [SetupSection.UTM_MAPPING]: 'UTM & campaign mapping',
     [SetupSection.INTEGRATION_HEALTH]: 'Integration health',
     [SetupSection.ATTRIBUTION]: 'Attribution',
+    [SetupSection.OVERVIEW_METRICS]: 'Overview metrics',
     [SetupSection.GENERAL]: 'General',
 }
 

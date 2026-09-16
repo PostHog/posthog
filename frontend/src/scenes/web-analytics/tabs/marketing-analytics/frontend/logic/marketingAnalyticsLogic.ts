@@ -90,6 +90,7 @@ export enum SetupSection {
     UTM_MAPPING = 'utm-mapping',
     INTEGRATION_HEALTH = 'integration-health',
     ATTRIBUTION = 'attribution',
+    OVERVIEW_METRICS = 'overview-metrics',
     GENERAL = 'general',
 }
 
