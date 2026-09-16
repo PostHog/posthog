@@ -133,8 +133,8 @@ export interface scannerRunTabLogicActions {
         started: number,
         alreadyRunning: number
     ) => {
-        started: number
         alreadyRunning: number
+        started: number
     }
     loadObservations: (background?: any) => {
         background: any
