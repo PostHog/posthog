@@ -185,7 +185,15 @@ def with_outcomes(impressions: pd.DataFrame, outcomes: pd.DataFrame) -> pd.DataF
     within = (pairs["timestamp"] >= pairs["impressed_at"]) & (
         pairs["timestamp"] < pairs["impressed_at"] + ATTRIBUTION_WINDOW
     )
-    attributed = pairs.loc[within]
+    # One engagement belongs to one list: the last one the person saw the report in before they
+    # engaged. A filter or sort change re-impresses the same rows at new ranks, so an open inside
+    # the window of several renders would otherwise mark every one of them relevant. The
+    # `impression_id` tie-break keeps a re-run of the partition on the same choice.
+    attributed = (
+        pairs.loc[within]
+        .sort_values(["impressed_at", "impression_id"])
+        .drop_duplicates(subset=["distinct_id", "report_id", "timestamp", "outcome"], keep="last")
+    )
     keys = list(zip(engaged["impression_id"], engaged["report_id"], strict=True))
     for outcome in OUTCOMES:
         hits = set(

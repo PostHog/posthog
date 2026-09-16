@@ -122,6 +122,25 @@ def test_an_engagement_counts_for_the_list_that_preceded_it():
     assert not engaged["outcome_action"].any()
 
 
+def test_an_engagement_is_credited_to_one_list_only():
+    # Changing a filter or a sort re-impresses the same rows at new ranks, so one person can hold
+    # several live lists holding the same report. Only the last one they saw it in caused the open.
+    rows = _lists(
+        [
+            *_served("first", [UUID_A, UUID_B]),
+            *_served("reordered", [UUID_B, UUID_A], at=SERVED_AT + datetime.timedelta(minutes=1)),
+        ]
+    )
+    outcomes = pd.DataFrame(
+        [{"report_id": UUID_A, "distinct_id": "user-1", "timestamp": SERVED_AT + datetime.timedelta(minutes=2)}]
+    ).assign(outcome="open")
+
+    engaged = with_outcomes(rows, outcomes)
+
+    credited = engaged.loc[engaged["outcome_open"], ["impression_id", "report_id"]]
+    assert credited.to_numpy().tolist() == [["reordered", UUID_A]]
+
+
 def test_a_list_only_uses_scores_that_already_existed_when_it_was_served():
     rows = _lists(_served("first", [UUID_A, UUID_B]))
     scores = pd.concat(
