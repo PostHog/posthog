@@ -315,7 +315,7 @@ describe('secure HTTP/2 requests', () => {
             10000
         )
 
-        it.each([['*:10'], ['*:bad'], ['2,*:']])(
+        it.each([['*:10'], ['*:bad'], ['2,*:'], ['*:0.1,*:10']])(
             'refuses to start with EXTERNAL_REQUEST_PROXY_TEAMS=%j',
             (proxyTeams) => {
                 // A fraction read as a percentage would proxy every team at once, which is what the staged rollout exists

@@ -287,16 +287,17 @@ const proxyTeamMatcher = buildIntegerMatcherWithPercentage(requestConfig.EXTERNA
 
 // The parser takes a fraction, so '*:10' reads as "always" rather than the ten percent an operator means by it, and
 // '*:bad' reads as "never" while the rollout looks live. Both defeat the staged rollout silently, so fail at startup
-// the way EXTERNAL_REQUEST_H2_CONNECTIONS does below.
-const proxyRolloutPercentage = requestConfig.EXTERNAL_REQUEST_PROXY_TEAMS.split(',')
+// the way EXTERNAL_REQUEST_H2_CONNECTIONS does below. The parser keeps the last '*:' token it reads, so every one of
+// them has to hold rather than only the first.
+const proxyRolloutPercentages = requestConfig.EXTERNAL_REQUEST_PROXY_TEAMS.split(',')
     .map((part) => part.trim())
-    .find((part) => part.startsWith('*:'))
-    ?.slice(2)
-if (proxyRolloutPercentage !== undefined) {
-    const percentage = Number(proxyRolloutPercentage)
-    if (proxyRolloutPercentage === '' || !Number.isFinite(percentage) || percentage < 0 || percentage > 1) {
+    .filter((part) => part.startsWith('*:'))
+    .map((part) => part.slice(2))
+for (const rolloutPercentage of proxyRolloutPercentages) {
+    const percentage = Number(rolloutPercentage)
+    if (rolloutPercentage === '' || !Number.isFinite(percentage) || percentage < 0 || percentage > 1) {
         throw new Error(
-            `EXTERNAL_REQUEST_PROXY_TEAMS takes a fraction between 0 and 1 after '*:', got '${proxyRolloutPercentage}'`
+            `EXTERNAL_REQUEST_PROXY_TEAMS takes a fraction between 0 and 1 after '*:', got '${rolloutPercentage}'`
         )
     }
 }
