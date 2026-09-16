@@ -82,6 +82,18 @@ _VARIANTS_ARRAY = (
     "CASE WHEN jsonb_typeof(posthog_featureflag.filters->'multivariate'->'variants') = 'array' "
     "THEN posthog_featureflag.filters->'multivariate'->'variants' ELSE '[]'::jsonb END"
 )
+# A release condition carries no targeting when `properties` is `[]`, absent, or JSON null, which
+# is how `is_group_fully_rolled_out` and `is_boolean_flag_fully_rolled_out` read it. Postgres `->`
+# returns SQL NULL for the absent key and the jsonb scalar `null` for the stored null, so each
+# needs its own test. The editor and the filters serializer write `[]`, so only unedited legacy
+# rows hold the other two.
+_ELEM_HAS_NO_TARGETING = (
+    "("
+    "(elem->'properties')::text = '[]'::text "
+    "OR elem->'properties' IS NULL "
+    "OR jsonb_typeof(elem->'properties') = 'null'"
+    ")"
+)
 
 
 def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None = None) -> QuerySet:
@@ -92,14 +104,10 @@ def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None =
     question for one flag and also produces the human-readable reason. The two are meant to
     classify the same flags, so change them together.
 
-    They do not agree yet, on two shapes. First, the checker calls a flag with no release
-    conditions fully rolled out, so `filters` of `{"groups": []}` (the model default) is STALE
-    to the checker and not stale here; the config branch below matches an empty `filters` only
-    as `NULL` or `{}`. Second, the checker reads a group whose `properties` key is absent or
-    stored as JSON null, e.g. `{"groups": [{"rollout_percentage": 100}]}`, as an empty targeting
-    list and calls it STALE, while the config branch requires a literal `[]` and matches neither
-    shape. The editor and the filters serializer now write `properties: []`, so only unedited
-    legacy rows hold the second shape.
+    They do not agree on one shape: the checker calls a flag with no release conditions fully
+    rolled out, so `filters` of `{"groups": []}` (the model default) is STALE to the checker and
+    not stale here, because the config branch below matches an empty `filters` only as `NULL` or
+    `{}`. Matching the model default would make every unconfigured flag in a project stale.
     `test_stale_filter_agrees_with_status_checker` covers the shapes where the two do agree.
 
     The caller supplies the scope, so pass a queryset already narrowed to the team.
@@ -142,7 +150,7 @@ def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None =
                     EXISTS (
                         SELECT 1 FROM jsonb_array_elements({_GROUPS_ARRAY}) AS elem
                         WHERE elem->>'rollout_percentage' = '100'
-                        AND (elem->'properties')::text = '[]'::text
+                        AND {_ELEM_HAS_NO_TARGETING}
                     )
                     AND (posthog_featureflag.filters->>'multivariate' IS NULL
                         OR posthog_featureflag.filters->'multivariate' = '{{}}'::jsonb
@@ -157,7 +165,7 @@ def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None =
                     AND EXISTS (
                         SELECT 1 FROM jsonb_array_elements({_GROUPS_ARRAY}) AS elem
                         WHERE elem->>'rollout_percentage' = '100'
-                        AND (elem->'properties')::text = '[]'::text
+                        AND {_ELEM_HAS_NO_TARGETING}
                     )
                 )
                 OR
@@ -165,7 +173,7 @@ def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None =
                     EXISTS (
                         SELECT 1 FROM jsonb_array_elements({_GROUPS_ARRAY}) AS elem
                         WHERE elem->>'rollout_percentage' = '100'
-                        AND (elem->'properties')::text = '[]'::text
+                        AND {_ELEM_HAS_NO_TARGETING}
                         AND elem->'variant' IS NOT NULL
                         AND elem->>'variant' IS NOT NULL
                     )
@@ -198,11 +206,7 @@ def filter_effectively_full_rollout_flags(queryset: QuerySet, *, stale_threshold
     row with `is_flag_fully_rolled_out` before it treats the flag as fully rolled out.
 
     A group that omits the `properties` key, or stores it as JSON null, counts as having no
-    properties, because `is_group_fully_rolled_out` reads both that way. Postgres `->` returns
-    SQL NULL for the absent key and the jsonb scalar `null` for the stored null, so the predicate
-    tests for each separately. The `filter_stale_flags` configuration branch requires a literal
-    `[]` and therefore misses both legacy rows; matching them here lets the confirmation step
-    decide.
+    targeting. See `_ELEM_HAS_NO_TARGETING`.
 
     A legacy row storing `groups` as something other than an array reads as an empty array and
     drops out, rather than aborting the batch. See `_GROUPS_ARRAY`.
@@ -234,11 +238,7 @@ def filter_effectively_full_rollout_flags(queryset: QuerySet, *, stale_threshold
             EXISTS (
                 SELECT 1 FROM jsonb_array_elements({_GROUPS_ARRAY}) AS elem
                 WHERE elem->>'rollout_percentage' = '100'
-                AND (
-                    (elem->'properties')::text = '[]'::text
-                    OR elem->'properties' IS NULL
-                    OR jsonb_typeof(elem->'properties') = 'null'
-                )
+                AND {_ELEM_HAS_NO_TARGETING}
             )
             """
         ]

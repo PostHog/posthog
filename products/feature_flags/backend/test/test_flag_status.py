@@ -193,6 +193,24 @@ class TestFilterFlagsByActiveParam(BaseTest):
                 },
                 False,
             ),
+            # The two legacy shapes the checker reads as no targeting. Each matches its own arm
+            # of the SQL: an absent key is SQL NULL, a stored null is the jsonb scalar `null`.
+            (
+                "properties_key_absent",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {"groups": [{"rollout_percentage": 100}]},
+                },
+                True,
+            ),
+            (
+                "null_properties",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {"groups": [{"properties": None, "rollout_percentage": 100}]},
+                },
+                True,
+            ),
             # Only case that reaches the config branch's last OR arm, where `filters` being
             # non-nullable makes `= '{}'` the whole test.
             (

@@ -156,8 +156,8 @@ class TestStaleFlagsDetect(BaseTest):
                 None,
                 True,
             ),
-            # Never called and legacy-shaped: the filter_stale_flags config branch needs a literal
-            # [], so this flag reaches detect() only through the new filter's isnull half.
+            # Never called and legacy-shaped. Both candidate queries match it, so the overlap
+            # exclusion is what stops it being reported twice under one hash key.
             (
                 "legacy_shape_never_called",
                 {**stale_by_config(), "filters": {"groups": [{"rollout_percentage": 100}]}},
