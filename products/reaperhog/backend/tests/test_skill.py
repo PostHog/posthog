@@ -37,6 +37,15 @@ class TestSyncSkill:
         assert rows[2].metadata["seeded_by"] == SEEDED_BY
         assert rows[2].body == "v2 body"
 
+    def test_a_team_edit_survives_the_next_canonical_update(self, team, tmp_path: Path):
+        sync_skill(team.id, _canonical(tmp_path, "v1 body"))
+        LLMSkill.objects.filter(team=team, name=NAME, is_latest=True).update(body="our own bar")
+
+        pinned = sync_skill(team.id, _canonical(tmp_path, "v2 body"))
+
+        assert pinned.version == 1
+        assert LLMSkill.objects.get(team=team, name=NAME, is_latest=True).body == "our own bar"
+
     def test_hand_authored_row_is_used_as_is(self, team, tmp_path: Path):
         LLMSkill.objects.create(team=team, name=NAME, description="mine", body="mine", version=4, is_latest=True)
 

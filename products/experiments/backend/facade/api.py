@@ -5,6 +5,8 @@ This module provides the public interface for creating and managing experiments
 using framework-free DTOs, wrapping the existing ExperimentService.
 """
 
+from django.db.models import Q
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.team import Team
@@ -12,6 +14,7 @@ from posthog.models.user import User
 
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.flag_cleanup import cleanup_plan, variant_keys
+from products.experiments.backend.hogql_queries import get_baseline_variant_key
 from products.experiments.backend.models.experiment import Experiment as ExperimentModel
 
 from .contracts import ConcludedExperiment, CreateExperimentInput, Experiment, FlagCleanupPlan
@@ -107,28 +110,47 @@ def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:
 
 
 def list_concluded_experiments(team_id: int) -> list[ConcludedExperiment]:
-    """Every experiment on the team that ended with a recorded conclusion, with the flag cleanup it implies."""
+    """The team's flags whose only experiment history is a conclusion, with the cleanup it implies.
+
+    Several experiments can share one feature flag. A flag that a draft or running experiment still
+    uses is left out entirely, and a flag with several conclusions reports only the newest one, so a
+    stale conclusion can never speak for a live code path.
+    """
+    live_flag_ids = set(
+        ExperimentModel.objects.filter(team_id=team_id)
+        .exclude(deleted=True)
+        .filter(Q(end_date__isnull=True) | Q(conclusion__isnull=True))
+        .values_list("feature_flag_id", flat=True)
+    )
     experiments = (
         ExperimentModel.objects.filter(team_id=team_id, end_date__isnull=False, conclusion__isnull=False)
         .exclude(deleted=True)
+        .exclude(feature_flag_id__in=live_flag_ids)
         .select_related("feature_flag")
-        .order_by("end_date")
+        .order_by("end_date", "id")
     )
+    # Ascending order, so the dict keeps the newest conclusion per flag and the result stays ordered.
+    latest_per_flag: dict[int, ExperimentModel] = {e.feature_flag_id: e for e in experiments}
     result: list[ConcludedExperiment] = []
-    for experiment in experiments:
+    for experiment in latest_per_flag.values():
+        conclusion, end_date = experiment.conclusion, experiment.end_date
+        if conclusion is None or end_date is None:
+            continue
         variants = experiment.feature_flag.variants or []
-        plan = cleanup_plan(experiment.conclusion, variants)
+        keys = variant_keys(variants)
+        plan = cleanup_plan(conclusion, variants, baseline=get_baseline_variant_key(experiment.stats_config, keys))
         result.append(
             ConcludedExperiment(
                 id=experiment.id,
                 name=experiment.name,
                 feature_flag_id=experiment.feature_flag_id,
-                feature_flag_key=experiment.feature_flag.key,
-                conclusion=experiment.conclusion,
-                end_date=experiment.end_date,
+                # Soft-deleting a still-referenced flag renames its key; source code keeps the original.
+                feature_flag_key=experiment.feature_flag.key_without_tombstone(),
+                conclusion=conclusion,
+                end_date=end_date,
                 archived=experiment.archived,
                 flag_cleanup_task_id=experiment.flag_cleanup_task_id,
-                variant_keys=tuple(variant_keys(variants)),
+                variant_keys=tuple(keys),
                 cleanup=FlagCleanupPlan(
                     keep_variant=plan.keep_variant,
                     remove_variants=tuple(plan.remove_variants),

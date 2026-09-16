@@ -10,6 +10,10 @@ from posthog.dataclasses import frozen
 
 FLAG_CONSTANTS_PATH = "frontend/src/lib/constants.tsx"
 SWEEP_FILE_THRESHOLD = 200
+HISTORY_PAGE = 30
+MAX_HISTORY_PAGES = 10
+GIT_TIMEOUT_SECONDS = 300.0
+RG_TIMEOUT_SECONDS = 600.0
 
 DEFAULT_EXCLUDES: tuple[str, ...] = (
     "**/__snapshots__/**",
@@ -61,15 +65,38 @@ class Match:
 class RepoIndex:
     def __init__(self, root: Path) -> None:
         self.root = root
+        self._commit_file_counts: dict[str, int] = {}
 
     def _git(self, *args: str) -> str:
-        result = subprocess.run(["git", *args], cwd=self.root, capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            ["git", *args],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
         if result.returncode not in (0, 1):
             raise RuntimeError(f"git {' '.join(args[:2])} failed: {result.stderr.strip()}")
         return result.stdout
 
     def head_sha(self) -> str:
         return self._git("rev-parse", "HEAD").strip()
+
+    def remote_repository(self) -> str | None:
+        """The ``owner/name`` this checkout pushes to, or None when it has no GitHub origin."""
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
+        if result.returncode != 0:
+            return None
+        match = _GITHUB_REMOTE.match(result.stdout.strip())
+        return f"{match['owner']}/{match['repo']}" if match else None
 
     def frontend_flag_keys(self) -> dict[str, str]:
         path = self.root / FLAG_CONSTANTS_PATH
@@ -99,13 +126,17 @@ class RepoIndex:
         with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as handle:
             handle.write("\n".join(literals) + "\n")
             pattern_file = handle.name
-        args = [rg, "-n", "-o", "-F", "--no-messages", "-f", pattern_file]
+        # Tracked source lives under hidden directories too (for example .storybook), and a missed
+        # reference there reads as dead code.
+        args = [rg, "-n", "-o", "-F", "--no-messages", "--hidden", "--glob", "!.git/**", "-f", pattern_file]
         if whole_words:
             args.append("-w")
         for glob in excludes:
             args += ["--glob", f"!{glob}"]
         try:
-            result = subprocess.run(args, cwd=self.root, capture_output=True, text=True, check=False)
+            result = subprocess.run(
+                args, cwd=self.root, capture_output=True, text=True, check=False, timeout=RG_TIMEOUT_SECONDS
+            )
         finally:
             Path(pattern_file).unlink(missing_ok=True)
         if result.returncode not in (0, 1):
@@ -139,19 +170,40 @@ class RepoIndex:
             key: ReferenceCount(files=tuple(sorted(files_by_key[key])), total=totals[key]) for key in literals_by_key
         }
 
-    def last_real_commit(self, path: str, *, limit: int = 30) -> CommitStamp | None:
-        raw = self._git("log", f"-n{limit}", "--format=%H%x09%cI%x09%ae%x09%s", "--", path)
-        for line in raw.splitlines():
-            sha, committed_at, email, subject = line.split("\t", 3)
-            if self._files_in_commit(sha) >= SWEEP_FILE_THRESHOLD:
-                continue
-            return CommitStamp(
-                sha=sha, committed_at=datetime.fromisoformat(committed_at), author_email=email, subject=subject
+    def last_real_commit(self, path: str, *, limit: int = HISTORY_PAGE) -> CommitStamp | None:
+        """The newest commit on ``path`` that is not a repository-wide sweep.
+
+        Paged, because a run of sweep commits longer than one page would otherwise hide the last
+        real commit and read as a directory with no history at all.
+        """
+        for page in range(MAX_HISTORY_PAGES):
+            raw = self._git(
+                "log",
+                f"-n{limit}",
+                f"--skip={page * limit}",
+                "--format=%H%x09%cI%x09%ae%x09%s",
+                "--",
+                path,
             )
+            lines = raw.splitlines()
+            for line in lines:
+                sha, committed_at, email, subject = line.split("\t", 3)
+                if self._files_in_commit(sha) >= SWEEP_FILE_THRESHOLD:
+                    continue
+                return CommitStamp(
+                    sha=sha, committed_at=datetime.fromisoformat(committed_at), author_email=email, subject=subject
+                )
+            if len(lines) < limit:
+                break
         return None
 
     def _files_in_commit(self, sha: str) -> int:
-        return len(self._git("show", "--format=", "--name-only", sha).splitlines())
+        # Sweep commits recur across many directories, so their file lists are read once per scan.
+        cached = self._commit_file_counts.get(sha)
+        if cached is None:
+            cached = len(self._git("show", "--format=", "--name-only", sha).splitlines())
+            self._commit_file_counts[sha] = cached
+        return cached
 
     def list_directories(self, path: str) -> list[str]:
         base = self.root / path if path else self.root
@@ -174,6 +226,7 @@ class RepoIndex:
 
 
 _SKIP_DIRS = frozenset({"node_modules", "__pycache__", "generated", "migrations", "__snapshots__", "dist", "build"})
+_GITHUB_REMOTE = re.compile(r"^(?:https://github\.com/|git@github\.com:)(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$")
 
 
 def _is_word(literal: str) -> bool:
