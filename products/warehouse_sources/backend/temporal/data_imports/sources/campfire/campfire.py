@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
@@ -6,11 +5,14 @@ from urllib.parse import urlencode, urlparse
 
 from requests import PreparedRequest, Response
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.settings import (
     CAMPFIRE_BASE_URL,
     CAMPFIRE_ENDPOINTS,
     LAST_MODIFIED_AT,
     LAST_MODIFIED_AT_PARAM,
+    REQUEST_TIMEOUT_SECONDS,
     CampfireEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -34,7 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
-@dataclasses.dataclass
+@frozen
 class CampfireResumeConfig:
     # Top-level endpoints resume from the `next` link of the last fully-yielded page. Absolute
     # URL on api.meetcampfire.com, carrying the pagination cursor/offset plus any incremental
@@ -119,6 +121,7 @@ def _client_config(api_key: str) -> ClientConfig:
         "auth": CampfireTokenAuth(api_key),
         "session": session,
         "paginator": CampfireNextUrlPaginator(),
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
     }
 
 

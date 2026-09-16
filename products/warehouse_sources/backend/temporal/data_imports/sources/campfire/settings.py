@@ -10,6 +10,9 @@ CAMPFIRE_BASE_URL = "https://api.meetcampfire.com"
 
 DEFAULT_PAGE_SIZE = 500
 
+# (connect, read) seconds. Without it a stalled Campfire response holds an import worker forever.
+REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 60.0)
+
 # Every incremental-capable Campfire list endpoint filters on the same server-side
 # `last_modified_at__gte` param (ISO 8601), documented to cover both active and deleted records.
 LAST_MODIFIED_AT = "last_modified_at"
