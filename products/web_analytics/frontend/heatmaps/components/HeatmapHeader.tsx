@@ -1,123 +1,143 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonTag } from '@posthog/lemon-ui'
-
-import { AccessControlAction } from 'lib/components/AccessControlAction'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
 import { heatmapLogic } from '../scenes/heatmap/heatmapLogic'
-import { HeatmapAdvancedSettings } from './HeatmapAdvancedSettings'
-import { HeatmapRecordingFallback } from './HeatmapRecordingFallback'
+import { HeatmapPageFields } from './HeatmapPageFields'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { HeatmapsForbiddenURL } from './HeatmapsForbiddenURL'
-import { HeatmapsInvalidURL } from './HeatmapsInvalidURL'
 
 export function HeatmapHeader(): JSX.Element {
     const {
         pageUrlDraft,
         isPageUrlDraftValid,
         pageUrlDraftIsPattern,
-        loading,
-        screenshotError,
-        displayUrl,
-        displayUrlIsPattern,
-        type,
+        generatingScreenshot,
         source,
-        userAccessLevel,
+        urlEditDisabledReason,
+        regenerateDisabledReason,
+        reloadPreviewDisabledReason,
+        previewType,
+        saving,
+        type,
+        renderSettingsEditDisabledReason,
+        saveDisabledReason,
+        hasUnsavedChanges,
+        pageSettingsOpen,
     } = useValues(heatmapLogic)
-    const { iframeBanner, dataUrl, isBrowserUrlAuthorized } = useValues(heatmapsBrowserLogic)
-    const { setPageUrlDraft, applyPageUrlDraft, regenerateScreenshot, changeCaptureMethod } = useActions(heatmapLogic)
+    const { dataUrl, isBrowserUrlAuthorized } = useValues(heatmapsBrowserLogic)
+    const {
+        setPageUrlDraft,
+        regenerateScreenshot,
+        reloadPreview,
+        setType,
+        updateHeatmap,
+        openPageSettings,
+        closePageSettings,
+    } = useActions(heatmapLogic)
 
-    const draftIsEmpty = pageUrlDraft.trim() === ''
-    const disabledReason = !isPageUrlDraftValid ? 'Enter a valid URL' : draftIsEmpty ? 'Enter a URL' : null
+    const refreshPreview =
+        previewType === 'screenshot'
+            ? {
+                  label: 'Regenerate screenshot',
+                  onClick: regenerateScreenshot,
+                  disabledReason: regenerateDisabledReason,
+              }
+            : { label: 'Reload page', onClick: reloadPreview, disabledReason: reloadPreviewDisabledReason }
 
     return (
-        <>
-            <div className="flex-none md:flex justify-between items-end gap-2 w-full">
-                <div className="flex flex-col gap-3 flex-1 min-w-0">
+        <div>
+            <div className="flex flex-wrap gap-2 items-center">
+                <LemonLabel htmlFor="heatmap-page-url">Page URL</LemonLabel>
+                <LemonInput
+                    id="heatmap-page-url"
+                    className="flex-1 min-w-48"
+                    size="small"
+                    placeholder="https://www.example.com/pricing"
+                    value={pageUrlDraft}
+                    onChange={setPageUrlDraft}
+                    onPressEnter={updateHeatmap}
+                    disabledReason={urlEditDisabledReason}
+                    status={pageUrlDraft && !isPageUrlDraftValid ? 'danger' : undefined}
+                    data-attr="heatmap-page-url"
+                />
+                <LemonButton type="secondary" size="small" onClick={openPageSettings} data-attr="heatmap-page-settings">
+                    Page settings
+                </LemonButton>
+                {source === 'toolbar' && <LemonTag>Captured from toolbar</LemonTag>}
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconRefresh />}
+                    aria-label={refreshPreview.label}
+                    tooltip={refreshPreview.label}
+                    onClick={refreshPreview.onClick}
+                    loading={generatingScreenshot}
+                    disabledReason={refreshPreview.disabledReason}
+                    data-attr="heatmap-refresh-preview"
+                />
+            </div>
+            {pageUrlDraft && !isPageUrlDraftValid && (
+                <p className="text-xs text-danger mt-1 mb-0">
+                    {pageUrlDraftIsPattern
+                        ? 'Enter a page URL without wildcards. Use the heatmap data URL in Page settings to match multiple pages.'
+                        : 'Enter a valid URL, including https:// or http://.'}
+                </p>
+            )}
+            <LemonModal
+                isOpen={pageSettingsOpen}
+                onClose={closePageSettings}
+                closable={!saving}
+                title="Page settings"
+                width={560}
+                footer={
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            onClick={closePageSettings}
+                            disabledReason={saving ? 'Saving changes' : null}
+                        >
+                            Close
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={updateHeatmap}
+                            loading={saving}
+                            disabledReason={saveDisabledReason || (!hasUnsavedChanges ? 'No changes to save' : null)}
+                            data-attr="heatmap-page-settings-save"
+                        >
+                            Save heatmap
+                        </LemonButton>
+                    </>
+                }
+            >
+                <div className="flex flex-col gap-6" data-attr="heatmap-page-settings-content">
                     <div>
-                        <div className="flex items-center gap-2">
-                            <LemonLabel>Page URL</LemonLabel>
-                            {source === 'toolbar' && <LemonTag type="highlight">Captured from toolbar</LemonTag>}
-                        </div>
-                        <div className="flex gap-2 items-start">
-                            <LemonInput
-                                size="small"
-                                placeholder="https://www.example.com/pricing"
-                                value={pageUrlDraft}
-                                onChange={setPageUrlDraft}
-                                onPressEnter={applyPageUrlDraft}
-                                fullWidth={true}
-                            />
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Heatmap}
-                                minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={userAccessLevel ?? undefined}
-                            >
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    onClick={applyPageUrlDraft}
-                                    loading={loading}
-                                    disabledReason={disabledReason}
-                                >
-                                    Regenerate
-                                </LemonButton>
-                            </AccessControlAction>
-                        </div>
-                        <div className="text-xs text-muted mt-1">
-                            The page we load in the iframe or capture as a screenshot.
-                        </div>
-                        {pageUrlDraft && !isPageUrlDraftValid ? (
-                            pageUrlDraftIsPattern ? (
-                                <div className="mt-2">
-                                    <LemonBanner type="error">
-                                        The page URL can't contain wildcards. Use a concrete URL here and add wildcards
-                                        to the heatmap data URL below.
-                                    </LemonBanner>
-                                </div>
-                            ) : (
-                                <HeatmapsInvalidURL />
-                            )
-                        ) : null}
-                        {dataUrl && !isBrowserUrlAuthorized ? <HeatmapsForbiddenURL /> : null}
+                        <LemonLabel>Page background</LemonLabel>
+                        <LemonSegmentedButton
+                            value={type}
+                            onChange={setType}
+                            disabledReason={renderSettingsEditDisabledReason ?? undefined}
+                            options={[
+                                { value: 'screenshot', label: 'Screenshot' },
+                                { value: 'iframe', label: 'Live page' },
+                            ]}
+                            size="small"
+                        />
+                        <p className="text-xs text-muted mt-2 mb-0">
+                            A screenshot captures the full page. A live page loads the website directly.
+                        </p>
                     </div>
-                    {type === 'screenshot' && screenshotError && (
-                        <div className="flex flex-col gap-2">
-                            <LemonBanner
-                                type="error"
-                                action={{
-                                    children: 'Retry',
-                                    onClick: regenerateScreenshot,
-                                }}
-                            >
-                                {screenshotError}
-                            </LemonBanner>
-                            {displayUrl && !displayUrlIsPattern ? <HeatmapRecordingFallback url={displayUrl} /> : null}
-                        </div>
-                    )}
-                    {type === 'iframe' && iframeBanner?.level === 'error' && (
-                        <div className="flex flex-col gap-2">
-                            <LemonBanner
-                                type="error"
-                                action={{
-                                    children: 'Switch to screenshot',
-                                    onClick: () => changeCaptureMethod('screenshot'),
-                                }}
-                            >
-                                {iframeBanner.message}
-                            </LemonBanner>
-                            {displayUrl && !displayUrlIsPattern ? <HeatmapRecordingFallback url={displayUrl} /> : null}
-                        </div>
-                    )}
-                    <HeatmapAdvancedSettings
+                    <HeatmapPageFields
                         dataUrlPlaceholderFallback="Enter a URL"
-                        dataUrlHelp="Defaults to the page URL. Add * for wildcards to aggregate data from multiple pages."
-                        consentHelp="Ask the browser to close cookie/consent popups before capturing the screenshot. This can slow down or fail the render on some sites, so it's off by default. Save to apply."
+                        dataUrlHelp="Defaults to the page URL. Add * to match multiple pages."
+                        consentHelp="Close cookie and consent banners before taking the screenshot."
+                        showConsent={type === 'screenshot'}
                     />
                 </div>
-            </div>
-        </>
+            </LemonModal>
+            {dataUrl && !isBrowserUrlAuthorized ? <HeatmapsForbiddenURL /> : null}
+        </div>
     )
 }
