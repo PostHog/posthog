@@ -13,7 +13,17 @@ function withInlineCode(message: string): JSX.Element {
     )
 }
 
-export function QueryScanFindingList({ findings }: { findings: QueryScanWarning[] }): JSX.Element {
+export interface QueryScanFindingListProps {
+    findings: QueryScanWarning[]
+    /** Drops the bullet for a single finding. Only where a sibling icon already marks it, e.g. inside a LemonBanner. */
+    dropBulletIfSingle?: boolean
+}
+
+export function QueryScanFindingList({ findings, dropBulletIfSingle }: QueryScanFindingListProps): JSX.Element {
+    if (dropBulletIfSingle && findings.length === 1) {
+        return <div>{withInlineCode(findings[0].message)}</div>
+    }
+
     return (
         <ul className="list-disc pl-5">
             {findings.map((finding, index) => (
