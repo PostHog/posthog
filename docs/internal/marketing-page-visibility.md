@@ -10,3 +10,5 @@ No project-specific conversion goal or campaign is preselected.
 
 Google search and crawler sections retain the existing setup requirements and empty states.
 The original Web Analytics Page performance tab keeps its existing feature flag and URL.
+
+Marketing-specific AI tools and attached context are inactive on Page visibility because its controls use independent Web Analytics state.
