@@ -17,6 +17,8 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { AccessControlLevel, ActivityScope, Breadcrumb, ExperimentsTabs } from '~/types'
 import type { UserBasicType } from '~/types'
 
+import type { ExperimentSavedMetricLinkedExperimentApi } from 'products/experiments/frontend/generated/api.schemas'
+
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { ExperimentMetricUnion } from '../../../queries/schema/schema-general'
 import type { BillingType } from '../../../types'
@@ -39,6 +41,8 @@ export interface SharedMetric {
     tags: string[]
     metadata?: Record<string, any>
     user_access_level: AccessControlLevel
+    // Populated only when the metric is fetched by id; empty in list responses
+    linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[]
 }
 
 export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
@@ -61,6 +65,7 @@ export interface sharedMetricLogicValues {
         created_by?: UserBasicType | null | undefined
         description?: string | undefined
         id?: number | undefined
+        linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[] | undefined
         metadata?: Record<string, any> | undefined
         name?: string | undefined
         query: ExperimentMetricUnion
@@ -102,6 +107,7 @@ export interface sharedMetricLogicActions {
                   created_by?: UserBasicType | null | undefined
                   description?: string | undefined
                   id?: number | undefined
+                  linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[] | undefined
                   metadata?: Record<string, any> | undefined
                   name?: string | undefined
                   query: ExperimentMetricUnion
@@ -118,6 +124,7 @@ export interface sharedMetricLogicActions {
                   created_by?: UserBasicType | null | undefined
                   description?: string | undefined
                   id?: number | undefined
+                  linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[] | undefined
                   metadata?: Record<string, any> | undefined
                   name?: string | undefined
                   query: ExperimentMetricUnion

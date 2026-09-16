@@ -61,9 +61,14 @@ Grant these read scopes so every table can sync:
 - `users:read`
 - `projects:read`
 - `tasks:read`
+- `stories:read`
+- `goals:read`
+- `time_tracking_entries:read`
 - `tags:read`
 - `teams:read`
 - `custom_fields:read`
+- `team_memberships:read`
+- `portfolios:read`
 
 The AI Studio usage tables (`ai_studio_runs`, `ai_studio_seats`) additionally need the `admin.ai_studio_usage:read` scope on an AI Studio-licensed organization. Skip them if you don't use AI Studio.
 """,

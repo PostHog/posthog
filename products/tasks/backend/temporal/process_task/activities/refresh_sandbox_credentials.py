@@ -8,6 +8,7 @@ from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 
 from products.tasks.backend.exceptions import (
     CredentialUnavailableError,
+    SandboxControlPlaneError,
     SandboxExecutionError,
     SandboxNotFoundError,
     SandboxNotRunningError,
@@ -229,6 +230,8 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
                 increment_credential_refresh(credential.kind, "orphaned")
                 orphaned_kinds.append(credential.kind)
                 continue
+            except SandboxControlPlaneError:
+                raise
             except SandboxExecutionError as error:
                 if "path" in error.context and ctx.sandbox_backend == "modal":
                     verdict, probe = _probe_sandbox_wedge(sandbox)

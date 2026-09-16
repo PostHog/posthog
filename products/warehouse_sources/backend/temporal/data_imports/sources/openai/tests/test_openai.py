@@ -458,7 +458,9 @@ class TestProjectFanOut:
         # The framework's parent-key column must not leak into the row shape.
         assert all("_projects_id" not in r for r in rows)
         assert params[0]["url"].endswith("/v1/organization/projects")
-        assert params[0]["params"]["include_archived"] == "true"
+        # OpenAI rejects a project-scoped read under an archived project, which would fail the
+        # whole schema, so the fan-out must not ask for archived projects.
+        assert "include_archived" not in params[0]["params"]
         assert params[1]["url"].endswith("/v1/organization/projects/proj_1/users")
         assert params[2]["url"].endswith("/v1/organization/projects/proj_2/users")
 

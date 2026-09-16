@@ -24,6 +24,7 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/frontend/dashboard/NewMarketingAnalyticsDashboard'
 import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -41,7 +42,7 @@ import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     marketingAnalyticsTilesLogic,
 } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
-import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
+import { setupPlanLogic } from '../web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 import { marketingOnboardingLogic } from './Onboarding/marketingOnboardingLogic'
 import { Onboarding } from './Onboarding/Onboarding'
 import { SetupTab } from './Setup/SetupTab'
@@ -299,10 +300,8 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                   },
               ]
             : []),
-        // Untouched by Setup: the explorer compares attribution models against each
-        // other, which is analysis. Setup's Attribution section is the two config
-        // fields (mode and lookback), which is a different thing with the same name.
-        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION]
+        ...(!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] &&
+        featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION]
             ? [
                   {
                       key: MarketingAnalyticsTab.ATTRIBUTION,
@@ -311,7 +310,8 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                   },
               ]
             : []),
-        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION]
+        ...(!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] &&
+        featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION]
             ? [
                   {
                       key: MarketingAnalyticsTab.RETENTION,
@@ -447,6 +447,13 @@ const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNo
 }
 
 export function MarketingAnalyticsScene(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newDashboardEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
+    useEffect(() => {
+        if (newDashboardEnabled) {
+            return setupPlanLogic.mount()
+        }
+    }, [newDashboardEnabled])
     const { activeTab } = useValues(marketingAnalyticsLogic)
 
     return (
