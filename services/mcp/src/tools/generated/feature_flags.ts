@@ -288,9 +288,12 @@ const featureFlagGetDefinition = (): ToolBase<
 const FeatureFlagRollOutToEveryoneSchema = () => {
     const FeatureFlagsRollOutToEveryoneCreateBody = orvalSchemas.FeatureFlagsRollOutToEveryoneCreateBody()
     const FeatureFlagsRollOutToEveryoneCreateParams = orvalSchemas.FeatureFlagsRollOutToEveryoneCreateParams()
-    return FeatureFlagsRollOutToEveryoneCreateParams.omit({ project_id: true })
-        .extend(FeatureFlagsRollOutToEveryoneCreateBody.shape)
-        .extend({ id: z.preprocess(castStringToInt, FeatureFlagsRollOutToEveryoneCreateParams.shape['id']) })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsRollOutToEveryoneCreateParams.omit({ project_id: true })
+            .extend(FeatureFlagsRollOutToEveryoneCreateBody.shape)
+            .extend({ id: z.preprocess(castStringToInt, FeatureFlagsRollOutToEveryoneCreateParams.shape['id']) })
+    )
 }
 
 const featureFlagRollOutToEveryone = (): ToolBase<
@@ -331,9 +334,14 @@ const FeatureFlagSetReleaseConditionRolloutSchema = () => {
         orvalSchemas.FeatureFlagsSetReleaseConditionRolloutCreateBody()
     const FeatureFlagsSetReleaseConditionRolloutCreateParams =
         orvalSchemas.FeatureFlagsSetReleaseConditionRolloutCreateParams()
-    return FeatureFlagsSetReleaseConditionRolloutCreateParams.omit({ project_id: true })
-        .extend(FeatureFlagsSetReleaseConditionRolloutCreateBody.shape)
-        .extend({ id: z.preprocess(castStringToInt, FeatureFlagsSetReleaseConditionRolloutCreateParams.shape['id']) })
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsSetReleaseConditionRolloutCreateParams.omit({ project_id: true })
+            .extend(FeatureFlagsSetReleaseConditionRolloutCreateBody.shape)
+            .extend({
+                id: z.preprocess(castStringToInt, FeatureFlagsSetReleaseConditionRolloutCreateParams.shape['id']),
+            })
+    )
 }
 
 const featureFlagSetReleaseConditionRollout = (): ToolBase<
