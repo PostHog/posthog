@@ -28,11 +28,11 @@ Five modes, and the disagreements in Lane B nearly always come from two of them 
 | ------------------------ | ----------------------------------------------------------------------- | ----------------------------------------------------------- |
 | Client, remote           | a browser or mobile SDK call, no bootstrap config                       | the identified person's stored properties                   |
 | Client, bootstrapped     | `bootstrap: { featureFlags: … }` at init, values rendered server-side   | whatever the server put in the bootstrap payload            |
-| Server, remote           | a server SDK call with no personal API key configured                   | only the properties the call itself passes                  |
-| Server, local evaluation | a personal API key at init; definitions polled and evaluated in process | only the properties the call itself passes                  |
-| Server, local-only       | an explicit "evaluate locally only" option on the call                  | the same, and it returns the fallback when it cannot decide |
+| Server, remote           | a server SDK call with no personal API key configured                   | the stored person properties, with the call's own on top    |
+| Server, local evaluation | a personal API key at init; definitions polled and evaluated in process | the call's own, then the endpoint if it cannot decide       |
+| Server, local-only       | an explicit "evaluate locally only" option on the call                  | only the call's own; the fallback when it cannot decide     |
 
-The two rows that matter most: **a server SDK resolves conditions from the properties the call passes, not from the person's stored properties.** A client call and a server call for the same flag and the same user therefore disagree whenever the flag's conditions read a property the server call does not send. That is the most common cause of a confirmed regime split, and it is invisible in either repo alone.
+The row that matters most is the last one: **only a local-only call decides without the person's stored properties.** A remote call reads them and merges the call's own on top, and a local-evaluation call falls back to that endpoint when it cannot decide, so neither one is short of context. A client call and a local-only server call for the same flag and the same user do disagree whenever the flag's conditions read a property the server call does not send. That is a real cause of a confirmed regime split, and it is invisible in either repo alone.
 
 ## Call shapes by SDK
 

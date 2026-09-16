@@ -78,7 +78,7 @@ Everything here joins on one table: _flag key × repository × evaluation mode_.
 | Key in no pinned repo, flag never called                                  | Union-confirmed unreferenced flag — cleanup candidate the single-repo search can't claim |
 | Same key, client SDK in A and server SDK in B, responses agree            | Normal for a split stack — baseline, write it to memory once                             |
 | Same key, two regimes, and the same person gets different answers         | Evaluation-mode split — real divergent behavior (Lane B)                                 |
-| Flag conditions read person properties; one repo's server call omits them | Context split — that service silently serves the fallback (Lane C)                       |
+| Flag conditions read person properties; one local-only call omits them    | Context split — that service silently serves the fallback (Lane C)                       |
 | Flag deleted; checks gone from A, still shipped in B                      | Deletion residue — partial cleanup (Lane D)                                              |
 | Key in every repo, one mode, responses agree                              | Baseline — leave it alone                                                                |
 
@@ -141,13 +141,13 @@ One steady response per library, two libraries, two different responses, both sp
 
 Rule out scope as well as time. `evaluation_runtime` of `client` or `server` bars the other regime, and `evaluation_contexts` bars a caller whose environment tags the flag does not list. The barred side returns the fallback steadily for the whole window, so configuration produces this lane's exact shape without a defect. Read both from `feature-flag-get-definition` before you believe a split.
 
-Only now go to the trees, to name _which repo_ owns each regime and why the answers differ. The usual causes are in [`references/call-sites.md`](references/call-sites.md): a server-side call sending no person properties while the client sends them, local evaluation running against a stale definition poll, a bootstrapped client value never refreshed, or a different distinct id on each side. Name the cause and the file, or file it as `requires_human_input` rather than guessing.
+Only now go to the trees, to name _which repo_ owns each regime and why the answers differ. The usual causes are in [`references/call-sites.md`](references/call-sites.md): a local-only server call sending no person properties while the client sends them, local evaluation running against a stale definition poll, a bootstrapped client value never refreshed, or a different distinct id on each side. Name the cause and the file, or file it as `requires_human_input` rather than guessing.
 
 #### Lane C — targeting context split
 
-Read the flag's `filters` and list the person and group properties its release conditions test. Then look at every server-side call site for that key across the trees: a server SDK resolves conditions from the properties the _call_ passes, so a call omitting them gets the fallback no matter what the flag says. The cross-repo shape is one service passing the full context and another passing only a distinct id, for the same flag.
+Read the flag's `filters` and list the person and group properties its release conditions test. Then look at every server-side call site for that key across the trees. **A remote server call is not missing context**: the flags endpoint starts from the stored person and group properties and merges the call's own on top, so passing only a distinct id still resolves the conditions. The lane's trigger is a call that cannot reach the person row — local evaluation pinned off the network by `only_evaluate_locally` / `onlyEvaluateLocally`, which returns the fallback when the properties in hand cannot decide. The cross-repo shape is one service passing the full context and another deciding locally without it, for the same flag.
 
-This is Lane B's cause seen from the code side, so check Lane B's query first — if the responses already disagree you have the confirmation for free. Where the stream is silent (local evaluation sends no call event), the code comparison stands on its own, but say so in the report: you are reading intent from the call sites, not measuring the outcome.
+This is Lane B's cause seen from the code side, so check Lane B's query first — if the responses already disagree you have the confirmation for free. A remote call site needs that measured disagreement before you file, because the code alone cannot show a defect the endpoint fills in. Only a local-only call site carries a code-only filing, which the stream cannot confirm anyway since local evaluation sends no call event. Say so in the report: you are reading intent from the call sites, not measuring the outcome.
 
 #### Lane D — deletion residue
 
