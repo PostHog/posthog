@@ -73,6 +73,34 @@ export const ExternalDataJobsSchemasSchema = z
     .array(z.string())
     .describe('Filter jobs by table schema names (e.g. ["users", "orders"]). Only returns jobs for these tables.')
 
+export const BillingTeamIdsSchema = z
+    .array(z.number().int().positive())
+    .nullish()
+    .describe(
+        'Project IDs to filter by, e.g. `[1,2]`. Omit for every project this request can see: all organization projects for full billing access, or the member-visible and token-scoped projects for member read-only access.'
+    )
+
+export const BillingUsageTypesSchema = z
+    .array(z.string().min(1))
+    .nullish()
+    .describe(
+        'Usage type identifiers to filter by, e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
+    )
+
+export const BillingSpendBreakdownsSchema = z
+    .array(z.enum(['type', 'team']))
+    .nullish()
+    .describe(
+        'Dimensions to break spend down by. Pass `["type"]` for per-product series, `["team"]` for one series per project summed across products, or `["type","team"]` for per-project series within each product. Omit for one aggregate series.'
+    )
+
+export const BillingUsageBreakdownsSchema = z
+    .array(z.enum(['type', 'team']))
+    .nullish()
+    .describe(
+        'Dimensions to break usage down by. Pass `["type"]` for per-usage-type series or `["type","team"]` for per-project series within each usage type. Team breakdowns require `"type"`; do not pass `["team"]` by itself. Omit for one aggregate series.'
+    )
+
 export const ExternalDataSourcePayloadSchema = z
     .record(z.string(), z.unknown())
     .describe(
@@ -356,14 +384,22 @@ export const SavedMetricsAttachSchema = z
         "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics."
     )
 
-export const ExperimentResultsGetSchema = z.object({
-    id: z.number().describe('The ID of the experiment to get comprehensive results for'),
-    refresh: z
-        .boolean()
-        .optional()
-        .default(false)
-        .describe('Force refresh of results instead of using cached values. Defaults to false.'),
-})
+// Agents reach for `experimentId` / `experiment_id` here as often as `id` — the same
+// alias set the generated experiment tools accept via their tools.yaml overrides.
+export const ExperimentResultsGetSchema = z.preprocess(
+    normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+    z.object({
+        id: z.preprocess(
+            castStringToInt,
+            z.number().describe('The ID of the experiment to get comprehensive results for')
+        ),
+        refresh: z
+            .boolean()
+            .optional()
+            .default(false)
+            .describe('Force refresh of results instead of using cached values. Defaults to false.'),
+    })
+)
 
 // Accept the identifier under the aliases agents reach for (`insight-get` &
 // friends return the insight under `id`; UI URLs surface `short_id`), and
@@ -618,6 +654,24 @@ export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
 })
 
+export const TaskAgentCreateSchema = z
+    .object({
+        title: z.string().max(255).optional(),
+        description: z.string().min(1).describe('Instructions for the agent.'),
+        repository: z.string().nullish().describe('Repository in organization/repo format.'),
+        branch: z.string().min(1).max(255).nullish().describe('Base branch for the run.'),
+    })
+    .transform((input) => ({ ...input, start_run: true as const }))
+
+export const TaskAgentRunCreateSchema = z
+    .object({
+        id: z.string().uuid().describe('Task ID.'),
+        branch: z.string().max(255).nullish().describe('Git branch to check out in the sandbox.'),
+        resume_from_run_id: z.string().uuid().optional().describe('ID of a previous run to resume from.'),
+        pending_user_message: z.string().optional().describe('Initial or follow-up message for the run.'),
+    })
+    .transform((input) => ({ ...input, mode: 'background' as const, run_source: 'agent' as const }))
+
 // Debug MCP UI Apps
 export const DebugMcpUiAppsSchema = z.object({
     message: z.string().optional().describe('Optional message to include in the debug data'),
@@ -649,6 +703,9 @@ export const ExecuteSQLSchema = z.object({
 
 const MAX_EVENTS_PAGE_SIZE = 500
 
+const ENTITY_FIELD_DESCRIPTION =
+    'The entity to read: `person`, `session` for the columns of the `sessions` table, or a group type name. The plural form of any of these is accepted too.'
+
 // Every read below is strict so a field it does not have is named back to the caller. Left
 // open, an ignored `search` or `property_name` returns a confident answer to a different
 // question than the one asked.
@@ -677,7 +734,7 @@ const ReadEventPropertiesQuerySchema = z
 const ReadEntityPropertiesQuerySchema = z
     .object({
         kind: z.literal('entity_properties'),
-        entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
+        entity: z.string().describe(ENTITY_FIELD_DESCRIPTION),
     })
     .strict()
 
@@ -691,7 +748,7 @@ const ReadActionPropertiesQuerySchema = z
 const ReadEntitySamplePropertyValuesQuerySchema = z
     .object({
         kind: z.literal('entity_property_values'),
-        entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
+        entity: z.string().describe(ENTITY_FIELD_DESCRIPTION),
         property_name: z.string().describe('Verified property name of an entity.'),
     })
     .strict()

@@ -72,6 +72,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_multiple_variant_handling_from_experiment,
     has_activation_config,
 )
+from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
 from products.experiments.backend.hogql_queries.utils import (
     aggregate_variants_across_breakdowns,
     get_bayesian_experiment_result,
@@ -241,6 +242,7 @@ class ExperimentQueryRunner(QueryRunner):
         self.user_facing = user_facing
         self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
         self.bypass_warehouse_access_control = bypass_warehouse_access_control
+        self._requested_as_of = as_of
         # Tags the terminal `experiment metric error` event with where the load came from. Defaults to "ui"
         # because the generic /query API path constructs runners without kwargs; internal callers that own
         # their own retries/telemetry (recalc, warming, canary, backfills) must pass None or user_facing=False
@@ -302,7 +304,6 @@ class ExperimentQueryRunner(QueryRunner):
             start_is_dw = isinstance(self.query.metric.start_event, ExperimentDataWarehouseNode)
             completion_is_dw = isinstance(self.query.metric.completion_event, ExperimentDataWarehouseNode)
             self.is_data_warehouse_query = start_is_dw or completion_is_dw
-        self.is_ratio_metric = isinstance(self.query.metric, ExperimentRatioMetric)
 
         self.stats_method = get_experiment_stats_method(self.experiment)
 
@@ -366,6 +367,7 @@ class ExperimentQueryRunner(QueryRunner):
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            end_is_data_horizon=True,
             # High-volume teams' builds OOM even at capped window widths; spilling the
             # GROUP BY to disk degrades gracefully instead of failing the build.
             spill_to_disk=True,
@@ -403,6 +405,7 @@ class ExperimentQueryRunner(QueryRunner):
             table=LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            end_is_data_horizon=True,
             spill_to_disk=True,
         )
 
@@ -433,27 +436,27 @@ class ExperimentQueryRunner(QueryRunner):
 
         return not has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric)
 
-    def _precompute_skip_reason(self) -> Optional[str]:
+    def _precompute_skip_reason(self) -> Optional[PrecomputeSkipReason]:
         """Why precompute was not used, for the query-performance UI. None when it was attempted."""
         if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
             return None
         if self.query.precomputation_mode == PrecomputationMode.DIRECT:
-            return "override_direct"
+            return PrecomputeSkipReason.OVERRIDE_DIRECT
         if not self._team_experiments_config.experiment_precomputation_enabled:
-            return "team_disabled"
+            return PrecomputeSkipReason.TEAM_DISABLED
         if not experiment_has_min_runtime_for_precomputation(
             self.experiment.start_date,
             self.experiment.end_date,
         ):
-            return "min_runtime"
+            return PrecomputeSkipReason.MIN_RUNTIME
         if has_activation_config(self.experiment.exposure_criteria):
-            return "activation_config"
+            return PrecomputeSkipReason.ACTIVATION_CONFIG
         if has_uncalculated_cohorts(self.team, self.experiment.exposure_criteria, self.metric):
-            return "cohort_not_calculated"
+            return PrecomputeSkipReason.COHORT_NOT_CALCULATED
         if self.is_data_warehouse_query:
-            return "data_warehouse"
+            return PrecomputeSkipReason.DATA_WAREHOUSE
         if self.group_type_index is not None:
-            return "group_aggregation"
+            return PrecomputeSkipReason.GROUP_AGGREGATION
         return None  # precompute was attempted; a direct path means the build failed / wasn't ready
 
     def _retention_metric_events_precomputation_enabled(self) -> bool:
@@ -668,11 +671,12 @@ class ExperimentQueryRunner(QueryRunner):
         # Tag after _get_experiment_query() which sets the precompute flags
         exposures_path = "precomputed" if self._is_precomputed else "direct_scan"
         metric_events_path = self.metric_events_path
+        skip_reason = self._precompute_skip_reason()
         tag_queries(
             experiment_exposures_path=exposures_path,
             experiment_metric_events_path=metric_events_path,
             experiment_execution_path=exposures_path,
-            experiment_precompute_skip_reason=self._precompute_skip_reason(),
+            experiment_precompute_skip_reason=skip_reason.value if skip_reason is not None else None,
             experiment_scan_date_from=self.date_range.date_from,
             experiment_scan_date_to=self.date_range.date_to,
         )
@@ -1018,6 +1022,16 @@ class ExperimentQueryRunner(QueryRunner):
         if last_refresh is None:
             return None
         return last_refresh + timedelta(hours=24)
+
+    def single_flight_variant(self) -> str:
+        # A recalculation passes its own window end, warehouse access, and execution time. None of
+        # them reach the cache key, so a recalculation must not pair with a results request.
+        as_of = self._requested_as_of.isoformat() if self._requested_as_of else ""
+        return (
+            f"{super().single_flight_variant()}:as_of={as_of}"
+            f":bypass_warehouse_access_control={self.bypass_warehouse_access_control}"
+            f":max_execution_time={self.max_execution_time}"
+        )
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()

@@ -70,6 +70,12 @@ describe('AccountRelatedUsersExpansion', () => {
         expect(screen.getByText('2026-01-02T03:04:05Z')).toBeInTheDocument()
         expect(screen.getByText('Never')).toBeInTheDocument()
         expect(screen.getByPlaceholderText('Search users by name or email...')).toHaveAttribute('maxLength', '200')
+        for (const header of ['Access level', 'Last logged in']) {
+            expect(screen.getByText(header).closest('th')).toHaveClass('LemonTable__header--actionable')
+        }
+        expect(
+            screen.getByText('Access level').closest('th')!.querySelector('[data-attr="table-header-more"]')
+        ).not.toBeNull()
         const [impersonateButton] = await screen.findAllByText('Impersonate')
         expect(impersonateButton.closest('a')).toHaveAttribute('href', 'http://localhost/admin/posthog/user/42/change/')
     })

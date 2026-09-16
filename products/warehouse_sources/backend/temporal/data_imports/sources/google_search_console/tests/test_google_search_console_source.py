@@ -3,8 +3,7 @@ from unittest import mock
 
 import requests
 
-from posthog.schema import SourceFieldSelectConfig
-
+from products.warehouse_sources.backend.facade.source_config import SourceFieldSelectConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
@@ -337,6 +336,23 @@ def test_validate_credentials_rejects_unknown_site():
 
     assert ok is False
     assert "is not visible to the connected Google account" in (message or "")
+
+
+def test_validate_credentials_says_to_reconnect_when_account_owns_no_property():
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites",
+            return_value=[],
+        ),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "can't read any Search Console property" in (message or "")
+    assert "is not visible to the connected Google account" not in (message or "")
 
 
 def test_validate_credentials_suggests_registered_property_for_bare_hostname():

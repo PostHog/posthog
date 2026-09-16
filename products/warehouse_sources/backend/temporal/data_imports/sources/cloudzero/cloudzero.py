@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 CLOUDZERO_BASE_URL = "https://api.cloudzero.com"
 
@@ -163,9 +164,26 @@ def cloudzero_source(
     )
 
 
-def validate_credentials(api_key: str) -> bool:
-    res = make_tracked_session(redact_values=(api_key,)).get(
+# Shared with `CloudzeroSource.get_non_retryable_errors` so the same rejection reads the same way
+# whether it surfaces while connecting the source or mid-sync.
+KEY_REJECTED_MESSAGE = (
+    "CloudZero rejected your API key. Check the key is correct and has the billing:read_costs and "
+    "billing:read_dimensions scopes, then reconnect."
+)
+# `validate_via_probe` reports a transport failure as a `None` status, so anything CloudZero did not
+# answer itself leaves the key unjudged. Calling it invalid sends someone off to mint a replacement
+# that fails the same way.
+PROBE_FAILED_MESSAGE = "PostHog couldn't check your API key with CloudZero. Wait a few minutes and try again."
+
+
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
         f"{CLOUDZERO_BASE_URL}/v2/billing/dimensions",
         headers={"Authorization": api_key},
     )
-    return res.status_code == 200
+    if ok:
+        return True, None
+    if status in (401, 403):
+        return False, KEY_REJECTED_MESSAGE
+    return False, PROBE_FAILED_MESSAGE

@@ -327,7 +327,13 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             scopes = str(params.get("scopes", "")).split(",")
             queryset = queryset.filter(scope__in=scopes)
         if params.get("item_id"):
-            queryset = queryset.filter(item_id=params.get("item_id"))
+            if set(str(params.get("scopes", "")).split(",")) == {"DataWarehouseSavedQuery", "DataQualityCheck"}:
+                # Load the product relationship only for a model's combined history feed.
+                from products.data_quality.backend.facade.activity import model_activity  # noqa: PLC0415
+
+                queryset = model_activity(queryset, self.team_id, params["item_id"])
+            else:
+                queryset = queryset.filter(item_id=params.get("item_id"))
 
         if params.get("page"):
             queryset = queryset.order_by(*activity_log_ordering(self.request))

@@ -12,7 +12,7 @@ from typing import Any, cast
 import pytest
 from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.db import connection
@@ -36,8 +36,10 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     _CATALOG_PICKLE_MODULE_PREFIXES,
     _CATALOG_PICKLE_MODULES,
+    _TEAM_FLAG_CACHE,
     ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
     Database,
+    _cached_team_flag,
     _CatalogUnpickler,
     _compute_system_table_access_decision,
     _construct_database_root_node,
@@ -80,7 +82,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition
 from posthog.models.group_type_mapping import invalidate_group_types_cache
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
@@ -95,6 +99,9 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.revenue_analytics.backend.views import RevenueAnalyticsChargeView
+from products.revenue_analytics.backend.views.core import SourceHandle
+from products.revenue_analytics.backend.views.orchestrator import build_revenue_views_for_handles
+from products.revenue_analytics.backend.views.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -1150,6 +1157,41 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "some_field" in db.get_table("events").fields
         assert "timestamp" in db.get_table("whatever0").fields
 
+    def test_event_modifier_fetch_is_one_query_for_all_names(self):
+        found = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="found", query={"query": "SELECT 1 AS id"}, columns={"id": "String"}
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="soft_deleted",
+            query={"query": "SELECT 2 AS id"},
+            columns={"id": "String"},
+            deleted=True,
+        )
+
+        def modifier(name: str) -> DataWarehouseEventsModifier:
+            return DataWarehouseEventsModifier(
+                table_name=name, id_field="id", timestamp_field="created_at", distinct_id_field="id"
+            )
+
+        def fetch(names: list[str]) -> tuple[int, dict]:
+            modifiers = create_default_modifiers_for_team(
+                self.team, modifiers=HogQLQueryModifiers(dataWarehouseEventsModifiers=[modifier(n) for n in names])
+            )
+            with CaptureQueriesContext(connection) as context:
+                sources = Database._fetch_sources(team=self.team, modifiers=modifiers)
+            return len(context.captured_queries), sources.event_modifier_saved_queries
+
+        fetch(["found"])  # warm per-process caches so the measured fetches differ only in name count
+        single_count, _ = fetch(["found"])
+        triple_count, saved_queries = fetch(["found", "soft_deleted", "missing"])
+
+        # One bulk query serves any number of modifier names.
+        assert triple_count == single_count
+        assert saved_queries["found"].id == found.id
+        assert saved_queries["soft_deleted"] is None
+        assert saved_queries["missing"] is None
+
     @staticmethod
     def _ran_source_fetch_queries(ctx: CaptureQueriesContext) -> bool:
         return any("datawarehouse" in query["sql"].lower() for query in ctx.captured_queries)
@@ -1208,19 +1250,181 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert self._ran_source_fetch_queries(ctx)
 
+    def test_cached_sources_recompute_warehouse_access_control_flag(self):
+        credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="acl_table", team=self.team, columns={"id": "String"}, credential=credential, url_pattern=""
+        )
+
+        # Evaluated on the fetch, then re-evaluated once per request (cold and warm alike).
+        acl_flag_values = iter([False, False, True])
+        with (
+            patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: (
+                    next(acl_flag_values) if key == "hogql-warehouse-access-control" else False
+                ),
+            ),
+            patch.object(Database, "_is_warehouse_table_denied", return_value=True),
+        ):
+            unenforced = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+            # Warm cache hit: the enforcement flag must be re-evaluated per request, never
+            # served from the cached bundle, so this build sees the flag's new True.
+            enforced = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+
+        assert unenforced.has_table("acl_table")
+        assert not enforced.has_table("acl_table")
+
+    def _configure_revenue_events(self) -> None:
+        config = self.team.revenue_analytics_config
+        config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
+        config.save()
+        # Team.revenue_analytics_config memoizes by team pk in a module-level lru_cache, so the
+        # configured object would outlive this test's transaction and leak into later tests
+        # in this class, which share the team pk.
+        self.addCleanup(Team.__dict__["revenue_analytics_config"].fget.cache_clear)
+
+    def test_revenue_views_build_only_on_revenue_table_access(self):
+        self._configure_revenue_events()
+        with patch(
+            "products.revenue_analytics.backend.views.orchestrator.build_revenue_views_for_handles",
+            wraps=build_revenue_views_for_handles,
+        ) as builder:
+            database = Database.create_for(team=self.team)
+            database.get_table("events")
+            assert builder.call_count == 0
+
+            table = database.get_table("revenue_analytics.events.purchase.charge_events_revenue_view")
+            assert builder.call_count == 1
+            assert isinstance(table, RevenueAnalyticsChargeView)
+
+            # The first access built every deferred view; later lookups reuse them.
+            database.get_table("revenue_analytics.events.purchase.mrr_events_revenue_view")
+            assert builder.call_count == 1
+
+    def test_deferred_revenue_views_serialize_identically_to_eager(self):
+        self._configure_revenue_events()
+        with override_instance_config("HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED", False):
+            eager = Database.create_for(team=self.team)
+        deferred = Database.create_for(team=self.team)
+
+        eager_tables = eager.serialize(HogQLContext(team_id=self.team.pk, database=eager))
+        deferred_tables = deferred.serialize(HogQLContext(team_id=self.team.pk, database=deferred))
+
+        assert eager_tables.keys() == deferred_tables.keys()
+        view_name = "revenue_analytics.events.purchase.charge_events_revenue_view"
+        assert deferred_tables[view_name] == eager_tables[view_name]
+
+    def test_event_modifier_on_revenue_view_gets_id_mappings(self):
+        self._configure_revenue_events()
+        view_name = "revenue_analytics.events.purchase.charge_events_revenue_view"
+        modifiers = create_default_modifiers_for_team(
+            self.team,
+            modifiers=HogQLQueryModifiers(
+                dataWarehouseEventsModifiers=[
+                    DataWarehouseEventsModifier(
+                        table_name=view_name,
+                        id_field="id",
+                        timestamp_field="timestamp",
+                        distinct_id_field="customer_id",
+                    )
+                ]
+            ),
+        )
+
+        deferred_default = Database.create_for(team=self.team, modifiers=modifiers)
+        with override_instance_config("HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED", False):
+            eager = Database.create_for(team=self.team, modifiers=modifiers)
+
+        deferred_fields = deferred_default.get_table(view_name).fields
+        eager_fields = eager.get_table(view_name).fields
+        assert "distinct_id" in deferred_fields
+        assert "person_id" in deferred_fields
+        assert deferred_fields.keys() == eager_fields.keys()
+
+    def test_deferred_revenue_view_build_runs_no_queries(self):
+        self._configure_revenue_events()
+        # A boolean test-account filter makes filter preparation resolve property types from
+        # Postgres; that lookup must happen when handles are fetched, not at resolution time.
+        PropertyDefinition.objects.create(
+            team=self.team, name="is_internal", type=PropertyDefinition.Type.EVENT, property_type="Boolean"
+        )
+        self.team.test_account_filters = [
+            {"key": "is_internal", "type": "event", "value": ["true"], "operator": "exact"}
+        ]
+        self.team.save()
+        config = self.team.revenue_analytics_config
+        config.filter_test_accounts = True
+        config.save()
+
+        database = Database.create_for(team=self.team)
+        with CaptureQueriesContext(connection) as context:
+            table = database.get_table("revenue_analytics.events.purchase.charge_events_revenue_view")
+
+        assert isinstance(table, RevenueAnalyticsChargeView)
+        assert len(context.captured_queries) == 0
+
+    def test_partial_serialize_skips_revenue_view_build(self):
+        self._configure_revenue_events()
+        database = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, database=database)
+
+        with patch(
+            "products.revenue_analytics.backend.views.orchestrator.build_revenue_views_for_handles",
+            wraps=build_revenue_views_for_handles,
+        ) as builder:
+            # The sidebar hydrates one table's fields at a time; that request must not build
+            # every revenue view only to discard them.
+            partial = database.serialize(context, include_only={"events"})
+            assert builder.call_count == 0
+
+            full = database.serialize(context)
+            assert builder.call_count == 1
+
+        assert "events" in partial
+        assert "revenue_analytics.events.purchase.charge_events_revenue_view" in full
+
+    def test_warm_cached_serialize_reuses_prebuilt_revenue_views(self):
+        self._configure_revenue_events()
+        Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+
+        with patch(
+            "products.revenue_analytics.backend.views.orchestrator.build_revenue_views_for_handles",
+            wraps=build_revenue_views_for_handles,
+        ) as builder:
+            warm = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+            warm.serialize(HogQLContext(team_id=self.team.pk, database=warm))
+        assert builder.call_count == 0
+
+    def test_join_on_deferred_revenue_view_is_wired(self):
+        self._configure_revenue_events()
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="event",
+            joining_table_name="revenue_analytics.events.purchase.charge_events_revenue_view",
+            joining_table_key="id",
+            field_name="purchase_charge",
+        )
+
+        database = Database.create_for(team=self.team)
+
+        assert "purchase_charge" in database.get_table("events").fields
+
     def test_cached_revenue_views_do_not_leak_expression_fields_between_users(self):
         other_user = self._create_user("no-expression-access@posthog.com")
         with team_scope(self.team.id, canonical=True):
             DataWarehouseExpression.objects.create(
-                team=self.team, table_name="stub_revenue_view", field_name="secret_expr", expression="1 + 1"
+                team=self.team, table_name="stripe.stub.charges", field_name="secret_expr", expression="1 + 1"
             )
         stub_view = RevenueAnalyticsChargeView(
             id="stub-view",
-            name="stub_revenue_view",
+            name="stripe.stub.charges",
             query="SELECT 'x' AS id",
             fields={"id": StringDatabaseField(name="id")},
             prefix="stub",
         )
+        stub_handle = SourceHandle(type="stripe", team=self.team)
 
         with (
             patch(
@@ -1228,17 +1432,23 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 side_effect=lambda key, *args, **kwargs: key == "hogql-warehouse-access-control",
             ),
             patch(
-                "products.revenue_analytics.backend.views.orchestrator.build_all_revenue_analytics_views",
-                return_value=[stub_view],
+                "products.revenue_analytics.backend.views.orchestrator.list_revenue_source_handles",
+                return_value=[stub_handle],
+            ),
+            patch(
+                "products.revenue_analytics.backend.views.orchestrator.build_revenue_views_for_handles",
+                side_effect=lambda *args, **kwargs: [stub_view.model_copy(deep=True)],
             ),
             patch.object(Database, "_is_warehouse_expression_denied", side_effect=[False, True]),
         ):
             allowed = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
             denied = Database.create_for(team=self.team, user=other_user, use_cached_sources=True)
 
-        assert allowed.get_table("stub_revenue_view") is not denied.get_table("stub_revenue_view")
-        assert "secret_expr" in allowed.get_table("stub_revenue_view").fields
-        assert "secret_expr" not in denied.get_table("stub_revenue_view").fields
+            # Inside the patch context: resolving the view on `denied` builds its deferred views,
+            # which must go through the patched builder.
+            assert allowed.get_table("stripe.stub.charges") is not denied.get_table("stripe.stub.charges")
+            assert "secret_expr" in allowed.get_table("stripe.stub.charges").fields
+            assert "secret_expr" not in denied.get_table("stripe.stub.charges").fields
 
     def test_cached_sources_expire_and_pick_up_new_views(self):
         Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
@@ -4405,6 +4615,105 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert ("system.activity_logs" in database.get_system_table_names()) is expected_visible
 
 
+class TestCachedTeamFlag(TestCase):
+    def setUp(self):
+        _TEAM_FLAG_CACHE.clear()
+
+    def tearDown(self):
+        _TEAM_FLAG_CACHE.clear()
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_evaluates_once_within_ttl_and_isolates_teams(self, _get_setting):
+        team_a = cast(Team, SimpleNamespace(uuid="team-a-uuid"))
+        team_b = cast(Team, SimpleNamespace(uuid="team-b-uuid"))
+        evaluate = Mock(side_effect=[True, False])
+
+        assert _cached_team_flag("managed-viewsets", team_a, evaluate) is True
+        assert _cached_team_flag("managed-viewsets", team_a, evaluate) is True
+        assert evaluate.call_count == 1
+
+        # A different team must not see team A's cached decision.
+        assert _cached_team_flag("managed-viewsets", team_b, evaluate) is False
+        assert evaluate.call_count == 2
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=0)
+    def test_zero_ttl_disables_caching(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+        evaluate = Mock(return_value=True)
+
+        _cached_team_flag("managed-viewsets", team, evaluate)
+        _cached_team_flag("managed-viewsets", team, evaluate)
+        assert evaluate.call_count == 2
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_flags_outside_the_allowlist_are_never_cached(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+        evaluate = Mock(return_value=True)
+
+        _cached_team_flag("hogql-warehouse-access-control", team, evaluate)
+        _cached_team_flag("hogql-warehouse-access-control", team, evaluate)
+        assert evaluate.call_count == 2
+        assert _TEAM_FLAG_CACHE == {}
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value="")
+    def test_unparseable_ttl_disables_caching_instead_of_raising(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+
+        assert _cached_team_flag("managed-viewsets", team, Mock(return_value=True)) is True
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_cap_sweeps_expired_entries_and_keeps_fresh_ones(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+        now = time.monotonic()
+        _TEAM_FLAG_CACHE[("expired-team-uuid", "managed-viewsets")] = (now - 100, True)
+        _TEAM_FLAG_CACHE[("fresh-team-uuid", "managed-viewsets")] = (now, True)
+
+        with patch("posthog.hogql.database.database._TEAM_FLAG_CACHE_MAX_ENTRIES", 2):
+            _cached_team_flag("managed-viewsets", team, Mock(return_value=True))
+
+        assert ("expired-team-uuid", "managed-viewsets") not in _TEAM_FLAG_CACHE
+        assert ("fresh-team-uuid", "managed-viewsets") in _TEAM_FLAG_CACHE
+        assert (str(team.uuid), "managed-viewsets") in _TEAM_FLAG_CACHE
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_lowering_the_ttl_applies_to_existing_entries(self, _get_setting):
+        team = cast(Team, SimpleNamespace(uuid="team-uuid"))
+        # Evaluated 61s ago: fresh under the mocked 30s TTL? No - so it must re-evaluate, even
+        # though a 3600s TTL was in force when the entry was written.
+        _TEAM_FLAG_CACHE[(str(team.uuid), "managed-viewsets")] = (time.monotonic() - 61, True)
+        evaluate = Mock(return_value=False)
+
+        assert _cached_team_flag("managed-viewsets", team, evaluate) is False
+        assert evaluate.call_count == 1
+
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30)
+    def test_concurrent_inserts_during_cap_sweep_do_not_raise(self, _get_setting):
+        now = time.monotonic()
+        for index in range(64):
+            _TEAM_FLAG_CACHE[(f"expired-{index}", "managed-viewsets")] = (now - 100, True)
+
+        barrier = threading.Barrier(4)
+        errors: list[Exception] = []
+
+        def hammer(worker: int) -> None:
+            try:
+                barrier.wait()
+                for iteration in range(200):
+                    team = cast(Team, SimpleNamespace(uuid=f"team-{worker}-{iteration}"))
+                    assert _cached_team_flag("managed-viewsets", team, Mock(return_value=True)) is True
+            except Exception as e:
+                errors.append(e)
+
+        with patch("posthog.hogql.database.database._TEAM_FLAG_CACHE_MAX_ENTRIES", 32):
+            threads = [threading.Thread(target=hammer, args=(worker,)) for worker in range(4)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        assert errors == []
+
+
 class TestSourcesCacheConcurrency(TestCase):
     def setUp(self):
         clear_sources_cache()
@@ -4419,6 +4728,7 @@ class TestSourcesCacheConcurrency(TestCase):
             saved_queries=[],
             endpoint_saved_queries=[],
             revenue_views=[],
+            revenue_source_handles=[],
             warehouse_tables=[object()] * row_count,
             data_warehouse_joins=[],
             data_warehouse_expressions=[],
@@ -4522,5 +4832,6 @@ class TestCreateForPosthogTables(BaseTest):
         system_table_names = database.get_system_table_names()
         assert "system.feature_flags" not in system_table_names
         assert "system.activity_logs" not in system_table_names
+        assert "system.customer_tasks" not in system_table_names
         with pytest.raises(TableAccessDeniedError):
             database.get_table("system.activity_logs")
