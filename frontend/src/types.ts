@@ -39,7 +39,7 @@ import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
-import type { LogsSettingsApi, OrganizationNotificationLockApi } from '~/generated/core/api.schemas'
+import type { OrganizationNotificationLockApi } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     CoreEvent,
@@ -799,6 +799,15 @@ export interface ConversationsSettings {
     ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
 }
 
+export interface LogsSettings {
+    capture_console_logs?: boolean
+    json_parse_logs?: boolean
+    json_parse_logs_attribute_key?: string
+    pii_scrub_logs?: boolean
+    retention_days?: number
+    retention_last_updated?: string
+}
+
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -823,7 +832,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
     session_replay_config: { record_canvas?: boolean } | undefined | null
     survey_config?: TeamSurveyConfigType
-    logs_settings?: LogsSettingsApi | null
+    logs_settings?: LogsSettings | null
     autocapture_exceptions_opt_in: boolean
     autocapture_web_vitals_opt_in?: boolean
     autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]

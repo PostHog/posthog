@@ -35,7 +35,6 @@ from posthog.api.team import (
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
     EventIngestionRestrictionSerializer,
-    LogsSettingsField,
     TeamCustomerAnalyticsConfigSerializer,
     TeamFeatureFlagPolicyConfigSerializer,
     TeamLogsConfigSerializer,
@@ -611,11 +610,6 @@ class ProjectBackwardCompatSerializer(
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     workflows_config = TeamWorkflowsConfigSerializer(required=False)  # Compat with TeamSerializer
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)  # Compat with TeamSerializer
-    logs_settings = LogsSettingsField(
-        required=False,
-        allow_null=True,
-        help_text="Log ingestion settings. Updates replace the entire object; null clears all settings.",
-    )
     # No `default` on purpose: a default value would be auto-injected into every create payload, which trips the
     # admin-only-fields-on-creation gate in validate_team_attrs and blocks members allowed to create projects.
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, required=False)  # Compat with TeamSerializer

@@ -70,6 +70,5 @@ The project API stores the key in `logs_settings.json_parse_logs_attribute_key`,
 - The key is matched literally, including dots.
 - The default is off. An empty string disables parsing.
 - The API replaces the entire `logs_settings` object. Include the other current settings when updating it, as the UI does. Sending `logs_settings: null` clears all Logs settings.
-- The API schema describes the known settings and allows additional keys. The API and generated MCP clients preserve those keys.
 
 Saving a key records your choice. Ingestion does not read it yet, so no fields are extracted from the attribute.

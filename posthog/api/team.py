@@ -1193,69 +1193,6 @@ def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerial
     return None
 
 
-# Match str.strip(): JavaScript's \s includes BOM and omits some Python whitespace characters.
-_LOGS_ATTRIBUTE_KEY_WHITESPACE_RANGES = (
-    r"\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000"
-)
-_LOGS_ATTRIBUTE_KEY_WHITESPACE = rf"[{_LOGS_ATTRIBUTE_KEY_WHITESPACE_RANGES}]"
-_LOGS_ATTRIBUTE_KEY_CODE_POINT = r"(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\uD800-\uDFFF])"
-# A character that trimming keeps, so the counted part of the key can be anchored at both ends.
-_LOGS_ATTRIBUTE_KEY_CORE_CHARACTER = (
-    rf"(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\uD800-\uDFFF{_LOGS_ATTRIBUTE_KEY_WHITESPACE_RANGES}])"
-)
-
-
-@extend_schema_field(
-    {
-        "allOf": [
-            {"type": "object", "additionalProperties": True},
-            {
-                "type": "object",
-                "properties": {
-                    "capture_console_logs": {
-                        "type": "boolean",
-                        "description": "Capture browser console logs through the PostHog SDK.",
-                    },
-                    "json_parse_logs": {"type": "boolean", "description": "Extract JSON fields from new log bodies."},
-                    "json_parse_logs_attribute_key": {
-                        "type": "string",
-                        # Allow padding outside the limit and count UTF-16 surrogate pairs as one Python character.
-                        # Padding and core are kept apart so a long rejected value cannot backtrack between them.
-                        "pattern": (
-                            rf"^(?:{_LOGS_ATTRIBUTE_KEY_WHITESPACE}*"
-                            rf"|{_LOGS_ATTRIBUTE_KEY_WHITESPACE}*{_LOGS_ATTRIBUTE_KEY_CORE_CHARACTER}"
-                            rf"(?:{_LOGS_ATTRIBUTE_KEY_CODE_POINT}{{0,198}}{_LOGS_ATTRIBUTE_KEY_CORE_CHARACTER})?"
-                            rf"{_LOGS_ATTRIBUTE_KEY_WHITESPACE}*)$"
-                        ),
-                        "description": "Literal log attribute key to parse as JSON, at most 200 characters after trimming whitespace. An empty string disables parsing.",
-                    },
-                    "pii_scrub_logs": {
-                        "type": "boolean",
-                        "description": "Redact supported PII patterns before storing new logs.",
-                    },
-                    "retention_days": {
-                        "type": "integer",
-                        "enum": [14, 30, None],
-                        "nullable": True,
-                        "description": "Log retention in days: 14 or 30. Paid retention requires the matching entitlement.",
-                    },
-                    "retention_last_updated": {
-                        "type": "string",
-                        "format": "date-time",
-                        "nullable": True,
-                        "description": "Timestamp of the last retention change, used to limit how often retention can change.",
-                    },
-                },
-            },
-        ],
-    },
-    component_name="LogsSettings",
-)
-class LogsSettingsField(serializers.JSONField):
-    # The open allOf branch preserves unknown MCP keys; Orval strips them from objects with typed properties.
-    pass
-
-
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
     _group_types_cache: list[dict[str, Any]] | None = None
@@ -1272,11 +1209,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
     workflows_config = TeamWorkflowsConfigSerializer(required=False)
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)
-    logs_settings = LogsSettingsField(
-        required=False,
-        allow_null=True,
-        help_text="Log ingestion settings. Updates replace the entire object; null clears all settings.",
-    )
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
     class Meta:

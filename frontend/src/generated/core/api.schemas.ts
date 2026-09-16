@@ -686,34 +686,6 @@ export const BusinessModelEnumApi = {
     Other: 'other',
 } as const
 
-export type RetentionDaysEnumApi = (typeof RetentionDaysEnumApi)[keyof typeof RetentionDaysEnumApi]
-
-export const RetentionDaysEnumApi = {
-    Number14: 14,
-    Number30: 30,
-} as const
-
-export type LogsSettingsApi = { [key: string]: unknown } & {
-    /** Capture browser console logs through the PostHog SDK. */
-    capture_console_logs?: boolean
-    /** Extract JSON fields from new log bodies. */
-    json_parse_logs?: boolean
-    /**
-     * Literal log attribute key to parse as JSON, at most 200 characters after trimming whitespace. An empty string disables parsing.
-     * @pattern ^(?:[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*|[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\uD800-\uDFFF\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000])(?:(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\uD800-\uDFFF]){0,198}(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\uD800-\uDFFF\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]))?[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*)$
-     */
-    json_parse_logs_attribute_key?: string
-    /** Redact supported PII patterns before storing new logs. */
-    pii_scrub_logs?: boolean
-    /** Log retention in days: 14 or 30. Paid retention requires the matching entitlement. */
-    retention_days?: RetentionDaysEnumApi | null
-    /**
-     * Timestamp of the last retention change, used to limit how often retention can change.
-     * @nullable
-     */
-    retention_last_updated?: string | null
-}
-
 /**
  * * `ingest_first_event` - ingest_first_event
  * * `set_up_reverse_proxy` - set_up_reverse_proxy
@@ -2655,8 +2627,7 @@ export interface ProjectBackwardCompatApi {
      */
     conversations_enabled?: boolean | null
     conversations_settings?: unknown
-    /** Log ingestion settings. Updates replace the entire object; null clears all settings. */
-    logs_settings?: LogsSettingsApi | null
+    logs_settings?: unknown
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
     readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnumApi[]
@@ -3513,8 +3484,7 @@ export interface PatchedProjectBackwardCompatApi {
      */
     conversations_enabled?: boolean | null
     conversations_settings?: unknown
-    /** Log ingestion settings. Updates replace the entire object; null clears all settings. */
-    logs_settings?: LogsSettingsApi | null
+    logs_settings?: unknown
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
