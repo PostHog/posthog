@@ -241,7 +241,9 @@ class PRTimelineBuilder:
         for attempts in push.attempts_by_workflow.values():
             started = [attempt for attempt in attempts if attempt.started_at <= at]
             if not started:
-                if any(attempt.pushed_at <= at for attempt in attempts):
+                # Only a first attempt proves a queue wait: every attempt of a run carries the run's
+                # creation time, so a re-run's would stretch back over the stretch it was red.
+                if any(attempt.attempt == 1 and attempt.pushed_at <= at for attempt in attempts):
                     running = True
                 continue
             latest = started[-1]

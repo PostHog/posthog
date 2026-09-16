@@ -149,6 +149,17 @@ class TestPRTimelineBuilder(SimpleTestCase):
                 [(Kind.CI_RUNNING, 0, 2), (Kind.APPROVED_NOT_ENQUEUED, 2, 4)],
             ),
             (
+                "rerun_does_not_backfill_queue_time",
+                _pr(5, [_attempt("a", 0, 1, failed=True), _attempt("a", 3, 4, attempt=2, pushed=0)]),
+                [],
+                [
+                    (Kind.CI_RUNNING, 0, 1),
+                    (Kind.RED_PASSED_ON_RERUN, 1, 3),
+                    (Kind.CI_RUNNING, 3, 4),
+                    (Kind.REVIEW_STATE_UNKNOWN, 4, 5),
+                ],
+            ),
+            (
                 "later_push_ends_red",
                 _pr(4, [_attempt("a", 0, 1, failed=True), _attempt("b", 2, 3)]),
                 [],
