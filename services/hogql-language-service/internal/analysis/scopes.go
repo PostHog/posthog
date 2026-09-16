@@ -43,6 +43,7 @@ type queryScope struct {
 	budget   *projectionBudget
 	ctes     []*cteBinding
 	cteRoot  bool
+	aliases  map[string]selectAlias
 }
 
 var tableReferencePattern = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.$]*)`)
@@ -385,6 +386,9 @@ func projectedType(scope *queryScope, expr clickhouse.Expr) string {
 	bindings := visibleBindings(scope)
 	switch typed := expr.(type) {
 	case *clickhouse.Ident:
+		if field, ok := (Bindings{scope: scope, position: int(expr.Pos())}).SelectAlias(typed.Name); ok {
+			return field.Type
+		}
 		for _, binding := range scope.uniqueBindings() {
 			if !scope.budget.lookup(len(typed.Name) + 1) {
 				return ""
