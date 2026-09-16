@@ -11,6 +11,22 @@ import {
 } from "@posthog/shared/domain-types";
 import type { Schemas } from "./generated";
 
+export type TaskSummaryDTO = Omit<Schemas.TaskSummaryDTO, "latest_run"> & {
+  latest_run?:
+    | (Omit<Schemas.TaskRunSummary, "pr_url" | "pr_state"> & {
+        pr_url?: string | null;
+        pr_state?: "open" | "draft" | "merged" | "closed" | "unknown" | null;
+      })
+    | null;
+};
+
+export type TaskSummariesResponse = Omit<
+  Schemas.PaginatedTaskSummaryDTOList,
+  "results"
+> & {
+  results: TaskSummaryDTO[];
+};
+
 export type TaskRunArtifactDTO = Omit<
   Schemas.TaskRunArtifactResponse,
   "metadata" | "storage_path"

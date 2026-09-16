@@ -769,6 +769,11 @@ export interface SignalReport {
   source_products?: string[];
   /** PR URL from the latest implementation task run, if available. */
   implementation_pr_url?: string | null;
+  work_state?: "unclaimed" | "working" | "in_review" | "done";
+  assignee?: {
+    kind: "user" | "task" | "agent" | "system";
+    task_id: string | null;
+  } | null;
   /**
    * Whether that PR merged (GitHub webhook). A merged PR is history, not work
    * in flight: a report can outlive its fix when evidence keeps arriving, and
