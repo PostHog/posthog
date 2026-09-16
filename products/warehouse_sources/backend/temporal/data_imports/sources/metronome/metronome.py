@@ -424,6 +424,20 @@ class _PacedClients:
         return client
 
 
+def _customer_id(row: dict[str, Any]) -> str:
+    """The id that partitions one customer's usage walk.
+
+    A customer that cannot be asked for has to fail the sync. Skipping it would drop that
+    customer's usage from the table with no signal, and a usage table that is quietly short is
+    worse than one that stops and says why. A missing key raises on its own; a null or empty id
+    needs saying, because `str(None)` would otherwise ask Metronome for a customer called "None".
+    """
+    customer_id = row["id"]
+    if customer_id is None or customer_id == "":
+        raise ValueError("Metronome returned a customer with no id, so its usage cannot be read")
+    return str(customer_id)
+
+
 class _WalkCancelled(Exception):
     """The consumer went away while this customer was still being walked.
 
@@ -538,9 +552,7 @@ def _parallel_usage_pages(
                 page_cursor = next_page_cursor
                 done_in_page = set()
 
-            # A customer without an id cannot be asked for, and skipping it would drop its usage
-            # with no signal, so let a malformed page fail the sync instead.
-            todo = deque(cid for row in customer_page if (cid := str(row["id"])) not in done_in_page)
+            todo = deque(cid for row in customer_page if (cid := _customer_id(row)) not in done_in_page)
             in_flight: deque[tuple[str, Future[list[Any]]]] = deque()
             _fill_in_flight(submit_walk, todo, in_flight)
             batch: list[Any] = []

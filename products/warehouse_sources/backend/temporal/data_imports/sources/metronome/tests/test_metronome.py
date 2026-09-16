@@ -359,6 +359,15 @@ class TestMetronomeParallelUsage:
         assert len(submitted) == USAGE_CUSTOMER_CONCURRENCY
         assert len(todo) == 6 - USAGE_CUSTOMER_CONCURRENCY
 
+    @parameterized.expand([("null", None), ("empty", "")])
+    def test_a_customer_with_no_id_fails_the_walk(self, _name, bad_id) -> None:
+        # `str(None)` would ask Metronome for a customer called "None", and skipping the row would
+        # drop that customer's usage from the table with no signal.
+        client = _FakeUsageClient([[{"id": bad_id}]], {})
+
+        with pytest.raises(ValueError, match="no id"):
+            self._run(client, MetronomeWalkStart())
+
     def test_a_cancelled_walk_stops_at_the_next_page(self) -> None:
         # `cancel_futures` only drops walks that never started, so one already running has to stop
         # itself, or it keeps spending the account's request budget after the consumer has gone and
