@@ -1,4 +1,5 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from uuid import UUID
 
 from django.db.models.signals import post_save
 
@@ -28,3 +29,17 @@ def task_run_start_refusal(task_id: str, team_id: int, user_id: int | None) -> s
         if refusal is not None:
             return refusal
     return None
+
+
+# An exclusion gets (team_id, user_id) and returns the ids of tasks this user must not see.
+TaskReadExclusion = Callable[[int, int | None], Iterable[UUID]]
+_task_read_exclusions: dict[str, TaskReadExclusion] = {}
+
+
+def register_task_read_exclusion(exclusion: TaskReadExclusion, *, name: str) -> None:
+    _task_read_exclusions[name] = exclusion
+
+
+def hidden_task_ids(team_id: int, user_id: int | None) -> set[UUID]:
+    """Every registered product's task ids to hide from this user."""
+    return {task_id for exclusion in _task_read_exclusions.values() for task_id in exclusion(team_id, user_id)}

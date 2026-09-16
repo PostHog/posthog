@@ -743,6 +743,18 @@ class TestFacadeReadsAndMappers(TestCase):
             self.assertNotIn("snapshot_kind", new_run.state)
             self.assertNotIn("snapshot_mount_path", new_run.state)
 
+    def test_a_registered_read_exclusion_hides_a_task_from_reads(self):
+        hidden = self._make_task()
+        shown = self._make_task()
+        exclusions = {"test": lambda team_id, user_id: [hidden.id]}
+
+        with patch.dict("products.tasks.backend.facade.task_run_signals._task_read_exclusions", exclusions, clear=True):
+            assert facade.get_task_detail(hidden.id, self.team.id, self.user.id) is None
+            assert facade.get_task_detail(shown.id, self.team.id, self.user.id) is not None
+            assert (
+                facade.run_task(hidden.id, self.team.id, self.user.id, validated_data={"mode": "interactive"}) is None
+            )
+
     def test_run_task_refuses_when_a_start_guard_objects(self):
         task = self._make_task()
         guards = {"test": lambda task_id, team_id, user_id: "Not yet"}

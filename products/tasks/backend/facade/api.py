@@ -148,7 +148,7 @@ from products.tasks.backend.visibility import (
 )
 
 from . import contracts
-from .task_run_signals import task_run_start_refusal
+from .task_run_signals import hidden_task_ids, task_run_start_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -5497,6 +5497,11 @@ def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bo
         qs = qs.filter(
             task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
         )
+        # Another product may hide tasks it owns from this user, for example the copies of chats a
+        # user cannot continue as tasks yet.
+        hidden = hidden_task_ids(team_id, user_id)
+        if hidden:
+            qs = qs.exclude(id__in=hidden)
     return qs
 
 

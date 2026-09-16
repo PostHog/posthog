@@ -8,17 +8,24 @@ Both hooks connect through the tasks facade so no model class crosses the produc
 - After a run is saved: the first run that is not the import run marks the chat as sandbox, whichever
   path created it. From then on the legacy chat screen routes the conversation through the sandbox
   path too, so a chat can never fork back into LangGraph after it has been continued as a task.
+- When tasks are read: a user without the sandbox runtime does not see the copies of their chats. The
+  copy is written for everyone so the switch is instant later, but until then their chats are chats.
 """
 
 import logging
+from collections.abc import Iterable
 from typing import Any
+from uuid import UUID
 
 from asgiref.sync import async_to_sync
+
+from posthog.models import Team, User
 
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.facade.task_run_signals import (
     TaskOriginProduct,
     connect_task_run_post_save,
+    register_task_read_exclusion,
     register_task_run_start_guard,
 )
 
@@ -29,10 +36,29 @@ SANDBOX_MODE_REQUIRED_MESSAGE = "Continuing this chat as a task is not available
 
 
 def connect() -> None:
+    register_task_read_exclusion(copied_chats_hidden_without_sandbox_mode, name="posthog_ai_copied_chats")
     register_task_run_start_guard(catch_up_conversation_copy_before_run, name="posthog_ai_conversation_copy")
     connect_task_run_post_save(
         mark_conversation_sandbox_on_first_run, dispatch_uid="posthog_ai_conversation_follows_task_run"
     )
+
+
+def copied_chats_hidden_without_sandbox_mode(team_id: int, user_id: int | None) -> Iterable[UUID]:
+    """The user's tasks that are copies of their LangGraph chats, while they are not on the sandbox runtime.
+
+    Copies are only ever visible to the chat's owner, so the owner's own chats are the whole set.
+    """
+    from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag  # noqa: PLC0415 — see the guard below
+
+    if user_id is None:
+        return ()
+    team = Team.objects.filter(id=team_id).only("id", "organization_id").first()
+    user = User.objects.filter(id=user_id).only("id", "distinct_id").first()
+    if team is None or user is None or has_sandbox_mode_feature_flag(team, user):
+        return ()
+    return Conversation.objects.filter(
+        team_id=team_id, user_id=user_id, task_id__isnull=False, agent_runtime=Conversation.AgentRuntime.LANGGRAPH
+    ).values_list("task_id", flat=True)
 
 
 def catch_up_conversation_copy_before_run(task_id: str, team_id: int, user_id: int | None) -> str | None:

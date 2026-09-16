@@ -6,6 +6,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -77,7 +78,7 @@ VIZ_TURN: list[dict[str, Any]] = [
 ]
 
 
-class TestProjectLegacyMessages(APIBaseTest):
+class TestProjectLegacyMessages(SimpleTestCase):
     @parameterized.expand(
         [
             (

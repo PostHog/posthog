@@ -10,6 +10,7 @@ from products.posthog_ai.backend.receivers import (
     SANDBOX_MODE_REQUIRED_MESSAGE,
     catch_up_conversation_copy_before_run,
 )
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Task, TaskRun
 
 FLAGS = "ee.hogai.utils.feature_flags"
@@ -102,3 +103,38 @@ class TestCatchUpBeforeRun(ConversationTaskTestMixin):
         with patch(f"products.posthog_ai.backend.conversation_mirror.amirror_conversation") as copy:
             assert self._guard(task) is None
         copy.assert_not_called()
+
+
+class TestCopiedChatsHiddenWithoutSandboxMode(ConversationTaskTestMixin):
+    def _tasks(self) -> tuple[Task, Task, Task]:
+        _, copied = self._linked_conversation()
+        continued_chat, continued = self._linked_conversation()
+        continued_chat.agent_runtime = Conversation.AgentRuntime.SANDBOX
+        continued_chat.save()
+        plain = Task.objects.create(
+            team=self.team,
+            title="plain",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+        )
+        return copied, continued, plain
+
+    def _visible_ids(self) -> set:
+        listed = {task.id for task in tasks_facade.list_tasks(self.team.id, self.user.id, filters={})}
+        detail = {
+            task.id
+            for task in Task.objects.filter(team=self.team)
+            if tasks_facade.get_task_detail(task.id, self.team.id, self.user.id) is not None
+        }
+        assert listed == detail
+        return listed
+
+    def test_a_user_without_sandbox_mode_sees_no_copied_chat(self) -> None:
+        copied, continued, plain = self._tasks()
+        with patch(f"{FLAGS}.has_sandbox_mode_feature_flag", return_value=False):
+            assert self._visible_ids() == {continued.id, plain.id}
+
+    def test_a_user_with_sandbox_mode_sees_the_copies(self) -> None:
+        copied, continued, plain = self._tasks()
+        assert self._visible_ids() == {copied.id, continued.id, plain.id}
