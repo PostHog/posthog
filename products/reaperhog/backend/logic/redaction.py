@@ -6,8 +6,9 @@ from products.reaperhog.backend.logic.artefacts import EvidenceValue
 # allowlist before it leaves the product. A key that is absent from this set never reaches a pull
 # request body. Counts read from event data (evaluations, unique users, pageviews) are deliberately
 # absent, because they disclose the scanned project's traffic; the raw counts stay in the
-# tenant-scoped artefact and in the private verification context. Internal row ids and the commit
-# author address are absent for the same reason: a reviewer does not need them.
+# tenant-scoped artefact and in the private verification context. Internal row ids, experiment names,
+# the commit author address and the flag that says the author left the organization are absent for the
+# same reason: they are project or personal data that the target repository does not hold.
 PUBLIC_EVIDENCE_KEYS = frozenset(
     {
         # reference counts, read from the repository checkout
@@ -32,7 +33,6 @@ PUBLIC_EVIDENCE_KEYS = frozenset(
         "sample_threshold_met",
         "enabled_seen",
         # experiment outcome and cleanup plan
-        "experiment_name",
         "conclusion",
         "end_date",
         "keep_variant",
@@ -46,7 +46,6 @@ PUBLIC_EVIDENCE_KEYS = frozenset(
         "last_commit_sha",
         "last_commit_at",
         "last_commit_subject",
-        "author_left",
         "days_since_commit",
         # knip output
         "tool",
