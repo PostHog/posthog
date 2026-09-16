@@ -1,4 +1,9 @@
-import { insightShortIdForEntry, withInsightSceneSource, withSceneSource } from './insightNavigation'
+import {
+    asInsightSceneSource,
+    insightShortIdForEntry,
+    withInsightSceneSource,
+    withSceneSource,
+} from './insightNavigation'
 
 describe('insightNavigation', () => {
     it('keeps existing search params when tagging a source', () => {
@@ -13,6 +18,15 @@ describe('insightNavigation', () => {
         ['dashboard', '/insights/abc123'],
     ])('tags a %s entry', (type, expected) => {
         expect(withInsightSceneSource('/insights/abc123', type, 'recents')).toEqual(expected)
+    })
+
+    it.each([
+        ['starred', 'starred'],
+        ['whatever-someone-typed', null],
+        ['toString', null],
+        [undefined, null],
+    ])('keeps %s out of analytics unless it is a source we defined', (value, expected) => {
+        expect(asInsightSceneSource(value)).toEqual(expected)
     })
 
     it.each([
