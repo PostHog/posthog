@@ -119,6 +119,7 @@ from products.warehouse_sources.backend.facade.models import (
     sync_old_schemas_with_new_schemas,
     update_sync_type_config_keys,
 )
+from products.warehouse_sources.backend.facade.source_config import SourceConfigMapResponse
 from products.warehouse_sources.backend.facade.source_management import (
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
@@ -4898,6 +4899,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 ),
             )
         ],
+        responses={200: SourceConfigMapResponse},
     )
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
