@@ -243,18 +243,24 @@ def _resolve_write_plan(saved_query: DataWarehouseSavedQuery, team_id: int) -> W
     )
 
 
-def _capture_full_refresh_fallback(team: Team, saved_query_id: str, reason: str) -> None:
+def _capture_full_refresh_fallback(team: Team, *, saved_query_id: str, job_id: str, reason: str) -> None:
     """Record how often a view that asked for incremental updates rebuilds anyway, and why.
 
     A view with no incremental config has nothing to fall back from, so it is not recorded.
+
+    The event id is derived from the job so that one run is counted once. Temporal retries this
+    activity up to three times on a transient failure, and a failed attempt records no watermark,
+    so every attempt resolves the same reason and reports it again.
     """
     if reason == FullRefreshReason.NOT_CONFIGURED:
         return
+    event_uuid = uuid.uuid5(uuid.NAMESPACE_URL, f"data_modeling_full_refresh_fallback:{job_id}")
     ph_background_capture()(
         distinct_id=str(team.uuid),
         event="data_modeling_full_refresh_fallback",
         groups=groups(team=team),
-        properties={"reason": reason, "saved_query_id": saved_query_id},
+        properties={"reason": reason, "saved_query_id": saved_query_id, "job_id": job_id},
+        uuid=str(event_uuid),
     )
 
 
@@ -1137,7 +1143,12 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     await database_sync_to_async_pool(objects.job.save)()
 
     if not plan.incremental:
-        _capture_full_refresh_fallback(objects.team, str(objects.saved_query.id), plan.reason)
+        _capture_full_refresh_fallback(
+            objects.team,
+            saved_query_id=str(objects.saved_query.id),
+            job_id=str(objects.job.id),
+            reason=plan.reason,
+        )
 
     person_property_sink = await _build_person_property_sink(
         objects, inputs.job_id, logger, incremental=plan.incremental

@@ -1958,8 +1958,26 @@ class TestFullRefreshFallbackCapture:
         with unittest.mock.patch(
             "posthog.temporal.data_modeling.activities.materialize_view.ph_background_capture"
         ) as capture:
-            _capture_full_refresh_fallback(ateam, str(uuid4()), reason)
+            _capture_full_refresh_fallback(ateam, saved_query_id=str(uuid4()), job_id=str(uuid4()), reason=reason)
 
         assert capture.return_value.called is captured
         if captured:
             assert capture.return_value.call_args.kwargs["properties"]["reason"] == reason
+
+    async def test_every_attempt_of_one_run_carries_the_same_event_id(self, ateam):
+        saved_query_id = str(uuid4())
+        job_id = str(uuid4())
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.ph_background_capture"
+        ) as capture:
+            for attempt_job_id in (job_id, job_id, str(uuid4())):
+                _capture_full_refresh_fallback(
+                    ateam,
+                    saved_query_id=saved_query_id,
+                    job_id=attempt_job_id,
+                    reason=FullRefreshReason.FIRST_RUN,
+                )
+
+        first_attempt, retry, other_run = (call.kwargs["uuid"] for call in capture.return_value.call_args_list)
+        assert first_attempt == retry
+        assert other_run != first_attempt
