@@ -307,7 +307,7 @@ import { z as zod } from 'zod'
 
     fs.writeFileSync(outputFile, `${header}${importLines.join('\n')}\n\n${aliasLines.join('\n')}\n\n${footer}`)
 
-    execSync(`pnpm exec oxfmt ${outputFile} ${widgetConfigSchemasDir}`, {
+    execSync(`pnpm exec oxfmt ${outputFile} ${widgetConfigSchemasDir} ${path.join(dashboardsGeneratedDir, 'widget-config-property-keys.json')}`, {
         stdio: 'pipe',
         cwd: repoRoot,
     })

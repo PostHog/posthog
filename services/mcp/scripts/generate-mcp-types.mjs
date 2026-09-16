@@ -12,7 +12,6 @@
  * Invoked by `hogli build:openapi-mcp-types`.
  */
 /* eslint-disable no-console */
-import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -111,11 +110,6 @@ ${indented}
 `
 
 fs.writeFileSync(targetFile, output)
-
-spawnSync('pnpm', ['exec', 'oxfmt', targetFile], {
-    stdio: 'pipe',
-    cwd: mcpRoot,
-})
 
 const schemaCount = Object.keys(schema.components?.schemas ?? {}).length
 console.log(`MCP types: generated ${schemaCount} schemas → src/api/generated.ts`)

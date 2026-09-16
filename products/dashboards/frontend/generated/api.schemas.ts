@@ -373,8 +373,7 @@ export interface DashboardBasicApi {
     readonly is_shared: boolean
     readonly deleted: boolean
     readonly creation_mode: DashboardCreationModeEnumApi
-    /** Tags for this dashboard. Send an empty list to remove all tags. */
-    tags?: string[]
+    tags?: unknown[]
     /** Controls who can edit the dashboard.
      *
      * * `21` - Everyone in the project can edit
@@ -557,8 +556,7 @@ export interface DashboardApi {
      * @nullable
      */
     data_color_theme_id?: number | null
-    /** Tags for this dashboard. Send an empty list to remove all tags. */
-    tags?: string[]
+    tags?: unknown[]
     restriction_level?: RestrictionLevelEnumApi
     readonly effective_restriction_level: RestrictionLevelEnumApi
     readonly effective_privilege_level: PrivilegeLevelEnumApi

@@ -562,21 +562,20 @@ build:
     build:openapi:
         steps:
             - build:openapi-schema
+            - build:widget-types
             - cmd: |
-                  (python bin/build-dashboard-widget-types.py && pnpm --filter=@posthog/frontend exec node ../products/dashboards/frontend/bin/generate-widget-config-zod.mjs) &
-                  widget_types_pid=$!
-                  pnpm --filter=@posthog/frontend run openapi:types &
+                  setsid hogli build:openapi-types &
                   frontend_types_pid=$!
-                  pnpm --filter=@posthog/mcp run generate-mcp-types &
+                  setsid hogli build:openapi-mcp-types &
                   mcp_types_pid=$!
-                  (pnpm --filter=@posthog/mcp run generate-orval-schemas && pnpm --filter=@posthog/mcp run generate-tools) &
+                  setsid sh -c 'hogli build:openapi-mcp && exec hogli build:openapi-mcp-tools' &
                   mcp_tools_pid=$!
-                  python products/tasks/scripts/build_model_catalog.py &
+                  setsid hogli build:task-model-catalog &
                   task_catalog_pid=$!
-                  pnpm --filter=@posthog/mcp run generate-exec-docs &
+                  setsid hogli build:openapi-exec-docs &
                   exec_docs_pid=$!
-                  pids="$widget_types_pid $frontend_types_pid $mcp_types_pid $mcp_tools_pid $task_catalog_pid $exec_docs_pid"
-                  trap 'kill $pids 2>/dev/null || true' INT TERM
+                  pids="$frontend_types_pid $mcp_types_pid $mcp_tools_pid $task_catalog_pid $exec_docs_pid"
+                  trap 'for pid in $pids; do kill -- -"$pid" 2>/dev/null || true; done' INT TERM
                   generation_status=0
                   for pid in $pids; do
                       wait "$pid" || generation_status=1

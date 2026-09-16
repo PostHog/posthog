@@ -322,10 +322,7 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
                 "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
             ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
-        tags: zod
-            .array(zod.string())
-            .optional()
-            .describe('Tags for this dashboard. Send an empty list to remove all tags.'),
+        tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
             .optional()
@@ -428,10 +425,7 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
                 "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
             ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
-        tags: zod
-            .array(zod.string())
-            .optional()
-            .describe('Tags for this dashboard. Send an empty list to remove all tags.'),
+        tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
             .optional()
@@ -3656,10 +3650,7 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
                 "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
             ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
-        tags: zod
-            .array(zod.string())
-            .optional()
-            .describe('Tags for this dashboard. Send an empty list to remove all tags.'),
+        tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
             .optional()
@@ -3760,10 +3751,7 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
                 "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
             ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
-        tags: zod
-            .array(zod.string())
-            .optional()
-            .describe('Tags for this dashboard. Send an empty list to remove all tags.'),
+        tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
             .optional()
