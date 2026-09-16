@@ -27,17 +27,33 @@ describe('codeEditorLogic', () => {
 
     describe('areMarkersStale', () => {
         const QUERY = 'select count() from events'
+        const DOCUMENT = `select 1; ${QUERY}`
         const ANALYZED: [string, HogQLMetadataResponse] = [QUERY, {} as HogQLMetadataResponse]
 
-        const cases: [string, [string, HogQLMetadataResponse] | null, number, string, number, boolean][] = [
-            ['the analyzed statement is unchanged and in place', ANALYZED, 10, QUERY, 10, false],
-            ['an edit to an earlier statement moved this one', ANALYZED, 10, QUERY, 14, true],
-            ['the analyzed statement itself changed', ANALYZED, 10, 'select 1', 10, true],
-            ['no response has arrived yet', null, 0, QUERY, 0, true],
+        const cases: [string, [string, HogQLMetadataResponse] | null, string, string, string, boolean][] = [
+            ['the document is unchanged', ANALYZED, DOCUMENT, QUERY, DOCUMENT, false],
+            [
+                'an earlier statement grew and pushed this one along',
+                ANALYZED,
+                DOCUMENT,
+                QUERY,
+                `select 10000; ${QUERY}`,
+                true,
+            ],
+            [
+                'an earlier statement took a newline without changing length',
+                ANALYZED,
+                DOCUMENT,
+                QUERY,
+                `select\n1; ${QUERY}`,
+                true,
+            ],
+            ['the analyzed statement itself changed', ANALYZED, DOCUMENT, 'select 1', DOCUMENT, true],
+            ['no response has arrived yet', null, '', QUERY, DOCUMENT, true],
         ]
 
-        test.each(cases)('%s', (_name, metadata, analyzedQueryOffset, currentQuery, currentQueryOffset, expected) => {
-            expect(areMarkersStale(metadata, analyzedQueryOffset, currentQuery, currentQueryOffset)).toBe(expected)
+        test.each(cases)('%s', (_name, metadata, analyzedDocument, currentQuery, currentDocument, expected) => {
+            expect(areMarkersStale(metadata, analyzedDocument, currentQuery, currentDocument)).toBe(expected)
         })
     })
 
