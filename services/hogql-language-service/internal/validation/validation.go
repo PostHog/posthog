@@ -221,6 +221,9 @@ func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, b
 	if len(*diagnostics) >= querylimits.MaxDiagnostics || document.LimitError() != nil {
 		return
 	}
+	if _, ok := bindings.SelectAlias(ident.Name); ok {
+		return
+	}
 	uniqueTables := map[string]analysis.Relation{}
 	for binding := range bindings.UniqueRelations() {
 		uniqueTables[binding.Name()] = binding
@@ -231,7 +234,7 @@ func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, b
 			return
 		}
 	}
-	candidates := make([]catalog.Entry, 0)
+	candidates := slices.Collect(bindings.SelectAliases(""))
 	for _, binding := range uniqueTables {
 		candidates = slices.AppendSeq(candidates, binding.Fields())
 		if document.LimitError() != nil {
