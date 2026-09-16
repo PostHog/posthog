@@ -142,7 +142,9 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if search:
             suppressions = suppressions.filter(identifier__icontains=search)
 
-        suppressions = suppressions.order_by("-updated_at")
+        # `updated_at` is not unique and bounce handling rewrites it while a user pages, so the
+        # sort needs a unique tie-breaker or tied rows can repeat or vanish between pages.
+        suppressions = suppressions.order_by("-updated_at", "-id")
 
         paginator = SuppressionPagination()
         page = paginator.paginate_queryset(suppressions, request)
