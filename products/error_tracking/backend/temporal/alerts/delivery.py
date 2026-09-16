@@ -193,6 +193,9 @@ def _deliver_one(delivery: PlannedDelivery, inputs: AlertDeliveryWorkflowInputs)
     thread.refresh_from_db(fields=["delivered_notification_ids"])
     if inputs.notification_id in (thread.delivered_notification_ids or []):
         return False
+    # Likewise a reply with nothing to say (a replayed created event on a rooted thread).
+    if not delivery.is_opener and build_reply_text(inputs) is None:
+        return False
 
     client = _slack_client(delivery.destination)
     if client is None:

@@ -285,6 +285,22 @@ class TestSlackThreadDelivery(AlertTestMixin):
 
         client.chat_postMessage.assert_called_once()
 
+    def test_reply_with_nothing_to_say_does_not_claim_the_thread(self):
+        # A replayed created event on a rooted thread is a reply with no text: skip
+        # without contending for the claim.
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        thread = self._thread(alert)
+        thread.pending_notification_id = "notif-other"
+        thread.pending_claimed_at = timezone.now()
+        thread.save()
+
+        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created", "notif-2")) == 0
+
+        client.chat_postMessage.assert_not_called()
+        thread.refresh_from_db()
+        assert thread.pending_notification_id == "notif-other"
+
     def test_redelivered_notification_does_not_wait_behind_another_claim(self):
         # Already delivered: nothing left to do, so it must not contend for the thread.
         client = self._mock_slack()
