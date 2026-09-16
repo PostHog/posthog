@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -45,6 +45,7 @@ const INSIGHT = {
 
 describe('InsightAsScene', () => {
     let trendsQueries: number
+    let unmountScene: (() => void) | undefined
 
     beforeEach(() => {
         trendsQueries = 0
@@ -69,17 +70,40 @@ describe('InsightAsScene', () => {
         sceneLogic.mount()
     })
 
-    it('runs the query when an insight opened from a dashboard arrives without results', async () => {
+    afterEach(() => {
+        cleanup()
+        unmountScene?.()
+        unmountScene = undefined
+    })
+
+    test.each([
+        {
+            name: 'a cold cache key runs the query',
+            insight: INSIGHT,
+            expectQuery: true,
+        },
+        {
+            name: 'a failed calculation does not rerun the query',
+            insight: { ...INSIGHT, query_status: { id: 'q1', error: true, error_message: 'Query exceeded memory' } },
+            expectQuery: false,
+        },
+    ])('$name', async ({ insight, expectQuery }) => {
+        useMocks({ get: { '/api/environments/:team_id/insights/': { results: [insight] } } })
         router.actions.push(
             `/insights/${INSIGHT_ID}?dashboard=${DASHBOARD_ID}&filters_override=${encodeURIComponent(
                 JSON.stringify({ date_from: '-14d' })
             )}`
         )
-        insightSceneLogic.mount()
+        unmountScene = insightSceneLogic.mount()
 
         render(<InsightAsScene insightId={INSIGHT_ID} />)
 
-        await waitFor(() => expect(trendsQueries).toBeGreaterThan(0))
-        expect(screen.queryByText("Chart data didn't load")).not.toBeInTheDocument()
+        if (expectQuery) {
+            await waitFor(() => expect(trendsQueries).toBeGreaterThan(0))
+            expect(screen.queryByText("Chart data didn't load")).not.toBeInTheDocument()
+        } else {
+            expect(await screen.findByText("Chart data didn't load")).toBeInTheDocument()
+            expect(trendsQueries).toBe(0)
+        }
     })
 })
