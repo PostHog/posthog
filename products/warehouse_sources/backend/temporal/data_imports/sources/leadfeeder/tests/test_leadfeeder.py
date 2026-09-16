@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder
     PAGE_SIZE,
     UNIFIED_MAX_PAGES,
     UNIFIED_OFFSET_LIMIT,
+    UNIFIED_REQUEST_TIMEOUT,
     UNIFIED_WINDOW_DAYS,
     LeadfeederResumeConfig,
     _default_start_date,
@@ -372,6 +373,17 @@ class TestUnifiedClientConfig:
 
     def test_headers_carry_api_key(self) -> None:
         assert _unified_headers("key123")["X-Api-Key"] == "key123"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_every_request_carries_a_connect_and_read_deadline(self, MockSession) -> None:
+        # Without a timeout the client sends `timeout=None`, and a vendor that accepts the connection
+        # then stalls holds the import worker until the activity's own week-long ceiling.
+        session = MockSession.return_value
+        _wire_full(session, [_unified_response([_item("1", "account")])])
+
+        _rows(_source("accounts", _make_manager(), api_version=LEADFEEDER_API_2026_08_07))
+
+        assert session.send.call_args.kwargs["timeout"] == UNIFIED_REQUEST_TIMEOUT
 
 
 class TestUnifiedRequests:

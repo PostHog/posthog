@@ -194,6 +194,11 @@ UNIFIED_MAX_PAGES = UNIFIED_OFFSET_LIMIT // PAGE_SIZE
 # offset limit, long enough that a 365-day first sync costs a dozen requests per account. Every date
 # is requested once, so no row is read twice.
 UNIFIED_WINDOW_DAYS = 30
+# Per-request (connect, read) deadline. Left unset the REST client passes `timeout=None`, so a vendor
+# that accepts the connection and then stalls holds an import worker until the activity's week-long
+# ceiling. The client raises a retryable error on a timeout, so a slow-but-working response still gets
+# a few attempts before the sync gives up; the read half matches the retry backoff ceiling.
+UNIFIED_REQUEST_TIMEOUT: tuple[float, float] = (10.0, 60.0)
 
 
 def _unified_headers(api_key: str) -> dict[str, str]:
@@ -222,6 +227,7 @@ def _unified_client_config(api_key: str) -> ClientConfig:
         "paginator": PageNumberPaginator(
             base_page=1, page_param="page[num]", total_path="meta.page_count", maximum_page=UNIFIED_MAX_PAGES
         ),
+        "request_timeout": UNIFIED_REQUEST_TIMEOUT,
         "allowed_hosts": [],
         "allow_redirects": False,
     }
