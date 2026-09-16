@@ -12,7 +12,6 @@ These queue names are hardcoded and stay separate even with `DEBUG=True`.
 Shared orchestration registers only the orchestration workflow, with no activities.
 Each schedule tick starts orchestration, which awaits an evaluation child on the evaluation queue.
 Evaluation runs the probe and starts its independent delivery child on the delivery queue.
-Probe activities always use the evaluation queue; the delivery workflow and its activity stay on the delivery queue.
 Start one worker for each queue:
 
 ```bash
@@ -52,6 +51,7 @@ The deployment identity is `temporal-worker-alerts-product-shared-orchestration`
 It uses the shared `posthog-cloud` image built by `container-images-cd.yml`, not a separate image build or repository.
 Worker deployment configuration lives outside this repository. Deploying this code must be coordinated with starting the orchestration worker.
 Schedule reconciliation now routes directly to orchestration; merging the code alone does not start a worker process.
+If the dev schedule does not exist yet, start all three workers before the first reconciliation: new schedules start unpaused.
 
 1. Pause the existing dev schedule before deployment so migration-time reconciliation cannot send ticks to a worker that is not ready.
 2. Deploy the code and start the orchestration worker with the command above.

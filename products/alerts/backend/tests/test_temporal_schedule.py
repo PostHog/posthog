@@ -17,10 +17,7 @@ MODULE = "products.alerts.backend.temporal.schedule"
 async def test_schedule_does_not_access_temporal_outside_dev(deployment: str | None) -> None:
     client = MagicMock(spec=Client)
     with (
-        override_settings(
-            CLOUD_DEPLOYMENT=deployment,
-            DEBUG=True,
-        ),
+        override_settings(CLOUD_DEPLOYMENT=deployment, DEBUG=True),
         patch(f"{MODULE}.a_schedule_exists") as exists,
         patch(f"{MODULE}.a_create_schedule") as create,
         patch(f"{MODULE}.a_update_schedule") as update,
@@ -43,7 +40,6 @@ async def test_dev_schedule_creates_or_updates_with_bounded_policy(already_exist
     with (
         override_settings(
             CLOUD_DEPLOYMENT="DEV",
-            ALERTS_PRODUCT_EVALUATION_TASK_QUEUE="evaluation-test-queue",
             ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE="orchestration-test-queue",
         ),
         patch(f"{MODULE}.a_schedule_exists", return_value=already_exists) as exists,

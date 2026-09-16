@@ -244,6 +244,14 @@ async def test_each_tick_starts_independent_delivery(
         assert delivery.context.trace_id == child_start.context.trace_id == evaluation.context.trace_id
         assert evaluation.end_time is not None and delivery.start_time is not None
         assert evaluation.end_time <= delivery.start_time
+        if tick_workflow == "alerts-product-orchestrate":
+            assert evaluation.parent is not None
+            evaluation_start = spans_by_id[evaluation.parent.span_id]
+            assert evaluation_start.name == "StartChildWorkflow:alerts-product-check-due"
+            assert evaluation_start.parent is not None
+            orchestration = spans_by_id[evaluation_start.parent.span_id]
+            assert orchestration.name == "RunWorkflow:alerts-product-orchestrate"
+            assert evaluation.context.trace_id == evaluation_start.context.trace_id == orchestration.context.trace_id
     for attempt_span in activity_spans:
         assert attempt_span.parent is not None
         activity_start = spans_by_id[attempt_span.parent.span_id]

@@ -46,10 +46,13 @@ def test_queue_registers_workflows_and_activities(
 ) -> None:
     assert expected_workflows
     assert set(expected_workflows) <= WORKFLOWS_DICT[task_queue]
-    if expected_activities:
-        assert set(expected_activities) <= ACTIVITIES_DICT[task_queue]
-    else:
+    if task_queue == settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE:
+        assert WORKFLOWS_DICT[task_queue] == set(expected_workflows)
+        assert not expected_activities
         assert not ACTIVITIES_DICT[task_queue]
+    else:
+        assert expected_activities
+        assert set(expected_activities) <= ACTIVITIES_DICT[task_queue]
 
 
 # Data-import sources import vendor SDKs (google-ads, etc.) that register protobuf descriptors into a
