@@ -264,18 +264,22 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
 
                 onItemClicked?.(item)
 
+                const insightShortId =
+                    item?.record?.type === 'insight' && typeof item.record.ref === 'string'
+                        ? (item.record.ref as InsightShortId)
+                        : undefined
+
                 if (item?.id.startsWith('shortcuts')) {
-                    const insightShortId =
-                        item?.record?.type === 'insight' && typeof item.record.ref === 'string'
-                            ? (item.record.ref as InsightShortId)
-                            : undefined
                     eventUsageLogic.actions.reportNavbarStarredItemClicked(
                         item?.record?.type || 'unknown',
                         insightShortId
                     )
-                    if (insightShortId) {
-                        eventUsageLogic.actions.reportInsightOpened(insightShortId, 'starred')
-                    }
+                }
+
+                // Rows inside an expanded starred folder carry `project://` ids, so the panel root
+                // identifies the Starred surface where the row id cannot.
+                if (insightShortId && (item?.id.startsWith('shortcuts') || root === 'shortcuts://')) {
+                    eventUsageLogic.actions.reportInsightOpened(insightShortId, 'starred')
                 }
 
                 if (item?.record?.href) {
