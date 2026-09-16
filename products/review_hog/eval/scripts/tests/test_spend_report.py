@@ -49,7 +49,8 @@ def _row(
 # review units on one chunk (so the fork-collision tracker fires), a unit whose second turn
 # lands on another model, a date-suffixed model id, the one-shot chunking/dedup calls that carry
 # no task_run_id, an unpriced model that still reports per-side gateway costs, a >200K-token
-# prompt, a gen with no gateway cost, and a failed gen ahead of its unit's first good one.
+# prompt, a gen with no gateway cost, a failed gen ahead of its unit's first good one, and a
+# cache-heavy gen whose costs ingestion derived, so it carries no per-side cache cost field.
 ROWS = [
     _row(
         at=(0, 5),
@@ -131,6 +132,19 @@ ROWS = [
         gw_write=0.0525,
     ),
     _row(
+        at=(2, 40),
+        model="claude-sonnet-5-20260601",
+        step="blind-spots-c2",
+        run_id="run-dddd4444",
+        tin=45_000,
+        tout=400,
+        cache_read=35_000,
+        cache_write=4_000,
+        gw=0.033,
+        gw_in=0.029,
+        gw_out=0.004,
+    ),
+    _row(
         at=(3, 0),
         model="claude-haiku-4-5",
         ai_stage="chunking",
@@ -165,23 +179,23 @@ EXPECTED_MARKDOWN = """\
 | claude-sonnet-5 | review | 2 | 37,000 | 62,000 | 261,000 | 5,500 | 1 | $0.34 | $0.38 |
 | claude-sonnet-5 | warmup | 1 | 6,000 | 84,000 | 0 | 400 | 0 | $0.23 | $0.22 |
 | claude-opus-4-8 | review | 1 | 10,000 | 0 | 150,000 | 1,800 | 0 | $0.17 | $0.13 |
-| claude-sonnet-5-20260601 | blind-spot | 1 | 7,000 | 21,000 | 60,000 | 1,500 | 0 | $0.09 | $0.09 |
+| claude-sonnet-5-20260601 | blind-spot | 2 | 13,000 | 25,000 | 95,000 | 1,900 | 0 | $0.13 | $0.12 |
 | claude-haiku-4-5 | dedup | 1 | 40,000 | 0 | 0 | 2,000 | 0 | $0.05 | $0.05 |
 | some-other-model | validation | 2 | 55,000 | 0 | 0 | 1,400 | 0 | — | $0.04 |
 | claude-haiku-4-5 | chunking | 1 | 12,000 | 0 | 0 | 900 | 0 | $0.02 | $0.02 |
-| **total** |  | **9** | **167,000** | **167,000** | **471,000** | **13,500** | **1** | **$0.89** | **$0.93** |
+| **total** |  | **10** | **173,000** | **171,000** | **506,000** | **13,900** | **1** | **$0.93** | **$0.96** |
 
 - `true $` = list-price back-calc (fresh 1× + cache write 1.25× + cache read 0.1× + output); `gw $` = gateway `$ai_total_cost_usd` (LiteLLM). Δ (priced buckets) = -0.6%.
 - 1 failed gen(s) (`$ai_is_error`) are left out of every column above and of the per-unit table below.
 - `true $` total excludes unpriced model `some-other-model` (2 gen(s), gw $0.04).
 - 1 gen(s) had no `$ai_total_cost_usd` — `gw $` undercounts by those gens.
-- naive method (all prompt tokens at input price): $2.06 — 2.3× the true cost; never gate on it.
+- naive method (all prompt tokens at input price): $2.16 — 2.3× the true cost; never gate on it.
 - gateway per-side cross-check (priced gens that emitted the field, both columns over the same gens; LiteLLM's `input_cost` is the whole input side, cache included):
-  - input side (fresh + cache write + cache read): $0.7380 over 7 gen(s) (true $0.7587, Δ -2.7%)
+  - input side (fresh + cache write + cache read): $0.7670 over 8 gen(s) (true $0.7877, Δ -2.6%)
   - · of which cache read: $0.1392 over 5 gen(s) (true $0.1392, Δ +0.0%)
   - · of which cache write: $0.4175 over 3 gen(s) (true $0.4175, Δ +0.0%)
-  - · of which fresh (derived): $0.1813 over 7 gen(s) (true $0.2020, Δ -10.2%)
-  - output: $0.1335 over 7 gen(s) (true $0.1335, Δ +0.0%)
+  - · of which fresh (derived from the cache fields): $0.1813 over 7 gen(s) (true $0.2020, Δ -10.2%)
+  - output: $0.1375 over 8 gen(s) (true $0.1375, Δ +0.0%)
 - 1 gen(s) ran with >200K-token prompts; the gateway map prices these models flat, so no long-context premium is included in either column.
 
 ### Turn-1 cache reads per sandbox unit (cross-sandbox sharing tripwire)
@@ -202,7 +216,7 @@ EXPECTED_MARKDOWN = """\
 """
 
 EXPECTED_HEADLINE = (
-    "SPEND gens=9 true_usd=$0.89 gw_usd=$0.93 naive_usd=$2.06 failed_gens=1 turn1_hits=3/6 model_switches=1"
+    "SPEND gens=10 true_usd=$0.93 gw_usd=$0.96 naive_usd=$2.16 failed_gens=1 turn1_hits=3/6 model_switches=1"
 )
 
 

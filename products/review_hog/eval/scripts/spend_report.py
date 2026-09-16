@@ -160,6 +160,19 @@ class SpendRow:
     def fresh_input_tokens(self) -> float:
         return max(0.0, self.input_tokens - self.cache_read - self.cache_write)
 
+    @property
+    def gw_cache_costs_complete(self) -> bool:
+        """True when every cache side that spent tokens also carries its own gateway cost.
+
+        Ingestion derives `$ai_input_cost_usd` as the whole input side, cache included, and
+        writes no per-side cache cost field at all. On such a row a missing cache component is
+        unknown rather than zero, so subtracting it as zero would leave the cached spend inside
+        the derived fresh column.
+        """
+        return (self.cache_read == 0 or self.gw_cache_read_cost is not None) and (
+            self.cache_write == 0 or self.gw_cache_write_cost is not None
+        )
+
 
 @frozen
 class BucketKey:
@@ -262,7 +275,9 @@ class SideCheck:
 @dataclass(frozen=False)
 class SideChecks:
     """The five cross-check lines. `input_side` is the whole input side, cache included, and
-    `fresh` is what is left of each row's input cost once its cache sides come off."""
+    `fresh` is what is left of each row's input cost once its cache sides come off. A row joins
+    `fresh` only when the gateway priced every cache side the row used, so `fresh` can cover
+    fewer gens than `input_side`."""
 
     input_side: SideCheck = field(default_factory=SideCheck)
     cache_read: SideCheck = field(default_factory=SideCheck)
@@ -356,8 +371,9 @@ class SpendTally:
             # The gateway has no fresh-input field, so fresh comes off each row's own input cost.
             # Subtracting run-wide cache totals instead would mix rows that emitted a cache field
             # into a line the other rows never joined.
-            gw_fresh = row.gw_input_cost - (row.gw_cache_read_cost or 0.0) - (row.gw_cache_write_cost or 0.0)
-            self.sides.fresh.add(gw_usd=gw_fresh, true_usd=cost.fresh)
+            if row.gw_cache_costs_complete:
+                gw_fresh = row.gw_input_cost - (row.gw_cache_read_cost or 0.0) - (row.gw_cache_write_cost or 0.0)
+                self.sides.fresh.add(gw_usd=gw_fresh, true_usd=cost.fresh)
         if row.gw_cache_read_cost is not None:
             self.sides.cache_read.add(gw_usd=row.gw_cache_read_cost, true_usd=cost.cache_read)
         if row.gw_cache_write_cost is not None:
@@ -520,7 +536,7 @@ class SpendReport:
             ("input side (fresh + cache write + cache read)", sides.input_side),
             ("· of which cache read", sides.cache_read),
             ("· of which cache write", sides.cache_write),
-            ("· of which fresh (derived)", sides.fresh),
+            ("· of which fresh (derived from the cache fields)", sides.fresh),
             ("output", sides.output),
         ]
         for label, side in checks:
