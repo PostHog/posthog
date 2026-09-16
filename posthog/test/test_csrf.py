@@ -1,6 +1,6 @@
 from posthog.test.base import APIBaseTest
 
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -56,7 +56,7 @@ class TestCSRFProtection(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
-class TestRestFrameworkSessionAuthentication(APIBaseTest):
+class TestRestFrameworkSessionAuthentication(SimpleTestCase):
     """A dozen product viewsets declare REST Framework's own `SessionAuthentication` rather than
     the subclass in `posthog.auth`, and it runs the CSRF check itself."""
 
