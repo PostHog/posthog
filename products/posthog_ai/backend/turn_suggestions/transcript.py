@@ -2,26 +2,28 @@
 
 The stream carries every ACP frame the agent-server emitted. The turn classifier only needs three
 things from it: what the user asked, what the assistant answered, and which PostHog tools ran with
-their inner names resolved out of the single-exec ``mcp__posthog__exec`` wrapper. The exec grammar
-mirrored here is the one ``services/mcp/src/tools/exec.ts`` parses: ``call [--json] [--confirm]
-<sub-tool> <json args>``, or a read-only discovery verb (``tools``, ``search``, ``info``, ``schema``).
+their inner names resolved out of the single-exec ``mcp__posthog__exec`` wrapper.
 """
 
 import re
 import json
+from collections.abc import Iterable
 from typing import Any
 
 from posthog.dataclasses import frozen
 
+from products.posthog_ai.backend.wire_types import NotificationFrame, is_user_message_params, parse_log_entry
+from products.posthog_ai.eval_harness.log_parser import INFO_SYNTHETIC_PREFIX, normalize_tool_name, parse_exec_command
+
 POSTHOG_EXEC_TOOL_RE = re.compile(r"^mcp__(?:plugin_)?posthog(?:_[^_]+)*__exec$")
-_EXEC_DISCOVERY_VERBS = frozenset({"tools", "search", "info", "schema"})
-_EXEC_CALL_FLAGS = frozenset({"--json", "--confirm"})
+
 # The send path prefixes user text with context blocks the user never sees. The legacy
 # ``<posthog_context>`` wrapper still appears in older histories.
 _CONTEXT_BLOCK_RE = re.compile(
     r"\A\s*<(posthog_trusted_context|posthog_untrusted_context|posthog_context)>.*?</\1>\s*",
     re.DOTALL,
 )
+
 TOOL_ARGS_PREVIEW_LIMIT = 400
 ASSISTANT_TEXT_LIMIT = 6000
 _TOOL_ARGS_PREVIEW_KEYS = ("command", "code", "query", "pattern", "url", "description", "prompt", "name", "title")
@@ -43,7 +45,7 @@ class TurnTranscript:
 
     @property
     def last_human_message(self) -> str:
-        return self.human_messages[-1] if self.human_messages else ""
+        return self.human_messages[-1]
 
 
 @frozen(frozen=False)
@@ -77,15 +79,9 @@ def strip_context_blocks(text: str) -> str:
         stripped = without_block
 
 
-def _split_first_token(value: str) -> tuple[str, str]:
-    trimmed = value.strip()
-    head, separator, rest = trimmed.partition(" ")
-    return (head, rest.strip()) if separator else (trimmed, "")
-
-
-def _truncate(value: str, limit: int) -> str:
-    one_line = " ".join(value.split())
-    return one_line if len(one_line) <= limit else one_line[: limit - 1] + "…"
+def truncate_text(value: str, limit: int, *, collapse_whitespace: bool = True) -> str:
+    text = " ".join(value.split()) if collapse_whitespace else value.strip()
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def _args_preview(raw_input: Any) -> str:
@@ -94,9 +90,9 @@ def _args_preview(raw_input: Any) -> str:
     for key in _TOOL_ARGS_PREVIEW_KEYS:
         value = raw_input.get(key)
         if isinstance(value, str) and value.strip():
-            return _truncate(value, TOOL_ARGS_PREVIEW_LIMIT)
+            return truncate_text(value, TOOL_ARGS_PREVIEW_LIMIT)
     try:
-        return _truncate(json.dumps(raw_input, ensure_ascii=False), TOOL_ARGS_PREVIEW_LIMIT)
+        return truncate_text(json.dumps(raw_input, ensure_ascii=False), TOOL_ARGS_PREVIEW_LIMIT)
     except (TypeError, ValueError):
         return ""
 
@@ -126,9 +122,7 @@ def _resolve_tool(update: dict[str, Any], accumulator: _ToolCallAccumulator) -> 
     # stays exec when its command arrives later.
     if not accumulator.from_posthog and not POSTHOG_EXEC_TOOL_RE.match(agent_tool_name):
         if accumulator.name is None and agent_tool_name:
-            accumulator.name = (
-                agent_tool_name.split("__")[-1] if agent_tool_name.startswith("mcp__") else agent_tool_name
-            )
+            accumulator.name = normalize_tool_name(agent_tool_name)
         if raw_input and not accumulator.args_preview:
             accumulator.args_preview = _args_preview(raw_input)
         return
@@ -137,26 +131,17 @@ def _resolve_tool(update: dict[str, Any], accumulator: _ToolCallAccumulator) -> 
     command = raw_input.get("command") if isinstance(raw_input, dict) else None
     if not isinstance(command, str) or not command.strip():
         return
-    verb, rest = _split_first_token(command)
-    if verb in _EXEC_DISCOVERY_VERBS:
+    parsed = parse_exec_command(command)
+    if parsed is None or parsed[0].startswith(INFO_SYNTHETIC_PREFIX):
+        # `tools`, `search`, `info` and `schema` only read the catalog and say nothing about the turn.
         accumulator.discovery = True
-        accumulator.name = verb
         return
-    if verb != "call":
-        return
-    while rest:
-        head, next_rest = _split_first_token(rest)
-        if head not in _EXEC_CALL_FLAGS:
-            break
-        rest = next_rest
-    sub_tool, args = _split_first_token(rest)
-    if not sub_tool or sub_tool.startswith("-"):
-        return
-    accumulator.name = sub_tool
-    accumulator.args_preview = _truncate(args, TOOL_ARGS_PREVIEW_LIMIT) if args else ""
+    tool, inner_input = parsed
+    accumulator.name = tool
+    accumulator.args_preview = _args_preview(inner_input) if inner_input else ""
 
 
-def build_turn_transcript(entries: list[dict[str, Any]]) -> TurnTranscript:
+def build_turn_transcript(entries: Iterable[dict[str, Any]]) -> TurnTranscript:
     """Fold stream entries into the transcript of the turn after the last user message.
 
     Human messages come from ``_posthog/user_message`` frames, which is also what the thread renders.
@@ -179,23 +164,24 @@ def build_turn_transcript(entries: list[dict[str, Any]]) -> TurnTranscript:
         message_id = update.get("messageId")
         key = message_id if isinstance(message_id, str) and message_id else "current"
         if final:
-            # The wire is not consistent about carrying the id on the finalize, so it closes the
-            # last open message when its own id is unknown.
-            if key == "current" and assistant_messages:
+            # The wire is not consistent about carrying the id on the chunks and on the finalize, so
+            # a finalize closes the buffer its chunks opened: the idless one, or the last open one.
+            if key not in assistant_messages and "current" in assistant_messages:
+                assistant_messages.pop("current")
+            elif key == "current" and assistant_messages:
                 key = next(reversed(assistant_messages))
             assistant_messages[key] = text
             return
         assistant_messages[key] = assistant_messages.get(key, "") + text
 
     for entry in entries:
-        notification = entry.get("notification")
-        if not isinstance(notification, dict):
+        frame = parse_log_entry(entry)
+        if not isinstance(frame, NotificationFrame):
             continue
-        method = notification.get("method")
-        params = notification.get("params")
-        params = params if isinstance(params, dict) else {}
+        method = frame.notification.method
+        params = frame.notification.params if isinstance(frame.notification.params, dict) else {}
 
-        if method == "_posthog/user_message":
+        if is_user_message_params(params, method):
             text = strip_context_blocks(_text_from_content(params.get("content")))
             if text:
                 start_turn(text)
@@ -240,8 +226,10 @@ def build_turn_transcript(entries: list[dict[str, Any]]) -> TurnTranscript:
 
     return TurnTranscript(
         human_messages=tuple(human_messages),
-        assistant_text=_truncate_text(
-            "\n\n".join(text for text in assistant_messages.values() if text), ASSISTANT_TEXT_LIMIT
+        assistant_text=truncate_text(
+            "\n\n".join(text for text in assistant_messages.values() if text),
+            ASSISTANT_TEXT_LIMIT,
+            collapse_whitespace=False,
         ),
         tool_calls=tuple(
             TranscriptToolCall(
@@ -254,8 +242,3 @@ def build_turn_transcript(entries: list[dict[str, Any]]) -> TurnTranscript:
             if not accumulator.discovery
         ),
     )
-
-
-def _truncate_text(value: str, limit: int) -> str:
-    text = value.strip()
-    return text if len(text) <= limit else text[: limit - 1] + "…"

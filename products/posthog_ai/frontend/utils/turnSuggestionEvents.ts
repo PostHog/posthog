@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import type { TurnSuggestion } from '../types/streamTypes'
 
 export interface TurnSuggestionEventContext {
@@ -19,4 +21,17 @@ export function turnSuggestionEventProperties(
         intent: suggestion.intent,
         confidence: suggestion.confidence,
     }
+}
+
+export function captureTurnSuggestionShown(context: TurnSuggestionEventContext, suggestion: TurnSuggestion): void {
+    posthog.capture('posthog ai turn suggestion shown', turnSuggestionEventProperties(context, suggestion))
+}
+
+export function captureTurnSuggestionDismissed(context: TurnSuggestionEventContext, suggestion: TurnSuggestion): void {
+    posthog.capture('posthog ai turn suggestion dismissed', turnSuggestionEventProperties(context, suggestion))
+}
+
+/** The card went away because the conversation moved on, with no click and no dismissal. */
+export function captureTurnSuggestionSuperseded(context: TurnSuggestionEventContext, suggestion: TurnSuggestion): void {
+    posthog.capture('posthog ai turn suggestion superseded', turnSuggestionEventProperties(context, suggestion))
 }

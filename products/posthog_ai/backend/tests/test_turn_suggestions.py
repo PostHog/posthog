@@ -139,13 +139,14 @@ class TestBuildTurnTranscript(SimpleTestCase):
         assert [(call.name, call.status, call.from_posthog) for call in transcript.tool_calls] == [
             ("query-trends", "completed", True)
         ]
-        assert transcript.tool_calls[0].args_preview.startswith('{"series"')
+        assert '"series"' in transcript.tool_calls[0].args_preview
 
     @parameterized.expand(
         [
             ("discovery_verb", "search signups", None),
-            ("flag_before_subtool", "call --confirm --json insight-create {}", "insight-create"),
-            ("unknown_verb", "frobnicate x", "unknown"),
+            ("info_verb", "info insight-create", None),
+            ("flag_before_subtool", "call --confirm --no-skills insight-create {}", "insight-create"),
+            ("unknown_verb", "frobnicate x", None),
         ]
     )
     def test_exec_command_grammar(self, _name: str, command: str, expected_name: str | None):
@@ -177,30 +178,27 @@ class TestBuildTurnTranscript(SimpleTestCase):
 
         assert [(call.name, call.status) for call in transcript.tool_calls] == [("execute-sql", "completed")]
 
-    @parameterized.expand([("with_message_id", "m1"), ("without_message_id", None)])
-    def test_a_closing_agent_message_replaces_its_streamed_chunks(self, _name: str, final_message_id: str | None):
+    @parameterized.expand(
+        [
+            ("ids_on_both", "m1", "m1"),
+            ("id_only_on_chunks", "m1", None),
+            ("id_only_on_final", None, "m1"),
+            ("no_ids", None, None),
+        ]
+    )
+    def test_a_closing_agent_message_replaces_its_streamed_chunks(
+        self, _name: str, chunk_message_id: str | None, final_message_id: str | None
+    ):
+        def chunk(text: str) -> dict:
+            update: dict = {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}
+            if chunk_message_id is not None:
+                update["messageId"] = chunk_message_id
+            return _notification("session/update", {"update": update})
+
         entries = [
             _user_message("q"),
-            _notification(
-                "session/update",
-                {
-                    "update": {
-                        "sessionUpdate": "agent_message_chunk",
-                        "messageId": "m1",
-                        "content": {"type": "text", "text": "You had 412 "},
-                    }
-                },
-            ),
-            _notification(
-                "session/update",
-                {
-                    "update": {
-                        "sessionUpdate": "agent_message_chunk",
-                        "messageId": "m1",
-                        "content": {"type": "text", "text": "signups."},
-                    }
-                },
-            ),
+            chunk("You had 412 "),
+            chunk("signups."),
             _agent_final("You had 412 signups.", final_message_id),
         ]
 
@@ -242,12 +240,15 @@ class TestBuildTurnTranscript(SimpleTestCase):
 
         assert transcript.human_messages == ("How many users today?",)
 
-    def test_prompt_rendering_lists_resolved_tools(self):
-        prompt = render_turn_prompt(build_turn_transcript(_metric_turn()), today=date(2026, 9, 16))
+    def test_prompt_rendering_lists_resolved_tools_and_earlier_questions(self):
+        entries = [*_metric_turn(), _user_message("Break that down by country"), _agent_text("Mostly the US.")]
 
-        assert "How many signups did we get this week?" in prompt
-        assert "- query-trends [completed]: " in prompt
+        prompt = render_turn_prompt(build_turn_transcript(entries), today=date(2026, 9, 16))
+
+        assert "<earlier_questions>\n- How many signups did we get this week?\n</earlier_questions>" in prompt
+        assert "<user_question>\nBreak that down by country\n</user_question>" in prompt
         assert "posthog_untrusted_context" not in prompt
+        assert "- query-trends" not in prompt
 
 
 def _gateway_reply(payload: dict) -> MagicMock:
@@ -316,28 +317,24 @@ class TestClassifyTurn(SimpleTestCase):
 
 
 class TestEnqueueTurnSuggestion(BaseTest):
-    def _run(self, origin_product: str, mode: str):
-        task = Task.objects.create(
-            team=self.team, title="t", description="d", origin_product=origin_product, created_by=self.user
-        )
-        return task.create_run(mode=mode)
-
     @parameterized.expand(
         [
-            ("posthog_ai_interactive", Task.OriginProduct.POSTHOG_AI, "interactive", True),
-            ("posthog_ai_background", Task.OriginProduct.POSTHOG_AI, "background", False),
-            ("other_product", Task.OriginProduct.USER_CREATED, "interactive", False),
+            ("posthog_ai", Task.OriginProduct.POSTHOG_AI, True),
+            ("other_product", Task.OriginProduct.USER_CREATED, False),
         ]
     )
-    def test_only_interactive_posthog_ai_runs_are_classified(self, _name: str, origin: str, mode: str, expected: bool):
-        task_run = self._run(origin, mode)
+    def test_only_posthog_ai_runs_are_classified(self, _name: str, origin: str, expected: bool):
+        task = Task.objects.create(
+            team=self.team, title="t", description="d", origin_product=origin, created_by=self.user
+        )
+        task_run = task.create_run(mode="interactive")
 
         with patch("products.posthog_ai.backend.tasks.generate_turn_suggestion_task.delay") as delay:
             assert enqueue_turn_suggestion(task_run) is expected
 
         assert delay.called is expected
         if expected:
-            assert delay.call_args.kwargs == {"run_id": str(task_run.id)}
+            assert delay.call_args.kwargs == {"run_id": str(task_run.id), "team_id": self.team.id}
 
 
 class TestGenerateTurnSuggestion(BaseTest):
@@ -358,7 +355,10 @@ class TestGenerateTurnSuggestion(BaseTest):
         self.scouts = patch(f"{SERVICE}.scout_creation_available", return_value=True)
         self.flag = patch(f"{SERVICE}.feature_enabled_or_false", return_value=True)
         self.capture = patch(f"{SERVICE}.ph_scoped_capture")
-        self.redis = patch(f"{SERVICE}.get_client", return_value=MagicMock(set=MagicMock(return_value=True)))
+        self.redis = patch(
+            f"{SERVICE}.get_client",
+            return_value=MagicMock(set=MagicMock(return_value=True), get=MagicMock(return_value=None)),
+        )
         self.mocks = {
             name: patcher.start()
             for name, patcher in {
@@ -375,12 +375,16 @@ class TestGenerateTurnSuggestion(BaseTest):
             self.addCleanup(patcher.stop)
 
     def test_publishes_a_scout_suggestion_for_a_recurring_first_turn(self):
-        outcome = generate_turn_suggestion(str(self.task_run.id))
+        outcome = generate_turn_suggestion(str(self.task_run.id), self.team.id)
 
         assert outcome.status == "emitted"
-        run_id, method, params = self.mocks["publish"].call_args.args
-        assert run_id == str(self.task_run.id)
-        assert method == TURN_SUGGESTION_METHOD
+        run_id, task_id, team_id, method, params = self.mocks["publish"].call_args.args
+        assert (run_id, task_id, team_id, method) == (
+            self.task_run.id,
+            self.task_run.task_id,
+            self.team.id,
+            TURN_SUGGESTION_METHOD,
+        )
         assert params["turnIndex"] == 0
         assert params["kind"] == "scout"
         assert params["scout"] == {
@@ -395,10 +399,10 @@ class TestGenerateTurnSuggestion(BaseTest):
     def test_diagnostic_verdict_publishes_a_notebook_suggestion(self):
         self.mocks["classify"].return_value = _verdict(recurring=False, intent=TurnIntent.DIAGNOSTIC)
 
-        outcome = generate_turn_suggestion(str(self.task_run.id))
+        outcome = generate_turn_suggestion(str(self.task_run.id), self.team.id)
 
         assert outcome == TurnSuggestionOutcome(status="emitted", reason="notebook")
-        _, _, params = self.mocks["publish"].call_args.args
+        params = self.mocks["publish"].call_args.args[4]
         assert params["kind"] == "notebook"
         assert "scout" not in params
         assert params["notebook"] == {
@@ -410,7 +414,7 @@ class TestGenerateTurnSuggestion(BaseTest):
         self.mocks["classify"].return_value = _verdict(recurring=False, intent=TurnIntent.DIAGNOSTIC)
         self.mocks["stream"].return_value = [_user_message("Why did signups drop?"), _agent_text("Hard to say.")]
 
-        outcome = generate_turn_suggestion(str(self.task_run.id))
+        outcome = generate_turn_suggestion(str(self.task_run.id), self.team.id)
 
         assert outcome.reason == "no_offer:diagnostic"
         self.mocks["publish"].assert_not_called()
@@ -418,7 +422,7 @@ class TestGenerateTurnSuggestion(BaseTest):
     def test_verdict_without_an_offer_is_recorded_but_not_published(self):
         self.mocks["classify"].return_value = _verdict(recurring=False, intent=TurnIntent.KNOWLEDGE)
 
-        outcome = generate_turn_suggestion(str(self.task_run.id))
+        outcome = generate_turn_suggestion(str(self.task_run.id), self.team.id)
 
         assert outcome.status == "skipped"
         assert outcome.reason == "no_offer:knowledge"
@@ -427,20 +431,40 @@ class TestGenerateTurnSuggestion(BaseTest):
         assert capture.call_args.kwargs["properties"]["emitted"] is False
         assert capture.call_args.kwargs["properties"]["offer"] is None
 
-    def test_follow_up_turns_never_reach_the_classifier(self):
-        self.mocks["stream"].return_value = [*_metric_turn(), _user_message("And last month?"), _agent_text("1,600.")]
+    def test_follow_up_turns_are_classified_with_their_own_turn_index(self):
+        self.mocks["stream"].return_value = [
+            *_metric_turn(),
+            _user_message("Break that down by country"),
+            _exec_tool_call(
+                "t2", 'call query-trends {"breakdownFilter":{"breakdown":"$geoip_country_code"}}', "completed"
+            ),
+            _agent_text("Most signups came from the US."),
+        ]
 
-        outcome = generate_turn_suggestion(str(self.task_run.id))
+        outcome = generate_turn_suggestion(str(self.task_run.id), self.team.id)
 
-        assert outcome.reason == "not_first_turn"
+        assert outcome.status == "emitted"
+        params = self.mocks["publish"].call_args.args[4]
+        assert params["turnIndex"] == 1
+        transcript = self.mocks["classify"].call_args.args[0]
+        assert transcript.last_human_message == "Break that down by country"
+        assert [call.name for call in transcript.tool_calls] == ["query-trends"]
+        pipeline = self.mocks["redis"].return_value.pipeline.return_value.__enter__.return_value
+        pipeline.incr.assert_called_once()
+
+    def test_a_conversation_stops_getting_offers_once_its_budget_is_spent(self):
+        self.mocks["redis"].return_value.get.return_value = b"2"
+
+        outcome = generate_turn_suggestion(str(self.task_run.id), self.team.id)
+
+        assert outcome.reason == "offer_budget_spent"
         self.mocks["classify"].assert_not_called()
-        self.mocks["publish"].assert_not_called()
 
     @parameterized.expand([("scouts", "scouts_unavailable"), ("flag", "flag_off")])
     def test_unavailable_target_or_flag_skips_before_classifying(self, gate: str, reason: str):
         self.mocks[gate].return_value = False
 
-        outcome = generate_turn_suggestion(str(self.task_run.id))
+        outcome = generate_turn_suggestion(str(self.task_run.id), self.team.id)
 
         assert outcome.reason == reason
         self.mocks["classify"].assert_not_called()
@@ -450,7 +474,7 @@ class TestGenerateTurnSuggestion(BaseTest):
         log_lines = "\n".join(json.dumps(entry) for entry in _metric_turn()) + "\nnot json\n"
 
         with patch(f"{SERVICE}.read_task_run_logs", return_value=log_lines):
-            outcome = generate_turn_suggestion(str(self.task_run.id))
+            outcome = generate_turn_suggestion(str(self.task_run.id), self.team.id)
 
         assert outcome.status == "emitted"
         transcript = self.mocks["classify"].call_args.args[0]
@@ -459,15 +483,21 @@ class TestGenerateTurnSuggestion(BaseTest):
     def test_classifier_failure_is_recorded_and_not_published(self):
         self.mocks["classify"].return_value = None
 
-        outcome = generate_turn_suggestion(str(self.task_run.id))
+        outcome = generate_turn_suggestion(str(self.task_run.id), self.team.id)
 
         assert outcome == TurnSuggestionOutcome(status="failed", reason="classifier_failed")
         self.mocks["publish"].assert_not_called()
 
+    def test_a_run_from_another_team_is_ignored(self):
+        outcome = generate_turn_suggestion(str(self.task_run.id), self.team.id + 1)
+
+        assert outcome.reason == "run_missing"
+        self.mocks["classify"].assert_not_called()
+
     def test_second_report_of_the_same_turn_is_deduplicated(self):
         self.mocks["redis"].return_value.set.return_value = False
 
-        outcome = generate_turn_suggestion(str(self.task_run.id))
+        outcome = generate_turn_suggestion(str(self.task_run.id), self.team.id)
 
         assert outcome.reason == "already_classified"
         self.mocks["classify"].assert_not_called()

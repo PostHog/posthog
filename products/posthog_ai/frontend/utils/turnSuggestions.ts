@@ -1,4 +1,10 @@
 import type { SignalScoutCreateApi } from 'products/signals/frontend/generated/api.schemas'
+import {
+    DEFAULT_SCOUT_DAILY_TIME,
+    DEFAULT_SCOUT_WEEKLY_DAY,
+    dayTimeToWeeklyCron,
+    timeToDailyCron,
+} from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
 import type {
     NotebookSuggestionDraft,
@@ -9,15 +15,13 @@ import type {
 } from '../types/streamTypes'
 import type { PosthogTurnSuggestionParams } from '../types/wireTypes'
 
-const CADENCES: readonly ScoutSuggestionCadence[] = ['daily', 'weekly']
-
 export const CADENCE_OPTIONS: { value: ScoutSuggestionCadence; label: string }[] = [
     { value: 'daily', label: 'Every day' },
     { value: 'weekly', label: 'Every week' },
 ]
 
 function isCadence(value: unknown): value is ScoutSuggestionCadence {
-    return typeof value === 'string' && (CADENCES as readonly string[]).includes(value)
+    return value === 'daily' || value === 'weekly'
 }
 
 function nonEmptyString(value: unknown): value is string {
@@ -82,19 +86,15 @@ export function parseTurnSuggestionParams(params: unknown): TurnSuggestion | nul
     return draft ? { ...base, kind, notebook: draft } : null
 }
 
-/** Five-field cron in the project timezone: 09:00 every day, or 09:00 every Monday. */
-export function cadenceToCron(cadence: ScoutSuggestionCadence): string {
-    return cadence === 'daily' ? '0 9 * * *' : '0 9 * * 1'
+/** The same default hour and weekday the scout settings form proposes. */
+function cadenceToCron(cadence: ScoutSuggestionCadence): string {
+    return cadence === 'daily'
+        ? timeToDailyCron(DEFAULT_SCOUT_DAILY_TIME)
+        : dayTimeToWeeklyCron(DEFAULT_SCOUT_WEEKLY_DAY, DEFAULT_SCOUT_DAILY_TIME)
 }
 
 export function cadenceLabel(cadence: ScoutSuggestionCadence): string {
     return cadence === 'daily' ? 'every day' : 'every week'
-}
-
-/** The channel picker stores `CHANNEL_ID|#name`; the name half is what the card shows back. */
-export function slackChannelDisplayName(channel: string): string {
-    const [, name] = channel.split('|')
-    return name || channel
 }
 
 export interface ScoutCreateInput {

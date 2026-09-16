@@ -60,7 +60,7 @@ def describe_tool_use(name: str | None, tool_input: dict[str, Any]) -> tuple[str
     if normalized == EXEC_TOOL_NAME:
         command = tool_input.get("command", "")
         if isinstance(command, str):
-            unwrapped = _parse_exec_command(command)
+            unwrapped = parse_exec_command(command)
             if unwrapped is not None:
                 return unwrapped
     return (normalized, tool_input)
@@ -271,7 +271,7 @@ class LogParser:
         if normalized == EXEC_TOOL_NAME:
             command = tool_input.get("command", "")
             if isinstance(command, str):
-                unwrapped = _parse_exec_command(command)
+                unwrapped = parse_exec_command(command)
                 if unwrapped is not None:
                     inner_name, inner_input = unwrapped
                     output_format = tool_input.get("output_format")
@@ -350,7 +350,7 @@ def _index_tool_use_positions(messages: list[dict[str, Any]]) -> dict[str, int]:
 _CALL_FLAGS = frozenset({"--json", "--confirm", "--no-skills"})
 
 
-def _parse_exec_command(command: str) -> tuple[str, dict[str, Any]] | None:
+def parse_exec_command(command: str) -> tuple[str, dict[str, Any]] | None:
     """Split a CLI-style ``exec`` command string into ``(virtual_name, input)``.
 
     Recognised shapes (produced by single-exec mode where the agent talks to

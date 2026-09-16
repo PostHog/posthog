@@ -17,7 +17,6 @@ type Kind = 'scout' | 'notebook'
 
 interface StoryArgs {
     kind: Kind
-    slackConnected: boolean
     outcome: Outcome
 }
 
@@ -161,6 +160,34 @@ const CREATED_SCOUT = {
     },
 }
 
+type LogicProps = { streamKey: string; turnIndex: number; sessionId: string }
+
+function mountScoutStory(logicProps: LogicProps, outcome: Outcome): () => void {
+    const logic = scoutSuggestionLogic(logicProps)
+    const unmount = logic.mount()
+    if (outcome !== 'offered') {
+        logic.actions.setSlackIntegrationId(mockIntegration.id)
+        logic.actions.setSlackChannel('C0123456789|#growth')
+    }
+    if (outcome === 'created') {
+        logic.actions.createScoutSuccess(CREATED_SCOUT as any)
+    } else if (outcome === 'failed') {
+        logic.actions.createScoutFailure('Request failed with status 500')
+    }
+    return unmount
+}
+
+function mountNotebookStory(logicProps: LogicProps, outcome: Outcome): () => void {
+    const logic = notebookSuggestionLogic(logicProps)
+    const unmount = logic.mount()
+    if (outcome === 'created') {
+        logic.actions.saveNotebookSuccess(SAVED_NOTEBOOK as any)
+    } else if (outcome === 'failed') {
+        logic.actions.saveNotebookFailure('Request failed with status 500')
+    }
+    return unmount
+}
+
 function TurnSuggestionStory({ kind, outcome }: { kind: Kind; outcome: Outcome }): JSX.Element {
     useEffect(() => {
         const stream = runStreamLogic({ streamKey: STREAM_KEY })
@@ -170,31 +197,7 @@ function TurnSuggestionStory({ kind, outcome }: { kind: Kind; outcome: Outcome }
         }
         const logicProps = { streamKey: STREAM_KEY, turnIndex: 0, sessionId: SESSION_ID }
         const unmountSuggestion =
-            kind === 'scout'
-                ? (() => {
-                      const suggestion = scoutSuggestionLogic(logicProps)
-                      const unmount = suggestion.mount()
-                      if (outcome !== 'offered') {
-                          suggestion.actions.setSlackIntegrationId(mockIntegration.id)
-                          suggestion.actions.setSlackChannel('C0123456789|#growth')
-                      }
-                      if (outcome === 'created') {
-                          suggestion.actions.createScoutSuccess(CREATED_SCOUT as any)
-                      } else if (outcome === 'failed') {
-                          suggestion.actions.createScoutFailure('Request failed with status 500')
-                      }
-                      return unmount
-                  })()
-                : (() => {
-                      const suggestion = notebookSuggestionLogic(logicProps)
-                      const unmount = suggestion.mount()
-                      if (outcome === 'created') {
-                          suggestion.actions.saveNotebookSuccess(SAVED_NOTEBOOK as any)
-                      } else if (outcome === 'failed') {
-                          suggestion.actions.saveNotebookFailure('Request failed with status 500')
-                      }
-                      return unmount
-                  })()
+            kind === 'scout' ? mountScoutStory(logicProps, outcome) : mountNotebookStory(logicProps, outcome)
         return () => {
             unmountSuggestion()
             unmountStream()
@@ -267,7 +270,7 @@ function mocksFor(slackConnected: boolean): Parameters<typeof mswDecorator>[0] {
 const meta: Meta<StoryArgs> = {
     title: 'Products/PostHog AI/TurnSuggestionCard',
     parameters: { mockDate: '2026-09-16', testOptions: { waitForLoadersToDisappear: true } },
-    args: { kind: 'scout', slackConnected: true, outcome: 'offered' },
+    args: { kind: 'scout', outcome: 'offered' },
     decorators: [mswDecorator(mocksFor(true))],
     render: ({ kind, outcome }) => <TurnSuggestionStory kind={kind} outcome={outcome} />,
 }
@@ -277,10 +280,7 @@ type Story = StoryObj<StoryArgs>
 
 export const ScoutSuggestion: Story = {}
 
-export const ScoutSuggestionWithoutSlack: Story = {
-    args: { slackConnected: false },
-    decorators: [mswDecorator(mocksFor(false))],
-}
+export const ScoutSuggestionWithoutSlack: Story = { decorators: [mswDecorator(mocksFor(false))] }
 
 export const ScoutCreated: Story = { args: { outcome: 'created' } }
 
