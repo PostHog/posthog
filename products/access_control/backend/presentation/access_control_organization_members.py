@@ -7,6 +7,7 @@ project viewset (access_control_settings.py).
 
 from typing import TYPE_CHECKING, cast
 
+from drf_spectacular.utils import OpenApiResponse
 from rest_framework import exceptions, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -70,7 +71,7 @@ class OrganizationMemberProjectAccessViewSetMixin(_GenericViewSet):
     @validated_request(
         query_serializer=MemberProjectAccessQuerySerializer,
         description="Every visible member's access to every project the caller can reach, with the rule behind it.",
-        responses={200: MemberProjectAccessResponseSerializer},
+        responses={200: OpenApiResponse(response=MemberProjectAccessResponseSerializer)},
         extensions={"x-product": "access_control"},
     )
     @action(methods=["GET"], detail=False, url_path="project_access", required_scopes=["organization_member:read"])
