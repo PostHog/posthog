@@ -21,6 +21,14 @@ report the heuristic put first had more chance to be opened than one it put twen
 either order thinks of it. That flatters the heuristic line and no re-ranking of logged clicks can
 remove it. `positive_served_rank_mean` reports how concentrated the outcomes were at the top of
 the served list, so the size of the effect is visible next to the numbers it distorts.
+
+**The graded outcome is a list-scoped proxy for the head it is named after, not that head's own
+label.** Relevance here is "the person who saw this list engaged with this row inside the
+attribution window", which is what an order can be held responsible for. The `open` head predicts
+"anyone opened this report within three days" and `action` the same over seven, both counted per
+report rather than per viewer. The scores being ranked are the head's, so a head is graded against
+the outcome it was fit toward, but a shadow NDCG and an unseen AUC of the same name answer
+different questions and are not one number.
 """
 
 import datetime
@@ -32,8 +40,8 @@ import pandas as pd
 
 from posthog.dataclasses import frozen
 
-# The outcomes graded, named after the head that predicts each one, so the model order of a head is
-# graded against that head's own outcome.
+# The outcomes graded, each named after the head whose scores order it. Not that head's label: the
+# module docstring has the horizon and grain the proxy does not carry.
 OPEN_OUTCOME = "open"
 ACTION_OUTCOME = "action"
 OUTCOMES: tuple[str, ...] = (OPEN_OUTCOME, ACTION_OUTCOME)

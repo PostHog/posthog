@@ -18,7 +18,8 @@ from posthog.models import Team
 from products.signals.dags.inbox_ranking.dataset.queries import IMPRESSION_RANK_SQL, etl_workload, utc_bound
 
 # The action types the `action` head counts as a positive (products/signals/dags/inbox_ranking/
-# training/heads.py). Kept identical, so the shadow read grades the head against its own outcome.
+# training/heads.py). Kept identical so both reads count the same event family. The head's seven-day
+# horizon and its per-report grain are deliberately not carried over; `shadow/metrics.py` says why.
 ACTION_TYPES = ("create_pr", "discuss")
 
 _ACTION_TYPES_SQL = ", ".join(f"'{action_type}'" for action_type in ACTION_TYPES)
