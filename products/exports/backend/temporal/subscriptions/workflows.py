@@ -263,17 +263,17 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             ),
         )
 
-        # Await only Temporal's acceptance of each start. The ABANDON policy lets accepted
-        # children continue after this coordinator page closes via Continue-As-New.
-        # Stable IDs preserve the per-subscription no-overlap guarantee across scheduler runs.
+        # A page is also the concurrency boundary: wait for its children before fetching the
+        # next page so a large backlog cannot flood the shared analytics task queue. Continue-As-New
+        # still bounds coordinator history, while stable IDs prevent per-subscription overlap.
         failed_ids: list[int] = []
         started_count = 0
         already_running_count = 0
-        start_tasks = []
+        child_tasks = []
         for sub in page.subscriptions:
             workflow, child_id = _subscription_child_workflow(sub)
-            start_tasks.append(
-                temporalio.workflow.start_child_workflow(
+            child_tasks.append(
+                temporalio.workflow.execute_child_workflow(
                     workflow,
                     _tracked_subscription_inputs(sub),
                     id=child_id,
@@ -282,8 +282,8 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                 )
             )
 
-        start_results = await asyncio.gather(*start_tasks, return_exceptions=True)
-        for sub, result in zip(page.subscriptions, start_results):
+        child_results = await asyncio.gather(*child_tasks, return_exceptions=True)
+        for sub, result in zip(page.subscriptions, child_results):
             if isinstance(result, BaseException) and is_cancelled_exception(result):
                 raise result
             elif isinstance(result, WorkflowAlreadyStartedError):
@@ -295,7 +295,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             elif isinstance(result, BaseException):
                 failed_ids.append(sub.subscription_id)
                 temporalio.workflow.logger.warning(
-                    "process_subscription.child_workflow_start_error",
+                    "process_subscription.child_workflow_error",
                     extra={"subscription_id": sub.subscription_id, "error": str(result)},
                 )
             else:
@@ -335,7 +335,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
 
         if failed_ids:
             raise ApplicationError(
-                f"Subscription deliveries failed to start for IDs: {failed_ids}",
+                f"Subscription deliveries failed for IDs: {failed_ids}",
                 non_retryable=True,
             )
 
