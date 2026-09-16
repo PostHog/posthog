@@ -29,7 +29,7 @@ from posthog.models.property.relative_date import relative_date_parse_for_featur
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.feature_flags.backend.person_sampling import bounded_memory_settings, count_matching_persons
+from products.feature_flags.backend.person_sampling import count_matching_persons
 
 
 @frozen
@@ -569,12 +569,9 @@ def _get_person_blast_radius_persons(team: Team, filter: Filter, cursor: Optiona
     select_query = _build_person_query(team, filter, return_count=False, cursor=cursor)
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
-    # The page must be exact, so it cannot be sampled. In-order aggregation keeps its dedup
-    # memory-bounded instead, at the cost of a slower query.
     response = execute_hogql_query(
         query=select_query,
         team=team,
-        settings=bounded_memory_settings() if use_blast_radius_query_v2(team) else None,
     )
 
     # Extract person IDs from results
