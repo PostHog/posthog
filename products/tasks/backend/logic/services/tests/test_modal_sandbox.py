@@ -28,6 +28,8 @@ from requests.exceptions import (
 
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_DIRECTORY
 from products.tasks.backend.exceptions import (
+    SandboxControlPlaneError,
+    SandboxControlPlaneUnavailableError,
     SandboxExecutionError,
     SandboxNetworkPolicyError,
     SandboxNotFoundError,
@@ -1986,7 +1988,7 @@ class TestModalSandboxCreateImageFallback:
         assert error.next_retry_delay is not None
         assert len(images_tried) == (0 if shed_call == "app_lookup" else 1)
 
-    def test_proxy_rate_limit_in_the_restore_probe_keeps_the_restored_sandbox(self):
+    def test_proxy_rate_limit_in_the_restore_probe_terminates_the_restored_sandbox(self):
         config = SandboxConfig(name="t", snapshot_external_id="im-snap-1")
         restored = MagicMock(object_id="sb-restored")
         restored.exec.side_effect = _socks_rate_limit()
@@ -2002,7 +2004,7 @@ class TestModalSandboxCreateImageFallback:
 
         assert error.context["operation"] == "restore_probe"
         assert len(images_tried) == 1
-        restored.terminate.assert_not_called()
+        restored.terminate.assert_called_once()
 
 
 class TestLaunchDevStackBootstrap:
@@ -2379,6 +2381,35 @@ def _modal_wrapped_rate_limit() -> Exception:
 RATE_LIMIT_ERRORS = [_socks_rate_limit, _requests_rate_limit, _modal_wrapped_rate_limit]
 
 
+def _socks_gateway_error() -> Exception:
+    # What python_socks raises for a non-200 CONNECT reply: the bare status line, plus the
+    # status as a structured `error_code`.
+    return SocksProxyError("502 Bad gateway", error_code=502)
+
+
+def _requests_gateway_error() -> Exception:
+    return RequestsProxyError("Tunnel connection failed: 503 Service Unavailable")
+
+
+def _requests_embedded_gateway_error() -> Exception:
+    # A status the marker phrases do not name, buried in the proxy's own prose.
+    return RequestsProxyError("Tunnel connection failed: 500 Internal Server Error")
+
+
+def _modal_wrapped_gateway_error() -> Exception:
+    error = ModalConnectionError("failed to connect to the modal control plane")
+    error.__cause__ = SocksProxyError("502 Bad gateway", error_code=502)
+    return error
+
+
+GATEWAY_ERRORS = [
+    _socks_gateway_error,
+    _requests_gateway_error,
+    _requests_embedded_gateway_error,
+    _modal_wrapped_gateway_error,
+]
+
+
 def _running_process(exit_code: int = 0) -> Any:
     process = MagicMock(returncode=exit_code)
     process.wait.return_value = exit_code
@@ -2419,13 +2450,56 @@ class TestModalSandboxProxyRateLimit:
         assert exc.value.non_retryable is False
         assert exc.value.next_retry_delay is not None
 
-    def test_non_rate_limited_proxy_error_stays_generic(self, mock_sandbox: Any):
-        mock_sandbox._sandbox.exec.side_effect = RequestsProxyError("Tunnel connection failed: 502 Bad Gateway")
+    @pytest.mark.parametrize("make_error", GATEWAY_ERRORS)
+    @pytest.mark.parametrize("operation", ["poll", "exec"])
+    def test_control_plane_gateway_error_raises_retryable_error(
+        self, make_error: Any, operation: str, mock_sandbox: Any
+    ):
+        if operation == "poll":
+            mock_sandbox._sandbox.poll.side_effect = make_error()
+        else:
+            mock_sandbox._sandbox.exec.side_effect = make_error()
+
+        with pytest.raises(SandboxControlPlaneUnavailableError) as exc:
+            mock_sandbox.get_status() if operation == "poll" else mock_sandbox.execute("echo hi")
+
+        assert exc.value.context["operation"] == operation
+        assert exc.value.context["sandbox_id"] == "test-sandbox-id"
+        assert exc.value.non_retryable is False
+
+    def test_gateway_error_is_not_captured_to_error_tracking(self, mock_sandbox: Any):
+        mock_sandbox._sandbox.exec.side_effect = _socks_gateway_error()
+
+        with patch("products.tasks.backend.exceptions.capture_exception") as capture:
+            with pytest.raises(SandboxControlPlaneUnavailableError):
+                mock_sandbox.execute("echo hi")
+
+        capture.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "500 lines of output were truncated",
+            # A bare status line, but from an exception that never wraps a CONNECT reply —
+            # must not be read as a control-plane status just because it fullmatches one.
+            "500 Internal Server Error",
+        ],
+    )
+    def test_provider_error_that_merely_opens_with_a_number_stays_generic(self, message: str, mock_sandbox: Any):
+        mock_sandbox._sandbox.exec.side_effect = RuntimeError(message)
 
         with pytest.raises(SandboxExecutionError) as exc:
             mock_sandbox.execute("echo hi")
 
-        assert not isinstance(exc.value, SandboxRateLimitedError)
+        assert not isinstance(exc.value, SandboxControlPlaneError)
+
+    def test_non_gateway_proxy_error_stays_generic(self, mock_sandbox: Any):
+        mock_sandbox._sandbox.exec.side_effect = RequestsProxyError("Tunnel connection failed: 407 Proxy Auth Required")
+
+        with pytest.raises(SandboxExecutionError) as exc:
+            mock_sandbox.execute("echo hi")
+
+        assert not isinstance(exc.value, SandboxControlPlaneError)
 
     def test_get_by_id_rate_limit_is_not_reported_as_missing_sandbox(self):
         with patch(

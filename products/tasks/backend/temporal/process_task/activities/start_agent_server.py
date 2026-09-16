@@ -25,9 +25,9 @@ from products.tasks.backend.exceptions import (
     OAuthTokenError,
     ProcessTaskError,
     ProcessTaskFatalError,
+    SandboxControlPlaneError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
-    SandboxRateLimitedError,
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.logic.services.sandbox import (
@@ -572,7 +572,7 @@ def _invoke_start_agent_server(
         )
         return health_duration_ms if isinstance(health_duration_ms, int) else None
 
-    except SandboxRateLimitedError:
+    except SandboxControlPlaneError:
         raise
     except ProcessTaskError:
         if params.agentsh_domains is not None:
@@ -955,7 +955,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                     origin_product=ctx.origin_product,
                     runtime=runtime,
                 )
-            if not isinstance(error, SandboxRateLimitedError):
+            if not isinstance(error, SandboxControlPlaneError):
                 if agentsh_domains is not None:
                     _emit_agentsh_log_tail(ctx, sandbox)
                 _emit_agent_server_log_tail(ctx, sandbox)
