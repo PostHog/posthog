@@ -4,7 +4,7 @@ import time
 import hashlib
 import logging
 from collections import Counter
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -3957,9 +3957,8 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
     return read_task_run_log_content(log_urls)
 
 
-def parse_task_run_log_entries(log_content: str) -> list[dict]:
-    """JSONL log content as the stream frames it holds, skipping lines that are not JSON objects."""
-    entries: list[dict] = []
+def parse_task_run_log_entries(log_content: str) -> Iterator[dict]:
+    """The JSON objects in a JSONL log, skipping blank and malformed lines."""
     for log_line in log_content.splitlines():
         log_line = log_line.strip()
         if not log_line:
@@ -3969,15 +3968,15 @@ def parse_task_run_log_entries(log_content: str) -> list[dict]:
         except json.JSONDecodeError:
             continue
         if isinstance(parsed_line, dict):
-            entries.append(parsed_line)
-    return entries
+            yield parsed_line
 
 
-def read_task_run_stream_entries(run_id: str | UUID) -> list[dict]:
+def read_task_run_stream_entries(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[dict]:
     """Every frame still held in the run's live Redis stream, oldest first.
 
     The stream is capped and expires after the run ends, so a caller that needs the whole history
-    falls back to ``read_task_run_logs``. Returns an empty list when the stream is gone or unreadable.
+    falls back to ``read_task_run_logs``. Returns an empty list when the run is not visible or the
+    stream is gone.
     """
     from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 — keep redis off the api import path
         DATA_KEY,
@@ -3988,11 +3987,12 @@ def read_task_run_stream_entries(run_id: str | UUID) -> list[dict]:
         run_uses_dedicated_stream,
     )
 
-    stream_key = get_task_run_stream_key(str(run_id))
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return []
     try:
-        state = TaskRun.objects.filter(id=run_id).values_list("state", flat=True).first()
-        client = get_tasks_stream_redis_sync(run_uses_dedicated_stream(state))
-        raw_entries = client.xrange(stream_key)
+        client = get_tasks_stream_redis_sync(run_uses_dedicated_stream(run.state))
+        raw_entries = client.xrange(get_task_run_stream_key(str(run_id)))
     except Exception:
         logger.warning("task_run_stream_read_failed run_id=%s", run_id, exc_info=True)
         return []
@@ -4010,12 +4010,14 @@ def read_task_run_stream_entries(run_id: str | UUID) -> list[dict]:
     return entries
 
 
-def publish_task_run_stream_notification(run_id: str | UUID, method: str, params: dict) -> bool:
+def publish_task_run_stream_notification(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, method: str, params: dict
+) -> bool:
     """Write a server-originated ``_posthog/*`` notification to the run's live stream and its S3 log.
 
     The live write reaches connected threads the way an agent-server frame would; the log append is
-    what a later bootstrap replays, so the frame survives the stream's expiry. Returns whether the
-    live write landed; a failed log append is logged and does not fail the call.
+    what a later bootstrap replays, so the frame survives the stream's expiry. Either leg landing is
+    enough for the thread to show the frame, so that is what the result reports.
     """
     from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 — keep redis off the api import path
         publish_task_run_stream_event,
@@ -4024,16 +4026,18 @@ def publish_task_run_stream_notification(run_id: str | UUID, method: str, params
         run_uses_dedicated_stream,  # noqa: PLC0415 — keep redis off the api import path
     )
 
-    run = TaskRun.objects.filter(id=run_id).first()
+    run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return False
     event = {"type": "notification", "notification": {"method": method, "params": params}}
     stream_id = publish_task_run_stream_event(str(run_id), event, run_uses_dedicated_stream(run.state))
     try:
         run.append_log([event], lock_attempts=1)
+        persisted = True
     except Exception:
         logger.warning("task_run_stream_notification_log_append_failed run_id=%s", run_id, exc_info=True)
-    return stream_id is not None
+        persisted = False
+    return stream_id is not None or persisted
 
 
 def get_task_run_log_urls(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[str] | None:

@@ -3440,17 +3440,49 @@ describe('runStreamLogic', () => {
 
         it('keys the suggestion by turn and drops it on reset', async () => {
             await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'How many signups?' }))
                 logic.actions.ingestAcpFrame(notification('_posthog/turn_suggestion', suggestionParams))
                 logic.actions.ingestAcpFrame(
-                    notification('_posthog/turn_suggestion', { kind: 'notebook', turnIndex: 1 })
+                    notification('_posthog/turn_suggestion', { kind: 'notebook', turnIndex: 0 })
                 )
             }).toFinishAllListeners()
 
-            expect(Object.keys(logic.values.turnSuggestions)).toEqual(['0'])
-            expect(logic.values.turnSuggestions[0]).toMatchObject({ kind: 'scout', scout: { cadence: 'weekly' } })
+            expect(logic.values.turnSuggestion).toMatchObject({ kind: 'scout', scout: { cadence: 'weekly' } })
 
             logic.actions.reset()
-            expect(logic.values.turnSuggestions).toEqual({})
+            expect(logic.values.turnSuggestion).toBeNull()
+        })
+
+        it('closes the offer when the conversation moves on and ignores frames for a passed turn', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'How many signups?' }))
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_suggestion', suggestionParams))
+            }).toFinishAllListeners()
+            expect(logic.values.turnSuggestion).toMatchObject({ kind: 'scout' })
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'And last month?' }))
+            }).toFinishAllListeners()
+            expect(logic.values.turnSuggestion).toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_suggestion', suggestionParams))
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/turn_suggestion', { ...suggestionParams, turnIndex: 1 })
+                )
+            }).toFinishAllListeners()
+            expect(logic.values.turnSuggestion).toMatchObject({ turnIndex: 1 })
+        })
+
+        it('stops accepting suggestions after one is dismissed', async () => {
+            logic.actions.muteTurnSuggestions()
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'How many signups?' }))
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_suggestion', suggestionParams))
+            }).toFinishAllListeners()
+
+            expect(logic.values.turnSuggestion).toBeNull()
         })
     })
 

@@ -13,25 +13,32 @@ from typing import Any
 
 import structlog
 from openai.types.shared_params import ResponseFormatJSONSchema
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import get_llm_client
 from posthog.llm.semantic_enrichment import extract_json_object
 
-from products.posthog_ai.backend.turn_suggestions.transcript import TurnTranscript
+from products.posthog_ai.backend.turn_suggestions.transcript import TurnTranscript, truncate_text
 
 logger = structlog.get_logger(__name__)
 
 CLASSIFIER_MODEL = "gpt-5.6-luna"
+
 # A reasoning model spends the same token budget on its thinking and on the reply, and the reply
 # carries a complete scout prompt, so the ceiling sits well above the JSON alone.
 CLASSIFIER_MAX_TOKENS = 4096
-# Runs once per first turn, after the answer is already on screen; the card waits for it, so a
+
+# Runs once per completed turn, after the answer is already on screen; the card waits for it, so a
 # slow call is dropped rather than retried into the user's next message.
 CLASSIFIER_TIMEOUT_SECONDS = 30.0
 CLASSIFIER_MAX_RETRIES = 1
 MIN_CONFIDENCE = 0.6
+
+# Earlier questions are context for the latest one, so a long investigation sends its recent
+# questions rather than growing the prompt with every turn.
+EARLIER_QUESTIONS_COUNT = 5
+EARLIER_QUESTION_LIMIT = 300
 
 
 class TurnIntent(StrEnum):
@@ -86,9 +93,11 @@ class TurnVerdict:
 
 
 class _VerdictReply(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     intent: TurnIntent
     recurring: bool
-    confidence: float = Field(ge=0, le=1)
+    confidence: float
     title: str
     description: str
     scout_display_name: str
@@ -104,6 +113,8 @@ SYSTEM_PROMPT = """You review one finished turn of PostHog AI, the in-app analyt
 A scout is a scheduled agent. It runs a markdown prompt on a cadence (daily or weekly), has the same PostHog tools the assistant used (trend, funnel, retention and SQL queries over the project's events), and posts a short report to a Slack channel and the project's inbox. A scout is worth offering when the user asked about the current state of a metric that stays useful when re-asked later: a growth rate, a conversion rate for a cohort, weekly active users, top pages, revenue this month. It is not worth offering for one-off work.
 
 A diagnostic turn gets a different offer: saving the conversation to a notebook, with the question, the queries the assistant ran and the findings, so the investigation can be shared and revisited. For those turns you draft the notebook instead of a scout.
+
+Earlier questions from the same conversation are context only; classify the latest turn. When the latest question refines an earlier one, the scout runs the refined analysis.
 
 Classify the turn into exactly one intent:
 - metric_state: the question asks what a metric or breakdown is right now or over a relative window (last 7 days, this month, week over week).
@@ -133,43 +144,10 @@ Fields that do not apply to the intent stay empty strings. When neither offer ap
 
 def _response_format() -> ResponseFormatJSONSchema:
     # Strict mode pins the reply to the schema, so a reasoning model cannot answer with its reasoning.
-    # Every property is required, which is why the scout fields are empty strings on a non-recurring turn.
+    # Every field is required, which is why the fields of the offer that does not apply come back empty.
     return {
         "type": "json_schema",
-        "json_schema": {
-            "name": "posthog_ai_turn_verdict",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "intent": {"type": "string", "enum": [intent.value for intent in TurnIntent]},
-                    "recurring": {"type": "boolean"},
-                    "confidence": {"type": "number"},
-                    "title": {"type": "string"},
-                    "description": {"type": "string"},
-                    "scout_display_name": {"type": "string"},
-                    "scout_description": {"type": "string"},
-                    "scout_prompt": {"type": "string"},
-                    "cadence": {"type": "string", "enum": [cadence.value for cadence in ScoutCadence]},
-                    "notebook_title": {"type": "string"},
-                    "notebook_summary": {"type": "string"},
-                },
-                "required": [
-                    "intent",
-                    "recurring",
-                    "confidence",
-                    "title",
-                    "description",
-                    "scout_display_name",
-                    "scout_description",
-                    "scout_prompt",
-                    "cadence",
-                    "notebook_title",
-                    "notebook_summary",
-                ],
-                "additionalProperties": False,
-            },
-        },
+        "json_schema": {"name": "posthog_ai_turn_verdict", "strict": True, "schema": _VerdictReply.model_json_schema()},
     }
 
 
@@ -179,8 +157,14 @@ def render_turn_prompt(transcript: TurnTranscript, *, today: date) -> str:
         for tool_call in transcript.tool_calls
     ]
     tools_block = "\n".join(tool_lines) if tool_lines else "(no tool calls)"
+    earlier = "\n".join(
+        f"- {truncate_text(question, EARLIER_QUESTION_LIMIT)}"
+        for question in transcript.human_messages[-EARLIER_QUESTIONS_COUNT - 1 : -1]
+    )
+    earlier_block = f"<earlier_questions>\n{earlier}\n</earlier_questions>\n\n" if earlier else ""
     return (
         f"Today is {today.isoformat()}.\n\n"
+        f"{earlier_block}"
         f"<user_question>\n{transcript.last_human_message}\n</user_question>\n\n"
         f"<tool_calls>\n{tools_block}\n</tool_calls>\n\n"
         f"<assistant_answer>\n{transcript.assistant_text or '(empty)'}\n</assistant_answer>"
@@ -206,7 +190,7 @@ def _verdict_from_reply(reply: _VerdictReply) -> TurnVerdict:
     return TurnVerdict(
         intent=reply.intent,
         recurring=reply.recurring,
-        confidence=reply.confidence,
+        confidence=min(max(reply.confidence, 0.0), 1.0),
         title=reply.title.strip()[:60],
         description=reply.description.strip()[:140],
         scout=scout,

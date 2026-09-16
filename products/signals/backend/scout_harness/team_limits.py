@@ -519,6 +519,11 @@ def _resolve_enrolled(canonical_team_id: int, enrollment: Enrollment) -> bool:
     return _is_team_enrolled(canonical_team_id, enrollment.explicit)
 
 
+def team_is_enrolled(canonical_team_id: int) -> bool:
+    """Whether a canonical project runs scouts, as the `signals-scout` flag payload says right now."""
+    return _resolve_enrolled(canonical_team_id, _parse_enrollment(_read_flag_payload()))
+
+
 @dataclass(frozen=True)
 class ScoutTeamLimits:
     """A team's effective scout run caps + current usage, all resolved the way dispatch enforces."""

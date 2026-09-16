@@ -993,9 +993,9 @@ def _safe_dispatch_turn_completed(task_run: TaskRunModel) -> None:
     dispatch never bubbles into the relay loop.
     """
     try:
-        from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
+        from products.tasks.backend.turn_completed import on_interactive_turn_completed
 
-        notify_task_run_turn_completed(task_run)
+        on_interactive_turn_completed(task_run)
     except Exception:
         logger.warning(
             "relay_sandbox_events_push_dispatch_failed",
