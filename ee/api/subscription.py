@@ -924,7 +924,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                         "delivery_config": [
                             "post_all_insights_in_main_message requires the Slack files:write permission. "
                             "Reconnect Slack to grant it, or remove the option from delivery_config to "
-                            "create the subscription now. Each delivery then posts the first image in the "
+                            "save the subscription now. Each delivery then posts the first image in the "
                             "main message and the rest as threaded replies."
                         ]
                     }

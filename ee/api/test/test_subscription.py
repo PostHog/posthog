@@ -61,6 +61,11 @@ GALLERY_ON_PROMPT_ERROR = (
     "subscription has resource_type 'ai_prompt', so remove it from delivery_config. A prompt report "
     "already posts all its chart images in the main message."
 )
+GALLERY_FILES_WRITE_ERROR = (
+    "post_all_insights_in_main_message requires the Slack files:write permission. Reconnect Slack to "
+    "grant it, or remove the option from delivery_config to save the subscription now. Each delivery "
+    "then posts the first image in the main message and the rest as threaded replies."
+)
 VALID_AI_QUERY_PLAN = {
     "overall_intent": "Count events",
     "steps": [
@@ -802,12 +807,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             },
         )
         assert res.status_code == status.HTTP_400_BAD_REQUEST
-        assert res.json()["detail"] == (
-            "post_all_insights_in_main_message requires the Slack files:write permission. "
-            "Reconnect Slack to grant it, or remove the option from delivery_config to create the "
-            "subscription now. Each delivery then posts the first image in the main message and the "
-            "rest as threaded replies."
-        )
+        assert res.json()["detail"] == GALLERY_FILES_WRITE_ERROR
 
     def test_patch_post_all_in_main_requires_files_write_scope(self):
         integration = Integration.objects.create(
@@ -823,7 +823,8 @@ class TestSubscriptionTemporal(APILicensedTest):
             {"delivery_config": {"post_all_insights_in_main_message": True}},
         )
         assert res.status_code == status.HTTP_400_BAD_REQUEST
-        assert "files:write" in str(res.json())
+        # Exact text: an update must not be told to "create" the subscription.
+        assert res.json()["detail"] == GALLERY_FILES_WRITE_ERROR
 
     def test_patch_to_integration_without_files_write_rejects_persisted_gallery_flag(self):
         # Effective-config validation: moving an existing post_all_insights_in_main_message sub to an
@@ -845,7 +846,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             {"integration_id": without_scope.id},
         )
         assert res.status_code == status.HTTP_400_BAD_REQUEST
-        assert "files:write" in str(res.json())
+        assert res.json()["detail"] == GALLERY_FILES_WRITE_ERROR
 
     def test_patch_slack_to_email_rejects_persisted_gallery_flag(self):
         # Effective-config validation across target_type: a Slack sub with the gallery flag PATCHed to
