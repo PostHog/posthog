@@ -46,6 +46,7 @@ from posthog.schema import (
     PropertyType,
     PropertyValuesQuery,
     QueryLogTags,
+    QueryScanAnalysis,
     SessionsQuery,
     SessionsTimelineQuery,
     SessionsV2JoinMode,
@@ -109,6 +110,7 @@ from posthog.query_cache.failures import (
 from posthog.query_cache.single_flight import QUERY_SINGLE_FLIGHT_FLAG, FlightWait, QuerySingleFlight, SharedFailure
 from posthog.query_cache.storage import entry_redis_key
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
+from posthog.query_scan.slot import set_done
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.types import SloOutcome
 
@@ -363,6 +365,64 @@ class TestQueryRunner(BaseTest):
             "killed": True,
             "analysis_requested": True,
         }
+
+    def test_an_api_key_run_carries_the_analysis_its_own_wait_stored(self):
+        # An API caller has no later request to poll from, so the runner analyzes the run before
+        # the response returns and the response carries the findings.
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        def calculate_recording_a_slow_execution(_self):
+            record(rows_read=90, duration_ms=4000.0, workload=Workload.OFFLINE)
+            active = get_active()
+            assert active is not None
+            active.record_execution(
+                tree=parse_select("select 1"),
+                context=HogQLContext(team_id=self.team.pk),
+                rows_read=90,
+                workload=Workload.OFFLINE,
+            )
+            return TheTestBasicQueryResponse(results=[])
+
+        stored: dict[str, str] = {}
+        redis_client = mock.Mock()
+        redis_client.get.side_effect = lambda key: stored.get(key)
+        redis_client.set.side_effect = lambda key, value, ex=None, nx=False: stored.__setitem__(key, value) or True
+        redis_client.incr.return_value = 1
+
+        def analyze_before_the_response(job):
+            set_done(
+                job.team.pk,
+                job.cache_key,
+                thresholds=_QUERY_SCAN_FLAG_SHOW.thresholds_fingerprint,
+                analysis=QueryScanAnalysis(findings=[]),
+            )
+            return True
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        with (
+            mock.patch("posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=_QUERY_SCAN_FLAG_SHOW),
+            mock.patch("posthog.query_scan.serve.get_query_scan_flag", return_value=_QUERY_SCAN_FLAG_SHOW),
+            mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
+            mock.patch("posthog.query_scan.trigger.print_prepared_ast", return_value="SELECT 1"),
+            mock.patch(
+                "posthog.query_scan.trigger.run_query_scan_inline", side_effect=analyze_before_the_response
+            ) as inline,
+            mock.patch("posthog.tasks.query_scan.analyze_query_scan.delay") as delay,
+            mock.patch.object(
+                TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_recording_a_slow_execution
+            ),
+        ):
+            try:
+                tag_queries(access_method="personal_api_key")
+                response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
+            finally:
+                reset_query_tags()
+
+        delay.assert_not_called()
+        assert inline.call_args.args[0].workload == Workload.OFFLINE
+        assert response.query_scan is not None
+        assert response.query_scan.analysis_requested is True
+        assert response.query_scan.analysis is not None
 
     def test_a_killed_run_points_at_the_analysis_another_run_owns(self):
         # A retry of a killed query has the same cache key, so the second kill finds the first

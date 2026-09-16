@@ -1,8 +1,9 @@
-"""Decide whether a run gets analyzed, print its SQL, and enqueue the job.
+"""Decide whether a run gets analyzed, print its SQL, and start the job.
 
 The runner calls this once per blocking run. The SQL is printed only for a run over the flag's
-``floor_ms`` or one ClickHouse stopped. A printer, broker or Redis failure drops the enqueue, never
-the query result.
+``floor_ms`` or one ClickHouse stopped. The job runs on the worker, or before the response returns
+for a caller that reads the findings off that response. A printer, broker or Redis failure drops
+the analysis, never the query result.
 """
 
 from __future__ import annotations
@@ -23,10 +24,13 @@ from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.query_stats import QueryStats, RecordedExecution
 
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, is_api_key_access_method
+from posthog.clickhouse.workload import Workload
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.query_scan.event_filter import classify_event_filter
 from posthog.query_scan.findings import SQL_QUERY_KIND
-from posthog.query_scan.flag import QueryScanFlag
+from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
+from posthog.query_scan.job import Execution, QueryScanJob, run_query_scan_inline
 from posthog.query_scan.slot import (
     claim_enqueue_budget,
     clear as clear_slot,
@@ -73,14 +77,32 @@ SkipReason = Literal[
     "nothing_to_analyze",
     "too_large",
     "enqueue_failed",
+    "inline_failed",
 ]
 
 
 def _is_mcp_run() -> bool:
-    """An MCP agent authenticates with a personal API key, but it does read the findings in the
-    block above its results, so the skip for API callers with nowhere to read advice leaves it
-    out."""
+    """An MCP agent reads the findings in the block above its results, whichever key or token it
+    authenticates with, so the skip for API callers with nowhere to read advice leaves it out."""
     return get_query_tag_value("feature") == Feature.MCP
+
+
+def _runs_inline(flag: QueryScanFlag) -> bool:
+    """Whether the caller waits for its own analysis. An API or MCP caller reads the findings off the
+    response it is waiting for and has no later request to poll from, so its analysis runs before
+    the response returns. The app polls, so its analysis stays on the worker.
+    """
+    if flag.mode != QueryScanMode.SHOW:
+        return False
+    return is_api_key_access_method(get_query_tag_value("access_method")) or _is_mcp_run()
+
+
+def _run_workload(stats: QueryStats) -> Workload:
+    """The cluster the run's queries went to, so the job plans them where they ran. A run that
+    recorded none is planned on the offline cluster."""
+    return next(
+        (execution.workload for execution in stats.executions if execution.workload is not None), Workload.OFFLINE
+    )
 
 
 def is_analyzable_principal(user: object) -> TypeGuard[User]:
@@ -94,7 +116,7 @@ def maybe_trigger_query_scan(
     *,
     flag: QueryScanFlag | None,
     stats: QueryStats | None,
-    team_id: int,
+    team: Team,
     cache_key: str,
     query: BaseModel,
     trigger: str,
@@ -104,17 +126,24 @@ def maybe_trigger_query_scan(
     killed: bool = False,
     error_type: str | None = None,
 ) -> SkipReason | None:
-    """Enqueue the analysis for this run. Returns why it was skipped, or None once the job is enqueued."""
+    """Start the analysis for this run. Returns why it was skipped, or None once the job is enqueued or
+    has run before the response."""
     if flag is None or stats is None:
         return "flag_off"
 
+    team_id = team.pk
     duration_ms = round(stats.duration_ms)
     # The floor leaves alone the runs nobody minded. Nobody gets a result from a run ClickHouse
     # stopped, however fast it died, so a stopped run is analyzed at any duration.
     if duration_ms < flag.floor_ms and not killed:
         return "below_floor"
-    if is_api_key_access_method(get_query_tag_value("access_method")) and not _is_mcp_run():
-        # An API caller has no surface to read the advice on, so the analysis would only cost.
+    if (
+        flag.mode != QueryScanMode.SHOW
+        and is_api_key_access_method(get_query_tag_value("access_method"))
+        and not _is_mcp_run()
+    ):
+        # Under `log_only` nothing is served, and an API caller has no surface to read the advice
+        # on later, so the analysis would only cost.
         return "api_key"
     if getattr(query, "connectionId", None):
         # A direct connection reads the external warehouse instead of ClickHouse, so the job
@@ -142,28 +171,43 @@ def maybe_trigger_query_scan(
         return "nothing_to_analyze"
 
     kind = getattr(query, "kind", None)
-    query_kind = str(kind) if kind is not None else None
+    run: dict[str, Any] = {
+        "cache_key": cache_key,
+        "rows_read": stats.rows_read,
+        "duration_ms": duration_ms,
+        "trigger": trigger,
+        "insight_id": insight_id,
+        "dashboard_id": dashboard_id,
+        "killed": killed,
+        "error_type": error_type,
+        "query_kind": str(kind) if kind is not None else None,
+        "open_filters_placeholder": _open_filters_placeholder(query),
+        "all_time": _all_time(query),
+        "all_history_by_design": _reads_all_history_by_design(query),
+    }
+    workload = _run_workload(stats)
+
+    if _runs_inline(flag):
+        job = QueryScanJob(
+            team=team,
+            executions=tuple(Execution.from_payload(execution) for execution in executions),
+            workload=workload,
+            inline_deadline_ms=flag.inline_deadline_ms,
+            **run,
+        )
+        try:
+            run_query_scan_inline(job)
+        except Exception:
+            logger.warning("query_scan_inline_failed", team_id=team_id, exc_info=True)
+            clear_slot(team_id, cache_key, thresholds=flag.thresholds_fingerprint)
+            return "inline_failed"
+        return None
 
     # A module-level import would close the runner, trigger, task, job, runner cycle.
     from posthog.tasks.query_scan import analyze_query_scan  # noqa: PLC0415
 
     try:
-        analyze_query_scan.delay(
-            team_id=team_id,
-            cache_key=cache_key,
-            executions=executions,
-            rows_read=stats.rows_read,
-            duration_ms=duration_ms,
-            trigger=trigger,
-            insight_id=insight_id,
-            dashboard_id=dashboard_id,
-            killed=killed,
-            error_type=error_type,
-            query_kind=query_kind,
-            open_filters_placeholder=_open_filters_placeholder(query),
-            all_time=_all_time(query),
-            all_history_by_design=_reads_all_history_by_design(query),
-        )
+        analyze_query_scan.delay(team_id=team_id, executions=executions, workload=workload.value, **run)
     except Exception:
         # The broker can be down while ClickHouse is fine, and the result is not cached yet, so
         # failing here would throw away a run the person already waited for.

@@ -2748,7 +2748,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     scan_skip = maybe_trigger_query_scan(
                         flag=query_scan_flag,
                         stats=query_stats,
-                        team_id=self.team.pk,
+                        team=self.team,
                         # Dashboard and tile overrides are already applied here, so the cache key
                         # is the right identity for the analysis.
                         cache_key=cache_key,
@@ -2842,7 +2842,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             skip = maybe_trigger_query_scan(
                 flag=flag,
                 stats=stats,
-                team_id=self.team.pk,
+                team=self.team,
                 cache_key=cache_key,
                 query=self.query,
                 trigger="killed",

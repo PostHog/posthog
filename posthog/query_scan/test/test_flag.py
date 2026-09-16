@@ -13,6 +13,7 @@ from posthog.query_scan import flag
 from posthog.query_scan.flag import (
     DEFAULT_EVENT_RATIO,
     DEFAULT_FLOOR_MS,
+    DEFAULT_INLINE_DEADLINE_MS,
     DEFAULT_PERSONS_RATIO,
     QueryScanMode,
     get_query_scan_flag,
@@ -54,19 +55,34 @@ class TestQueryScanFlag(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no payload", None, (DEFAULT_FLOOR_MS, DEFAULT_EVENT_RATIO, DEFAULT_PERSONS_RATIO)),
-            ("a float floor", {"floor_ms": 1500.0}, (1500, DEFAULT_EVENT_RATIO, DEFAULT_PERSONS_RATIO)),
+            (
+                "no payload",
+                None,
+                (DEFAULT_FLOOR_MS, DEFAULT_EVENT_RATIO, DEFAULT_PERSONS_RATIO, DEFAULT_INLINE_DEADLINE_MS),
+            ),
+            (
+                "a float floor",
+                {"floor_ms": 1500.0},
+                (1500, DEFAULT_EVENT_RATIO, DEFAULT_PERSONS_RATIO, DEFAULT_INLINE_DEADLINE_MS),
+            ),
+            (
+                "an inline deadline",
+                {"inline_deadline_ms": 500},
+                (DEFAULT_FLOOR_MS, DEFAULT_EVENT_RATIO, DEFAULT_PERSONS_RATIO, 500),
+            ),
         ]
     )
     def test_a_missing_threshold_falls_back_to_its_default(
-        self, _name: str, payload: object, expected: tuple[int, float, float]
+        self, _name: str, payload: object, expected: tuple[int, float, float, int]
     ) -> None:
         with patch.object(flag.posthoganalytics, "get_feature_flag_result") as get_result:
             get_result.return_value = SimpleNamespace(variant="show", payload=payload)
             result = get_query_scan_flag(TEAM)
 
         assert result is not None
-        self.assertEqual((result.floor_ms, result.event_ratio, result.persons_ratio), expected)
+        self.assertEqual(
+            (result.floor_ms, result.event_ratio, result.persons_ratio, result.inline_deadline_ms), expected
+        )
 
     @parameterized.expand(
         [

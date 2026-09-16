@@ -17,6 +17,7 @@ from contextvars import ContextVar
 from dataclasses import field
 from typing import TYPE_CHECKING
 
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
@@ -31,6 +32,8 @@ class RecordedExecution:
     tree: ast.Expr
     context: HogQLContext
     rows_read: int
+    # None when the run never reached ClickHouse.
+    workload: Workload | None = None
 
 
 @frozen(frozen=False)
@@ -53,9 +56,13 @@ class QueryStats:
             self.duration_ms += duration_ms
             self.query_count += 1
 
-    def record_execution(self, *, tree: ast.Expr, context: HogQLContext, rows_read: int) -> None:
+    def record_execution(
+        self, *, tree: ast.Expr, context: HogQLContext, rows_read: int, workload: Workload | None = None
+    ) -> None:
         with self.lock:
-            self.executions.append(RecordedExecution(tree=tree, context=context, rows_read=rows_read))
+            self.executions.append(
+                RecordedExecution(tree=tree, context=context, rows_read=rows_read, workload=workload)
+            )
 
 
 _accumulator: ContextVar[QueryStats | None] = ContextVar("query_stats_accumulator", default=None)
@@ -65,6 +72,8 @@ _accumulator: ContextVar[QueryStats | None] = ContextVar("query_stats_accumulato
 # fan out over threads share one QueryStats, and a change in its total would charge one thread with
 # rows another read at the same time.
 _last_rows_read: ContextVar[int] = ContextVar("query_stats_last_rows_read", default=0)
+# The cluster of that same query, kept per thread for the same reason.
+_last_workload: ContextVar[Workload | None] = ContextVar("query_stats_last_workload", default=None)
 
 
 @contextlib.contextmanager
@@ -101,20 +110,27 @@ def use(stats: QueryStats | None) -> Iterator[None]:
         _accumulator.reset(token)
 
 
-def record(*, rows_read: int, duration_ms: float) -> None:
+def record(*, rows_read: int, duration_ms: float, workload: Workload | None = None) -> None:
     """Add one ClickHouse query to the open scope. Does nothing without one."""
     _last_rows_read.set(rows_read)
+    _last_workload.set(workload)
     stats = _accumulator.get()
     if stats is None:
         return
     stats.add(rows_read=rows_read, duration_ms=duration_ms)
 
 
-def reset_last_rows_read() -> None:
-    """Forget the last query's rows in this thread, before a run that must not inherit them."""
+def reset_last_query() -> None:
+    """Forget the last query's rows and cluster in this thread, before a run that must not inherit them."""
     _last_rows_read.set(0)
+    _last_workload.set(None)
 
 
 def last_rows_read() -> int:
     """The rows of the last query recorded in this thread since the reset, or 0."""
     return _last_rows_read.get()
+
+
+def last_workload() -> Workload | None:
+    """The cluster of the last query recorded in this thread since the reset, or None."""
+    return _last_workload.get()

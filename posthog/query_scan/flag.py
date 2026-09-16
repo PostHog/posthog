@@ -23,6 +23,7 @@ FLAG_KEY = "query-scan-warnings"
 DEFAULT_FLOOR_MS = 1000
 DEFAULT_EVENT_RATIO = 0.10
 DEFAULT_PERSONS_RATIO = 0.5
+DEFAULT_INLINE_DEADLINE_MS = 2000
 
 
 class QueryScanMode(StrEnum):
@@ -49,6 +50,9 @@ class QueryScanFlag:
     event_ratio: float
     # A persons join is reported only when the persons read is at least this fraction of the events read.
     persons_ratio: float
+    # How long an API or MCP caller waits for its run's analysis before the response returns
+    # without it.
+    inline_deadline_ms: int = DEFAULT_INLINE_DEADLINE_MS
 
     @property
     def thresholds_fingerprint(self) -> str:
@@ -115,6 +119,7 @@ def _parse(mode: QueryScanMode, payload: object) -> QueryScanFlag:
         floor_ms=int(_number(values, "floor_ms", DEFAULT_FLOOR_MS)),
         event_ratio=_number(values, "event_ratio", DEFAULT_EVENT_RATIO),
         persons_ratio=_number(values, "persons_ratio", DEFAULT_PERSONS_RATIO),
+        inline_deadline_ms=int(_number(values, "inline_deadline_ms", DEFAULT_INLINE_DEADLINE_MS)),
     )
 
 

@@ -810,7 +810,7 @@ class HogQLQueryExecutor:
             stats = query_stats.get_active()
             # The rows are read back per thread after the run, so a run ClickHouse stops is still
             # recorded with what it read, and a series running in another thread is not charged here.
-            query_stats.reset_last_rows_read()
+            query_stats.reset_last_query()
             try:
                 try:
                     self.results, self.types = run_clickhouse_query()
@@ -833,6 +833,7 @@ class HogQLQueryExecutor:
                         tree=self.clickhouse_prepared_ast,
                         context=clickhouse_context,
                         rows_read=query_stats.last_rows_read(),
+                        workload=query_stats.last_workload(),
                     )
 
         if self.debug and self.error is None:

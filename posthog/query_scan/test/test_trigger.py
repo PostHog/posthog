@@ -26,21 +26,30 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import QueryStats, RecordedExecution
 
 from posthog.clickhouse.query_tagging import AccessMethod, Feature, reset_query_tags, tag_queries
+from posthog.clickhouse.workload import Workload
+from posthog.models.team.team import Team
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.slot import slot_key
 from posthog.query_scan.trigger import MAX_EXECUTION_BYTES, _open_filters_placeholder, maybe_trigger_query_scan
 
 FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+LOG_ONLY_FLAG = QueryScanFlag(mode=QueryScanMode.LOG_ONLY, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
 
 # A query with one `IN` subquery, so the stub collects exactly one subquery to print.
 _QUERY_WITH_SUBQUERY = "select 1 from events where event in (select 'x')"
 
 
 def _execution(
-    sql: str = _QUERY_WITH_SUBQUERY, rows_read: int = 100, values: dict[str, Any] | None = None
+    sql: str = _QUERY_WITH_SUBQUERY,
+    rows_read: int = 100,
+    values: dict[str, Any] | None = None,
+    workload: Workload | None = None,
 ) -> RecordedExecution:
     return RecordedExecution(
-        tree=parse_select(sql), context=HogQLContext(team_id=1, values=values or {}), rows_read=rows_read
+        tree=parse_select(sql),
+        context=HogQLContext(team_id=1, values=values or {}),
+        rows_read=rows_read,
+        workload=workload,
     )
 
 
@@ -103,7 +112,7 @@ class TestQueryScanTrigger(SimpleTestCase):
         arguments: dict[str, Any] = {
             "flag": FLAG,
             "stats": _stats(),
-            "team_id": 1,
+            "team": Team(id=1),
             "cache_key": "cache_key_1",
             "query": HogQLQuery(query="select 1"),
             "trigger": "fresh",
@@ -117,7 +126,8 @@ class TestQueryScanTrigger(SimpleTestCase):
         [
             ("flag off", {"flag": None}, None, "flag_off"),
             ("below the floor", {"stats": _stats(duration_ms=999.0)}, None, "below_floor"),
-            ("api key run", {}, _tag_as_api_key, "api_key"),
+            # Under `log_only` nothing is served, so an API caller's run would only cost.
+            ("api key run under log_only", {"flag": LOG_ONLY_FLAG}, _tag_as_api_key, "api_key"),
             (
                 "direct connection",
                 {"query": HogQLQuery(query="select 1", connectionId="connection_1")},
@@ -150,13 +160,52 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert self.delay.call_args.kwargs["killed"] is True
         assert self.delay.call_args.kwargs["duration_ms"] == 999
 
-    def test_an_mcp_run_is_analyzed_despite_its_api_key(self) -> None:
+    def test_an_mcp_run_is_analyzed_under_log_only_despite_its_api_key(self) -> None:
         tag_queries(access_method=AccessMethod.PERSONAL_API_KEY, feature=Feature.MCP)
 
-        result = self._trigger()
+        result = self._trigger(flag=LOG_ONLY_FLAG)
 
         assert result is None
         assert self.delay.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("a personal api key", {"access_method": AccessMethod.PERSONAL_API_KEY}),
+            ("an mcp agent on oauth", {"access_method": AccessMethod.OAUTH, "feature": Feature.MCP}),
+        ]
+    )
+    def test_an_api_or_mcp_run_under_show_is_analyzed_before_its_response(self, _name, tags) -> None:
+        # Neither caller has a later request to poll from, so the analysis runs while it waits,
+        # on the cluster its query went to, with the slot claimed the same way.
+        tag_queries(**tags)
+
+        with mock.patch("posthog.query_scan.trigger.run_query_scan_inline", return_value=True) as inline:
+            result = self._trigger(stats=_stats(executions=[_execution(workload=Workload.ONLINE)]))
+
+        assert result is None
+        self.delay.assert_not_called()
+        job = inline.call_args.args[0]
+        assert (job.team.pk, job.cache_key, job.workload, job.inline_deadline_ms) == (
+            1,
+            "cache_key_1",
+            Workload.ONLINE,
+            FLAG.inline_deadline_ms,
+        )
+        assert [execution.stubbed_sql for execution in job.executions] == ["SELECT 1"]
+        key, payload = self.redis.set.call_args.args
+        assert key == slot_key(1, "cache_key_1", FLAG.thresholds_fingerprint)
+        assert json.loads(payload) == {"pending": True}
+
+    def test_an_inline_failure_frees_the_slot_and_keeps_the_result(self) -> None:
+        # The person already waited for the query, so the analysis must not take it down, and
+        # a claim nobody fills would read as in flight until it expires.
+        _tag_as_api_key(self)
+
+        with mock.patch("posthog.query_scan.trigger.run_query_scan_inline", side_effect=RuntimeError("pool")):
+            result = self._trigger()
+
+        assert result == "inline_failed"
+        self.redis.delete.assert_called_once_with(slot_key(1, "cache_key_1", FLAG.thresholds_fingerprint))
 
     def test_a_lost_slot_claim_does_not_enqueue_a_second_job(self) -> None:
         # Two slow runs of the same query can both find no slot, so the conditional write is what
@@ -239,11 +288,12 @@ class TestQueryScanTrigger(SimpleTestCase):
         # An insight fans out into several executions; the job explains the heaviest, so the payload
         # carries them ordered by rows read.
         light = _execution(rows_read=50, values={"hogql_val_0": "from the run"})
-        heavy = _execution(rows_read=100, values={"hogql_val_0_sensitive": "from the run"})
+        heavy = _execution(rows_read=100, values={"hogql_val_0_sensitive": "from the run"}, workload=Workload.ONLINE)
 
         result = self._trigger(stats=_stats(executions=[light, heavy]))
 
         assert result is None
+        assert self.delay.call_args.kwargs["workload"] == "ONLINE"
         enqueued = self.delay.call_args.kwargs["executions"]
         assert [execution["rows_read"] for execution in enqueued] == [100, 50]
         assert enqueued[0]["stubbed_sql"] == "SELECT 1"
@@ -271,6 +321,7 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert enqueued["query_kind"] == expected_kind
         assert (enqueued["insight_id"], enqueued["dashboard_id"]) == (7, 3)
         assert len(enqueued["executions"]) == 1
+        assert enqueued["workload"] == "OFFLINE"
 
         key, payload = self.redis.set.call_args.args
         assert key == slot_key(1, "cache_key_1", FLAG.thresholds_fingerprint)

@@ -1,3 +1,4 @@
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -11,10 +12,11 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
+from posthog.clickhouse.workload import Workload
 from posthog.errors import InternalCHQueryError
 from posthog.query_scan import slot
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
-from posthog.query_scan.job import Execution, QueryScanJob, run_query_scan
+from posthog.query_scan.job import Execution, QueryScanJob, run_query_scan, run_query_scan_inline
 from posthog.query_scan.stub import stub_in_subqueries
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
@@ -56,7 +58,7 @@ def _fake_job_boundaries(test: BaseTest, stored: dict[str, Any], flag: QueryScan
 class TestQueryScanJob(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.calls: list[tuple[str, dict[str, Any], Workload | None]] = []
         self.stored: dict[str, Any] = {}
         self.capture = _fake_job_boundaries(self, self.stored)
 
@@ -70,7 +72,7 @@ class TestQueryScanJob(BaseTest):
         averages_error: BaseException | None = None,
     ) -> None:
         def execute(query: str, arguments: Any = None, *args: Any, **kwargs: Any) -> Any:
-            self.calls.append((query, arguments or {}))
+            self.calls.append((query, arguments or {}, kwargs.get("workload")))
             if "system.parts" in query:
                 if averages_error is not None:
                     raise averages_error
@@ -104,12 +106,13 @@ class TestQueryScanJob(BaseTest):
             open_filters_placeholder=False,
             insight_id=7,
             dashboard_id=3,
+            workload=Workload.ONLINE,
         )
         with mock.patch("posthog.query_scan.job.sync_execute", side_effect=execute):
             run_query_scan(job)
 
     def _explained(self) -> list[str]:
-        return [query for query, _ in self.calls]
+        return [query for query, _, _ in self.calls]
 
     @parameterized.expand(
         [
@@ -157,11 +160,12 @@ class TestQueryScanJob(BaseTest):
         assert stored.analysis.range_share is not None
         assert stored.analysis.project_share is not None
         # The team denominator runs once, unbounded.
-        assert any("%(scan_team_id)s" in query and "timestamp" not in query for query, _ in self.calls)
+        assert any("%(scan_team_id)s" in query and "timestamp" not in query for query, _, _ in self.calls)
         # The range denominator carries the lower bound the plan's Min-Max step reported.
-        range_call = next((args for query, args in self.calls if "timestamp >=" in query), None)
+        range_call = next((args for query, args, _ in self.calls if "timestamp >=" in query), None)
         assert range_call is not None
         assert range_call["scan_lower"] == 1788461215
+        assert {workload for _, _, workload in self.calls} == {Workload.ONLINE}
 
     def test_reads_the_row_averages_once_and_survives_their_failure(self) -> None:
         # The average is a table-wide property, so the query runs once, not per execution or EXPLAIN.
@@ -178,6 +182,71 @@ class TestQueryScanJob(BaseTest):
         stored = slot.get(self.team.pk, "cache_key_1", thresholds=FLAG.thresholds_fingerprint)
         assert stored is not None and stored.analysis is not None
         assert [str(finding.kind) for finding in stored.analysis.findings] == ["persons_join"]
+
+
+def _explain_unbounded(query: str, arguments: Any = None, *args: Any, **kwargs: Any) -> Any:
+    if "system.parts" in query:
+        return _ROW_AVERAGES
+    return [[_plan("plan_no_date_bound")]]
+
+
+class TestQueryScanInline(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.stored: dict[str, Any] = {}
+        self.capture = _fake_job_boundaries(self, self.stored)
+
+    def _job(self, deadline_ms: int) -> QueryScanJob:
+        return QueryScanJob(
+            team=self.team,
+            cache_key="cache_key_1",
+            executions=(Execution(stubbed_sql="STUBBED_MARKER", subqueries=(), values={}, rows_read=500_000),),
+            rows_read=500_000,
+            duration_ms=19_000,
+            trigger="fresh",
+            query_kind="HogQLQuery",
+            open_filters_placeholder=False,
+            inline_deadline_ms=deadline_ms,
+        )
+
+    def _stored_analysis(self) -> Any:
+        stored = slot.get(self.team.pk, "cache_key_1", thresholds=FLAG.thresholds_fingerprint)
+        return stored.analysis if stored is not None else None
+
+    def test_stores_the_analysis_before_the_deadline(self) -> None:
+        with mock.patch("posthog.query_scan.job.sync_execute", side_effect=_explain_unbounded):
+            stored_in_time = run_query_scan_inline(self._job(deadline_ms=10_000))
+
+        assert stored_in_time is True
+        analysis = self._stored_analysis()
+        assert analysis is not None
+        assert [str(finding.kind) for finding in analysis.findings] == ["no_start_date"]
+        properties = self.capture.call_args.kwargs["properties"]
+        assert (properties["inline"], properties["deadline_hit"]) == (True, False)
+
+    def test_returns_at_the_deadline_and_stores_once_the_plans_land(self) -> None:
+        # The response must not wait on a slow EXPLAIN, and the work already started must not be
+        # thrown away: the thread finishes and stores, so the next read of the slot serves the
+        # findings without a second analysis.
+        release = threading.Event()
+        reported = threading.Event()
+        self.capture.side_effect = lambda **kwargs: reported.set()
+
+        def explain_once_released(query: str, arguments: Any = None, *args: Any, **kwargs: Any) -> Any:
+            if "STUBBED_MARKER" in query:
+                assert release.wait(timeout=10)
+            return _explain_unbounded(query, arguments, *args, **kwargs)
+
+        with mock.patch("posthog.query_scan.job.sync_execute", side_effect=explain_once_released):
+            stored_in_time = run_query_scan_inline(self._job(deadline_ms=20))
+            assert stored_in_time is False
+            assert self._stored_analysis() is None
+            release.set()
+            assert reported.wait(timeout=10)
+
+        assert self._stored_analysis() is not None
+        properties = self.capture.call_args.kwargs["properties"]
+        assert (properties["inline"], properties["deadline_hit"]) == (True, True)
 
 
 class TestQueryScanJobOnClickhouse(ClickhouseTestMixin, BaseTest):

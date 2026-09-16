@@ -5,6 +5,7 @@ from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.celery_queues import CeleryQueue
+from posthog.clickhouse.workload import Workload
 from posthog.models.team.team import Team
 from posthog.query_scan.job import Execution, QueryScanJob, run_query_scan
 from posthog.query_scan.slot import PENDING_TTL_SECONDS
@@ -39,6 +40,7 @@ def analyze_query_scan(
     error_type: str | None = None,
     all_time: bool = False,
     all_history_by_design: bool = False,
+    workload: str | None = None,
 ) -> None:
     team = Team.objects.select_related("organization").filter(pk=team_id).first()
     if team is None:
@@ -60,6 +62,7 @@ def analyze_query_scan(
                 error_type=error_type,
                 all_time=all_time,
                 all_history_by_design=all_history_by_design,
+                workload=Workload(workload) if workload else Workload.OFFLINE,
             )
         )
     except SoftTimeLimitExceeded:

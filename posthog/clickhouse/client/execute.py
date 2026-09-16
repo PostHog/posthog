@@ -266,7 +266,7 @@ def _query_stats_summary(client: Any, query_info_before: Any) -> Optional[QueryS
     )
 
 
-def _record_query_stats(client: Any, query_info_before: Any, execute_start_time: float) -> None:
+def _record_query_stats(client: Any, query_info_before: Any, execute_start_time: float, workload: Workload) -> None:
     """Add what this query read to the request's totals.
 
     Also runs after a failure, since a stopped query has still read rows. Never raises: the totals
@@ -278,7 +278,7 @@ def _record_query_stats(client: Any, query_info_before: Any, execute_start_time:
             return
         # elapsed_ns is 0 on old protocol revisions; fall back to the client-side round trip.
         duration_ms = summary.elapsed_ns / 1e6 if summary.elapsed_ns else (perf_counter() - execute_start_time) * 1000
-        query_stats.record(rows_read=summary.rows, duration_ms=duration_ms)
+        query_stats.record(rows_read=summary.rows, duration_ms=duration_ms, workload=workload)
     except Exception:
         logger.warning("query_stats_record_failed", exc_info=True)
 
@@ -606,7 +606,7 @@ def sync_execute(
                 # in the outer finally, once the connection is back in the pool.
                 if tags.chargeable and tags.team_id:
                     chargeable_query_info = _chargeable_query_info(client, query_info_before)
-                _record_query_stats(client, query_info_before, execute_start_time)
+                _record_query_stats(client, query_info_before, execute_start_time, workload)
             if (
                 "INSERT INTO" in prepared_sql
                 and hasattr(client, "last_query")
