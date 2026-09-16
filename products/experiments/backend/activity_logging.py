@@ -19,9 +19,14 @@ def _without_derived_running_time_keys(value: object) -> dict[str, object]:
 
 
 def _is_derived_running_time_drift(change: Change) -> bool:
-    return change.field == "running_time_calculation" and _without_derived_running_time_keys(
-        change.before
-    ) == _without_derived_running_time_keys(change.after)
+    if change.field != "running_time_calculation":
+        return False
+    # The validator lets falsy non-dict values (for example []) through, and those are
+    # never calculator drift, so a transition involving one must stay logged.
+    for value in (change.before, change.after):
+        if value is not None and not isinstance(value, dict):
+            return False
+    return _without_derived_running_time_keys(change.before) == _without_derived_running_time_keys(change.after)
 
 
 @mutable_receiver(model_activity_signal, sender=Experiment)
