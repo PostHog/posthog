@@ -27,13 +27,13 @@ tools:
     autoresearch-create:
         operation: autoresearch_create
         enabled: true
-        enrich_url: '{id}'
         scopes:
             - autoresearch:write
         annotations:
             readOnly: false
             destructive: false
             idempotent: false
+        enrich_url: '{id}'
         title: Create a pipeline
         description: >
             Create a new autoresearch prediction pipeline. Always call autoresearch-validate-create first — this
@@ -206,13 +206,13 @@ tools:
     autoresearch-retrieve:
         operation: autoresearch_retrieve
         enabled: true
-        enrich_url: '{id}'
         scopes:
             - autoresearch:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{id}'
         title: Get pipeline
         description: >
             Get full details for a specific autoresearch pipeline by ID, including population definitions, training
