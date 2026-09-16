@@ -1005,15 +1005,14 @@ WHERE and(
             case WebStatsBreakdown.OS:
                 return ast.Field(chain=["properties", "$os"])
             case WebStatsBreakdown.VIEWPORT:
-                # A zero or half-set viewport folds into (NULL, NULL) like a missing one, and is kept as "(not set)"
-                unusable = (
-                    "properties.$viewport_width IS NULL OR properties.$viewport_height IS NULL "
-                    "OR properties.$viewport_width = 0 OR properties.$viewport_height = 0"
-                )
-                return parse_expr(
-                    f"tuple(if({unusable}, NULL, properties.$viewport_width), "
-                    f"if({unusable}, NULL, properties.$viewport_height))"
-                )
+                # A zero or half-set viewport folds into (NULL, NULL) like a missing one, and is kept as "(not set)".
+                # toInt keeps the comparison typed even when the team has no Numeric property
+                # definition (a raw String property cannot be compared to 0), and folds
+                # non-numeric garbage into "(not set)" with everything else.
+                width = "toInt(properties.$viewport_width)"
+                height = "toInt(properties.$viewport_height)"
+                unusable = f"{width} IS NULL OR {height} IS NULL OR {width} = 0 OR {height} = 0"
+                return parse_expr(f"tuple(if({unusable}, NULL, {width}), if({unusable}, NULL, {height}))")
             case WebStatsBreakdown.DEVICE_TYPE:
                 return ast.Field(chain=["properties", "$device_type"])
             case WebStatsBreakdown.COUNTRY:
