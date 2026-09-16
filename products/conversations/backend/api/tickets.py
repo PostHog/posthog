@@ -312,9 +312,12 @@ class TicketPagination(pagination.LimitOffsetPagination):
 
     An exact ``count`` makes Postgres read every ticket the filters match, and the model's
     indexes are built for top-N ordered pages, not for counting. Counting inside a LIMIT
-    subquery lets the scan stop at the ceiling, so the count reads at most one row past the
-    ceiling however many tickets a team has. The ceiling always leaves room for one row past
-    the current page, so "is there a next page" stays correct at any offset.
+    subquery stops the scan one row past the ceiling, so a filter that an index serves costs
+    the same however many tickets a team has. The LIMIT bounds matching rows, not rows read:
+    for a sparse filter with no index behind it (priority, a tag, a search term) Postgres
+    still scans to find the matches, the same rows the uncapped ``COUNT(*)`` read. The ceiling
+    always leaves room for one row past the current page, so "is there a next page" stays
+    correct at any offset.
     """
 
     default_limit = 100
