@@ -1,15 +1,13 @@
 import structlog
 from social_django.models import UserSocialAuth
 
-from posthog.api.github_webhooks.metrics import GitHubWebhookAttributionOutcome, observe_github_webhook_attribution
+from posthog.github.metrics import GitHubWebhookAttributionOutcome, observe_github_webhook_attribution
 from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
-
-from products.signals.backend.facade.github import resolve_github_login_distinct_id
 
 logger = structlog.get_logger(__name__)
 
@@ -34,6 +32,11 @@ def _resolve_github_login_distinct_id(login: str | None, team_id: int) -> str | 
     """
     if not login:
         return None
+
+    from products.signals.backend.facade.github import (
+        resolve_github_login_distinct_id,  # noqa: PLC0415 - core must not import a product at module level
+    )
+
     try:
         with bounded_statement_timeout(_ATTRIBUTION_STATEMENT_TIMEOUT_MS, models=_ATTRIBUTION_MODELS):
             resolved = resolve_github_login_distinct_id(str(login), team_id)
@@ -59,9 +62,8 @@ def _merged_by_attribution(payload: dict, team_id: int) -> tuple[dict, str | Non
 
     Merging is the one unambiguous personal act in the loop, so when the merger's GitHub
     login maps to an org member the pr_merged event attributes to them. Without a match the
-    event keeps the task's assigned user (an auto-resolved reviewer or fallback for
-    auto-started reports), so a consumer tells the two apart by the presence of
-    pr_merged_by_distinct_id.
+    event keeps the caller's default actor, so a consumer tells the two apart by the presence
+    of pr_merged_by_distinct_id.
     """
     merged_by = (payload.get("pull_request") or {}).get("merged_by") or {}
     login = merged_by.get("login")

@@ -15,6 +15,7 @@ from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -214,7 +215,7 @@ def linkedin_ads_source(
     yields batches of records as pyarrow Tables.
     """
     name = NamingConvention.normalize_identifier(resource_name)
-    schema = get_schemas()[resource_name]
+    schema = schema_for_resource(get_schemas(), resource_name)
 
     def get_rows() -> collections.abc.Iterator[pa.Table]:
         client = linkedin_ads_client(config, team_id, api_version=api_version)
