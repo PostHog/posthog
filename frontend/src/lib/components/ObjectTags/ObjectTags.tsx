@@ -81,13 +81,15 @@ export function ObjectTags({
     const { editingTags } = useValues(logic)
     const { setEditingTags, setTags } = useActions(logic)
 
+    // A blank name is not a tag, so it must not reach the input as a snack either.
+    const displayTags = tags.filter((tag) => !!tag.trim())
+
     /** Displaying nothing is confusing, so in case of empty static tags we use a dash as a placeholder */
-    const showPlaceholder = staticOnly && !tags?.length
+    const showPlaceholder = staticOnly && !displayTags.length
     if (showPlaceholder && !style.color) {
         style.color = 'var(--color-text-secondary)'
     }
 
-    const displayTags = tags.filter((tag) => !!tag)
     const hasTags = displayTags.length > 0
     const [showOverflowTags, setShowOverflowTags] = useState(false)
     const visibleTags = maxVisibleTags === undefined ? displayTags : displayTags.slice(0, maxVisibleTags)
