@@ -1,10 +1,10 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`NativeDestinationExecutorService native plugins should call the plugin perform method 1`] = `
 [
   {
     "level": "debug",
-    "message": "config, {"url":"https://posthog.com/webhook","method":"POST","body":{"event_name":"$pageview"},"headers":{"Authorization":"Bearer abc"},"debug_mode":true}",
+    "message": "config, {"url":"https://posthog.com/webhook","method":"POST","body":{"event_name":"$pageview"},"headers":{"Authorization":"***REDACTED***"},"debug_mode":true,"connection":{"$integration_id":1,"password":"***REDACTED***"}}",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
@@ -14,12 +14,12 @@ exports[`NativeDestinationExecutorService native plugins should call the plugin 
   },
   {
     "level": "debug",
-    "message": "options, {"method":"POST","headers":{"Authorization":"Bearer abc"},"json":{"event_name":"$pageview"}}",
+    "message": "options, {"method":"POST","headers":{"Authorization":"***REDACTED***"},"json":{"event_name":"$pageview"}}",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
     "level": "debug",
-    "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Authorization":"Bearer abc","Content-Type":"application/json"},"body":"{\\"event_name\\":\\"$pageview\\"}"}",
+    "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Authorization":"***REDACTED***","Content-Type":"application/json"},"body":"{\\"event_name\\":\\"$pageview\\"}"}",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
@@ -39,7 +39,7 @@ exports[`NativeDestinationExecutorService native plugins should handle non retry
 [
   {
     "level": "debug",
-    "message": "config, {"url":"https://posthog.com/webhook","method":"POST","body":{"event_name":"$pageview"},"headers":{"Authorization":"Bearer abc"},"debug_mode":true}",
+    "message": "config, {"url":"https://posthog.com/webhook","method":"POST","body":{"event_name":"$pageview"},"headers":{"Authorization":"***REDACTED***"},"debug_mode":true}",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
@@ -49,12 +49,12 @@ exports[`NativeDestinationExecutorService native plugins should handle non retry
   },
   {
     "level": "debug",
-    "message": "options, {"method":"POST","headers":{"Authorization":"Bearer abc"},"json":{"event_name":"$pageview"}}",
+    "message": "options, {"method":"POST","headers":{"Authorization":"***REDACTED***"},"json":{"event_name":"$pageview"}}",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
     "level": "debug",
-    "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Authorization":"Bearer abc","Content-Type":"application/json"},"body":"{\\"event_name\\":\\"$pageview\\"}"}",
+    "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Authorization":"***REDACTED***","Content-Type":"application/json"},"body":"{\\"event_name\\":\\"$pageview\\"}"}",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
@@ -74,7 +74,7 @@ exports[`NativeDestinationExecutorService native plugins should retry retryable 
 [
   {
     "level": "debug",
-    "message": "config, {"url":"https://posthog.com/webhook","method":"POST","body":{"event_name":"$pageview"},"headers":{"Authorization":"Bearer abc"},"debug_mode":true}",
+    "message": "config, {"url":"https://posthog.com/webhook","method":"POST","body":{"event_name":"$pageview"},"headers":{"Authorization":"***REDACTED***"},"debug_mode":true}",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
@@ -84,12 +84,12 @@ exports[`NativeDestinationExecutorService native plugins should retry retryable 
   },
   {
     "level": "debug",
-    "message": "options, {"method":"POST","headers":{"Authorization":"Bearer abc"},"json":{"event_name":"$pageview"}}",
+    "message": "options, {"method":"POST","headers":{"Authorization":"***REDACTED***"},"json":{"event_name":"$pageview"}}",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {
     "level": "debug",
-    "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Authorization":"Bearer abc","Content-Type":"application/json"},"body":"{\\"event_name\\":\\"$pageview\\"}"}",
+    "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Authorization":"***REDACTED***","Content-Type":"application/json"},"body":"{\\"event_name\\":\\"$pageview\\"}"}",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
   {

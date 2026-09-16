@@ -2,9 +2,10 @@ import { DateTime } from 'luxon'
 
 import { Team } from '../types'
 import { CdpInternalEvent } from './schema'
-import { LogEntry } from './types'
+import { LogEntry, MinimalLogEntry } from './types'
 import {
     convertInternalEventToHogFunctionInvocationGlobals,
+    createAddLogFunction,
     fixLogDeduplication,
     getSensitiveValues,
     gzipObject,
@@ -145,6 +146,32 @@ describe('Utils', () => {
                 []
             )
         })
+
+        it.each([
+            ['integration', { $integration_id: 1, key_info: { private_key: 'nested-private-key' } }],
+            ['integration_multi', [{ $integration_id: 1, key_info: { private_key: 'nested-private-key' } }]],
+        ])('masks a nested secret in an %s input', (type, value) => {
+            const hogFunction: any = { inputs_schema: [{ key: 'connection', type }] }
+            expect(getSensitiveValues(hogFunction, { connection: value })).toContain('nested-private-key')
+        })
+    })
+
+    describe('createAddLogFunction', () => {
+        it.each([
+            [
+                'a derived credential header',
+                { headers: { Authorization: 'Basic ZGVyaXZlZC1rZXk6' } },
+                'ZGVyaXZlZC1rZXk6',
+            ],
+            ['a credential under an unlisted header name', { headers: { 'PRIVATE-TOKEN': 'glpat-abc123' } }, 'abc123'],
+            ['a response cookie', { headers: { 'set-cookie': 'session=abc123' } }, 'abc123'],
+            ['a multi-line secret in a stringified body', { body: JSON.stringify({ key: 'line1\nline2' }) }, 'line2'],
+        ])('redacts %s in a logged object', (_name, loggedObject, leakedText) => {
+            const logs: MinimalLogEntry[] = []
+            createAddLogFunction(logs, ['line1\nline2'])('debug', 'options', loggedObject)
+            expect(logs[0].message).toContain('***REDACTED***')
+            expect(logs[0].message).not.toContain(leakedText)
+        })
     })
 
     describe('sanitizeLogMessage', () => {
@@ -152,9 +179,23 @@ describe('Utils', () => {
             const message = sanitizeLogMessage(['test', 'test2'])
             expect(message).toBe('test, test2')
         })
-        it('should sanitize the log message with a sensitive value', () => {
-            const message = sanitizeLogMessage(['test', 'test2'], ['test2'])
-            expect(message).toBe('test, ***REDACTED***')
+        it.each([
+            ['a string argument', ['test', 'test2'], ['test2'], 'test, ***REDACTED***'],
+            [
+                'a multi-line value in an object',
+                [{ key: 'line1\nline2' }],
+                ['line1\nline2'],
+                '{"key":"***REDACTED***"}',
+            ],
+            ['a quoted value in an object', [{ key: 'say "hi"' }], ['say "hi"'], '{"key":"***REDACTED***"}'],
+            [
+                'repeated values that occur inside the marker',
+                [{ key: '*' }],
+                ['*', '*', '*', '*', '*', '*', '*', '*', 'R'],
+                '{"key":"***REDACTED***"}',
+            ],
+        ])('should redact a sensitive value in %s', (_name, args, sensitiveValues, expected) => {
+            expect(sanitizeLogMessage(args, sensitiveValues)).toBe(expected)
         })
         it('should sanitize a range of values types', () => {
             const message = sanitizeLogMessage(['test', 'test2', 1, true, false, null, undefined, { test: 'test' }])

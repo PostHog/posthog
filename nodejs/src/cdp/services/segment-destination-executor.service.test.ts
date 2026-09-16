@@ -61,6 +61,7 @@ describe('SegmentDestinationExecutorService', () => {
             const fn = createHogFunction({
                 name: 'Plugin test',
                 template_id: 'segment-actions-amplitude',
+                inputs_schema: amplitudePlugin.template.inputs_schema,
             })
 
             const invocation = createExampleSegmentInvocation(fn, amplitudeInputs)
@@ -91,6 +92,7 @@ describe('SegmentDestinationExecutorService', () => {
                 }
             })
 
+            expect(JSON.stringify(result.logs)).not.toContain(amplitudeInputs.secretKey)
             expect(result.logs).toMatchSnapshot()
 
             expect(amplitudeAction.perform).toHaveBeenCalledTimes(1)
@@ -109,6 +111,23 @@ describe('SegmentDestinationExecutorService', () => {
                   },
                 ]
             `)
+        })
+
+        it('should redact secrets in an error thrown by the destination', async () => {
+            const fn = createHogFunction({
+                name: 'Plugin test',
+                template_id: 'segment-actions-amplitude',
+                inputs_schema: amplitudePlugin.template.inputs_schema,
+            })
+            const invocation = createExampleSegmentInvocation(fn, amplitudeInputs)
+            jest.mocked(amplitudeAction.perform!).mockRejectedValueOnce(
+                new Error(`Destination rejected ${amplitudeInputs.secretKey}`)
+            )
+
+            const result = await service.execute(invocation)
+
+            expect(String(result.error)).toBe('Error: Destination rejected ***REDACTED***')
+            expect(JSON.stringify(result.logs)).not.toContain(amplitudeInputs.secretKey)
         })
 
         it('should handle non retryable fetch errors', async () => {

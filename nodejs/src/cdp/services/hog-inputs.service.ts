@@ -204,6 +204,12 @@ export class HogInputsService {
             if (!integration || integration.team_id !== hogFunction.team_id) {
                 return null
             }
+            // A `posthog` connection holds its creator's grant into another project, and only the creator
+            // may use it. A function runs for the whole team, so resolving one would hand that grant to
+            // every member who can edit or test functions.
+            if (integration.kind === 'posthog') {
+                return null
+            }
             return {
                 $integration_id: integration.id,
                 ...integration.config,
