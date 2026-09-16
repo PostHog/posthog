@@ -285,7 +285,8 @@ export function MaterializationStatusPanel({
                                 )}
                                 {showIncremental && lastRunMode === 'full_refresh' && lastRunFullRefreshReason && (
                                     <div className="text-xs text-secondary mt-1">
-                                        Rebuilt the whole table. {lastRunFullRefreshReason.explanation}
+                                        <span>Rebuilt the whole table.&nbsp;</span>
+                                        <span>{lastRunFullRefreshReason.explanation}</span>
                                     </div>
                                 )}
                                 {showStatusSummary && isPaused && kind !== 'endpoint' && (
