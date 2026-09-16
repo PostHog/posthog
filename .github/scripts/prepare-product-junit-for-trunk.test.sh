@@ -21,6 +21,7 @@ run_case() {
     read -r -a exclusions <<<"$excluded_paths"
     mkdir -p "$root"
     create_product "$root" warehouse_sources @posthog/products-warehouse-sources "$warehouse_report"
+    printf '%s\n' '<testsuite tests="1" failures="1" />' >"$root/products/warehouse_sources/junit-product-retry-failures.xml"
     create_product "$root" warehouse_sources_queue @posthog/products-warehouse-sources-queue '<testsuite tests="1" failures="0" />'
     create_product "$root" other @posthog/products-other "$other_report"
 
@@ -38,6 +39,10 @@ run_case() {
         product="$(basename "$(dirname "$excluded_path")")"
         if [ -e "$root/trunk-junit/junit-product-$product.xml" ]; then
             echo "FAIL: $name staged excluded report $excluded_path"
+            exit 1
+        fi
+        if [ -e "$root/trunk-junit/junit-product-$product-retry-failures.xml" ]; then
+            echo "FAIL: $name staged retries for excluded report $excluded_path"
             exit 1
         fi
     done
@@ -58,5 +63,13 @@ run_case selected-report-passes '--filter=@posthog/products-warehouse-sources' 0
 run_case selected-report-fails '--filter=@posthog/products-warehouse-sources' 1 '<testsuite tests="1" failures="1"><testcase><failure /></testcase></testsuite>' '<testsuite tests="1" failures="0" />'
 run_case multiple-exclusions '--filter=@posthog/products-other' 0 '<testsuite tests="1" failures="0" />' '<testsuite tests="1" failures="0" />' 'products/warehouse_sources/junit-product.xml products/other/junit-product.xml'
 run_case no-exclusions-stages-a-failed-report '--filter=@posthog/products-warehouse-sources' 0 '<testsuite tests="1" failures="1"><testcase><failure /></testcase></testsuite>' '<testsuite tests="1" failures="0" />' ''
+
+retry_root="$workdir/retry-failures"
+mkdir -p "$retry_root"
+create_product "$retry_root" other @posthog/products-other '<testsuite tests="1" failures="0" />'
+printf '%s\n' '<testsuite tests="1" failures="1"><testcase><failure /></testcase></testsuite>' >"$retry_root/products/other/junit-product-retry-failures.xml"
+(cd "$retry_root" && bash "$script" trunk-junit '--filter=@posthog/products-other')
+test -f "$retry_root/trunk-junit/junit-product-other-retry-failures.xml"
+echo 'ok: stages retry failures with the product report'
 
 echo "Product JUnit preparation regression cases passed."
