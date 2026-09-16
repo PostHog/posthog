@@ -43,6 +43,7 @@ async function waitForAssertion(assertion: () => void): Promise<void> {
 
 describe("useDesktopBetaTerms", () => {
   let projectId: number | null;
+  let currentResult: ReturnType<typeof useDesktopBetaTerms>;
 
   beforeEach(() => {
     projectId = 1;
@@ -55,11 +56,10 @@ describe("useDesktopBetaTerms", () => {
     );
   });
 
-  it("reads the new project's acceptance after a token refresh moves the project", async () => {
+  async function mountProbe(): Promise<{ rerender: () => Promise<void> }> {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
-    let currentResult: ReturnType<typeof useDesktopBetaTerms>;
 
     function HookProbe() {
       // The organization id stays put on purpose: /api/users/@me/ does not
@@ -77,26 +77,47 @@ describe("useDesktopBetaTerms", () => {
     }
 
     // A fresh element every time: React bails out of re-rendering one it has
-    // already seen, so reusing it would never pick the new project up.
+    // already seen, so reusing it would never pick a new project up.
     const tree = () => createElement(Wrapper, null, createElement(HookProbe));
     let renderer!: ReturnType<typeof create>;
     await act(async () => {
       renderer = create(tree());
       await Promise.resolve();
     });
+
+    return {
+      rerender: async () => {
+        await act(async () => {
+          renderer.update(tree());
+          await Promise.resolve();
+        });
+      },
+    };
+  }
+
+  it("reads the new project's acceptance after a token refresh moves the project", async () => {
+    const probe = await mountProbe();
     await waitForAssertion(() => {
       expect(currentResult.data).toBe(true);
     });
 
     projectId = 2;
-    await act(async () => {
-      renderer.update(tree());
-      await Promise.resolve();
-    });
+    await probe.rerender();
 
     await waitForAssertion(() => {
       expect(mockAreDesktopBetaTermsAccepted).toHaveBeenCalledWith(2);
       expect(currentResult.data).toBe(false);
     });
+  });
+
+  it("errors instead of idling when the session has no scoped project", async () => {
+    projectId = null;
+
+    await mountProbe();
+
+    await waitForAssertion(() => {
+      expect(currentResult.isError).toBe(true);
+    });
+    expect(mockAreDesktopBetaTermsAccepted).not.toHaveBeenCalled();
   });
 });

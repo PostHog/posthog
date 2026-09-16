@@ -24,7 +24,11 @@ export function useDesktopBetaTerms(organizationId: string | undefined) {
       if (projectId === null) throw new Error("No project");
       return getPostHogApiClient().areDesktopBetaTermsAccepted(projectId);
     },
-    enabled: isAuthenticated && !!organizationId && projectId !== null,
+    // A session with no scoped project must fail this query instead of leaving
+    // it disabled. A disabled query has no result, the consent state reads a
+    // missing result as loading, and the gate then holds the app on a spinner
+    // that offers no way to sign out.
+    enabled: isAuthenticated && !!organizationId,
     staleTime: 5 * 60 * 1000,
   });
 }
