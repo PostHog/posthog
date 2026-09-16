@@ -33,6 +33,7 @@ from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.slo_interceptor import SloInterceptor
+from posthog.temporal.common.utils import configure_asyncify_executor, shutdown_asyncify_executor
 from posthog.temporal.data_modeling.metrics import (
     DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS,
     DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
@@ -185,7 +186,7 @@ ALL_INTERCEPTOR_CLASSES = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class ManagedWorker:
     """A Temporal worker bundled with its associated resources for unified lifecycle management."""
 
@@ -204,6 +205,10 @@ class ManagedWorker:
         await self.worker.shutdown()
         if self.metrics_server:
             await self.metrics_server.stop()
+        shutdown_asyncify_executor()
+
+
+DEFAULT_MAX_CONCURRENT_TASKS = 50
 
 
 async def create_worker(
@@ -398,6 +403,11 @@ async def create_worker(
         interceptor() for interceptor in ALL_INTERCEPTOR_CLASSES if is_task_queue_supported(task_queue, interceptor)
     ]
 
+    # `activity_executor` below only serves sync activity functions, so `@asyncify` coroutines need their own.
+    configure_asyncify_executor(
+        min(max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS, settings.ASYNCIFY_MAX_WORKERS)
+    )
+
     if target_memory_usage is not None:
         worker = Worker(
             client,
@@ -407,12 +417,16 @@ async def create_worker(
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
             interceptors=supported_interceptors,
-            activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
+            activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS),
             tuner=WorkerTuner.create_resource_based(
                 target_memory_usage=target_memory_usage,
                 target_cpu_usage=target_cpu_usage or 1.0,
-                workflow_config=ResourceBasedSlotConfig(maximum_slots=max_concurrent_workflow_tasks or 50),
-                activity_config=ResourceBasedSlotConfig(maximum_slots=max_concurrent_activities or 50),
+                workflow_config=ResourceBasedSlotConfig(
+                    maximum_slots=max_concurrent_workflow_tasks or DEFAULT_MAX_CONCURRENT_TASKS
+                ),
+                activity_config=ResourceBasedSlotConfig(
+                    maximum_slots=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS
+                ),
             ),
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
@@ -427,9 +441,9 @@ async def create_worker(
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
             interceptors=supported_interceptors,
-            activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
-            max_concurrent_activities=max_concurrent_activities or 50,
-            max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or 50,
+            activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS),
+            max_concurrent_activities=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS,
+            max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or DEFAULT_MAX_CONCURRENT_TASKS,
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
