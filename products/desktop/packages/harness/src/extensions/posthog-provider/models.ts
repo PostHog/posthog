@@ -158,6 +158,30 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     supports_vision: true,
   },
   {
+    id: "claude-opus-4-6",
+    owned_by: "anthropic",
+    context_window: 1000000,
+    supports_vision: true,
+  },
+  {
+    id: "claude-opus-4-5",
+    owned_by: "anthropic",
+    context_window: 200000,
+    supports_vision: true,
+  },
+  {
+    id: "claude-fable-5",
+    owned_by: "anthropic",
+    context_window: 1000000,
+    supports_vision: true,
+  },
+  {
+    id: "claude-fable-5-1",
+    owned_by: "anthropic",
+    context_window: 1000000,
+    supports_vision: true,
+  },
+  {
     id: "claude-sonnet-5",
     owned_by: "anthropic",
     context_window: 1000000,
@@ -165,6 +189,12 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
   },
   {
     id: "claude-sonnet-4-6",
+    owned_by: "anthropic",
+    context_window: 1000000,
+    supports_vision: true,
+  },
+  {
+    id: "claude-sonnet-4-5",
     owned_by: "anthropic",
     context_window: 1000000,
     supports_vision: true,
@@ -218,6 +248,12 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     supports_vision: true,
   },
   {
+    id: "gpt-5.2",
+    owned_by: "openai",
+    context_window: 400000,
+    supports_vision: true,
+  },
+  {
     id: "gpt-5-mini",
     owned_by: "openai",
     context_window: 272000,
@@ -235,11 +271,30 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     context_window: 262144,
     supports_vision: false,
   },
+  {
+    id: "deepseek-ai/deepseek-v4-flash-0731",
+    owned_by: "baseten",
+    context_window: 1048000,
+    supports_vision: false,
+  },
+  {
+    id: "zai-org/glm-5.3",
+    owned_by: "baseten",
+    context_window: 1048576,
+    supports_vision: false,
+  },
+  {
+    id: "zai-org/glm-5.3-flash",
+    owned_by: "baseten",
+    context_window: 1000000,
+    supports_vision: false,
+  },
 ];
 
-// DeepSeek V4 Flash is deliberately absent from the fallback list: the gateway
-// only serves it to flag-gated posthog_code callers, so it is offered only when
-// the live /v1/models listing advertises it.
+// Every model a picker can offer belongs here: one failed /v1/models fetch
+// must not be what decides whether a model is offered. Retired ids stay on the
+// list too, so a session pinned to one still runs. Access flags are applied
+// later, from the shared catalog.
 export function fallbackModelConfigs(
   region: CloudRegion,
 ): ProviderModelConfig[] {
