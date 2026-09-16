@@ -71,7 +71,7 @@ function intentItem(summary: MCPOverviewSummary | null): CoverageItem {
         badge: isOk ? 'OK' : 'Fix',
         title: `Intent on ${formatPct(intentPct)} of calls`,
         detail: isOk
-            ? 'Every one written by the agent making the call, none inferred.'
+            ? 'Enough of the traffic to group what people are trying to do.'
             : 'The themes above only cover calls that carry intent. Pass the context parameter on every tool call.',
         link: isOk ? undefined : { to: DOCS_INTENT, label: 'How to set it up' },
     }
