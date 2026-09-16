@@ -222,9 +222,10 @@ export type CommonConfig = BaseServerConfig & {
     // an HTTP/2 origin's stream limit. Keep it above the largest per-origin concurrency a caller runs. The image fetch
     // lane allows 6 per registrable domain.
     EXTERNAL_REQUEST_H2_CONNECTIONS: number
-    // Which teams send their third-party requests through the egress proxy. Takes the
-    // buildIntegerMatcherWithPercentage syntax: '' for nobody, '2' for team 2 only, '2,*:0.1' for team 2 plus a tenth
-    // of everyone else's requests, '*' for all.
+    // Which teams send their third-party requests through the egress proxy. Only a deployment in the rollout sets
+    // this. Left unset, a configured proxy carries every request, which is the behavior from before the rollout.
+    // Takes the buildIntegerMatcherWithPercentage syntax: '2' for team 2 only, '2,*:0.1' for team 2 plus a tenth of
+    // everyone else's requests, '*' for all.
     EXTERNAL_REQUEST_PROXY_TEAMS: string
 
     // PostHog analytics

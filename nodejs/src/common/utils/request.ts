@@ -302,19 +302,21 @@ for (const rolloutPercentage of proxyRolloutPercentages) {
     }
 }
 
-// The rollout reads the team from the same attribution context the URL-validation logs use, rather than from
-// FetchOptions, so that routing stays out of the request shape every caller and its tests assert on.
+const proxyRolloutConfigured = requestConfig.EXTERNAL_REQUEST_PROXY_TEAMS.trim().length > 0
+
+// Only a deployment in the rollout sets EXTERNAL_REQUEST_PROXY_TEAMS. Everywhere else keeps the behavior from before
+// the rollout existed, which the session replay image lane depends on to send customer URLs through the proxy.
+// A deployment in the rollout takes the team from the attribution context the URL-validation logs already use, rather
+// than from FetchOptions, so that routing stays out of the request shape every caller and its tests assert on.
 function useProxyForTeam(): boolean {
     if (!proxyUrl) {
         return false
     }
-    const attribution = fetchAttribution.getStore()
-    if (!attribution) {
-        // No attribution means a caller outside CDP, which keeps the proxy on every request.
+    if (!proxyRolloutConfigured) {
         return true
     }
-    const teamId = attribution.teamId
-    // A CDP caller with no team never matches a team in the list, but a percentage rollout still covers it.
+    const teamId = fetchAttribution.getStore()?.teamId
+    // A caller with no team never matches a team in the list, but a percentage rollout still covers it.
     return proxyTeamMatcher(typeof teamId === 'number' ? teamId : 0)
 }
 

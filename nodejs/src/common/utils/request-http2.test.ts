@@ -281,14 +281,14 @@ describe('secure HTTP/2 requests', () => {
             attribution = (require('./fetch-attribution') as typeof import('./fetch-attribution')).fetchAttribution
         }
 
-        // A caller outside CDP sets no attribution at all, such as the session replay image lane, and keeps the proxy
-        // on every request. A team of undefined is a CDP caller that has attribution but no invocation.
-        const OUTSIDE_CDP = 'outside-cdp'
-        type Caller = number | undefined | typeof OUTSIDE_CDP
+        // A caller that sets no attribution at all, such as the session replay image lane. A team of undefined is a
+        // caller that has attribution but no invocation. Both reach the matcher as team 0 once a rollout is set.
+        const NO_ATTRIBUTION = 'no-attribution'
+        type Caller = number | undefined | typeof NO_ATTRIBUTION
 
         const fetchAs = (caller: Caller, url: string, options = {}): Promise<FetchResponseLike> => {
             const run = (): Promise<FetchResponseLike> => requestModule.fetch(url, { timeoutMs: 2000, ...options })
-            return caller === OUTSIDE_CDP ? run() : attribution.run({ teamId: caller }, run)
+            return caller === NO_ATTRIBUTION ? run() : attribution.run({ teamId: caller }, run)
         }
 
         afterEach(() => {
@@ -296,14 +296,16 @@ describe('secure HTTP/2 requests', () => {
         })
 
         it.each<[string, Caller, boolean]>([
-            ['', 2, false],
+            // An unset value means the deployment is not in the rollout, so every caller keeps the proxy.
+            ['', 2, true],
+            ['', NO_ATTRIBUTION, true],
             ['2', 2, true],
             ['2', 3, false],
+            ['2', undefined, false],
+            ['2', NO_ATTRIBUTION, false],
             ['2,*:1', 3, true],
             ['*', 3, true],
-            ['', undefined, false],
             ['*:1', undefined, true],
-            ['2', OUTSIDE_CDP, true],
         ])(
             'with EXTERNAL_REQUEST_PROXY_TEAMS=%j and caller %s, proxied: %s',
             async (proxyTeams, caller, expectProxied) => {
@@ -329,17 +331,18 @@ describe('secure HTTP/2 requests', () => {
 
         // legacyFetch picks its own dispatcher instead of taking one from `fetch`, so it needs its own coverage.
         // A shared agent assigned there directly would pin the helper to one route whatever the rollout says.
-        it.each([
-            [null, true],
+        it.each<[Caller, boolean]>([
+            [2, true],
             [3, false],
+            [NO_ATTRIBUTION, false],
         ])(
-            'routes legacyFetch for team %s through the proxy: %s',
-            async (teamId, expectProxied) => {
+            'routes legacyFetch for caller %s through the proxy: %s',
+            async (caller, expectProxied) => {
                 loadWithProxyTeams('2')
                 const authority = `127.0.0.1:${serverPort(plainOrigin)}`
                 const run = (): Promise<LegacyResponseLike> => requestModule.legacyFetch(`http://${authority}/legacy`)
 
-                const response = await (teamId === null ? run() : attribution.run({ teamId }, run))
+                const response = await (caller === NO_ATTRIBUTION ? run() : attribution.run({ teamId: caller }, run))
 
                 expect(await response.text()).toBe('/legacy')
                 expect(proxyAuthorities).toEqual(expectProxied ? [authority] : [])
