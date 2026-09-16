@@ -54,6 +54,7 @@ from products.batch_exports.backend.service import (
     afetch_last_run_records_completed,
 )
 from products.batch_exports.backend.temporal.batch_exports import default_fields
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.filters import InvalidFilterError, compose_filters_clause
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.pipeline.query_ranges import (
@@ -86,19 +87,9 @@ LOGGER = get_write_only_logger()
 TRACER = trace.get_tracer(__name__)
 
 
-class DataIntervalEndInFutureError(Exception):
-    """Raised when a batch export's 'data_interval_end' is after now."""
-
-    def __init__(self, data_interval_end: dt.datetime) -> None:
-        super().__init__(f"The provided 'data_interval_end' ({data_interval_end.isoformat()}) is in the future")
-
-
-class DataIntervalStartInFutureError(Exception):
-    def __init__(self, data_interval_start: dt.datetime) -> None:
-        super().__init__(
-            f"The provided 'data_interval_start' ({data_interval_start.isoformat()}) is in the future. "
-            "Choose a start date in the past."
-        )
+class DataIntervalInFutureError(Exception):
+    def __init__(self, bound: typing.Literal["data_interval_start", "data_interval_end"], value: dt.datetime) -> None:
+        super().__init__(f"The provided '{bound}' ({value.isoformat()}) is in the future. Choose a date in the past.")
 
 
 class HogQLQueryResourceLimitExceededError(Exception):
@@ -117,8 +108,8 @@ class HogQLQueryResourceLimitExceededError(Exception):
 # run without failing the activity. This mirrors how the destination activities treat their own
 # non-retryable errors (see `handle_non_retryable_errors`), and prevents us being alerted on user errors.
 NON_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
-    DataIntervalEndInFutureError,
-    DataIntervalStartInFutureError,
+    DataIntervalInFutureError,
+    MissingRequiredInputsError,
     HogQLQueryResourceLimitExceededError,
     InvalidFilterError,
     UnsupportedHogQLQueryError,
@@ -354,12 +345,12 @@ async def insert_into_internal_stage_activity(
         full_range = (data_interval_start, data_interval_end)
 
         if data_interval_end is None and not inputs.on_demand:
-            raise ValueError("Scheduled batch exports require data_interval_end")
+            raise MissingRequiredInputsError("Scheduled batch exports require data_interval_end")
 
         staging_run_id = None
         if inputs.on_demand and (data_interval_start is None or data_interval_end is None):
             if inputs.run_id is None:
-                raise ValueError("On-demand batch exports with missing interval bounds require run_id")
+                raise MissingRequiredInputsError("On-demand batch exports with missing interval bounds require run_id")
             staging_run_id = inputs.run_id
 
         attempt_number = activity.info().attempt
@@ -432,7 +423,7 @@ async def _stage_query_results(
         query_parameters: dict[str, typing.Any] = {}
     else:
         if full_range[1] is None or inputs.data_interval_end is None:
-            raise ValueError("Fixed batch export models require data_interval_end")
+            raise MissingRequiredInputsError("Fixed batch export models require data_interval_end")
         query_or_model, query_parameters = await _get_query(
             model_name=model_name,
             backfill_details=inputs.backfill_details,
@@ -670,7 +661,6 @@ def get_base_s3_staging_folder(
     batch_export_id: str,
     data_interval_start: str | None,
     data_interval_end: str | None,
-    *,
     run_id: str | None = None,
 ) -> str:
     """Get the base S3 staging folder for a given batch export."""
@@ -678,7 +668,7 @@ def get_base_s3_staging_folder(
     if run_id is not None:
         return f"{subfolder}/{batch_export_id}/runs/{run_id}"
     if data_interval_end is None:
-        raise ValueError("A staging folder requires data_interval_end or run_id")
+        raise MissingRequiredInputsError("A staging folder requires data_interval_end or run_id")
     return f"{subfolder}/{batch_export_id}/{data_interval_start}-{data_interval_end}"
 
 
@@ -687,7 +677,6 @@ def get_s3_staging_folder(
     data_interval_start: str | None,
     data_interval_end: str | None,
     attempt_number: int,
-    *,
     run_id: str | None = None,
 ) -> S3StagingFolder:
     """Get the S3 staging folder for a given batch export and attempt number."""
@@ -754,12 +743,12 @@ async def _write_batch_export_record_batches_to_internal_stage(
         # Some tests create data in the future, so we do not check this.
         now = dt.datetime.now(dt.UTC)
         if interval_start is not None and interval_start > now:
-            raise DataIntervalStartInFutureError(interval_start)
+            raise DataIntervalInFutureError("data_interval_start", interval_start)
         if interval_end is not None and interval_end > now:
-            raise DataIntervalEndInFutureError(interval_end)
+            raise DataIntervalInFutureError("data_interval_end", interval_end)
 
     if interval_end is None and not isinstance(query_or_model, HogQLQueryRecordBatchModel):
-        raise ValueError("Fixed batch export models and raw SQL queries require data_interval_end")
+        raise MissingRequiredInputsError("Fixed batch export models and raw SQL queries require data_interval_end")
 
     if interval_end is not None and (
         not isinstance(query_or_model, RecordBatchModel) or query_or_model.wait_for_data_interval_end

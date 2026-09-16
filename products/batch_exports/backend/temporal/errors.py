@@ -1,0 +1,2 @@
+class MissingRequiredInputsError(Exception):
+    pass

@@ -69,6 +69,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     s3_client,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_absolute_key_prefix
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -88,6 +89,7 @@ LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger()
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "MissingRequiredInputsError",
     # The integration backing this export is missing, of the wrong kind, or
     # misconfigured. Retrying can never recover it.
     "IntegrationError",
@@ -1272,7 +1274,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
             fields.
     """
     if inputs.batch_export.data_interval_end is None:
-        raise ValueError("Scheduled Redshift exports require a data_interval_end")
+        raise MissingRequiredInputsError("Scheduled Redshift exports require a data_interval_end")
 
     bind_contextvars(
         team_id=inputs.batch_export.team_id,
@@ -1677,7 +1679,7 @@ async def _get_s3_bucket_aws_credentials(
     None.
     """
     if inputs.batch_export.data_interval_end is None:
-        raise ValueError("Scheduled Redshift exports require a data_interval_end")
+        raise MissingRequiredInputsError("Scheduled Redshift exports require a data_interval_end")
 
     credentials = inputs.copy.s3_bucket.credentials
     if isinstance(credentials, IntegrationID):
@@ -1720,7 +1722,7 @@ async def _resolve_copy_authorization(
     `IAM_ROLE` in the COPY statement, since it is not attached to the cluster.
     """
     if inputs.batch_export.data_interval_end is None:
-        raise ValueError("Scheduled Redshift exports require a data_interval_end")
+        raise MissingRequiredInputsError("Scheduled Redshift exports require a data_interval_end")
 
     authorization = inputs.copy.authorization
     if not isinstance(authorization, IntegrationID):
@@ -1792,7 +1794,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             fields.
     """
     if inputs.batch_export.data_interval_end is None:
-        raise ValueError("Scheduled Redshift exports require a data_interval_end")
+        raise MissingRequiredInputsError("Scheduled Redshift exports require a data_interval_end")
 
     bind_contextvars(
         team_id=inputs.batch_export.team_id,

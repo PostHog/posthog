@@ -10,9 +10,14 @@ from django.test import override_settings
 from temporalio.testing import ActivityEnvironment
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+
+from posthog.models import Team
 
 from products.batch_exports.backend.service import BatchExportModel
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.pipeline import internal_stage
+from products.batch_exports.backend.temporal.pipeline.entrypoint import STAGE_NON_RETRYABLE_ERROR_TYPES
 from products.batch_exports.backend.temporal.pipeline.query_ranges import is_5_min_batch_export
 from products.batch_exports.backend.temporal.record_batch_model import (
     HogQLQueryRecordBatchModel,
@@ -43,7 +48,14 @@ def staging_clients() -> Iterator[tuple[AsyncMock, AsyncMock]]:
             HogQLQueryRecordBatchModel,
             "get_hogql_context",
             new_callable=AsyncMock,
-            side_effect=lambda: HogQLContext(team_id=1, enable_select_queries=True, values={"log_comment": "{}"}),
+            side_effect=lambda: HogQLContext(
+                team=Team(id=1),
+                database=Database(),
+                restricted_properties=set(),
+                apply_events_retention_floor=False,
+                enable_select_queries=True,
+                values={"log_comment": "{}"},
+            ),
         ),
     ):
         yield clickhouse, s3
@@ -111,17 +123,17 @@ async def test_unsupported_hogql_returns_nonretryable_staging_error(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "start,end,error",
+    "start,end,bound",
     [
-        (END, None, internal_stage.DataIntervalStartInFutureError),
-        (None, END, internal_stage.DataIntervalEndInFutureError),
+        (END, None, "data_interval_start"),
+        (None, END, "data_interval_end"),
     ],
 )
 async def test_hogql_staging_rejects_each_future_bound_without_waiting(
     staging_clients: tuple[AsyncMock, AsyncMock],
     start: dt.datetime | None,
     end: dt.datetime | None,
-    error: type[Exception],
+    bound: str,
 ) -> None:
     inputs = internal_stage.BatchExportInsertIntoInternalStageInputs(
         team_id=1,
@@ -136,39 +148,57 @@ async def test_hogql_staging_rejects_each_future_bound_without_waiting(
         result = await ActivityEnvironment().run(internal_stage.insert_into_internal_stage_activity, inputs)
 
     assert result.error is not None
-    assert result.error.type == error.__name__
+    assert result.error.type == "DataIntervalInFutureError"
+    assert f"'{bound}'" in result.error.message
+    assert END.isoformat() in result.error.message
     staging_clients[0].is_alive.assert_not_called()
     staging_clients[1].list_objects_v2.assert_not_called()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("on_demand,model_name", [(False, "hogql"), (True, "events")])
-async def test_staging_requires_an_end_for_scheduled_and_fixed_exports(
-    staging_clients: tuple[AsyncMock, AsyncMock], on_demand: bool, model_name: str
+@pytest.mark.parametrize(
+    "on_demand,model_name,run_id,returns_error",
+    [(False, "hogql", RUN_ID, False), (True, "hogql", None, False), (True, "events", RUN_ID, True)],
+    ids=["scheduled-missing-end", "on-demand-missing-run-id", "fixed-model-missing-end"],
+)
+async def test_missing_staging_inputs_are_nonretryable(
+    staging_clients: tuple[AsyncMock, AsyncMock],
+    on_demand: bool,
+    model_name: str,
+    run_id: str | None,
+    returns_error: bool,
 ) -> None:
     inputs = internal_stage.BatchExportInsertIntoInternalStageInputs(
         team_id=1,
         batch_export_id=EXPORT_ID,
-        run_id=RUN_ID,
+        run_id=run_id,
         data_interval_start=None,
         data_interval_end=None,
         on_demand=on_demand,
         batch_export_model=BatchExportModel(name=model_name, schema=None, hogql_query="SELECT 1 AS value"),
     )
-    with pytest.raises(ValueError, match="require data_interval_end"):
-        await ActivityEnvironment().run(internal_stage.insert_into_internal_stage_activity, inputs)
+    if returns_error:
+        result = await ActivityEnvironment().run(internal_stage.insert_into_internal_stage_activity, inputs)
+        assert result.error is not None
+        assert result.error.type == "MissingRequiredInputsError"
+        assert "require data_interval_end" in result.error.message
+    else:
+        with pytest.raises(MissingRequiredInputsError, match="require"):
+            await ActivityEnvironment().run(internal_stage.insert_into_internal_stage_activity, inputs)
+    assert "MissingRequiredInputsError" in STAGE_NON_RETRYABLE_ERROR_TYPES
     staging_clients[0].is_alive.assert_not_called()
+    staging_clients[1].list_objects_v2.assert_not_called()
 
 
 @pytest.mark.parametrize("is_backfill", [False, True])
 def test_sessions_require_an_interval_end(is_backfill: bool) -> None:
-    with pytest.raises(ValueError, match="requires data_interval_end"):
+    with pytest.raises(MissingRequiredInputsError, match="requires data_interval_end"):
         SessionsRecordBatchModel(team_id=1, is_backfill=is_backfill).get_hogql_query(START, None)
 
 
 @pytest.mark.asyncio
 async def test_raw_sql_staging_requires_an_interval_end() -> None:
-    with pytest.raises(ValueError, match="require data_interval_end"):
+    with pytest.raises(MissingRequiredInputsError, match="require data_interval_end"):
         await internal_stage._write_batch_export_record_batches_to_internal_stage(
             query_or_model="SELECT 1",
             full_range=(None, None),

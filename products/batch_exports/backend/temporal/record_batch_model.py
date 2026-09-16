@@ -24,6 +24,7 @@ from products.batch_exports.backend.hogql_source import (
     parse_hogql_select_for_batch_export,
 )
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.sql.common import (
     BatchExportQuerySettings,
@@ -171,7 +172,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
     ) -> ast.SelectQuery:
         """Return the HogQLQuery used for the sessions model."""
         if data_interval_end is None:
-            raise ValueError("The sessions model requires data_interval_end")
+            raise MissingRequiredInputsError("The sessions model requires data_interval_end")
         hogql_query = clone_expr(SELECT_FROM_SESSIONS_HOGQL)
 
         team_id_filter = ast.CompareOperation(

@@ -185,7 +185,7 @@ def _field_is_type(f: Field, target: type) -> bool:
     return False
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class BaseBatchExportInputs:
     """Base class for all batch export inputs containing common fields.
 
@@ -338,7 +338,7 @@ class S3CompatibleBatchExportInputs(S3FamilyBaseInputs):
     use_virtual_style_addressing: bool = False
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class FileDownloadBatchExportInputs(BaseBatchExportInputs):
     """Inputs for a file download batch export workflow.
 
@@ -1445,7 +1445,7 @@ async def afetch_batch_export_runs_in_range(
     return [run async for run in queryset]
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class BatchExportInsertInputs:
     """Base dataclass for batch export insert inputs containing common fields."""
 
