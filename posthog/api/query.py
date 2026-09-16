@@ -57,6 +57,7 @@ from posthog.event_usage import EventSource, get_request_analytics_properties, r
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_failure_handling import captured_elsewhere
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
 from posthog.models.utils import uuid7
@@ -420,8 +421,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             # caller's signal, not error noise.
             raise
         except Exception as e:
-            # Breaker replays were already captured when the original failure happened.
-            if not getattr(e, "served_from_query_failure_cache", False):
+            if not captured_elsewhere(e):
                 capture_exception(e)
             # The timeout and memory-limit classes land here, which are the runs the scan
             # exists for.
@@ -557,8 +557,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             # caller's signal, not error noise.
             raise
         except Exception as e:
-            # Breaker replays were already captured when the original failure happened.
-            if not getattr(e, "served_from_query_failure_cache", False):
+            if not captured_elsewhere(e):
                 capture_exception(e)
             raise
 

@@ -16,6 +16,7 @@ from django.db import OperationalError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
@@ -62,14 +63,20 @@ from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import get_active, record
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.constants import AvailableFeature
-from posthog.errors import ExposedCHQueryError
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
+from posthog.errors import ExposedCHQueryError, wrap_clickhouse_query_error
+from posthog.exceptions import (
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
+    ClickHouseQueryTimeOut,
+    QueryRanConcurrently,
+)
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
-from posthog.hogql_queries.query_failure_handling import classify_failure
+from posthog.hogql_queries.query_failure_handling import budget_for_limit_context, classify_failure
 from posthog.hogql_queries.query_runner import (
     SHARED_FORCE_BLOCKING_STALENESS_WINDOW,
     AnalyticsQueryRunner,
@@ -87,7 +94,10 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.models.user import User
-from posthog.query_cache import storage as qc_storage
+from posthog.query_cache import (
+    QueryCache,
+    storage as qc_storage,
+)
 from posthog.query_cache.failures import (
     BASE_BACKOFF,
     BUDGET_EXTENDED,
@@ -96,6 +106,7 @@ from posthog.query_cache.failures import (
     QUERY_FAILURE_CACHING_FLAG,
     QueryFailureCache,
 )
+from posthog.query_cache.single_flight import QUERY_SINGLE_FLIGHT_FLAG, FlightWait, QuerySingleFlight, SharedFailure
 from posthog.query_cache.storage import entry_redis_key
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.shared_link_user import SharedLinkUser
@@ -1107,6 +1118,15 @@ class TestQueryRunner(BaseTest):
                 "query_performance_error",
                 True,
             ),
+            (
+                # A follower whose leader left nothing to serve fails the SLO; the leader's capture and
+                # the flight metrics already account for it.
+                "query_ran_concurrently",
+                QueryRanConcurrently,
+                SloOutcome.FAILURE,
+                "error",
+                False,
+            ),
             ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error", True),
         ]
     )
@@ -1957,8 +1977,10 @@ def _failure_caching_flag(key: str, *args: Any, **kwargs: Any) -> bool:
 
 
 def _per_query_memory_error() -> ClickHouseQueryMemoryLimitExceeded:
-    error = ClickHouseQueryMemoryLimitExceeded()
-    error.is_per_query_limit = True
+    server_error = ServerException("Memory limit (for query) exceeded: would use 30.1 GiB", code=241)
+    error = wrap_clickhouse_query_error(server_error)
+    error.__cause__ = server_error  # as the ClickHouse client raises it
+    assert isinstance(error, ClickHouseQueryMemoryLimitExceeded)
     return error
 
 
@@ -2142,6 +2164,211 @@ class TestQueryFailureCaching(BaseTest):
                     runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
             mock_enqueue.assert_not_called()
             assert getattr(ctx.exception, "served_from_query_failure_cache", False)
+
+
+def _single_flight_flag(key: str, *args: Any, **kwargs: Any) -> bool:
+    return key == QUERY_SINGLE_FLIGHT_FLAG
+
+
+def _single_flight_and_failure_caching_flags(key: str, *args: Any, **kwargs: Any) -> bool:
+    return key in (QUERY_FAILURE_CACHING_FLAG, QUERY_SINGLE_FLIGHT_FLAG)
+
+
+class _LeaderInterrupted(BaseException):
+    pass
+
+
+class TestQuerySingleFlightRunner(BaseTest):
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
+
+    def _become_follower(self, wait_result: Any = None) -> None:
+        if wait_result is None:
+            wait_result = FlightWait(outcome="released")
+        wait_kwargs = {"side_effect": wait_result} if callable(wait_result) else {"return_value": wait_result}
+        for name, kwargs in (("acquire", {"return_value": False}), ("wait", wait_kwargs)):
+            patcher = mock.patch.object(QuerySingleFlight, name, autospec=True, **kwargs)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def _flight_of(runner: Any) -> QuerySingleFlight:
+        return QuerySingleFlight(
+            runner.get_cache_key(), budget_for_limit_context(runner.limit_context), runner.single_flight_variant()
+        )
+
+    @parameterized.expand([("success", None), ("failure", ClickHouseQueryTimeOut), ("interrupted", _LeaderInterrupted)])
+    def test_leader_releases_the_flight(self, _name, error_class):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+            if error_class is None:
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            else:
+                with mock.patch.object(runner_class, "_calculate", autospec=True, side_effect=error_class()):
+                    with self.assertRaises(error_class):
+                        runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        probe = self._flight_of(runner)
+        self.addCleanup(probe.release)
+        assert probe.acquire() is True  # the leader released its lock
+
+    def test_leader_records_its_failure_before_releasing_the_flight(self):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        recorded_at_release: list[bool] = []
+        published: list[Any] = []
+
+        def note_failure(flight: QuerySingleFlight, failure: Any) -> None:
+            recorded_at_release.append(QueryFailureCache(runner.get_cache_key()).get_open() is not None)
+            published.append(failure)
+
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_and_failure_caching_flags):
+            with mock.patch.object(runner_class, "_calculate", autospec=True, side_effect=_per_query_memory_error()):
+                with mock.patch.object(QuerySingleFlight, "fail", autospec=True, side_effect=note_failure):
+                    with self.assertRaises(ClickHouseQueryMemoryLimitExceeded):
+                        runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert recorded_at_release == [True]
+        assert published == [SharedFailure(message="Memory limit (for query) exceeded: would use 30.1 GiB", code=241)]
+
+    def test_leader_that_stores_nothing_publishes_nothing(self):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+            with mock.patch.object(QueryCache, "store_result", autospec=True, return_value=False):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert self._flight_of(runner).wait(timeout_seconds=0) == FlightWait(outcome="released")
+
+    @parameterized.expand(
+        [
+            (
+                "clickhouse_error",
+                SharedFailure(message="Memory limit (for query) exceeded", code=241),
+                ClickHouseQueryMemoryLimitExceeded,
+            ),
+            (
+                "hogql_error",
+                SharedFailure(message="Unknown field: nope", class_name="QueryError", start=7, end=11),
+                QueryError,
+            ),
+        ]
+    )
+    def test_follower_fails_the_way_the_leader_published(self, _name, failure, error_class):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        self._become_follower(FlightWait(outcome="failed", failure=failure))
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+            with mock.patch.object(runner_class, "_calculate", autospec=True) as mock_calculate:
+                with self.assertRaises(error_class) as ctx:
+                    runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        mock_calculate.assert_not_called()
+        assert getattr(ctx.exception, "served_from_query_single_flight", False)
+
+    @parameterized.expand(
+        [
+            ("leader_failed_without_a_shareable_failure", FlightWait(outcome="failed")),
+            (
+                "published_failure_unknown_to_this_version",
+                FlightWait(outcome="failed", failure=SharedFailure(message="x", class_name="RenamedInANewerDeploy")),
+            ),
+            ("leader_vanished", FlightWait(outcome="released")),
+            ("wait_timed_out", FlightWait(outcome="timeout")),
+            ("published_entry_never_landed", FlightWait(outcome="done", last_refresh=datetime(2026, 1, 1, tzinfo=UTC))),
+        ]
+    )
+    def test_follower_fails_instead_of_running_when_the_leader_leaves_nothing_to_serve(self, _name, wait_result):
+        runner_class = setup_test_query_runner_class()
+        runner_class(query={"some_attr": "bla"}, team=self.team).run(
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+        )  # fresh for this request, but not written by the leader
+
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        self._become_follower(wait_result)
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+            with mock.patch.object(runner_class, "_calculate", autospec=True) as mock_calculate:
+                with self.assertRaises(QueryRanConcurrently):
+                    runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        mock_calculate.assert_not_called()
+
+    def test_follower_runs_alone_when_the_flight_is_unavailable(self):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        self._become_follower(FlightWait(outcome="unavailable"))
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert response.is_cached is False
+
+    @parameterized.expand(
+        [
+            ("budget", {"limit_context": LimitContext.QUERY_ASYNC}),
+            ("workload", {"workload": Workload.OFFLINE}),
+        ]
+    )
+    def test_runs_that_differ_in_limits_do_not_share_a_flight(self, _name, other_kwargs):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        other = runner_class(query={"some_attr": "bla"}, team=self.team, **other_kwargs)
+        assert other.get_cache_key() == runner.get_cache_key()  # the cache key cannot tell them apart
+        other_leader = self._flight_of(other)
+        self.addCleanup(other_leader.release)
+        assert other_leader.acquire() is True
+        with mock.patch.object(QuerySingleFlight, "wait", autospec=True) as mock_wait:
+            with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+                response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        mock_wait.assert_not_called()
+        assert response.is_cached is False  # it led a flight of its own
+
+    def test_follower_serves_the_entry_the_leader_wrote(self):
+        runner_class = setup_test_query_runner_class()
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
+            runner_class(query={"some_attr": "bla"}, team=self.team).run(
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+            )  # an earlier entry, still fresh for this request
+
+            def leader_writes_while_we_wait(*args: Any, **kwargs: Any) -> FlightWait:
+                frozen.shift(timedelta(seconds=1))
+                with mock.patch("posthoganalytics.feature_enabled", return_value=False):
+                    leader_response = runner_class(query={"some_attr": "bla"}, team=self.team).run(
+                        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                    )
+                return FlightWait(outcome="done", last_refresh=leader_response.last_refresh)
+
+            runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+            self._become_follower(leader_writes_while_we_wait)
+            with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+                with mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
+                    response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert response.is_cached is True
+        assert response.last_refresh == datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC)  # the leader's, not the earlier entry
+        assert report.call_args.args[0] == "query executed"
+        assert report.call_args.args[1]["cache_hit"] is True
+
+    def test_follower_serves_the_published_entry_whatever_cache_age_was_requested(self):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+
+        def leader_writes_while_we_wait(*args: Any, **kwargs: Any) -> FlightWait:
+            with mock.patch("posthoganalytics.feature_enabled", return_value=False):
+                leader_response = runner_class(query={"some_attr": "bla"}, team=self.team).run(
+                    execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                )
+            return FlightWait(outcome="done", last_refresh=leader_response.last_refresh)
+
+        self._become_follower(leader_writes_while_we_wait)
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, cache_age_seconds=0)
+        assert response.is_cached is True  # a zero cache age window must not reject the leader's own write
+
+    @parameterized.expand([("flag_off", False, None), ("export", True, LimitContext.EXPORT)])
+    def test_runs_that_cannot_share_a_result_never_touch_the_flight(self, _name, flag_on, limit_context):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team, limit_context=limit_context)
+        flags = _single_flight_flag if flag_on else (lambda *args, **kwargs: False)
+        with mock.patch.object(QuerySingleFlight, "acquire", autospec=True) as mock_acquire:
+            with mock.patch("posthoganalytics.feature_enabled", side_effect=flags):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        mock_acquire.assert_not_called()
 
 
 class TestRunnersBuildDatabaseOnce(ClickhouseTestMixin, APIBaseTest):
