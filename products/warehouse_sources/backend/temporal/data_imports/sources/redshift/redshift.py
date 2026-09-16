@@ -157,21 +157,45 @@ _CATALOG_COLUMNS_SQL = """
 _TYPE_MODIFIER_PATTERN = re.compile(r"\((\d+)(?:,\s*(\d+))?\)")
 
 
-def _split_format_type(formatted: str) -> tuple[str, int | None, int | None]:
-    """`format_type` output → `information_schema`-style `data_type` plus numeric precision and scale.
+@frozen
+class _CatalogColumn:
+    """One `pg_catalog` column, normalized to what `information_schema.columns` would report."""
 
-    `format_type` renders the modifier inline (`character varying(256)`, `numeric(18,2)`), while
-    `information_schema.columns` reports the bare type and carries precision and scale in their own
-    columns. Only `numeric`/`decimal` keep the modifier values; a missing scale is 0, as in the
-    catalog.
-    """
-    match = _TYPE_MODIFIER_PATTERN.search(formatted)
-    if match is None:
-        return formatted, None, None
-    data_type = " ".join((formatted[: match.start()] + formatted[match.end() :]).split())
-    if data_type not in ("numeric", "decimal"):
-        return data_type, None, None
-    return data_type, int(match.group(1)), int(match.group(2) or 0)
+    schema: str
+    table: str
+    name: str
+    data_type: str
+    nullable: bool
+    numeric_precision: int | None
+    numeric_scale: int | None
+
+    @classmethod
+    def from_row(cls, schema: str, table: str, name: str, formatted_type: str, is_nullable: str) -> _CatalogColumn:
+        """Build from a `_CATALOG_COLUMNS_SQL` row.
+
+        `format_type` renders the modifier inline (`character varying(256)`, `numeric(18,2)`), while
+        `information_schema.columns` reports the bare type and carries precision and scale in their
+        own columns. Only `numeric`/`decimal` keep the modifier values; a missing scale is 0, as in
+        the catalog.
+        """
+        data_type = formatted_type
+        precision: int | None = None
+        scale: int | None = None
+        match = _TYPE_MODIFIER_PATTERN.search(formatted_type)
+        if match is not None:
+            data_type = " ".join((formatted_type[: match.start()] + formatted_type[match.end() :]).split())
+            if data_type in ("numeric", "decimal"):
+                precision = int(match.group(1))
+                scale = int(match.group(2) or 0)
+        return cls(
+            schema=schema,
+            table=table,
+            name=name,
+            data_type=data_type,
+            nullable=is_nullable == "YES",
+            numeric_precision=precision,
+            numeric_scale=scale,
+        )
 
 
 # A single-node Redshift cluster rejects any `FETCH FORWARD` above 1000 rows with
@@ -937,13 +961,17 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             result = cursor.fetchall()
 
             undiscovered = self._undiscovered_relations(conn, cursor, selected_schema, names, result)
-            if undiscovered:
-                result.extend(self._columns_from_catalog(conn, cursor, undiscovered, selected_schema))
+            catalog_columns = (
+                self._columns_from_catalog(conn, cursor, undiscovered, selected_schema) if undiscovered else []
+            )
 
         schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
         for table_schema, table_name, column_name, data_type, is_nullable in result:
             display = _display_name(table_schema, table_name, qualify=qualify)
             schema_list[display].append((column_name, data_type, is_nullable == "YES"))
+        for column in catalog_columns:
+            display = _display_name(column.schema, column.table, qualify=qualify)
+            schema_list[display].append((column.name, column.data_type, column.nullable))
         return dict(schema_list)
 
     @staticmethod
@@ -1032,8 +1060,8 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         cursor: Any,
         names: list[str],
         selected_schema: Optional[str],
-    ) -> list[tuple[str, str, str, str, str]]:
-        """`information_schema.columns`-shaped rows for `names`, read from `pg_catalog` instead.
+    ) -> list[_CatalogColumn]:
+        """Columns of `names`, read from `pg_catalog` instead of `information_schema.columns`.
 
         Best-effort: a failure here leaves discovery with what `information_schema` returned, the
         same result as before the fallback existed.
@@ -1052,10 +1080,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             _recover_after_failed_probe(conn)
             structlog.get_logger().warning("Failed to read Redshift columns from pg_catalog", exc_info=e)
             return []
-        return [
-            (schema_name, table_name, column_name, _split_format_type(formatted)[0], is_nullable)
-            for schema_name, table_name, column_name, formatted, is_nullable in rows
-        ]
+        return [_CatalogColumn.from_row(*row) for row in rows]
 
     def get_primary_keys(
         self,
@@ -1482,25 +1507,36 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             _explain_query(cursor, query, logger)
             logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
-        rows = list(cursor)
+        rows = [
+            _CatalogColumn(
+                schema=schema,
+                table=table_name,
+                name=name,
+                data_type=data_type,
+                nullable=nullable == "YES",
+                numeric_precision=numeric_precision,
+                numeric_scale=numeric_scale,
+            )
+            for name, data_type, nullable, numeric_precision, numeric_scale in cursor
+        ]
         if not rows:
             rows = self._column_metadata_from_catalog(cursor, schema, table_name)
 
         numeric_data_types = {"numeric", "decimal"}
         columns = []
-        for name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate in rows:
-            if data_type in numeric_data_types:
-                numeric_precision = numeric_precision_candidate or DEFAULT_NUMERIC_PRECISION
-                numeric_scale = numeric_scale_candidate or DEFAULT_NUMERIC_SCALE
+        for row in rows:
+            if row.data_type in numeric_data_types:
+                numeric_precision = row.numeric_precision or DEFAULT_NUMERIC_PRECISION
+                numeric_scale = row.numeric_scale or DEFAULT_NUMERIC_SCALE
             else:
                 numeric_precision = None
                 numeric_scale = None
 
             columns.append(
                 RedshiftColumn(
-                    name=name,
-                    data_type=data_type,
-                    nullable=nullable == "YES",
+                    name=row.name,
+                    data_type=row.data_type,
+                    nullable=row.nullable,
                     numeric_precision=numeric_precision,
                     numeric_scale=numeric_scale,
                 )
@@ -1514,19 +1550,12 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         return Table(name=table_name, parents=(schema,), columns=columns, type=table_type)
 
     @staticmethod
-    def _column_metadata_from_catalog(
-        cursor: psycopg.Cursor, schema: str, table_name: str
-    ) -> list[tuple[str, str, str, int | None, int | None]]:
-        """`get_table_metadata`'s row shape for one relation, read from `pg_catalog`."""
+    def _column_metadata_from_catalog(cursor: psycopg.Cursor, schema: str, table_name: str) -> list[_CatalogColumn]:
         cursor.execute(
             _CATALOG_COLUMNS_SQL.format(where="n.nspname = %(schema)s AND c.relname = %(table)s"),
             {"schema": schema, "table": table_name, "internal_column": REDSHIFT_INTERNAL_COLUMN_LIKE},
         )
-        rows: list[tuple[str, str, str, int | None, int | None]] = []
-        for _schema_name, _table_name, column_name, formatted, is_nullable in cursor.fetchall():
-            data_type, precision, scale = _split_format_type(formatted)
-            rows.append((column_name, data_type, is_nullable, precision, scale))
-        return rows
+        return [_CatalogColumn.from_row(*row) for row in cursor.fetchall()]
 
     def get_rows_to_sync(
         self,
