@@ -87,6 +87,7 @@ class TestMissingCutMapIsRefusedUnlessProvablyUncut:
     @parameterized.expand(
         [
             ("the video is materially shorter, so stretches were cut", {"video_duration_s": 120.0}, 200.0),
+            ("the video is longer than its session, so it is not this recording", {"video_duration_s": 500.0}, 200.0),
             ("no video duration to compare against", {"other": 1}, 200.0),
             ("no session duration to compare against", {"video_duration_s": 120.0}, None),
             ("no asset at all", None, 200.0),

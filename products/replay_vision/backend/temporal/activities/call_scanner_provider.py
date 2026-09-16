@@ -206,10 +206,12 @@ def _load_video_clock(team_id: int, exported_asset_id: int, session_duration_s: 
         return clock
 
     video_duration_s = (asset.export_context or {}).get("video_duration_s") if asset else None
+    # Compared both ways: a shorter video lost stretches, and one longer than its own session does not
+    # describe this recording either. Only lengths that agree prove nothing was cut.
     if (
         video_duration_s is not None
         and session_duration_s
-        and session_duration_s - video_duration_s <= _UNCUT_TOLERANCE_S
+        and abs(session_duration_s - video_duration_s) <= _UNCUT_TOLERANCE_S
     ):
         return VideoClock(spans=())
 
