@@ -230,10 +230,7 @@ class Command(DjangoMigrateCommand):
         profile_operations = options.get("profile_operations", False)
         # When profiling, the assumption is a fresh-DB run — both code paths
         # below assume migrations were previously applied, which fights that.
-        # The cache and the orphan check exist to roll a local worktree back
-        # when you switch branches. A CI runner never switches branch, and its
-        # from-scratch run would log one line per applied migration, so the
-        # whole squashed history scrolls past on a cache miss.
+        # The cache and the orphan check serve local worktree switches, not CI.
         skip_caching = production_mode or test_mode or profile_operations or is_ci()
         skip_orphan_check = options.get("skip_orphan_check", False) or skip_caching
 

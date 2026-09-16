@@ -319,10 +319,8 @@ class Command(BaseCommand):
     help = "Ensure default data from migrations exists for schema-only restores."
 
     def _seed_streamlit_oauth_app(self, created_items: list[str], skipped_items: list[str]) -> None:
-        # OAuthApplication.clean() rejects RS256 when no OIDC RSA private key is
-        # configured, and an uncaught error here skips every seed after it. Where the
-        # key is absent, skip this one seed instead: the CI schema-cache restore runs
-        # this command, and a failure makes it fall back to a full migrate from zero.
+        # OAuthApplication.clean() rejects RS256 where no OIDC RSA private key is
+        # configured, and an error here would skip every seed after this one.
         if not oauth2_settings.OIDC_RSA_PRIVATE_KEY:
             skipped_items.append(f"OAuth app: {_STREAMLIT_OAUTH_APP_NAME} (no OIDC_RSA_PRIVATE_KEY configured)")
             return
