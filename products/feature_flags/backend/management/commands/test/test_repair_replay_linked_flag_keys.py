@@ -415,18 +415,34 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         self.team.refresh_from_db()
         assert self.team.session_recording_trigger_groups == stored_before
 
-    def test_a_group_added_mid_scan_does_not_shift_the_repair_onto_its_neighbour(self) -> None:
+    @parameterized.expand([("gates_on_events", False), ("holds_the_same_reference", True)])
+    def test_a_group_added_mid_scan_does_not_shift_the_repair_onto_its_neighbour(
+        self, _name: str, inserted_group_duplicates_the_reference: bool
+    ) -> None:
         # Groups are rewritten by index, and an admin can add one ahead of the repaired group
         # between the chunk read and the lock. Writing the scanned index then would move the gate
-        # of a group this run never looked at.
+        # of a group this run never looked at. A sibling holding the same reference takes the
+        # rewrite while the report still names the scanned group, which stays stale.
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
-        set_trigger_groups(self.team, {"flag": {"id": flag.id, "key": "replay-gate"}})
+        stored_flag = {"id": flag.id, "key": "replay-gate"}
+        set_trigger_groups(self.team, {"flag": stored_flag})
+        scanned_groups = self.team.session_recording_trigger_groups["groups"]
+        inserted_conditions: dict[str, Any] = (
+            {"flag": stored_flag} if inserted_group_duplicates_the_reference else {"events": ["$pageview"]}
+        )
+        # Built by hand rather than through the fixture, because an admin inserting a group leaves
+        # the ids of the groups it pushes along alone.
+        after_insert = [
+            {"id": "group-inserted", "sampleRate": 1, "conditions": {"matchType": "any", **inserted_conditions}},
+            *scanned_groups,
+        ]
 
         real_save = repair_command.save_replay_gate_rewrites
 
         def prepend_group_then_save(team_id: int, compute: Any) -> None:
             admin = Team.objects.get(pk=team_id)
-            set_trigger_groups(admin, {"events": ["$pageview"]}, {"flag": {"id": flag.id, "key": "replay-gate"}})
+            admin.session_recording_trigger_groups = {"version": 2, "groups": after_insert}
+            admin.save()
             real_save(team_id, compute)
 
         with patch.object(repair_command, "save_replay_gate_rewrites", side_effect=prepend_group_then_save):
@@ -434,10 +450,9 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
 
         assert report["repairs"] == []
         self.team.refresh_from_db()
-        groups = self.team.session_recording_trigger_groups["groups"]
-        assert "flag" not in groups[0]["conditions"]
-        # Still stale, and reported as untouched, so the next run repairs it at its new index.
-        assert groups[1]["conditions"]["flag"] == {"id": flag.id, "key": "replay-gate"}
+        # Every group still stale, and reported as untouched, so the next run repairs them where
+        # they now sit.
+        assert self.team.session_recording_trigger_groups["groups"] == after_insert
 
     def test_repairs_both_kinds_of_reference_in_one_pass(self) -> None:
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
