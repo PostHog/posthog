@@ -453,6 +453,18 @@ class AlertScheduleRestrictionWindow(BaseModel):
     start: str
 
 
+class AnnotationsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hiddenEmojis: list[str] | None = Field(default=None, description="Hide annotations with one of these emojis.")
+    hideWithoutEmoji: bool | None = Field(default=None, description="Hide annotations that have no emoji.")
+    search: str | None = Field(
+        default=None,
+        description=("Render only annotations whose content contains this text, case-insensitive."),
+    )
+
+
 class ApprovalResumePayload(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8382,6 +8394,7 @@ class TrendsFilter(BaseModel):
             " the project's base currency. Include any trailing space yourself."
         ),
     )
+    annotationsFilter: AnnotationsFilter | None = None
     breakdown_histogram_bin_count: float | None = None
     chartStyle: ChartStyle | None = Field(default=None, description="Chart rendering style overrides (line shape).")
     confidenceLevel: float | None = None
@@ -28617,6 +28630,9 @@ class ExperimentHoldoutType(BaseModel):
 class FunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    annotationsFilter: AnnotationsFilter | None = Field(
+        default=None, description="Only applies to historical-trends funnels."
     )
     binCount: int | None = None
     breakdownAttributionType: BreakdownAttributionType | None = BreakdownAttributionType.FIRST_TOUCH

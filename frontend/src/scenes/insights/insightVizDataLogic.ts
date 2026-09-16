@@ -36,6 +36,7 @@ import {
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
+    AnnotationsFilter,
     BreakdownFilter,
     CompareFilter,
     DatabaseSchemaField,
@@ -74,6 +75,7 @@ import {
     getResultCustomizationBy,
     getSeries,
     getShowAlertThresholdLines,
+    getAnnotationsFilter,
     getShowAnnotations,
     getShowLabelsOnSeries,
     getShowLegend,
@@ -193,6 +195,7 @@ export interface insightVizDataLogicValues {
     activeUsersMath: BaseMathType.MonthlyActiveUsers | BaseMathType.WeeklyActiveUsers | null
     aggregationGroupTypeIndex: GroupTypeIndex | null | undefined
     allEventNames: string[]
+    annotationsFilter: AnnotationsFilter | null | undefined
     breakdownFilter: BreakdownFilter | null | undefined
     compareFilter: CompareFilter | null | undefined
     currentDataWarehouseSchemaColumns: DatabaseSchemaField[]
@@ -857,6 +860,19 @@ export interface insightVizDataLogicMeta {
                 | WebStatsTableQuery
                 | null
         ) => boolean | null | undefined
+        annotationsFilter: (
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null
+        ) => AnnotationsFilter | null | undefined
         showLegend: (
             querySource:
                 | FunnelsQuery
@@ -1819,6 +1835,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getShowAnnotations(q) : null),
         ],
+        annotationsFilter: [
+            (s) => [s.querySource],
+            (querySource: InsightQueryNode | null) => (querySource ? getAnnotationsFilter(querySource) : null),
+        ],
         showLegend: [
             (s) => [s.querySource],
             (
@@ -2684,8 +2704,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateInsightFilter: async ({ insightFilter }, breakpoint) => {
             // When an external save handler is wired (dashboard card), skip the debounce so
             // rapid successive toggle clicks don't cancel each other and lose earlier changes.
+            let patch = insightFilter
             if (!props.setQuery) {
+                // breakpoint drops earlier dispatches, so merge their patches.
+                cache.pendingInsightFilterPatch = { ...cache.pendingInsightFilterPatch, ...insightFilter }
                 await breakpoint(300)
+                patch = cache.pendingInsightFilterPatch
+                cache.pendingInsightFilterPatch = undefined
             }
 
             if (isWebAnalyticsInsightQuery(values.localQuerySource)) {
@@ -2694,7 +2719,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
             const filterProperty = filterKeyForQuery(values.localQuerySource)
             actions.updateQuerySource({
-                [filterProperty]: { ...filterForQuery(values.localQuerySource), ...insightFilter },
+                [filterProperty]: { ...filterForQuery(values.localQuerySource), ...patch },
             })
         },
 

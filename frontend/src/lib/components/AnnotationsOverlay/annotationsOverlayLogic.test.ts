@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
@@ -66,6 +67,7 @@ const MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3: RawAnnotationType = {
 const MOCK_ANNOTATION_PROJECT_SCOPED: RawAnnotationType = {
     id: 17,
     content: 'MOCK_ANNOTATION_PROJECT_SCOPED',
+    emoji: '🚀',
     date_marker: '2022-08-10T04:01:00.000Z', // A minute after MOCK_ANNOTATION_ORG_SCOPED
     dashboard_item: null,
     insight_short_id: null,
@@ -90,6 +92,7 @@ const MOCK_ANNOTATION_INSIGHT_1_SCOPED: RawAnnotationType = {
 const MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1: RawAnnotationType = {
     id: 20,
     content: 'MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1',
+    emoji: '🐛',
     date_marker: '2022-08-11T04:00:00.000Z', // A day after MOCK_ANNOTATION_ORG_SCOPED
     dashboard_item: MOCK_INSIGHT_NUMERIC_ID,
     insight_short_id: MOCK_INSIGHT_SHORT_ID,
@@ -376,6 +379,34 @@ describe('annotationsOverlayLogic', () => {
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
                 ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
             })
+        })
+
+        it.each([
+            { annotationsFilter: { hiddenEmojis: ['🚀', '🐛'] }, expectedIds: [20, 10, 19, 40, 22, 23] },
+            { annotationsFilter: { hideWithoutEmoji: true }, expectedIds: [17, 20] },
+            { annotationsFilter: { search: 'from_insight_1' }, expectedIds: [20, 40] },
+            { annotationsFilter: { hiddenEmojis: ['🐛'], search: 'from_insight_1' }, expectedIds: [40] },
+        ])('narrows to annotations matching $annotationsFilter', async ({ annotationsFilter, expectedIds }) => {
+            useInsightMocks()
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dashboardId: MOCK_DASHBOARD_ID,
+                dates: ['2022-01-01', '2023-01-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            const vizLogic = insightVizDataLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                dashboardId: MOCK_DASHBOARD_ID,
+            })
+            await expectLogic(vizLogic, () => {
+                vizLogic.actions.updateInsightFilter({ annotationsFilter })
+            }).toDispatchActions(['updateQuerySource'])
+
+            expect(logic.values.relevantAnnotations.map((annotation) => annotation.id)).toEqual(expectedIds)
         })
 
         it('excludes annotations that are outside of insight date range', async () => {

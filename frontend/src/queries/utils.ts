@@ -8,6 +8,7 @@ import {
     AccountsQuery,
     AccountsTableQuery,
     ActionsNode,
+    AnnotationsFilter,
     ActorsQuery,
     AnyDataWarehouseNode,
     AnyEntityNode,
@@ -678,6 +679,25 @@ export const getShowAnnotations = (query: InsightQueryNode): boolean | undefined
         return query.funnelsFilter?.showAnnotations
     }
     return undefined
+}
+
+export const getAnnotationsFilter = (query: InsightQueryNode): AnnotationsFilter | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.annotationsFilter
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.annotationsFilter
+    }
+    return undefined
+}
+
+export const isAnnotationsFilterActive = (filter: AnnotationsFilter | null | undefined): boolean =>
+    !!(filter?.hiddenEmojis?.length || filter?.hideWithoutEmoji || filter?.search)
+
+export const normalizeAnnotationsFilter = (filter: AnnotationsFilter): AnnotationsFilter | undefined => {
+    const hiddenEmojis = filter.hiddenEmojis?.length ? filter.hiddenEmojis : undefined
+    const hideWithoutEmoji = filter.hideWithoutEmoji || undefined
+    const search = filter.search?.trim() || undefined
+    return hiddenEmojis || hideWithoutEmoji || search ? { hiddenEmojis, hideWithoutEmoji, search } : undefined
 }
 
 export const getShowLabelsOnSeries = (query: InsightQueryNode): boolean | undefined => {

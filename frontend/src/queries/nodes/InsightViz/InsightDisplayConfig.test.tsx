@@ -3,13 +3,16 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
+import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
+import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
+import { annotationsModel } from '~/models/annotationsModel'
 import {
     InsightQueryNode,
     LifecycleQuery,
@@ -169,7 +172,7 @@ describe('InsightDisplayConfig', () => {
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Style', 'Overlays'],
                     },
-                    displayItems: ['Show values on series', 'Show annotations', 'Show legendBottom'],
+                    displayItems: ['Show values on series', 'Show annotationsFilters', 'Show legendBottom'],
                     overlayItems: lineOverlays,
                 },
             ],
@@ -186,7 +189,7 @@ describe('InsightDisplayConfig', () => {
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
-                        'Show annotations',
+                        'Show annotationsFilters',
                         'Show legendBottom',
                     ],
                     overlayItems: lineOverlays,
@@ -205,7 +208,7 @@ describe('InsightDisplayConfig', () => {
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
-                        'Show annotations',
+                        'Show annotationsFilters',
                         'Show legendBottom',
                     ],
                 },
@@ -341,6 +344,33 @@ describe('InsightDisplayConfig', () => {
                     expect(getSectionItems('options-overlays-section')).toEqual(expected.overlayItems)
                 }
             }
+        })
+    })
+
+    describe('annotations filter', () => {
+        it('keeps both hidden emojis when two switches are clicked inside the update debounce', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/annotations/': toPaginatedResponse([
+                        { id: 1, emoji: '🚀', scope: 'project', date_marker: '2022-01-01T00:00:00Z' },
+                        { id: 2, emoji: '🐛', scope: 'project', date_marker: '2022-01-02T00:00:00Z' },
+                    ]),
+                },
+            })
+            annotationsModel.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
+            await openOptionsMenu()
+            fireEvent.click(screen.getByTestId('insight-annotations-filter-button'))
+
+            const chips = await screen.findAllByTestId('insight-annotations-filter-emoji')
+            fireEvent.click(chips[0])
+            fireEvent.click(chips[1])
+
+            await waitFor(() => {
+                const querySource = insightVizDataLogic(insightProps).values.querySource as TrendsQuery
+                expect(querySource.trendsFilter?.annotationsFilter?.hiddenEmojis).toEqual(['🚀', '🐛'])
+            })
         })
     })
 

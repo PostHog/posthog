@@ -8,7 +8,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import type { TrendsFilter } from '~/queries/schema/schema-general'
-import { hasBreakdownFilter } from '~/queries/utils'
+import { hasBreakdownFilter, isAnnotationsFilterActive } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
@@ -62,6 +62,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         showMultipleYAxes,
         showAlertThresholdLines,
         showAnnotations,
+        annotationsFilter,
         isNonTimeSeriesDisplay,
         interval,
         usesInChartLegend,
@@ -296,6 +297,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         unitIsSet,
         (hasLegend || showFunnelLegendConfig) && showLegend,
         showAnnotationsConfig && showAnnotations === false,
+        showAnnotationsConfig && showAnnotations !== false && isAnnotationsFilterActive(annotationsFilter),
         isMetric && trendsFilter?.metricShowChange === false,
         isMetric && trendsFilter?.metricColorByDirection,
         isMetric && !!trendsFilter?.metricSummary && trendsFilter.metricSummary !== 'total'

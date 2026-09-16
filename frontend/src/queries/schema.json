@@ -1549,6 +1549,28 @@
             "required": ["results"],
             "type": "object"
         },
+        "AnnotationsFilter": {
+            "additionalProperties": false,
+            "description": "Narrows which annotations a chart renders. Unset or empty fields do not narrow. Has no effect when `showAnnotations` is false.",
+            "properties": {
+                "hiddenEmojis": {
+                    "description": "Hide annotations with one of these emojis.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "hideWithoutEmoji": {
+                    "description": "Hide annotations that have no emoji.",
+                    "type": "boolean"
+                },
+                "search": {
+                    "description": "Render only annotations whose content contains this text, case-insensitive.",
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "AnyAssistantGeneratedQuery": {
             "anyOf": [
                 {
@@ -28479,6 +28501,10 @@
         "FunnelsFilter": {
             "additionalProperties": false,
             "properties": {
+                "annotationsFilter": {
+                    "$ref": "#/definitions/AnnotationsFilter",
+                    "description": "Only applies to historical-trends funnels."
+                },
                 "binCount": {
                     "type": "integer"
                 },
@@ -54953,6 +54979,9 @@
                 "aggregationAxisPrefix": {
                     "description": "Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself.",
                     "type": "string"
+                },
+                "annotationsFilter": {
+                    "$ref": "#/definitions/AnnotationsFilter"
                 },
                 "breakdown_histogram_bin_count": {
                     "type": "number"
