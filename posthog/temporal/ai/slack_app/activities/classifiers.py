@@ -176,7 +176,7 @@ def classify_task_needs_repo(
         event_text=event_text,
     )
     try:
-        # Messages shape: the Go gateway refuses a Claude model on chat completions.
+        # The Go gateway refuses a Claude model on chat completions.
         client = build_anthropic_client(product="slack_app_routing", ai_product="slack_app_routing")
         response = client.messages.create(
             model=CLASSIFIER_MODEL,

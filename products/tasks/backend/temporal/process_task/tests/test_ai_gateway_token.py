@@ -543,7 +543,6 @@ class TestProvisioningBoundaries:
             utils.run_gateway_env_vars(self._ctx(), self._task())
         update.assert_not_called()
 
-    # A rotation that falls back to the Python gateway must drop the pin a model change would honour.
     def test_reprovision_without_a_pinned_token_clears_the_stamp(self, mint_settings):
         ctx = self._ctx()
         ctx.state = {"ai_stage": "scout:logs", "ai_gateway_product": "slack_app"}
@@ -637,9 +636,6 @@ class TestUserPinAndCapOverride:
 
 
 class TestSlackAppMint:
-    """slack_app mints only for Slack-stamped runs the Go gateway can serve end to end.
-    Every refusal leaves the run on the Python gateway."""
-
     def _env(self, mint_settings, *, over_quota=False, **overrides):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "slack_app"
         kwargs: dict = {
@@ -738,5 +734,4 @@ class TestSlackAppMint:
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._mint_response()
             mint_scoped_token(ai_product="slack_app", team_id=2)
-        # Slack runs have no wall-clock cap, so a token sized to the background cap expires under a live sandbox.
         assert post.call_args.kwargs["json"]["ttl_seconds"] == MAX_SANDBOX_TTL_SECONDS + 3600

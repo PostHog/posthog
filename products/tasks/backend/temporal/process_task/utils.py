@@ -1342,7 +1342,6 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
 
 
 def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_product: str | None) -> None:
-    """Stamp which model-pinned token this sandbox holds, so a later model change keeps inside the pin."""
     from products.tasks.backend.models import TaskRun  # noqa: PLC0415
 
     pinned = minted_product if minted_product in PRODUCT_ALLOWED_MODELS else None

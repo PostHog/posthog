@@ -186,8 +186,7 @@ class TestClassifyTaskNeedsRepo:
         assert result is False
 
     def test_llm_call_uses_the_messages_shape_on_the_routing_product(self):
-        # The Go gateway refuses a Claude model on chat completions, and the classifier
-        # swallows that refusal as "no repo", so the shape is pinned here.
+        # The classifier reads a gateway refusal as "no repo", so a wrong shape fails silently.
         text = "ambiguous ask the heuristic does not catch"
         fake_client = _fake_messages_client('{"needs_repo": true}')
         with patch(

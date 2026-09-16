@@ -1851,7 +1851,6 @@ class TestApplyTaskRunModelConfig(TestCase):
     @patch("products.tasks.backend.facade.api.get_model_access_error", return_value=None)
     @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
     def test_a_pinned_sandbox_refuses_a_model_outside_its_pin(self, send_mock, _access_mock):
-        # The gateway denies an off-pin model with no fallback, so the switch never reaches the sandbox.
         run = self._run()
         TaskRun.objects.filter(id=run.id).update(state={**run.state, "ai_gateway_product": "slack_app"})
 

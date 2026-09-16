@@ -1,5 +1,3 @@
-"""Routing pin for the Slack classifiers: Go ai-gateway when its env pair is set, else the Python route."""
-
 import json
 
 from unittest.mock import MagicMock, patch
@@ -22,8 +20,7 @@ AI_GATEWAY_KEY = "phs_go"
 LLM_GATEWAY_URL = "http://llm-gateway:8080"
 LLM_GATEWAY_KEY = "phx_legacy"
 
-# Every setting the builders read is pinned in both modes, so a fallback to the other route
-# cannot pass by accident.
+# Both modes set every setting the builders read, so the wrong route cannot pass by accident.
 GO_GATEWAY = {
     "AI_GATEWAY_URL": AI_GATEWAY_URL,
     "AI_GATEWAY_API_KEY": AI_GATEWAY_KEY,
@@ -67,7 +64,7 @@ def _chat_reply(mock_openai: MagicMock, text: str) -> None:
 
 
 def _assert_routing_product(headers: dict[str, str]) -> None:
-    # `slack_app` would bill the customer; the classifiers must stay on the unbilled product.
+    # `slack_app` bills the customer.
     assert headers["X-PostHog-Product"] == "slack_app_routing"
     assert json.loads(headers["X-PostHog-Properties"])["ai_product"] == "slack_app_routing"
 

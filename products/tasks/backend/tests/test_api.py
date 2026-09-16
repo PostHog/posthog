@@ -12719,7 +12719,6 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         )
         url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
 
-        # Dropping or repointing the stamp would let a model change move a pinned sandbox off its pin.
         response = self.client.patch(url, {"state": {}, "state_remove_keys": ["ai_gateway_product"]}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response = self.client.patch(url, {"state": {"ai_gateway_product": "review_hog"}}, format="json")
@@ -12731,7 +12730,6 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
     def test_command_refuses_a_model_outside_the_runs_gateway_pin(self, mock_post):
-        # The sandbox's token pins its models and a gateway denial does not fall back.
         reset_sandbox_jwt_key_cache()
         task = self.create_task()
         run = self._create_run_with_sandbox(task)

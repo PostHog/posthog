@@ -65,9 +65,8 @@ _MAX_CAP_DECIMAL_PLACES = 6
 # `signals_inbox`, so the per-run cap and the product's daily budget bound those two.
 # review_hog qualifies because validate_origin_product reserves the origin and
 # the resolver requires the server-stamped `internal` flag; rows predating the
-# reservation resolve to posthog_code and cannot mint. slack_app qualifies only on the
-# PATCH-protected `interaction_origin` stamp (see mint_refusal), which also covers rows
-# created before its origin was reserved.
+# reservation resolve to posthog_code and cannot mint. slack_app also needs the
+# PATCH-protected `interaction_origin` stamp (mint_refusal), older rows included.
 MINTABLE_PRODUCTS = frozenset(
     {
         "review_hog",
@@ -88,11 +87,9 @@ MINTABLE_PRODUCTS = frozenset(
 # ceiling. Mirrors the stages `Task.create_run` stamps.
 INTERACTIVE_MINTABLE_PRODUCTS = frozenset({"signals_inbox", "signals_chat"})
 
-# Interactive runs with no wall-clock cap, bounded only by the sandbox lifetime, so their tokens
-# derive from that lifetime rather than the background run cap.
+# Interactive runs with no wall-clock cap; their tokens last the sandbox lifetime.
 SANDBOX_BOUND_MINTABLE_PRODUCTS = frozenset({"slack_app"})
 
-# Model pins carried on the minted token, defined beside the API-side model-change guard.
 _PRODUCT_ALLOWED_MODELS = PRODUCT_ALLOWED_MODELS
 
 # Minting is optional (no token = Python-gateway fallback), so the total budget
@@ -136,15 +133,15 @@ def sandbox_product_routed(ai_product: str, ai_stage: str | None, products_csv: 
 def mint_refusal(
     ai_product: str, *, team_id: int, state: dict[str, Any] | None, model: str | None, runtime: str | None
 ) -> str | None:
-    """Why a routed run must not mint, or None. Without a token the run stays on the Python gateway."""
+    """Why a routed run must not mint; a run without a token stays on the Python gateway."""
     if ai_product != "slack_app":
         return None
     if not is_slack_interaction_state(state):
         return "no_slack_provenance"
-    # The Pi harness (Task.Runtime.PI) reads LLM_GATEWAY_URL directly and would never use the token.
+    # The Pi harness reads only LLM_GATEWAY_URL.
     if runtime == "pi":
         return "pi_runtime"
-    # The gateway denies an off-pin model with no fallback, so that run keeps the Python gateway.
+    # The gateway denies an off-pin model with no fallback.
     if not model_allowed_by_product_pin(ai_product, model):
         return "model_outside_pin"
     # The Python gateway refuses every call once AI credits run out; the Go gateway has no such check.
