@@ -21,7 +21,7 @@ class HogFlowOptimisation(TeamScopedRootMixin, UUIDTModel):
     deliberately not repeated here, and so is "when did it last look": the producer's own run rows
     answer that, and a column here would only ever be written by a producer that knows about it.
 
-    Prototype behind the `self-optimising-workflows` flag.
+    Behind the `self-optimising-workflows` flag.
     """
 
     class Meta:
