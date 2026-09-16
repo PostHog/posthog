@@ -174,6 +174,7 @@ It does not inherit v1 seen flags or successful fetch results.
 
 ML Kafka producers write `ai_research_ingestion_version: 1` or `2`.
 Retries and dead-letter replay preserve this header and the record bytes.
+Consumers drop records that still use the sealed envelope shape from before cleartext records, and count them in `recording_blob_ingestion_v2_ml_legacy_envelopes_dropped_total`.
 Headerless queued messages mean v1.
 Unknown versions are rejected, and so is an image reference whose version does not match the header.
 The metadata sink resolves each row's session key from the row's own team and session identifiers before it seals the row for Parquet; a row whose key is deleted or blocked is dropped.

@@ -9,7 +9,7 @@ import { parseBlockMetadataMessages } from './block-metadata-message'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataRow } from './block-metadata-row'
 import { MlEncryptedEnvelope, encryptEnvelope } from './keys/crypto'
-import { MlKafkaTransport, ingestionVersion } from './keys/transport'
+import { MlDecodedMessage, MlKafkaTransport, ingestionVersion } from './keys/transport'
 import { MlParquetSinkMetrics } from './metrics'
 import { EncryptedReplayIndex, encryptReplayIndex } from './replay-index'
 
@@ -47,7 +47,7 @@ export class BlockMetadataBatcher {
         for (const message of messages) {
             this.bufferedBytes += message.value?.length ?? 0
         }
-        const decoded = this.keyManager
+        const decoded: MlDecodedMessage[] = this.keyManager
             ? await this.keyManager.read(messages, { sessionIdentity: rowSessionIdentity })
             : messages.map((message) => {
                   if (ingestionVersion(message) === 2) {
@@ -57,7 +57,10 @@ export class BlockMetadataBatcher {
               })
         MlParquetSinkMetrics.incRowsRejected('key_missing', messages.length - decoded.length)
         let encryptedRows = 0
-        for (const { message, key, invalid } of decoded) {
+        for (const { message, key, invalid, legacy } of decoded) {
+            if (legacy) {
+                continue
+            }
             if (invalid) {
                 MlParquetSinkMetrics.incRowsRejected('invalid_record')
             }
@@ -87,7 +90,7 @@ export class BlockMetadataBatcher {
         }
         MlParquetSinkMetrics.incRowsParsed(encryptedRows)
         for (const row of parseBlockMetadataMessages(
-            decoded.filter(({ key, invalid }) => !key && !invalid).map(({ message }) => message)
+            decoded.filter(({ key, invalid, legacy }) => !key && !invalid && !legacy).map(({ message }) => message)
         )) {
             if (row.format_version !== 2) {
                 this.buffer.push(row)

@@ -10,7 +10,7 @@ import {
     imageKeyId,
     tableKeyString,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
-import { ingestionVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
+import { MlDecodedMessage, ingestionVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
 import { parseImageRef } from './content-ref'
@@ -221,7 +221,7 @@ export class ImageBatcher {
         if (messages.length) {
             ImageScrubConsumerMetrics.observeBatchMessages(messages.length)
         }
-        const decoded = this.keyManager
+        const decoded: MlDecodedMessage[] = this.keyManager
             ? await this.keyManager.kafka.read(messages, { bindKafkaKey: true })
             : messages.map((message) => {
                   const version = ingestionVersion(message)
@@ -230,7 +230,7 @@ export class ImageBatcher {
                   }
                   return { message, original: message, version, invalid: undefined }
               })
-        const decodedValid = decoded.filter((entry) => !entry.invalid)
+        const decodedValid = decoded.filter((entry) => !entry.invalid && !entry.legacy)
         const v2 = decodedValid.filter((entry) => entry.version === 2).length
         ImageScrubConsumerMetrics.incrementVersion('2', v2)
         ImageScrubConsumerMetrics.incrementVersion('1', decodedValid.length - v2)
@@ -253,9 +253,7 @@ export class ImageBatcher {
                 controller.signal
             )
         }
-        const byOriginal = new Map(
-            decoded.filter((entry) => !entry.invalid).map((entry) => [entry.original, entry.message])
-        )
+        const byOriginal = new Map(decodedValid.map((entry) => [entry.original, entry.message]))
         const planned = this.planBatch(
             messages.map((message) => byOriginal.get(message) ?? { ...message, value: null })
         )

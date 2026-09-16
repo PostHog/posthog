@@ -435,6 +435,13 @@ describe('ML session key batches', () => {
                 offset: 2,
                 value: Buffer.from(malformed === 'invalid-json' ? 'invalid' : JSON.stringify(invalidRow)),
             })
+            messages.push({
+                ...messages[0],
+                offset: 3,
+                value: Buffer.from(
+                    JSON.stringify({ v: 2, context: { teamId: 7 }, nonce: 'AwMD', ciphertext: 'J7ZDxBv0xIHU' })
+                ),
+            })
             const upload = jest.fn().mockResolvedValue({})
             const offsetsStore = jest.fn()
             const batcher = new BlockMetadataBatcher(
@@ -451,7 +458,11 @@ describe('ML session key batches', () => {
             )
             await batcher.handleBatch(messages, 0)
             expect(upload).toHaveBeenCalledTimes(1)
-            expect(offsetsStore).toHaveBeenCalledWith([{ topic: 'metadata', partition: 0, offset: 3 }])
+            expect(offsetsStore).toHaveBeenCalledWith([{ topic: 'metadata', partition: 0, offset: 4 }])
+            const legacy = await register
+                .getSingleMetric('recording_blob_ingestion_v2_ml_legacy_envelopes_dropped_total')!
+                .get()
+            expect(legacy.values[0].value).toBe(1)
             const accepted = await register.getSingleMetric('ml_mirror_parquet_sink_rows_parsed_total')!.get()
             expect(accepted.values[0].value).toBe(1)
             const rejected = await register.getSingleMetric('ml_mirror_parquet_sink_rows_rejected_total')!.get()

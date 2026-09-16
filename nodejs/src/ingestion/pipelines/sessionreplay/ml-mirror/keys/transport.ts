@@ -1,7 +1,9 @@
 import { Message } from 'node-rdkafka'
 
 import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
+import { parseJSON } from '~/common/utils/json-parse'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
+import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 
 import { MlDataKey } from './crypto'
@@ -14,6 +16,8 @@ export interface MlDecodedMessage {
     version?: 1 | 2
     key?: MlDataKey
     invalid?: true
+    /** A record in the sealed envelope shape the lanes wrote before cleartext records; consumers skip it. */
+    legacy?: true
 }
 
 export interface MlSessionIdentityLocator {
@@ -67,6 +71,24 @@ export function validateImageRefVersion(ref: string, version: 1 | 2): void {
     }
 }
 
+function isLegacyEnvelope(value: Buffer | null | undefined): boolean {
+    if (!value?.length || value[0] !== 0x7b) {
+        return false
+    }
+    try {
+        const parsed: unknown = parseJSON(value.toString())
+        return (
+            !!parsed &&
+            typeof parsed === 'object' &&
+            (parsed as { v?: unknown }).v === 2 &&
+            typeof (parsed as { nonce?: unknown }).nonce === 'string' &&
+            typeof (parsed as { ciphertext?: unknown }).ciphertext === 'string'
+        )
+    } catch {
+        return false
+    }
+}
+
 export class MlKafkaTransport {
     constructor(private readonly reader: MlKeyReader) {}
 
@@ -82,10 +104,15 @@ export class MlKafkaTransport {
         const versions = new Map<Message, 1 | 2>()
         const identities = new Map<Message, { teamId: number; sessionId: string }>()
         const invalid = new Set<Message>()
+        const legacy = new Set<Message>()
         for (const message of messages) {
             try {
                 const version = ingestionVersion(message)
                 versions.set(message, version)
+                if (version === 2 && isLegacyEnvelope(message.value)) {
+                    legacy.add(message)
+                    continue
+                }
                 if (options.bindKafkaKey) {
                     validateImageRefVersion(message.key?.toString() ?? '', version)
                 }
@@ -106,8 +133,13 @@ export class MlKafkaTransport {
                   [...identities.values()].map((identity) => sessionKeyId(identity.teamId, identity.sessionId))
               )
             : new Map<string, MlDataKey>()
+        MlMirrorMetrics.incrementMlLegacyEnvelopesDropped(legacy.size)
         const result: MlDecodedMessage[] = []
         for (const original of messages) {
+            if (legacy.has(original)) {
+                result.push({ original, message: original, version: 2, legacy: true })
+                continue
+            }
             if (invalid.has(original)) {
                 result.push({ original, message: original, version: versions.get(original), invalid: true })
                 continue

@@ -3,6 +3,7 @@ import pLimit from 'p-limit'
 
 import { logger } from '~/common/utils/logger'
 import {
+    MlDecodedMessage,
     MlKafkaTransport,
     ingestionVersion,
     validateImageRefVersion,
@@ -68,7 +69,7 @@ export class UrlFetchConsumer {
     }
 
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
-        const decoded = this.keyManager
+        const decoded: MlDecodedMessage[] = this.keyManager
             ? await this.keyManager.read(messages)
             : messages.map((message) => {
                   let version: 1 | 2
@@ -85,7 +86,7 @@ export class UrlFetchConsumer {
                   }
                   return { message, original: message, version, invalid: undefined }
               })
-        const decodedValid = decoded.filter((entry) => !entry.invalid)
+        const decodedValid = decoded.filter((entry) => !entry.invalid && !entry.legacy)
         const v2 = decodedValid.filter((entry) => entry.version === 2).length
         ImageFetchConsumerMetrics.incrementVersion('2', v2)
         ImageFetchConsumerMetrics.incrementVersion('1', decodedValid.length - v2)
@@ -104,7 +105,10 @@ export class UrlFetchConsumer {
         const stage = ImageFetchProcessingMetrics.start('batch_parse')
 
         try {
-            for (const { message, original, version, invalid } of decoded) {
+            for (const { message, original, version, invalid, legacy } of decoded) {
+                if (legacy) {
+                    continue
+                }
                 if (invalid) {
                     rejectedRecords.push({ message: original, reasons: ['malformed'] })
                     continue
