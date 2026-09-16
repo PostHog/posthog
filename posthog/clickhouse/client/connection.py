@@ -98,7 +98,7 @@ class ClickHouseUser(StrEnum):
     REPLAY_VISION = "replay_vision"
     # Session replay surfacing scoring sweep
     SURFACING_SCORING = "surfacing_scoring"
-    DELETION_EXECUTOR = "data_deletion_request_executor"
+    DELETION_EXECUTOR = "deletion_executor"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"

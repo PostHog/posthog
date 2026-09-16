@@ -298,7 +298,7 @@ def test_hogql_event_deletion_executor_wraps_compiled_select_and_uses_dedicated_
     assert params["_deletion_team_id"] == team.pk
     assert params["_deletion_request_id"] == request_id
     assert execute.call_args.kwargs["team_id"] == team.pk
-    assert execute.call_args.kwargs["ch_user"].value == "data_deletion_request_executor"
+    assert execute.call_args.kwargs["ch_user"].value == "deletion_executor"
 
 
 @pytest.mark.django_db
