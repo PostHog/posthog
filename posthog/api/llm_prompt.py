@@ -576,7 +576,15 @@ class LLMPromptViewSet(
         )
         return Response(self._serialize_prompt(new_prompt), status=status.HTTP_201_CREATED)
 
-    @extend_schema(request=LLMPromptSetLabelSerializer, responses={200: LLMPromptLabelSerializer})
+    @extend_schema(
+        request=LLMPromptSetLabelSerializer,
+        responses={
+            200: LLMPromptLabelSerializer,
+            400: OpenApiResponse(
+                description="The label is referenced by other prompts and the target version contains references or is not plain text."
+            ),
+        },
+    )
     @action(
         methods=["PUT"],
         detail=False,

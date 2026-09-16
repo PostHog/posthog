@@ -429,8 +429,6 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         if self.instance is None:
             if name and LLMPrompt.objects.filter(name=name, team=team, deleted=False).exists():
                 raise serializers.ValidationError({"name": "A prompt with this name already exists."}, code="unique")
-            if name:
-                validate_prompt_references(team.id, prompt_name=name, prompt_payload=attrs.get("prompt"))
             return attrs
 
         if name is not None and self.instance.name != name:
@@ -458,6 +456,11 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
 
         with transaction.atomic():
+            # Validated here rather than in validate() so the reference target
+            # locks live in the same transaction as the dependency writes.
+            validate_prompt_references(
+                team.id, prompt_name=validated_data["name"], prompt_payload=validated_data.get("prompt")
+            )
             prompt = LLMPrompt.objects.create(
                 team=team,
                 created_by=request.user,

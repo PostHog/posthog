@@ -433,6 +433,16 @@ def set_prompt_label(
     moved, so the one-version-per-label invariant can't be violated through this path.
     """
     with transaction.atomic():
+        # Locked before the guard below: reference validation locks this same
+        # row, so a publish that is about to reference this label either
+        # commits its dependency row first (the guard sees it) or waits.
+        existing = (
+            LLMPromptLabel.objects.select_for_update()
+            .select_related("prompt")
+            .filter(team=team, prompt_name=prompt_name, name=label_name)
+            .first()
+        )
+
         # Locked so a concurrent archive_prompt (which locks the same rows) can't mark the
         # prompt deleted between this check and the label write, orphaning the label.
         target = (
@@ -462,12 +472,6 @@ def set_prompt_label(
                     code="label_target_has_references",
                 )
 
-        existing = (
-            LLMPromptLabel.objects.select_for_update()
-            .select_related("prompt")
-            .filter(team=team, prompt_name=prompt_name, name=label_name)
-            .first()
-        )
         if existing is not None:
             previous_version = existing.prompt.version
             if existing.prompt_id != target.pk:
@@ -493,12 +497,19 @@ def set_prompt_label(
 
 
 def remove_prompt_label(team: Team, *, prompt_name: str, label_name: str) -> None:
-    label = LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name, name=label_name).first()
-    if label is None:
-        raise LLMPromptLabelNotFoundError()
+    with transaction.atomic():
+        # Same lock as set_prompt_label and reference validation, so the guard
+        # cannot miss a dependency row that a concurrent publish is committing.
+        label = (
+            LLMPromptLabel.objects.select_for_update()
+            .filter(team=team, prompt_name=prompt_name, name=label_name)
+            .first()
+        )
+        if label is None:
+            raise LLMPromptLabelNotFoundError()
 
-    referencing_prompts = get_active_parents_referencing_label(team.id, prompt_name, label_name)
-    if referencing_prompts:
-        raise LLMPromptReferencedError(referencing_prompts=referencing_prompts)
+        referencing_prompts = get_active_parents_referencing_label(team.id, prompt_name, label_name)
+        if referencing_prompts:
+            raise LLMPromptReferencedError(referencing_prompts=referencing_prompts)
 
-    label.delete()
+        label.delete()
