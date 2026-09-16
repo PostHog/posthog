@@ -134,7 +134,7 @@ Planned Tier B collectors:
 | 60s | memory contexts (Aurora) | A | `aurora_stat_memctx_usage()` — backends > 64 MB |
 | 60s | system cpu / memory / disk | A | `pg_proctab`: `pg_cputime`, `pg_memusage`, `pg_loadavg`, `pg_diskusage` |
 | 60s | backend cpu | A | `pg_proctab()` per pid joined to `pg_stat_activity` |
-| 30s | logs | B | CloudWatch Logs (RDS) or files: `ts_query_durations` (latency quantiles), `ts_log_plans` (auto_explain), `ts_autovacuum_runs`, `ts_checkpoints`, `ts_temp_files`, `ts_log_errors`, `ts_logs` counts, deadlock/lock-wait/cancel events |
+| 30s | logs | B | CloudWatch Logs (RDS) or files: `ts_query_latency` (per-minute latency histograms, the source of quantiles), `ts_query_durations` (slow statements over `sample_rows_over_ms`), `ts_log_plans` (auto_explain), `ts_autovacuum_runs`, `ts_checkpoints`, `ts_temp_files`, `ts_log_errors`, `ts_logs` counts, deadlock/lock-wait/cancel events |
 
 On Aurora, `query_stats` reads `aurora_stat_statements` (adds Aurora-storage I/O
 and per-query peak memory) and `activity_samples` reads `aurora_stat_activity`
@@ -173,7 +173,7 @@ What we do instead:
   running it and for how long (`active_over_1s`, `active_over_10s`,
   `max_query_age_s`) — a sampled view of the tail, ASH-style;
 * real quantiles come from sampled statement logs (phase 4):
-  `log_min_duration_sample` + `log_statement_sample_rate` → `ts_query_durations`
+  `log_min_duration_sample` + `log_statement_sample_rate` → `ts_query_latency` (histograms) and `ts_query_durations` (slow tail)
   keyed by the same `query_id`, from which the API computes p50/p95/p99.
 
 **Cumulative counters** — always stored as per-interval deltas. Rows whose every
@@ -200,10 +200,14 @@ Two families:
 
 **Time series** `ts_<collector>` — append-only, `PARTITION BY RANGE (collected_at)`,
 daily partitions created ahead by the collector's sink on startup and hourly,
-old partitions dropped by `retention_days` (default 14). Columns: `server_id`,
+old partitions dropped by `retention_days` (default 14, per-collector override
+via `[sink.retention]`). Columns: `server_id`,
 `instance`, `datname` (nullable for cluster scope), `collected_at`, `interval_seconds`, key
-columns, then metric columns. Index on `(server_id, collected_at)` and on key
-columns + time for the hot ones.
+columns, then metric columns. Index on `(server_id, collected_at)`; a snapshot can
+declare extra `(server_id, <cols>, collected_at)` indexes (`Snapshot.indexes`). On a
+table that already has partitions the index is created `ON ONLY` the parent, and a
+background task (retried by the hourly maintenance) builds the per-partition indexes
+`CONCURRENTLY` and attaches them, so inserts are never blocked.
 
 **Current state** `cur_<collector>` — upsert by identity, with `first_seen`,
 `last_seen`, `content_hash`. Snapshot diffs append to `events(server_id,
@@ -258,6 +262,8 @@ own stats; database-scoped ones run on the writer unless `per_instance: true`.
 [sink]
 database_url = "postgres://pgcollector@stats-host/pgcollector"
 retention_days = 14
+[sink.retention]
+query_durations = 7          # per-collector override
 
 [defaults]
 statement_timeout = "5s"

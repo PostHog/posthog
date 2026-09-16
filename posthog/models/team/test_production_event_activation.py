@@ -2,7 +2,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
@@ -438,7 +438,7 @@ class TestEvaluateAndMarkTeamBatch(ClickhouseTestMixin, BaseTest):
 
     def test_qualifying_team_is_flagged(self) -> None:
         _seed_event(self.team.id, properties={"$host": PRODUCTION_HOST})
-        with freeze_time("2026-06-05T12:00:00Z"), _mock_capture():
+        with time_machine.travel("2026-06-05T12:00:00Z", tick=False), _mock_capture():
             qualifying, marked = evaluate_and_mark_team_batch(
                 [self.team.id], now=datetime(2026, 6, 5, 12, 0, 0, tzinfo=UTC)
             )
@@ -469,7 +469,7 @@ class TestEvaluateAndMarkTeamBatch(ClickhouseTestMixin, BaseTest):
 
     def test_non_qualifying_team_only_gets_last_checked_at_bumped(self) -> None:
         _seed_event(self.team.id, properties={"$host": "localhost:3000"})
-        with freeze_time("2026-06-05T12:00:00Z"):
+        with time_machine.travel("2026-06-05T12:00:00Z", tick=False):
             qualifying, marked = evaluate_and_mark_team_batch(
                 [self.team.id], now=datetime(2026, 6, 5, 12, 0, 0, tzinfo=UTC)
             )

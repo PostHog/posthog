@@ -59,17 +59,22 @@ def teams_linking_flag_in_project(project_id: int, flag_id: int) -> QuerySet[Tea
 
 
 def replay_linked_flag_ids(project_id: int, flag_ids: Collection[int]) -> set[int]:
-    """Which of the given flags a team in this project gates session recording on.
+    """Single-project form of `replay_linked_flag_ids_for_projects`."""
+    return replay_linked_flag_ids_for_projects([project_id], flag_ids)
+
+
+def replay_linked_flag_ids_for_projects(project_ids: Collection[int], flag_ids: Collection[int]) -> set[int]:
+    """Which of the given flags a team in these projects gates session recording on.
 
     The batch equivalent of `teams_linking_flag`, in one query. Matching ids inside jsonb keeps
     that check's comparison semantics, so the single-flag and bulk delete guards agree on what
     counts as linked; a malformed value like `{"id": true}` matches no flag, because jsonb never
     equates booleans with numbers.
     """
-    if not flag_ids:
+    if not flag_ids or not project_ids:
         return set()
     stored_ids = Team.objects.filter(
-        project_id=project_id,
+        project_id__in=project_ids,
         session_recording_linked_flag__id__in=flag_ids,
     ).values_list("session_recording_linked_flag__id", flat=True)
     # jsonb also equates numbers regardless of representation, so a stored float id can match an

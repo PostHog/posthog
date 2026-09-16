@@ -237,6 +237,77 @@ const heatmapsSavedUpdate = (): ToolBase<
     },
 })
 
+const WebAnalyticsBotRulesCreateSchema = () => {
+    const WebAnalyticsBotRulesCreateBody = orvalSchemas.WebAnalyticsBotRulesCreateBody()
+    return WebAnalyticsBotRulesCreateBody
+}
+
+const webAnalyticsBotRulesCreate = (): ToolBase<
+    ReturnType<typeof WebAnalyticsBotRulesCreateSchema>,
+    Schemas.WebAnalyticsBotRule
+> => ({
+    name: 'web-analytics-bot-rules-create',
+    schema: WebAnalyticsBotRulesCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WebAnalyticsBotRulesCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.category !== undefined) {
+            body['category'] = params.category
+        }
+        if (params.combiner !== undefined) {
+            body['combiner'] = params.combiner
+        }
+        if (params.items !== undefined) {
+            body['items'] = params.items
+        }
+        const result = await context.api.request<Schemas.WebAnalyticsBotRule>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/`,
+            body,
+        })
+        return result
+    },
+})
+
+const WebAnalyticsBotRulesDestroySchema = () => {
+    const WebAnalyticsBotRulesDestroyParams = orvalSchemas.WebAnalyticsBotRulesDestroyParams()
+    return WebAnalyticsBotRulesDestroyParams.omit({ project_id: true })
+}
+
+const webAnalyticsBotRulesDestroy = (): ToolBase<ReturnType<typeof WebAnalyticsBotRulesDestroySchema>, unknown> => ({
+    name: 'web-analytics-bot-rules-destroy',
+    schema: WebAnalyticsBotRulesDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WebAnalyticsBotRulesDestroySchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const WebAnalyticsBotRulesListSchema = () => z.object({})
+
+const webAnalyticsBotRulesList = (): ToolBase<
+    ReturnType<typeof WebAnalyticsBotRulesListSchema>,
+    WithPostHogUrl<Schemas.WebAnalyticsBotRule[]>
+> => ({
+    name: 'web-analytics-bot-rules-list',
+    schema: WebAnalyticsBotRulesListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof WebAnalyticsBotRulesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WebAnalyticsBotRule[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/`,
+        })
+        return await withPostHogUrl(context, result, '/web')
+    },
+})
+
 const WebAnalyticsPathCleaningSuggestionsApplySchema = () => {
     const WebAnalyticsPathCleaningSuggestionsApplyParams = orvalSchemas.WebAnalyticsPathCleaningSuggestionsApplyParams()
     return WebAnalyticsPathCleaningSuggestionsApplyParams.omit({ project_id: true })
@@ -325,31 +396,6 @@ const CompareFilter = z.object({
 
 const integer = z.coerce.number().int()
 
-const ActionConversionGoal = z.object({
-    actionId: integer,
-})
-
-const CustomEventConversionGoal = z.object({
-    customEventName: z.string(),
-})
-
-const WebAnalyticsConversionGoal = z.union([ActionConversionGoal, CustomEventConversionGoal])
-
-const AssistantDateRange = z.object({
-    date_from: z.string().describe('ISO8601 date string.'),
-    date_to: z.string().nullable().describe('ISO8601 date string.').optional(),
-})
-
-const AssistantDurationRange = z.object({
-    date_from: z
-        .string()
-        .describe(
-            "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start."
-        ),
-})
-
-const AssistantDateRangeFilter = z.union([AssistantDateRange, AssistantDurationRange])
-
 const PropertyOperator = z.enum([
     'exact',
     'is_not',
@@ -436,6 +482,39 @@ const WebAnalyticsPropertyFilter = z.union([
 ])
 
 const WebAnalyticsPropertyFilters = z.array(WebAnalyticsPropertyFilter)
+
+const ActionConversionGoal = z.object({
+    actionId: integer,
+    properties: WebAnalyticsPropertyFilters.optional(),
+})
+
+const CustomEventConversionGoal = z.object({
+    customEventName: z.string(),
+    properties: WebAnalyticsPropertyFilters.optional(),
+})
+
+const WebAnalyticsConversionGoal = z.union([ActionConversionGoal, CustomEventConversionGoal])
+
+const AssistantDateRange = z.object({
+    date_from: z.string().describe('ISO8601 date string.'),
+    date_to: z
+        .string()
+        .nullable()
+        .describe(
+            'ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.'
+        )
+        .optional(),
+})
+
+const AssistantDurationRange = z.object({
+    date_from: z
+        .string()
+        .describe(
+            "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start."
+        ),
+})
+
+const AssistantDateRangeFilter = z.union([AssistantDateRange, AssistantDurationRange])
 
 const AssistantWebOverviewQuery = z.object({
     compareFilter: CompareFilter.describe(
@@ -617,6 +696,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'heatmaps-saved-list': heatmapsSavedList,
     'heatmaps-saved-regenerate': heatmapsSavedRegenerate,
     'heatmaps-saved-update': heatmapsSavedUpdate,
+    'web-analytics-bot-rules-create': webAnalyticsBotRulesCreate,
+    'web-analytics-bot-rules-destroy': webAnalyticsBotRulesDestroy,
+    'web-analytics-bot-rules-list': webAnalyticsBotRulesList,
     'web-analytics-path-cleaning-suggestions-apply': webAnalyticsPathCleaningSuggestionsApply,
     'web-analytics-path-cleaning-suggestions-generate': webAnalyticsPathCleaningSuggestionsGenerate,
     'web-analytics-weekly-digest': webAnalyticsWeeklyDigest,

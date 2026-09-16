@@ -73,7 +73,6 @@ def reverse_content_types(apps: Any, schema_editor: Any) -> None:
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("managed_warehouse", "0001_migrate_managed_warehouse_models"),
         ("posthog", "1280_alter_integration_kind"),
     ]
 

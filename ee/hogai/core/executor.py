@@ -21,6 +21,7 @@ from posthog.temporal.common.client import async_connect
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
+from ee.hogai.core.workflow_payload import get_workflow_input_size_estimates
 from ee.hogai.queue import ConversationQueueStore
 from ee.hogai.stream.redis_stream import (
     CONVERSATION_STREAM_MAX_LENGTH,
@@ -118,7 +119,11 @@ class AgentExecutor:
 
             except Exception as e:
                 posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
-                logger.exception("Error starting workflow", error=e)
+                logger.exception(
+                    "Error starting workflow",
+                    error=e,
+                    workflow_input_estimated_bytes=get_workflow_input_size_estimates(inputs),
+                )
                 failed = True
 
         if failed:

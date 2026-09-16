@@ -59,7 +59,7 @@ class ExternalDataSchemaOOMEvent(TeamScopedRootMixin, UUIDModel):
 
     # db_constraint=False on the Team FK: a real constraint takes a SHARE ROW EXCLUSIVE lock on the
     # hot posthog_team table on create. Team scoping is enforced at the app layer by TeamScopedRootMixin.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     schema = models.ForeignKey(
         "warehouse_sources.ExternalDataSchema", on_delete=models.CASCADE, related_name="oom_events"
     )

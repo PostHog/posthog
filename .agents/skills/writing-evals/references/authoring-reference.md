@@ -5,16 +5,17 @@ When anything here disagrees with the code, the code wins — the sources of tru
 
 ## `SandboxedEvalCase` (`config.py`)
 
-| Field          | Type                                                   | Meaning                                                                                                                                                   |
-| -------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`         | `str`                                                  | Case name. Also the `--eval <substr>` filter target and the per-case log filename. Unique within the suite.                                               |
-| `prompt`       | `str`                                                  | The natural-language task given to the agent.                                                                                                             |
-| `repo_fixture` | `str = ""`                                             | Informational only (tracking).                                                                                                                            |
-| `expected`     | `dict = {}`                                            | Per-scorer expected values, keyed by each scorer's `_name()`. A scorer reads only its own sub-dict; a missing key means default behavior or self-skip.    |
-| `metadata`     | `dict = {}`                                            | Arbitrary tracking/filtering metadata.                                                                                                                    |
-| `setup`        | `Callable[[CustomPromptSandboxContext], dict] \| None` | The seed hook. Excluded from serialization (callables don't survive Braintrust's JSON round-trip); the runner re-binds it from the original case by name. |
+| Field                    | Type                                                   | Meaning                                                                                                                                                   |
+| ------------------------ | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                   | `str`                                                  | Case name. Also the `--eval <substr>` filter target and the per-case log filename. Unique within the suite.                                               |
+| `prompt`                 | `str`                                                  | The natural-language task given to the agent.                                                                                                             |
+| `repo_fixture`           | `str = ""`                                             | Informational only (tracking).                                                                                                                            |
+| `expected`               | `dict = {}`                                            | Per-scorer expected values, keyed by each scorer's `_name()`. A scorer reads only its own sub-dict; a missing key means default behavior or self-skip.    |
+| `metadata`               | `dict = {}`                                            | Arbitrary tracking/filtering metadata.                                                                                                                    |
+| `disable_bundled_skills` | `bool = False`                                         | Clears native skill directories before agent startup. Use when evaluating a separate skill distribution path.                                             |
+| `setup`                  | `Callable[[CustomPromptSandboxContext], dict] \| None` | The seed hook. Excluded from serialization (callables don't survive Braintrust's JSON round-trip); the runner re-binds it from the original case by name. |
 
-There is no per-case `skills` field (skills are built once per run and available globally in every sandbox — assert skill _outcomes_, not attachment) and no per-case timeout (`--case-timeout` is run-level, counted from sandbox acquisition).
+There is no per-case `skills` attachment field. Skills are built once per run and use native bundled delivery by default. `--skill-delivery exec` enables MCP distribution and clears native skills for every case; `disable_bundled_skills` is an additional per-case override. There is no per-case timeout (`--case-timeout` is run-level, counted from sandbox acquisition).
 
 ## Seeder contract
 

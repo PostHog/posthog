@@ -12,6 +12,8 @@ are only true for a while, mirroring `notes.py`.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
@@ -79,9 +81,10 @@ def search_scratchpad(
     Expired entries (`expires_at` in the past) are excluded by default, so a memory a
     scout wrote as time-boxed stops loading into run prompts on its own rather than
     waiting for a `forget` that rarely comes. `include_expired=True` brings them back
-    for a human auditing what the fleet remembered and when it lapsed. Note this filters
-    the read only — nothing deletes the row, so `forget` and the `remember` upsert still
-    see an expired key.
+    for a human auditing what the fleet remembered and when it lapsed. This filters the
+    read only — while an entry is inside its post-expiry grace, `forget` and the
+    `remember` upsert still see the key. Once the expiry is well past (see
+    `prune_expired_scratchpad_entries`), the daily janitor hard-deletes the row.
 
     `key` is an exact match on the unique `(team, key)` pair — at most one row, and the
     only way to fetch a known entry reliably. `text` can't stand in for it: an ILIKE
@@ -123,6 +126,36 @@ def search_scratchpad(
         qs = qs.filter(updated_at__lt=date_to)
     qs = qs.order_by("-updated_at", "-id")[:clamped_limit]
     return [_to_entry(row, keys_only=keys_only, content_max_chars=content_max_chars) for row in qs]
+
+
+def search_scratchpad_naming(
+    *,
+    team_id: int,
+    key_prefix: str,
+    terms: Sequence[str],
+    limit: int = DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
+) -> list[ScratchpadEntry]:
+    """Entries under `key_prefix` whose key or content names one of `terms` as a whole token.
+
+    Not an agent tool, and deliberately not `search_scratchpad(text=...)`. That search is a
+    substring ILIKE, which is what an agent exploring its own prose wants and the wrong thing for
+    resolving an identifier: a login like `ai` matches `email`, and one scan per term turns a caller
+    holding a list into a query fan-out. Terms are matched on a non-alphanumeric boundary, all of
+    them in one query, and the body is projected away because a caller here wants the holders.
+    """
+    wanted = [term for term in dict.fromkeys(terms) if term]
+    if not wanted:
+        return []
+    boundary = "[^A-Za-z0-9_-]"
+    pattern = f"(^|{boundary})({'|'.join(re.escape(term) for term in wanted)})({boundary}|$)"
+    qs = SignalScratchpad.objects.filter(team_id=team_id, key__startswith=key_prefix).select_related(
+        "created_by_run", "created_by_run__task_run"
+    )
+    qs = _project_content_in_sql(qs, keys_only=True, content_max_chars=None)
+    qs = qs.filter(Q(content__iregex=pattern) | Q(key__iregex=pattern))
+    qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+    qs = qs.order_by("-updated_at", "-id")[: _clamp_search_limit(limit)]
+    return [_to_entry(row, keys_only=True) for row in qs]
 
 
 def remember(

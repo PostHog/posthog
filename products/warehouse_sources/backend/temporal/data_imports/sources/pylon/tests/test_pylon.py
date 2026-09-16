@@ -3,7 +3,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock
 
 import requests
@@ -11,11 +11,14 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon import pylon
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.pylon import (
+    PYLON_EU_BASE_URL,
+    PYLON_US_BASE_URL,
     PylonResumeConfig,
     _build_url,
     _format_rfc3339,
     _parse_rfc3339,
     _to_datetime,
+    base_url_for_token,
     get_rows,
     pylon_source,
 )
@@ -96,14 +99,55 @@ class TestValidateCredentials:
             mp.setattr(pylon, "make_tracked_session", lambda *a, **k: session)
             assert pylon.validate_credentials("token") is False
 
-    def test_validate_credentials_hits_me_endpoint(self) -> None:
+    @parameterized.expand(
+        [
+            ("eu_token", "pylon_api_eu_abc123", f"{PYLON_EU_BASE_URL}/me"),
+            ("us_token", "pylon_api_abc123", f"{PYLON_US_BASE_URL}/me"),
+            ("unprefixed_token", "token", f"{PYLON_US_BASE_URL}/me"),
+        ]
+    )
+    def test_validate_credentials_hits_me_endpoint(self, _name: str, api_token: str, expected_url: str) -> None:
         session = MagicMock()
         session.get.return_value = MagicMock(status_code=200)
         with pytest.MonkeyPatch().context() as mp:
             mp.setattr(pylon, "make_tracked_session", lambda *a, **k: session)
-            pylon.validate_credentials("token")
+            pylon.validate_credentials(api_token)
         called_url = session.get.call_args.args[0]
-        assert called_url == "https://api.usepylon.com/me"
+        assert called_url == expected_url
+
+
+class TestBaseUrlForToken:
+    @parameterized.expand(
+        [
+            ("eu_prefix", "pylon_api_eu_abc123", PYLON_EU_BASE_URL),
+            ("us_prefix", "pylon_api_abc123", PYLON_US_BASE_URL),
+            ("unprefixed", "token", PYLON_US_BASE_URL),
+            # "eu" only routes as the documented prefix, not anywhere in the token.
+            ("eu_elsewhere", "pylon_api_zeu_abc", PYLON_US_BASE_URL),
+        ]
+    )
+    def test_routes_by_prefix(self, _name: str, api_token: str, expected: str) -> None:
+        assert base_url_for_token(api_token) == expected
+
+
+class TestSyncPathRegion:
+    @parameterized.expand(
+        [
+            ("eu_token", "pylon_api_eu_abc123", PYLON_EU_BASE_URL),
+            ("us_token", "pylon_api_abc123", PYLON_US_BASE_URL),
+        ]
+    )
+    def test_get_rows_requests_the_tokens_region(self, _name: str, api_token: str, expected_base: str) -> None:
+        fetch_page = MagicMock(return_value=_page([{"id": "1"}]))
+        manager = _no_resume_manager()
+
+        with pytest.MonkeyPatch().context() as mp:
+            mp.setattr(pylon, "make_tracked_session", lambda *a, **k: MagicMock())
+            mp.setattr(pylon, "_fetch_page", fetch_page)
+            list(get_rows(api_token=api_token, endpoint="teams", logger=MagicMock(), resumable_source_manager=manager))
+
+        requested_url = fetch_page.call_args.args[1]
+        assert requested_url.startswith(expected_base)
 
 
 class TestSimpleEndpointPagination:
@@ -215,7 +259,7 @@ class TestFanOutEndpoint:
 
 
 class TestWindowedIssues:
-    @freeze_time("2026-06-23T00:00:00Z")
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_first_sync_walks_lookback_in_30_day_windows(self) -> None:
         manager = _no_resume_manager()
         fetch = MagicMock(return_value=_page([{"id": "i", "created_at": "2026-01-01T00:00:00Z"}]))
@@ -244,7 +288,7 @@ class TestWindowedIssues:
         for earlier, later in zip(windows, windows[1:]):
             assert earlier["end_time"] == later["start_time"]
 
-    @freeze_time("2026-06-23T00:00:00Z")
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_incremental_starts_from_watermark(self) -> None:
         manager = _no_resume_manager()
         fetch = MagicMock(return_value=_page([{"id": "i", "created_at": "2026-06-10T00:00:00Z"}]))
@@ -270,7 +314,7 @@ class TestWindowedIssues:
         assert windows[0]["start_time"] == ["2026-06-01T00:00:00Z"]
         assert windows[0]["end_time"] == ["2026-06-23T00:00:00Z"]
 
-    @freeze_time("2026-06-23T00:00:00Z")
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_future_watermark_is_a_no_op(self) -> None:
         manager = _no_resume_manager()
         fetch = MagicMock(return_value=_page([]))
@@ -291,7 +335,7 @@ class TestWindowedIssues:
 
         assert fetch.call_count == 0
 
-    @freeze_time("2026-06-23T00:00:00Z")
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_resumes_from_saved_window(self) -> None:
         manager = MagicMock()
         manager.can_resume.return_value = True

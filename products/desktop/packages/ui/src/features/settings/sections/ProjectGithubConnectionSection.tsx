@@ -11,7 +11,7 @@ import {
   formatGithubAccountLabel,
   githubInstallationSettingsUrl,
 } from "@posthog/core/settings/githubRepoSummary";
-import { Button, Spinner, Text } from "@posthog/quill";
+import { Button, Text } from "@posthog/quill";
 import { formatRelativeTimeLong } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
@@ -35,6 +35,7 @@ import {
   SettingsCardRow,
   SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { openUrlInBrowser } from "@posthog/ui/utils/browser";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -91,7 +92,7 @@ export function ProjectGithubConnectionSection() {
       <SettingsCard>
         {isLoading ? (
           <div className="flex items-center gap-2 px-3.5 py-3">
-            <Spinner />
+            <Spinner size="sm" />
             <Text size="xs" variant="muted">
               Loading…
             </Text>

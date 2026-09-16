@@ -5,21 +5,31 @@ from unittest import mock
 
 from rest_framework.response import Response
 
-from posthog.schema import HogQLQuery, HogQLQueryModifiers
+from posthog.schema import HogQLQuery
+
+from posthog.hogql.transforms.trino.manifest import (
+    TrinoCatalogManifest,
+    TrinoManifestColumn,
+    TrinoManifestTable,
+    build_trino_manifest_database,
+)
 
 from posthog.models import Organization, Team
+from posthog.schema_enums import DatabaseSerializedFieldType
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
+    TrinoExpansionMode,
 )
 from products.managed_warehouse.backend.table_binding import build_trino_table_locators
 from products.managed_warehouse.backend.trino_compiler import (
     TrinoTargetUnavailable,
     compile_hogql_to_trino_sql,
     get_ready_trino_catalog_name,
+    prepare_hogql_to_trino_compiler,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -82,12 +92,9 @@ class TestReadyTrinoCatalogName:
 
 
 class TestCompileHogQLToTrinoSQL:
-    def test_populates_core_table_locators_from_control_plane_state(self) -> None:
+    def test_preserves_sql_bind_values_and_diagnostics_across_the_transpiler_boundary(self) -> None:
         team = _team()
         membership = _membership(team_id=team.pk, organization_id=str(team.organization_id))
-        database = mock.MagicMock()
-        locators = {"events": ("org_catalog", "posthog", "events_production")}
-        modifiers = HogQLQueryModifiers()
 
         with (
             mock.patch(
@@ -98,38 +105,133 @@ class TestCompileHogQLToTrinoSQL:
                 "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
                 return_value=membership,
             ),
-            mock.patch("posthog.hogql.database.database.Database.create_for", return_value=database),
+            mock.patch("posthog.hogql.database.database.Database.create_for") as create_database,
+            mock.patch("posthog.hogql.modifiers.create_default_modifiers_for_team") as create_modifiers,
             mock.patch(
-                "posthog.hogql.modifiers.create_default_modifiers_for_team",
-                return_value=modifiers,
+                "products.managed_warehouse.backend.trino_compiler.build_trino_table_locators"
+            ) as build_locators,
+        ):
+            compiled = compile_hogql_to_trino_sql(
+                team.pk,
+                HogQLQuery(query="SELECT event FROM events WHERE event = {event}", values={"event": "signup"}),
+                team=team,
+                include_hogql=True,
+            )
+
+        create_database.assert_not_called()
+        create_modifiers.assert_not_called()
+        build_locators.assert_not_called()
+
+        assert compiled.sql == (
+            'SELECT "org_catalog"."posthog"."events_production"."event" '
+            'FROM "org_catalog"."posthog"."events_production" '
+            'WHERE ("org_catalog"."posthog"."events_production"."event" = %(hogql_val_0)s) LIMIT 50000'
+        )
+        assert compiled.values == {"hogql_val_0": "signup"}
+        assert compiled.hogql == "SELECT event FROM events WHERE equals(event, 'signup') LIMIT 50000"
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("include_hogql", [False, True])
+    def test_populates_core_table_locators_from_control_plane_state(self, include_hogql: bool) -> None:
+        organization = Organization.objects.create(name="trino-core-locators")
+        team = Team.objects.create(organization=organization)
+        membership = _membership(team_id=team.pk, organization_id=str(organization.pk))
+
+        with (
+            mock.patch("products.managed_warehouse.backend.cp_teams.list_org_teams", return_value=[]),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+                return_value="org_catalog",
             ),
             mock.patch(
-                "products.managed_warehouse.backend.trino_compiler.build_trino_table_locators",
-                return_value=locators,
-            ) as build_locators,
-            mock.patch(
-                "posthog.hogql.printer.utils.prepare_and_print_ast",
-                side_effect=[("SELECT event FROM target", None), ("SELECT event FROM events", None)],
-            ) as prepare_and_print,
+                "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
+                return_value=membership,
+            ),
         ):
             compiled = compile_hogql_to_trino_sql(
                 team.pk,
                 HogQLQuery(query="SELECT event FROM events LIMIT 1"),
                 team=team,
+                include_hogql=include_hogql,
+                expansion_mode=TrinoExpansionMode.DJANGO,
             )
 
-        assert compiled.sql == "SELECT event FROM target"
-        assert compiled.values == {}
-        build_locators.assert_called_once_with(
-            database,
-            team.pk,
-            catalog_name="org_catalog",
-            table_names=membership.table_names,
+        assert compiled.sql == (
+            'SELECT "org_catalog"."posthog"."events_production"."event" '
+            'FROM "org_catalog"."posthog"."events_production" LIMIT 1'
         )
-        trino_context = prepare_and_print.call_args_list[0].args[1]
-        assert trino_context.trino_table_locators == locators
-        assert trino_context.modifiers is modifiers
-        assert prepare_and_print.call_args_list[0].kwargs["dialect"] == "trino"
+        assert compiled.values == {}
+        assert compiled.hogql == ("SELECT event FROM events LIMIT 1" if include_hogql else None)
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "expression",
+        [
+            "date(translation_source.timestamp)",
+            "ifnotfinite(1.0, 2.0)",
+            "medianexactweighted(3, 2)",
+            "cardinality([translation_source.event])",
+            "json_value('{\"a\": 1}', '$.a')",
+        ],
+    )
+    def test_django_diagnostics_preserve_trino_compilation_with_saved_query_dependencies(self, expression: str) -> None:
+        organization = Organization.objects.create(name="trino-diagnostics")
+        team = Team.objects.create(organization=organization)
+        membership = _membership(team_id=team.pk, organization_id=str(organization.pk))
+        DataWarehouseSavedQuery.objects.create(
+            team=team,
+            name="translation_source",
+            query={"kind": "HogQLQuery", "query": "SELECT event, timestamp FROM events"},
+            columns={
+                "event": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "timestamp": {"clickhouse": "DateTime", "hogql": "DateTimeDatabaseField"},
+            },
+        )
+        query = HogQLQuery(
+            query=f"SELECT {expression} AS result FROM translation_source WHERE translation_source.event = {{event}}",
+            values={"event": "signup"},
+        )
+
+        with (
+            mock.patch("products.managed_warehouse.backend.cp_teams.list_org_teams", return_value=[]),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+                return_value="org_catalog",
+            ),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
+                return_value=membership,
+            ),
+        ):
+            without_diagnostics = compile_hogql_to_trino_sql(
+                team.pk,
+                query,
+                team=team,
+                expansion_mode=TrinoExpansionMode.DJANGO,
+                bypass_warehouse_access_control=True,
+            )
+            compiled = compile_hogql_to_trino_sql(
+                team.pk,
+                query,
+                team=team,
+                expansion_mode=TrinoExpansionMode.DJANGO,
+                bypass_warehouse_access_control=True,
+                include_hogql=True,
+            )
+            assert compiled.hogql is not None
+            round_trip = compile_hogql_to_trino_sql(
+                team.pk,
+                HogQLQuery(query=compiled.hogql),
+                team=team,
+                expansion_mode=TrinoExpansionMode.DJANGO,
+                bypass_warehouse_access_control=True,
+            )
+
+        assert (compiled.sql, compiled.values) == (without_diagnostics.sql, without_diagnostics.values)
+        assert (round_trip.sql, round_trip.values) == (compiled.sql, compiled.values)
+        assert '"org_catalog"."posthog"."events_production"' in compiled.sql
+        assert "signup" in compiled.values.values()
+        assert "translation_source" in compiled.hogql
 
     def test_fails_closed_without_a_ready_catalog(self) -> None:
         team = _team()
@@ -156,6 +258,99 @@ class TestCompileHogQLToTrinoSQL:
         ):
             with pytest.raises(TrinoTargetUnavailable, match="physical table mapping"):
                 compile_hogql_to_trino_sql(team.pk, HogQLQuery(query="SELECT 1"), team=team)
+
+
+class TestPreparedTrinoCompiler:
+    def test_reuses_one_control_plane_snapshot_for_multiple_queries(self) -> None:
+        team = _team()
+        membership = _membership(team_id=team.pk, organization_id=str(team.organization_id))
+
+        with (
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+                return_value="org_catalog",
+            ) as get_catalog,
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
+                return_value=membership,
+            ) as get_membership,
+            mock.patch(
+                "posthog.hogql.transforms.trino.manifest.build_trino_manifest_database",
+                wraps=build_trino_manifest_database,
+            ) as build_database,
+        ):
+            compiler = prepare_hogql_to_trino_compiler(team.pk, team=team)
+            first = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "first"}))
+            second = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "second"}))
+
+        get_catalog.assert_called_once_with(str(team.organization_id))
+        get_membership.assert_called_once_with(str(team.organization_id), team.pk)
+        build_database.assert_called_once()
+        assert compiler.team_id == team.pk
+        assert compiler.organization_id == str(team.organization_id)
+        assert compiler.catalog_name == "org_catalog"
+        assert first.values == {"hogql_val_0": "first"}
+        assert second.values == {"hogql_val_0": "second"}
+
+    def test_rejects_a_team_object_for_another_project(self) -> None:
+        team = _team()
+
+        with mock.patch(
+            "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name"
+        ) as get_catalog:
+            with pytest.raises(TrinoTargetUnavailable, match="provided team"):
+                prepare_hogql_to_trino_compiler(team.pk + 1, team=team)
+
+        get_catalog.assert_not_called()
+
+    def test_rejects_a_control_plane_mapping_for_another_tenant(self) -> None:
+        team = _team()
+        membership = _membership(team_id=team.pk, organization_id="another-organization")
+
+        with (
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+                return_value="org_catalog",
+            ),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
+                return_value=membership,
+            ),
+        ):
+            with pytest.raises(TrinoTargetUnavailable, match="mapping does not match"):
+                prepare_hogql_to_trino_compiler(team.pk, team=team)
+
+    def test_preserves_explicitly_allowlisted_relations_from_another_catalog(self) -> None:
+        team = _team()
+        membership = _membership(team_id=team.pk, organization_id=str(team.organization_id))
+        manifest = TrinoCatalogManifest(
+            tables=(
+                TrinoManifestTable(
+                    logical_name="orders",
+                    locator=("another_catalog", "imports", "orders"),
+                    columns=(TrinoManifestColumn(name="id", type=DatabaseSerializedFieldType.STRING),),
+                ),
+            )
+        )
+
+        with (
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+                return_value="org_catalog",
+            ),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
+                return_value=membership,
+            ),
+        ):
+            compiled = compile_hogql_to_trino_sql(
+                team.pk,
+                HogQLQuery(query="SELECT id FROM orders"),
+                team=team,
+                catalog_manifest=manifest,
+            )
+
+        assert 'FROM "another_catalog"."imports"."orders"' in compiled.sql
 
 
 @pytest.mark.django_db

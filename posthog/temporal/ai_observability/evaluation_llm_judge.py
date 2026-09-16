@@ -16,7 +16,11 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     terminal_user_error_result,
     terminal_user_error_result_from_application_error,
 )
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io, extract_event_tools
+from posthog.temporal.ai_observability.evaluation_event_io import (
+    extract_event_io,
+    extract_event_tools,
+    hydrate_event_reference,
+)
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.ai_observability.metrics import (
@@ -212,7 +216,7 @@ def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActiv
 
 def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
     evaluation = inputs.evaluation
-    event_data = inputs.event_data
+    event_data = hydrate_event_reference(inputs.event_data)
 
     if evaluation["evaluation_type"] != "llm_judge":
         raise ApplicationError(
@@ -309,16 +313,7 @@ def call_llm_judge(
     client = Client(
         provider_key=provider_key,
         config=config,
-        privacy_mode=True,
-        distinct_id=f"team-{team_id}",
-        properties={
-            "ai_product": "aio_evaluations",
-            "ai_feature": "llm-judge",
-            "team_id": team_id,
-            "evaluation_id": evaluation["id"],
-            "$ai_billable": not is_byok,
-            "is_byok": is_byok,
-        },
+        capture_analytics=False,
     )
 
     try:
@@ -423,6 +418,13 @@ def call_llm_judge(
         # so track it as a metric and re-raise for the retry policy — without the logger.exception
         # that would clutter error tracking with a non-actionable issue.
         increment_errors("connection_error", provider=provider)
+        raise
+
+    except temporalio.exceptions.CancelledError:
+        # A worker drain or a workflow cancel interrupts the judge at whatever line it reached, so
+        # the fingerprint differs per cancellation. Logging it would file a new error tracking issue
+        # every time, so track it as a metric and re-raise for the retry policy instead.
+        increment_errors("cancelled", provider=provider)
         raise
 
     except Exception as e:

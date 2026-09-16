@@ -1030,6 +1030,23 @@ class TestGetStaleStrandedRuns:
 
         assert await self._run(conn) == []
 
+    @pytest.mark.parametrize(
+        "head_state, queued_schema_id, expect_stranded",
+        [("succeeded", "schema-1", False), ("succeeded", "schema-2", True), ("failed", "schema-1", True)],
+    )
+    @pytest.mark.asyncio
+    async def test_progress_anywhere_in_group_spares_runs_queued_behind_it(
+        self, conn, head_state: str, queued_schema_id: str, expect_stranded: bool
+    ):
+        await self._stale_pending(conn, batch_index=0, run_uuid="head", job_id="job-head")
+        done = await self._stale_pending(conn, batch_index=1, run_uuid="head", job_id="job-head")
+        await BatchQueue.update_status(conn, batch_id=done, job_state=head_state, attempt=1)
+        await self._stale_pending(conn, run_uuid="queued", job_id="job-queued", schema_id=queued_schema_id)
+
+        refs = await self._run(conn)
+
+        assert [ref.run_uuid for ref in refs] == (["queued"] if expect_stranded else [])
+
     @pytest.mark.asyncio
     async def test_excludes_run_with_failed_batch(self, conn):
         # A failed batch is the failed-run reconcile's job; this sweep must not double-handle it.

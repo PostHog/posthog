@@ -58,6 +58,8 @@ interface TokenOptions {
     omitExp?: boolean
     signingKey?: CryptoKey
     presenceGated?: unknown
+    isTerminal?: unknown
+    thinTail?: unknown
     originProduct?: unknown
 }
 
@@ -71,12 +73,20 @@ async function signToken(opts: TokenOptions = {}): Promise<string> {
         omitExp = false,
         signingKey,
         presenceGated,
+        isTerminal,
+        thinTail,
         originProduct,
     } = opts
 
     const claims: Record<string, unknown> = { run_id: runId, task_id: taskId, team_id: teamId }
     if (presenceGated !== undefined) {
         claims['presence_gated'] = presenceGated
+    }
+    if (isTerminal !== undefined) {
+        claims['is_terminal'] = isTerminal
+    }
+    if (thinTail !== undefined) {
+        claims['thin_tail'] = thinTail
     }
     if (originProduct !== undefined) {
         claims['origin_product'] = originProduct
@@ -110,6 +120,7 @@ describe('jwt', () => {
             expect(payload.taskId).toBe('task-abc-123')
             expect(payload.teamId).toBe(42)
             expect(payload.presenceGated).toBe(false)
+            expect(payload.isTerminal).toBe(false)
         })
 
         it.each([
@@ -129,6 +140,27 @@ describe('jwt', () => {
 
                 await expect(validateStreamReadToken(token, keys.publicKeys)).rejects.toThrow(
                     'presence_gated must be a boolean'
+                )
+            }
+        )
+
+        it.each([
+            { name: 'true', claim: true, expected: true },
+            { name: 'false', claim: false, expected: false },
+        ])('carries an is_terminal claim of $name', async ({ claim, expected }) => {
+            const token = await signToken({ audience: STREAM_READ_AUDIENCE, isTerminal: claim })
+            const payload = await validateStreamReadToken(token, keys.publicKeys)
+
+            expect(payload.isTerminal).toBe(expected)
+        })
+
+        it.each([{ claim: 'yes' }, { claim: 1 }, { claim: null }])(
+            'rejects a non-boolean is_terminal claim ($claim)',
+            async ({ claim }) => {
+                const token = await signToken({ audience: STREAM_READ_AUDIENCE, isTerminal: claim })
+
+                await expect(validateStreamReadToken(token, keys.publicKeys)).rejects.toThrow(
+                    'is_terminal must be a boolean'
                 )
             }
         )
@@ -230,7 +262,29 @@ describe('jwt', () => {
             expect(payload.taskId).toBe('task-abc-123')
             expect(payload.teamId).toBe(42)
             expect(payload.presenceGated).toBe(false)
+            expect(payload.thinTail).toBe(false)
         })
+
+        it.each([
+            { name: 'true', claim: true, expected: true },
+            { name: 'false', claim: false, expected: false },
+        ])('carries a thin_tail claim of $name', async ({ claim, expected }) => {
+            const token = await signToken({ audience: SANDBOX_EVENT_INGEST_AUDIENCE, thinTail: claim })
+            const payload = await validateSandboxEventIngestToken(token, keys.publicKeys)
+
+            expect(payload.thinTail).toBe(expected)
+        })
+
+        it.each([{ claim: 'yes' }, { claim: 1 }, { claim: null }])(
+            'rejects a non-boolean thin_tail claim ($claim)',
+            async ({ claim }) => {
+                const token = await signToken({ audience: SANDBOX_EVENT_INGEST_AUDIENCE, thinTail: claim })
+
+                await expect(validateSandboxEventIngestToken(token, keys.publicKeys)).rejects.toThrow(
+                    'thin_tail must be a boolean'
+                )
+            }
+        )
 
         it.each([
             { name: 'true', claim: true, expected: true },

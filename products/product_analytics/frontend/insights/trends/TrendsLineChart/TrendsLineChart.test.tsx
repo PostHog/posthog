@@ -7,7 +7,6 @@ import { dimensions, dragSelection, rawDrag, setupJsdom, setupSyncRaf } from '@p
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import type { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { ExportType } from '~/exporter/types'
@@ -26,6 +25,8 @@ import {
 } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType, InsightShortId } from '~/types'
+
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { extendLabelsToLongestSeries } from './TrendsLineChart'
 
@@ -900,9 +901,8 @@ describe('TrendsLineChart', () => {
             renderInsight({ query: buildTrendsQuery(), context: { onDateRangeZoom }, featureFlags: zoomFlag })
             const wrapper = await getChartWrapper()
 
-            dragSelection(wrapper, 1, 3, totalLabels)
-
             await waitFor(() => {
+                dragSelection(wrapper, 1, 3, totalLabels)
                 // Days, not the formatted axis labels ('Tue'/'Thu') the chart renders with.
                 expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-13')
             })
@@ -918,9 +918,8 @@ describe('TrendsLineChart', () => {
             const step = dimensions.plotWidth / (totalLabels - 1)
             const x = dimensions.plotLeft + step
             const y = dimensions.plotTop + dimensions.plotHeight / 2
-            rawDrag(wrapper, { from: { x: x - 40, y }, to: { x: x + 40, y } })
-
             await waitFor(() => {
+                rawDrag(wrapper, { from: { x: x - 40, y }, to: { x: x + 40, y } })
                 expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-11')
             })
         })

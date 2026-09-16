@@ -61,6 +61,7 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 
@@ -2516,26 +2517,6 @@ class TestExperimentService(APIBaseTest):
         assert dup.id != source.id
         # Same flag key → reuses the existing flag
         assert dup.feature_flag.id == source.feature_flag.id
-
-    def test_duplicate_experiment_strips_legacy_unknown_exposure_criteria_keys(self):
-        # Stored criteria can carry unknown keys accepted before write-side rejection;
-        # duplicating such an experiment must succeed and drop them.
-        self._create_flag(key="dup-legacy-criteria")
-        service = self._service()
-        source = service.create_experiment(
-            name="Legacy criteria",
-            feature_flag_key="dup-legacy-criteria",
-            exposure_criteria={"filterTestAccounts": True},
-        )
-        source.exposure_criteria = {"filterTestAccounts": True, "properties": [{"key": "email"}]}
-        source.save(update_fields=["exposure_criteria"])
-
-        dup = service.duplicate_experiment(source)
-
-        criteria = dup.exposure_criteria
-        assert criteria is not None
-        assert criteria.get("filterTestAccounts") is True
-        assert "properties" not in criteria
 
     def test_duplicate_experiment_generates_unique_name(self):
         self._create_flag(key="dup-unique-1")
@@ -5876,6 +5857,15 @@ class TestExperimentService(APIBaseTest):
 
         updated = service.update_experiment(experiment, {"deleted": True}, allow_unknown_events=True)
         assert updated.deleted is True
+
+    def test_cannot_adopt_a_flag_another_product_owns(self):
+        flag = self._create_flag(key="owned-by-survey")
+        Survey.objects.create(team=self.team, name="s", type="popover", targeting_flag=flag)
+
+        with self.assertRaises(ValidationError) as cm:
+            self._service().create_experiment(name="Poacher", feature_flag_key="owned-by-survey")
+
+        assert "already belongs to a survey" in str(cm.exception)
 
     def test_clone_regenerates_metric_uuids(self):
         """Cloning an experiment must produce metrics with fresh uuids — never shared with the source."""

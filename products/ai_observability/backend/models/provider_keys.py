@@ -36,14 +36,14 @@ class LLMProviderKey(UUIDTModel):
         INVALID = "invalid"
         ERROR = "error"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     provider = models.CharField(max_length=50, choices=llm_provider_choices)
     name = models.CharField(max_length=255)
     state = models.CharField(max_length=20, choices=State, default=State.UNKNOWN)
     error_message = models.TextField(null=True, blank=True)
     encrypted_config = EncryptedJSONField(default=dict, ignore_decrypt_errors=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     last_used_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

@@ -79,7 +79,7 @@ export const NOTIFICATION_CONCEPTS: NotificationConcept[] = [
     {
         setting: 'materialized_view_sync_failed_daily',
         label: 'Materialized view failures, daily digest',
-        description: 'One email a day listing every failing view. Applies to people receiving the failures.',
+        description: 'One email a day summarizing failing views. Applies to people receiving the failures.',
         perProject: false,
     },
     {

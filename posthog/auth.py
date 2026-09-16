@@ -1,7 +1,6 @@
 import re
 import hmac
 import time
-import hashlib
 import logging
 import functools
 from abc import abstractmethod
@@ -32,6 +31,7 @@ from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
+from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
 from posthog.models.activity_logging.utils import activity_storage
@@ -199,6 +199,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
     personal_api_key: PersonalAPIKey
     personal_api_key_source: Optional[str] = None
+    # Set once the key is validated, so rate limiting can identify the key without re-reading the
+    # request body. See `hashed_personal_api_key_for_throttling` in posthog/rate_limit.py.
+    personal_api_key_hash: Optional[str] = None
 
     # Normalized source identifiers returned by find_key_with_source
     SOURCE_HEADER = "header"
@@ -306,7 +309,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             if not personal_api_key_with_source:
                 return None
 
-            _, source = personal_api_key_with_source
+            key_value, source = personal_api_key_with_source
             span.set_attribute("auth.source", source)
 
             personal_api_key_object = self.validate_key(personal_api_key_with_source)
@@ -338,6 +341,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
             self.personal_api_key = personal_api_key_object
             self.personal_api_key_source = source
+            self.personal_api_key_hash = hash_key_value(key_value)
 
             return personal_api_key_object.user, None
 
@@ -1367,11 +1371,13 @@ class WebauthnBackend(BaseBackend):
             response: The WebAuthn authentication response containing userHandle, authenticatorData, clientDataJSON, and signature
         """
         if challenge is None or credential_id is None or response is None:
+            # Django passes the same keyword arguments to every authentication backend, so `response`
+            # can hold another backend's credentials. Log only whether it is present.
             structlog_logger.warning(
                 "no request, response, or credential id while authenticating webauthn credential",
                 credential_id=credential_id,
                 challenge=challenge,
-                response=response,
+                has_response=response is not None,
             )
             return None
 
@@ -1506,12 +1512,8 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
         raw_body = django_request.body.decode()
 
         hmac_input = self.build_hmac_input(timestamp, raw_body)
-        expected = hmac.new(
-            signing_secret.encode(),
-            hmac_input.encode(),
-            hashlib.sha256,
-        ).hexdigest()
-        if not hmac.compare_digest(signature, expected):
+        expected = hmac_sha256_signature(signing_secret, hmac_input.encode())
+        if not signatures_match(expected, signature):
             raise AuthenticationFailed("Invalid webhook signature.")
 
         try:

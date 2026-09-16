@@ -17,7 +17,7 @@ from posthog.organization_caching import (
     get_cached_organization_membership,
     get_cached_organization_memberships,
 )
-from posthog.plugins.test.mock import mocked_plugin_requests_get
+from posthog.plugins.test.mock import mocked_plugin_github_request, mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
 from posthog.redis import get_client
 
@@ -30,6 +30,74 @@ class TestOrganization(BaseTest):
     def setUp(self):
         super().setUp()
         cache.clear()
+
+    def test_new_organizations_start_on_most_specific_access_resolution(self):
+        organization = Organization.objects.create(name="Fresh org")
+        self.assertTrue(organization.uses_most_specific_access_resolution)
+
+        opted_out = Organization.objects.create(name="Opted out org", uses_most_specific_access_resolution=False)
+        self.assertFalse(opted_out.uses_most_specific_access_resolution)
+
+    @parameterized.expand(
+        [
+            ("new_name", "Bar Baz Corp", "bar-baz-corp"),
+            ("name_with_same_slug", "Foo Inc!", "foo-inc"),
+        ]
+    )
+    def test_rename_updates_slug(self, _name, new_name, expected_slug):
+        organization = Organization.objects.create(name="Foo Inc")
+        organization.name = new_name
+        organization.save()
+        organization.refresh_from_db()
+        self.assertEqual(organization.slug, expected_slug)
+
+    def test_rename_to_taken_slug_appends_suffix(self):
+        Organization.objects.create(name="Bar Baz")
+        organization = Organization.objects.create(name="Foo Inc")
+        organization.name = "Bar Baz"
+        organization.save()
+        in_memory_slug = organization.slug
+        organization.refresh_from_db()
+        self.assertRegex(organization.slug, r"^bar-baz-[a-z]{4}$")
+        self.assertEqual(in_memory_slug, organization.slug)
+
+    def test_save_without_rename_keeps_diverged_slug(self):
+        Organization.objects.create(name="Foo Inc")
+        organization = Organization.objects.create(name="Foo Inc")
+        organization.refresh_from_db()
+        suffixed_slug = organization.slug
+        self.assertRegex(suffixed_slug, r"^foo-inc-[a-z]{4}$")
+        organization.is_member_join_email_enabled = False
+        organization.save()
+        organization.refresh_from_db()
+        self.assertEqual(organization.slug, suffixed_slug)
+
+    def test_stale_instance_save_does_not_regenerate_slug(self):
+        Organization.objects.create(name="Foo Inc")
+        organization = Organization.objects.create(name="Foo Inc")
+        organization.refresh_from_db()
+        suffixed_slug = organization.slug
+        stale_copy = Organization.objects.get(pk=organization.pk)
+        organization.name = "Bar Baz"
+        organization.save()
+        stale_copy.is_member_join_email_enabled = False
+        stale_copy.save()
+        organization.refresh_from_db()
+        self.assertEqual(organization.slug, suffixed_slug)
+
+    @parameterized.expand(
+        [
+            ("name_included", ["name"], "new-name", "New Name"),
+            ("name_excluded", ["is_member_join_email_enabled"], "foo-inc", "Foo Inc"),
+        ]
+    )
+    def test_rename_with_update_fields(self, _name, update_fields, expected_slug, expected_name):
+        organization = Organization.objects.create(name="Foo Inc")
+        organization.name = "New Name"
+        organization.save(update_fields=update_fields)
+        organization.refresh_from_db()
+        self.assertEqual(organization.slug, expected_slug)
+        self.assertEqual(organization.name, expected_name)
 
     def test_organization_active_invites(self):
         self.assertEqual(self.organization.invites.count(), 0)
@@ -44,8 +112,9 @@ class TestOrganization(BaseTest):
         self.assertEqual(self.organization.invites.count(), 2)
         self.assertEqual(self.organization.active_invites.count(), 1)
 
+    @mock.patch("posthog.plugins.utils.github_request", side_effect=mocked_plugin_github_request)
     @mock.patch("posthog.plugins.utils.requests.get", side_effect=mocked_plugin_requests_get)
-    def test_plugins_are_preinstalled_on_self_hosted(self, mock_get):
+    def test_plugins_are_preinstalled_on_self_hosted(self, mock_get, mock_github_request):
         with self.is_cloud(False):
             with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
                 new_org, _, _ = Organization.objects.bootstrap(
@@ -58,14 +127,16 @@ class TestOrganization(BaseTest):
             Plugin.objects.filter(organization=new_org, is_preinstalled=True).get().name,
             "helloworldplugin",
         )
-        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(mock_github_request.call_count, 1)
+        self.assertEqual(mock_get.call_count, 1)
         mock_get.assert_any_call(
             f"https://github.com/PostHog/helloworldplugin/archive/{HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}.zip",
             headers={},
         )
 
+    @mock.patch("posthog.plugins.utils.github_request", side_effect=mocked_plugin_github_request)
     @mock.patch("posthog.plugins.utils.requests.get", side_effect=mocked_plugin_requests_get)
-    def test_plugins_are_not_preinstalled_on_cloud(self, mock_get):
+    def test_plugins_are_not_preinstalled_on_cloud(self, mock_get, mock_github_request):
         with self.is_cloud(True):
             with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
                 new_org, _, _ = Organization.objects.bootstrap(
@@ -74,6 +145,7 @@ class TestOrganization(BaseTest):
                 )
 
         self.assertEqual(Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(), 0)
+        self.assertEqual(mock_github_request.call_count, 0)
         self.assertEqual(mock_get.call_count, 0)
 
     def test_plugins_access_level_is_determined_based_on_realm(self):

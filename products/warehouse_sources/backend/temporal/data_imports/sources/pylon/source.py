@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pylon import PylonSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.pylon import (
+    PYLON_EU_BASE_URL,
+    PYLON_US_BASE_URL,
     PylonResumeConfig,
+    base_url_for_token,
     pylon_source,
     validate_credentials as validate_pylon_credentials,
 )
@@ -48,7 +51,7 @@ class PylonSource(ResumableSource[PylonSourceConfig, PylonResumeConfig]):
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Pylon API token to pull your Pylon support data into the PostHog Data warehouse.
 
-You can create an API token from your Pylon dashboard under **Settings > API tokens** (admin only).""",
+You can create an API token from your Pylon dashboard under **Settings > API tokens** (admin only). US and EU workspaces are detected from the token, so there is no region to pick.""",
             iconPath="/static/services/pylon.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pylon",
             fields=cast(
@@ -67,13 +70,17 @@ You can create an API token from your Pylon dashboard under **Settings > API tok
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {
-            # A bad/revoked token surfaces as an HTTPError from `raise_for_status()`; retrying can never
-            # fix a credential problem. Match the stable status text and base host, not the per-request
-            # path/query.
-            "401 Client Error: Unauthorized for url: https://api.usepylon.com": "Your Pylon API token is invalid or has been revoked. Create a new token in Settings > API tokens and reconnect.",
-            "403 Client Error: Forbidden for url: https://api.usepylon.com": "Your Pylon API token is missing the permissions needed to sync this data. Recreate the token with the required access and reconnect.",
-        }
+        invalid_token = "Your Pylon API token is invalid or has been revoked. Create a new token in Settings > API tokens and reconnect."
+        missing_permissions = "Your Pylon API token is missing the permissions needed to sync this data. Recreate the token with the required access and reconnect."
+        # A bad/revoked token surfaces as an HTTPError from `raise_for_status()`; retrying can never
+        # fix a credential problem. Match the stable status text and base host, not the per-request
+        # path/query. Both regional hosts need a key, since the URL in the error is whichever host the
+        # token routed to.
+        errors: dict[str, str | None] = {}
+        for base_url in (PYLON_US_BASE_URL, PYLON_EU_BASE_URL):
+            errors[f"401 Client Error: Unauthorized for url: {base_url}"] = invalid_token
+            errors[f"403 Client Error: Forbidden for url: {base_url}"] = missing_permissions
+        return errors
 
     def get_schemas(
         self,
@@ -106,7 +113,12 @@ You can create an API token from your Pylon dashboard under **Settings > API tok
         if validate_pylon_credentials(config.api_token):
             return True, None
 
-        return False, "Invalid Pylon API token"
+        return (
+            False,
+            f"Pylon rejected this API token at {base_url_for_token(config.api_token)}. "
+            "PostHog picks that host from the token's prefix, so check that you copied the whole token "
+            "from the Pylon workspace you want to sync. You can create a new one under Settings > API tokens.",
+        )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.pylon.canonical_descriptions import (

@@ -76,6 +76,10 @@
                     "description": "Match accounts with no active relationship of any definition.",
                     "type": "boolean"
                 },
+                "assignedOnly": {
+                    "description": "Match accounts with at least one active relationship of any definition.",
+                    "type": "boolean"
+                },
                 "assignedToUserIds": {
                     "description": "Match accounts where any of these user ids actively holds any relationship (CSM, Account executive, or a custom definition). Drives the \"My accounts\" shortcut (the current user's id) and the shareable \"Assigned to\" filter — the ids are explicit so a shared URL resolves identically for every viewer.",
                     "items": {
@@ -959,6 +963,9 @@
             "properties": {
                 "actionId": {
                     "$ref": "#/definitions/integer"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }
             },
             "required": ["actionId"],
@@ -1634,9 +1641,6 @@
                     "$ref": "#/definitions/MarketingAnalyticsRetentionQuery"
                 },
                 {
-                    "$ref": "#/definitions/NonIntegratedConversionsTableQuery"
-                },
-                {
                     "$ref": "#/definitions/WebOverviewQuery"
                 },
                 {
@@ -1767,6 +1771,9 @@
                 },
                 {
                     "$ref": "#/definitions/MCPHarnessBreakdownQuery"
+                },
+                {
+                    "$ref": "#/definitions/MCPModelBreakdownQuery"
                 },
                 {
                     "$ref": "#/definitions/MCPToolTopUsersQuery"
@@ -2582,14 +2589,14 @@
         },
         "AssistantDateRange": {
             "additionalProperties": false,
-            "description": "This filter only works with absolute dates.",
+            "description": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
             "properties": {
                 "date_from": {
                     "description": "ISO8601 date string.",
                     "type": "string"
                 },
                 "date_to": {
-                    "description": "ISO8601 date string.",
+                    "description": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
                     "type": ["string", "null"]
                 }
             },
@@ -3151,7 +3158,7 @@
                 "funnelVizType": {
                     "$ref": "#/definitions/FunnelVizType",
                     "default": "steps",
-                    "description": "Defines the type of visualization to use. The `steps` option is recommended. `steps` - shows a step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default). `time_to_convert` - shows a histogram of the time it took to complete the funnel. `trends` - shows trends of the conversion rate of the whole sequence over time."
+                    "description": "Defines the type of visualization to use. `steps` - one bar per step with the conversion between them (default). Use for \"what's the conversion rate\" and \"where do users drop off\". `trends` - the conversion rate of the whole sequence as a time series. Use whenever the question is about change over time (\"is conversion improving\", \"conversion per week\", \"since we shipped X\"); a `steps` chart cannot show that. `time_to_convert` - a histogram of how long users took to complete the funnel."
                 },
                 "funnelWindowInterval": {
                     "$ref": "#/definitions/integer",
@@ -4871,17 +4878,6 @@
         "AssistantStickinessQuery": {
             "additionalProperties": false,
             "properties": {
-                "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
-                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range. When enabled, shows the current and previous period side by side."
@@ -4901,7 +4897,7 @@
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`. This determines what counts as one \"interval\" for stickiness measurement. For example, with `day` interval over a 30-day range, the X-axis shows 1 through 30 days, and each bar/point shows how many users performed the event on exactly that many days."
                 },
                 "intervalCount": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/positive_integer",
                     "description": "How many base intervals comprise one stickiness period. Defaults to 1. For example, `interval: \"day\"` with `intervalCount: 7` groups by 7-day periods."
                 },
                 "kind": {
@@ -5048,11 +5044,6 @@
                 "label_replay_vision_observation",
                 "analyze_replay_vision_impact",
                 "suggest_replay_vision_tags",
-                "read_replay_vision_actions",
-                "update_replay_vision_action",
-                "delete_replay_vision_action",
-                "run_replay_vision_action",
-                "create_replay_vision_action",
                 "upsert_account",
                 "upsert_account_notebook",
                 "open_account"
@@ -5491,7 +5482,7 @@
                 },
                 "display": {
                     "default": "ActionsLineGraph",
-                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
+                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison (\"how many X in the last 30 days\", \"what's our conversion rate this month\", \"how does this month compare to last\"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown. `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
                     "enum": [
                         "Auto",
                         "ActionsLineGraph",
@@ -6582,6 +6573,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -6715,6 +6710,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -6818,6 +6817,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -6942,6 +6945,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7057,6 +7064,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7163,6 +7174,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7262,6 +7277,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -7376,6 +7395,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7478,6 +7501,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7577,6 +7604,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -7694,6 +7725,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7809,6 +7844,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7923,6 +7962,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -8060,6 +8103,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -8204,6 +8251,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -8312,6 +8363,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -8427,6 +8482,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -8535,6 +8594,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -8641,6 +8704,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -8770,6 +8837,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -8893,6 +8964,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -8992,6 +9067,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -9093,6 +9172,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -9209,6 +9292,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -9355,6 +9442,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -9518,6 +9609,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -9629,6 +9724,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -9726,6 +9825,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -9846,6 +9949,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -9940,6 +10047,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -10045,6 +10156,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -10106,6 +10221,114 @@
             ],
             "type": "object"
         },
+        "CachedMCPModelBreakdownQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "description": "Whether another page of individual model identifiers is available.",
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MCPModelBreakdownItem"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedMCPToolCallBreakdownQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -10145,6 +10368,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -10246,6 +10473,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -10345,6 +10576,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -10446,6 +10681,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -10545,6 +10784,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -10646,6 +10889,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -10745,6 +10992,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -10846,6 +11097,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -10945,6 +11200,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -11046,6 +11305,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -11146,6 +11409,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -11245,6 +11512,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -11351,6 +11622,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -11450,6 +11725,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -11552,6 +11831,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -11651,6 +11934,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -11775,6 +12062,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -11912,6 +12203,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12044,6 +12339,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12171,6 +12470,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12281,6 +12584,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12388,6 +12695,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12430,129 +12741,6 @@
             ],
             "type": "object"
         },
-        "CachedNonIntegratedConversionsTableQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "cache_key": {
-                    "type": "string"
-                },
-                "cache_target_age": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "calculation_trigger": {
-                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
-                    "type": "string"
-                },
-                "columns": {
-                    "items": {},
-                    "type": "array"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hasMore": {
-                    "type": "boolean"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "last_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "next_allowed_client_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "offset": {
-                    "$ref": "#/definitions/integer"
-                },
-                "query_metadata": {
-                    "type": "object"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "resolved_compare_date_range": {
-                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                    "description": "The resolved previous/comparison period date range, when comparing against another period"
-                },
-                "resolved_date_range": {
-                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                    "description": "The date range used for the query"
-                },
-                "results": {
-                    "items": {
-                        "items": {
-                            "$ref": "#/definitions/MarketingAnalyticsItem"
-                        },
-                        "type": "array"
-                    },
-                    "type": "array"
-                },
-                "samplingRate": {
-                    "$ref": "#/definitions/SamplingRate"
-                },
-                "timezone": {
-                    "type": "string"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                },
-                "types": {
-                    "items": {},
-                    "type": "array"
-                },
-                "used_data_warehouse_sources": {
-                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
-                    "items": {
-                        "$ref": "#/definitions/DataWarehouseSourceUsage"
-                    },
-                    "type": "array"
-                },
-                "warnings": {
-                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
-                    "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/DataWarehouseSyncWarning"
-                            },
-                            {
-                                "$ref": "#/definitions/AccessControlFilterWarning"
-                            }
-                        ]
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "cache_key",
-                "is_cached",
-                "last_refresh",
-                "next_allowed_client_refresh",
-                "results",
-                "timezone"
-            ],
-            "type": "object"
-        },
         "CachedPathsQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -12592,6 +12780,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -12693,6 +12885,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12789,6 +12985,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -12897,6 +13097,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12997,6 +13201,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -13110,6 +13318,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -13226,6 +13438,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -13366,6 +13582,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -13478,6 +13698,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -13592,6 +13816,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -13692,6 +13920,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -13780,6 +14012,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -13859,6 +14095,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -13961,6 +14201,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14040,6 +14284,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -14148,6 +14396,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14254,6 +14506,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -14368,6 +14624,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14466,6 +14726,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -14575,6 +14839,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -14691,6 +14959,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14802,6 +15074,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14902,6 +15178,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -15001,6 +15281,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -15111,6 +15395,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -15227,6 +15515,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -15341,6 +15633,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -15467,6 +15763,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -15574,6 +15874,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -15691,6 +15995,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -15802,6 +16110,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -15927,6 +16239,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -16039,6 +16355,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -16140,6 +16460,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -16489,6 +16813,9 @@
                     "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest.",
                     "enum": ["top", "bottom", "left", "right"],
                     "type": "string"
+                },
+                "metric": {
+                    "$ref": "#/definitions/MetricChartSettings"
                 },
                 "pie": {
                     "$ref": "#/definitions/PieChartSettings"
@@ -17273,6 +17600,81 @@
             ],
             "type": "string"
         },
+        "CustomBotCondition": {
+            "additionalProperties": false,
+            "description": "One condition of a project's bot rule.",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "key": {
+                    "$ref": "#/definitions/CustomBotField",
+                    "description": "The event property this condition reads."
+                },
+                "matcher": {
+                    "$ref": "#/definitions/CustomBotMatcher"
+                },
+                "pattern": {
+                    "description": "Matched against the property named by `key`.",
+                    "type": "string"
+                }
+            },
+            "required": ["key", "pattern", "matcher", "id"],
+            "type": "object"
+        },
+        "CustomBotField": {
+            "description": "The event properties a project's own bot rule can match on.",
+            "enum": [
+                "$raw_user_agent",
+                "$ip",
+                "$lib",
+                "$host",
+                "$pathname",
+                "$current_url",
+                "$browser",
+                "$os",
+                "$browser_language",
+                "$screen_width",
+                "$screen_height",
+                "$geoip_country_code",
+                "$referrer",
+                "$referring_domain"
+            ],
+            "type": "string"
+        },
+        "CustomBotMatcher": {
+            "enum": ["contains", "regex", "exact", "cidr"],
+            "type": "string"
+        },
+        "CustomBotRule": {
+            "additionalProperties": false,
+            "description": "A bot a project defines itself, on top of PostHog's built-in bot list.",
+            "properties": {
+                "category": {
+                    "description": "Reported by `$virt_traffic_category`. Defaults to `custom`.",
+                    "type": "string"
+                },
+                "combiner": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Whether every condition must match (AND) or any one of them (OR)."
+                },
+                "id": {
+                    "type": "string"
+                },
+                "items": {
+                    "items": {
+                        "$ref": "#/definitions/CustomBotCondition"
+                    },
+                    "type": "array"
+                },
+                "name": {
+                    "description": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.",
+                    "type": "string"
+                }
+            },
+            "required": ["name", "combiner", "items", "id"],
+            "type": "object"
+        },
         "CustomChannelCondition": {
             "additionalProperties": false,
             "properties": {
@@ -17337,6 +17739,9 @@
             "properties": {
                 "customEventName": {
                     "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }
             },
             "required": ["customEventName"],
@@ -18776,94 +19181,6 @@
                             "additionalProperties": false,
                             "properties": {
                                 "columns": {
-                                    "items": {},
-                                    "type": "array"
-                                },
-                                "error": {
-                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                                    "type": "string"
-                                },
-                                "hasMore": {
-                                    "type": "boolean"
-                                },
-                                "hogql": {
-                                    "description": "Generated HogQL query.",
-                                    "type": "string"
-                                },
-                                "limit": {
-                                    "$ref": "#/definitions/integer"
-                                },
-                                "modifiers": {
-                                    "$ref": "#/definitions/HogQLQueryModifiers",
-                                    "description": "Modifiers used when performing the query"
-                                },
-                                "offset": {
-                                    "$ref": "#/definitions/integer"
-                                },
-                                "query_status": {
-                                    "$ref": "#/definitions/QueryStatus",
-                                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                                },
-                                "resolved_compare_date_range": {
-                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                                    "description": "The resolved previous/comparison period date range, when comparing against another period"
-                                },
-                                "resolved_date_range": {
-                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                                    "description": "The date range used for the query"
-                                },
-                                "results": {
-                                    "items": {
-                                        "items": {
-                                            "$ref": "#/definitions/MarketingAnalyticsItem"
-                                        },
-                                        "type": "array"
-                                    },
-                                    "type": "array"
-                                },
-                                "samplingRate": {
-                                    "$ref": "#/definitions/SamplingRate"
-                                },
-                                "timings": {
-                                    "description": "Measured timings for different parts of the query generation process",
-                                    "items": {
-                                        "$ref": "#/definitions/QueryTiming"
-                                    },
-                                    "type": "array"
-                                },
-                                "types": {
-                                    "items": {},
-                                    "type": "array"
-                                },
-                                "used_data_warehouse_sources": {
-                                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
-                                    "items": {
-                                        "$ref": "#/definitions/DataWarehouseSourceUsage"
-                                    },
-                                    "type": "array"
-                                },
-                                "warnings": {
-                                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
-                                    "items": {
-                                        "anyOf": [
-                                            {
-                                                "$ref": "#/definitions/DataWarehouseSyncWarning"
-                                            },
-                                            {
-                                                "$ref": "#/definitions/AccessControlFilterWarning"
-                                            }
-                                        ]
-                                    },
-                                    "type": "array"
-                                }
-                            },
-                            "required": ["results"],
-                            "type": "object"
-                        },
-                        {
-                            "additionalProperties": false,
-                            "properties": {
-                                "columns": {
                                     "items": {
                                         "type": "string"
                                     },
@@ -19766,9 +20083,6 @@
                 },
                 {
                     "$ref": "#/definitions/MarketingAnalyticsAggregatedQuery"
-                },
-                {
-                    "$ref": "#/definitions/NonIntegratedConversionsTableQuery"
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingQuery"
@@ -20691,7 +21005,7 @@
                     "type": ["string", "null"]
                 },
                 "date_to": {
-                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.",
                     "type": ["string", "null"]
                 },
                 "daysOfWeek": {
@@ -26363,6 +26677,7 @@
                 "Freshchat",
                 "Freshservice",
                 "Fulcrum",
+                "GainsightCs",
                 "GainsightPx",
                 "GitBook",
                 "Glassfrog",
@@ -27358,7 +27673,20 @@
                 "Coolify",
                 "SocialPilot",
                 "RoktAds",
-                "Strato"
+                "Strato",
+                "Medusa",
+                "Membrain",
+                "RecallAI",
+                "Tenjin",
+                "Folk",
+                "Cybersource",
+                "GoogleAdSense",
+                "Sequenzy",
+                "Skio",
+                "Smartlead",
+                "Substack",
+                "ElectricityMaps",
+                "Amplemarket"
             ],
             "type": "string"
         },
@@ -28890,6 +29218,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -29739,6 +30071,12 @@
                 },
                 "convertToProjectTimezone": {
                     "type": "boolean"
+                },
+                "customBotDefinitions": {
+                    "items": {
+                        "$ref": "#/definitions/CustomBotRule"
+                    },
+                    "type": "array"
                 },
                 "customChannelTypeRules": {
                     "items": {
@@ -30970,6 +31308,10 @@
         "IntegrationFilter": {
             "additionalProperties": false,
             "properties": {
+                "includeNonIntegrated": {
+                    "description": "Keep rows that no integration reports cost for, such as organic, email or an unmapped source. Defaults to true.",
+                    "type": "boolean"
+                },
                 "integrationSourceIds": {
                     "description": "Selected integration source IDs to filter by (e.g., table IDs or source map IDs)",
                     "items": {
@@ -31002,6 +31344,7 @@
                 "linear",
                 "github",
                 "gitlab",
+                "helpscout",
                 "meta-ads",
                 "instagram",
                 "clickup",
@@ -32196,6 +32539,10 @@
                     },
                     "type": "array"
                 },
+                "sessionId": {
+                    "description": "Show logs for a given session ID",
+                    "type": "string"
+                },
                 "severityLevels": {
                     "items": {
                         "$ref": "#/definitions/LogSeverityLevel"
@@ -32602,6 +32949,142 @@
                 }
             },
             "required": ["has_next", "results"],
+            "type": "object"
+        },
+        "MCPModelBreakdownItem": {
+            "additionalProperties": false,
+            "description": "One model's share of MCP tool calls.",
+            "properties": {
+                "model": {
+                    "type": "string"
+                },
+                "total_calls": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["model", "total_calls"],
+            "type": "object"
+        },
+        "MCPModelBreakdownQuery": {
+            "additionalProperties": false,
+            "description": "MCP tool-call activity grouped by captured model identity.",
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeAllModels": {
+                    "description": "Return individual reported models, excluding Unknown, instead of the top-six grouping.",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "MCPModelBreakdownQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Page size when includeAllModels is enabled.",
+                    "maximum": 100,
+                    "minimum": 1
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of individual models to skip when includeAllModels is enabled.",
+                    "minimum": 0
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/MCPModelBreakdownQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "MCPModelBreakdownQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "description": "Whether another page of individual model identifiers is available.",
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MCPModelBreakdownItem"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "MCPToolCallBreakdownItem": {
@@ -35320,6 +35803,9 @@
                     },
                     "type": "object"
                 },
+                "filter_test_accounts": {
+                    "type": "boolean"
+                },
                 "sources_map": {
                     "additionalProperties": {
                         "$ref": "#/definitions/SourceMap"
@@ -37742,6 +38228,44 @@
             ],
             "type": "string"
         },
+        "MetricChartSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "changeDecreaseColor": {
+                    "description": "Change pill color when the series went down. Defaults to red.",
+                    "type": "string"
+                },
+                "changeIncreaseColor": {
+                    "description": "Change pill color when the series went up. Defaults to green.",
+                    "type": "string"
+                },
+                "colorByDirection": {
+                    "default": false,
+                    "description": "Color the sparkline by whether the series went up or down.",
+                    "type": "boolean"
+                },
+                "lineDecreaseColor": {
+                    "description": "Sparkline color when the series went down. Defaults to red.",
+                    "type": "string"
+                },
+                "lineIncreaseColor": {
+                    "description": "Sparkline color when the series went up. Defaults to green.",
+                    "type": "string"
+                },
+                "showChange": {
+                    "default": true,
+                    "description": "Show the change pill comparing the first point to the latest point.",
+                    "type": "boolean"
+                },
+                "summary": {
+                    "default": "latest",
+                    "description": "Which value the resting headline shows: the latest point, the total, or the average of the returned points.",
+                    "enum": ["total", "average", "latest"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "MetricPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -37805,14 +38329,43 @@
                     },
                     "type": "array"
                 },
+                "legendCalcs": {
+                    "description": "Time-series panels only: which reducers the legend table shows. Empty means no legend calcs.",
+                    "items": {
+                        "$ref": "#/definitions/MetricsReducer"
+                    },
+                    "type": "array"
+                },
+                "nullMode": {
+                    "$ref": "#/definitions/MetricsNullMode",
+                    "default": "gap",
+                    "description": "How a null bucket renders on a time-series chart."
+                },
+                "reduce": {
+                    "$ref": "#/definitions/MetricsReducer",
+                    "default": "last",
+                    "description": "How scalar panels and legend calcs collapse a series to one number."
+                },
                 "statSummary": {
                     "$ref": "#/definitions/MetricsStatSummary",
                     "default": "latest",
+                    "deprecated": "Use `reduce`.",
                     "description": "`stat` display only: which summary the headline value shows."
+                },
+                "thresholds": {
+                    "description": "Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter.",
+                    "items": {
+                        "$ref": "#/definitions/MetricsThreshold"
+                    },
+                    "type": "array"
                 },
                 "type": {
                     "$ref": "#/definitions/MetricsDisplayType",
                     "default": "line"
+                },
+                "unit": {
+                    "description": "UCUM unit string as OTel writes it, e.g. \"By\", \"ms\", \"%\". Defaults from the response unit.",
+                    "type": "string"
                 },
                 "yAxis": {
                     "$ref": "#/definitions/MetricsYAxisSettings"
@@ -37822,11 +38375,16 @@
         },
         "MetricsDisplayType": {
             "description": "How a metrics result is charted. `stat` is a single headline value plus sparkline, not a time series.",
-            "enum": ["line", "area", "bar", "stat"],
+            "enum": ["line", "area", "bar", "stat", "gauge", "bargauge", "table", "heatmap"],
             "type": "string"
         },
         "MetricsFilterOp": {
             "enum": ["eq", "neq", "regex", "not_regex"],
+            "type": "string"
+        },
+        "MetricsNullMode": {
+            "description": "How a null bucket renders on a time-series chart.",
+            "enum": ["gap", "zero", "connect"],
             "type": "string"
         },
         "MetricsOtelType": {
@@ -37958,7 +38516,8 @@
                     "type": "string"
                 },
                 "value": {
-                    "type": "number"
+                    "description": "The bucket's aggregate; null when it isn't representable (a gap).",
+                    "type": ["number", "null"]
                 }
             },
             "required": ["time", "value"],
@@ -38051,15 +38610,41 @@
                         "$ref": "#/definitions/MetricsQueryPoint"
                     },
                     "type": "array"
+                },
+                "unit": {
+                    "description": "UCUM unit of the metric as ingested, e.g. \"By\", \"ms\", \"1\". Empty when the SDK did not set one.",
+                    "type": "string"
                 }
             },
             "required": ["labels", "points"],
             "type": "object"
         },
+        "MetricsReducer": {
+            "description": "How a series collapses to one number for the scalar panels and legend calcs.",
+            "enum": ["last", "mean", "min", "max", "sum", "delta"],
+            "type": "string"
+        },
         "MetricsStatSummary": {
+            "deprecated": "Use `MetricsDisplaySettings.reduce`. Kept so saved insights keep working.",
             "description": "Which summary the `stat` display's headline value shows.",
             "enum": ["latest", "average", "total"],
             "type": "string"
+        },
+        "MetricsThreshold": {
+            "additionalProperties": false,
+            "description": "A threshold band: `color` applies from `value` up to the next step.",
+            "properties": {
+                "color": {
+                    "description": "A named color token (e.g. \"green\", \"red\"), never raw hex, so light and dark themes both work.",
+                    "type": "string"
+                },
+                "value": {
+                    "description": "Lower bound of this band. The lowest step is the base color below every other step.",
+                    "type": "number"
+                }
+            },
+            "required": ["value", "color"],
+            "type": "object"
         },
         "MetricsYAxisSettings": {
             "additionalProperties": false,
@@ -38465,7 +39050,6 @@
                 "MarketingAnalyticsAttributionQuery",
                 "MarketingAnalyticsAttributionPathsQuery",
                 "MarketingAnalyticsRetentionQuery",
-                "NonIntegratedConversionsTableQuery",
                 "ExperimentMetric",
                 "ExperimentQuery",
                 "ExperimentExposureQuery",
@@ -38494,6 +39078,7 @@
                 "MCPToolCallBreakdownQuery",
                 "MCPToolCallsAndErrorsQuery",
                 "MCPHarnessBreakdownQuery",
+                "MCPModelBreakdownQuery",
                 "MCPToolTopUsersQuery",
                 "MCPToolFailuresQuery",
                 "MCPToolFailureOccurrencesQuery",
@@ -38511,219 +39096,6 @@
                 "PropertyValuesQuery"
             ],
             "type": "string"
-        },
-        "NonIntegratedConversionsColumnsSchemaNames": {
-            "description": "Columns for non-integrated conversions table",
-            "enum": ["Source", "Campaign"],
-            "type": "string"
-        },
-        "NonIntegratedConversionsTableQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
-                },
-                "compareFilter": {
-                    "$ref": "#/definitions/CompareFilter",
-                    "description": "Compare to date range"
-                },
-                "conversionGoal": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "dataColorTheme": {
-                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
-                    "type": ["number", "null"]
-                },
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "doPathCleaning": {
-                    "type": "boolean"
-                },
-                "draftConversionGoal": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/ConversionGoalFilter"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Draft conversion goal that can be set in the UI without saving"
-                },
-                "filterTestAccounts": {
-                    "description": "Filter test accounts",
-                    "type": "boolean"
-                },
-                "includeRevenue": {
-                    "deprecated": "ignored, always treated as disabled",
-                    "type": "boolean"
-                },
-                "interval": {
-                    "$ref": "#/definitions/IntervalType",
-                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
-                },
-                "kind": {
-                    "const": "NonIntegratedConversionsTableQuery",
-                    "type": "string"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer",
-                    "description": "Number of rows to return"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "offset": {
-                    "$ref": "#/definitions/integer",
-                    "description": "Number of rows to skip before returning rows"
-                },
-                "orderBy": {
-                    "description": "Columns to order by",
-                    "items": {
-                        "$ref": "#/definitions/MarketingAnalyticsOrderBy"
-                    },
-                    "type": "array"
-                },
-                "properties": {
-                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
-                },
-                "response": {
-                    "$ref": "#/definitions/NonIntegratedConversionsTableQueryResponse"
-                },
-                "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling",
-                    "deprecated": "Use samplingFactor instead"
-                },
-                "samplingFactor": {
-                    "description": "Sampling rate",
-                    "type": ["number", "null"]
-                },
-                "select": {
-                    "description": "Return a limited set of data. Will use default columns if empty.",
-                    "items": {
-                        "$ref": "#/definitions/HogQLExpression"
-                    },
-                    "type": "array"
-                },
-                "tags": {
-                    "$ref": "#/definitions/QueryLogTags"
-                },
-                "useSessionsTable": {
-                    "deprecated": "ignored, always treated as enabled *",
-                    "type": "boolean"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                }
-            },
-            "required": ["kind", "properties"],
-            "type": "object"
-        },
-        "NonIntegratedConversionsTableQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "columns": {
-                    "items": {},
-                    "type": "array"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hasMore": {
-                    "type": "boolean"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "offset": {
-                    "$ref": "#/definitions/integer"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "resolved_compare_date_range": {
-                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                    "description": "The resolved previous/comparison period date range, when comparing against another period"
-                },
-                "resolved_date_range": {
-                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                    "description": "The date range used for the query"
-                },
-                "results": {
-                    "items": {
-                        "items": {
-                            "$ref": "#/definitions/MarketingAnalyticsItem"
-                        },
-                        "type": "array"
-                    },
-                    "type": "array"
-                },
-                "samplingRate": {
-                    "$ref": "#/definitions/SamplingRate"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                },
-                "types": {
-                    "items": {},
-                    "type": "array"
-                },
-                "used_data_warehouse_sources": {
-                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
-                    "items": {
-                        "$ref": "#/definitions/DataWarehouseSourceUsage"
-                    },
-                    "type": "array"
-                },
-                "warnings": {
-                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
-                    "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/DataWarehouseSyncWarning"
-                            },
-                            {
-                                "$ref": "#/definitions/AccessControlFilterWarning"
-                            }
-                        ]
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["results"],
-            "type": "object"
         },
         "NotebookArtifactContent": {
             "additionalProperties": false,
@@ -39649,31 +40021,6 @@
             "required": ["event"],
             "type": "object"
         },
-        "PersistedFolder": {
-            "additionalProperties": false,
-            "properties": {
-                "created_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "path": {
-                    "type": "string"
-                },
-                "protocol": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            },
-            "required": ["id", "type", "protocol", "path", "created_at", "updated_at"],
-            "type": "object"
-        },
         "PersonMetadataPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -40012,10 +40359,15 @@
                 "feature flag created",
                 "session_replay_set_filters",
                 "session_replay_experiment_link_clicked",
+                "session_replay_save_filters_as_scanner",
+                "replay_vision_viewed",
+                "replay_vision_scanner_created",
+                "replay_vision_scan_triggered",
                 "error_tracking_exception_autocapture_enabled",
                 "error_tracking_issue_sorting",
                 "error_tracking_docs_viewed",
                 "error_tracking_issue_explained",
+                "error_tracking_scan_with_vision",
                 "llm_analytics_viewed",
                 "llm_analytics_trace_viewed",
                 "llm_analytics_docs_viewed",
@@ -40151,6 +40503,7 @@
                 "llm_analytics",
                 "alerts",
                 "annotations",
+                "business_knowledge",
                 "cohorts",
                 "comments",
                 "conversations",
@@ -40188,11 +40541,16 @@
                 "pipeline_destinations",
                 "pipeline_transformations",
                 "platform_and_support",
+                "posthog_ai_onboarding",
+                "posthog_desktop",
+                "posthog_github",
+                "posthog_slack",
                 "product_analytics",
                 "product_tours",
                 "pulse",
                 "revenue_analytics",
                 "review_hog",
+                "self_driving",
                 "session_replay",
                 "replay_vision",
                 "site_apps",
@@ -43510,94 +43868,6 @@
                     "type": "object"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "columns": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "error": {
-                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                            "type": "string"
-                        },
-                        "hasMore": {
-                            "type": "boolean"
-                        },
-                        "hogql": {
-                            "description": "Generated HogQL query.",
-                            "type": "string"
-                        },
-                        "limit": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "modifiers": {
-                            "$ref": "#/definitions/HogQLQueryModifiers",
-                            "description": "Modifiers used when performing the query"
-                        },
-                        "offset": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus",
-                            "description": "Query status indicates whether next to the provided data, a query is still running."
-                        },
-                        "resolved_compare_date_range": {
-                            "$ref": "#/definitions/ResolvedDateRangeResponse",
-                            "description": "The resolved previous/comparison period date range, when comparing against another period"
-                        },
-                        "resolved_date_range": {
-                            "$ref": "#/definitions/ResolvedDateRangeResponse",
-                            "description": "The date range used for the query"
-                        },
-                        "results": {
-                            "items": {
-                                "items": {
-                                    "$ref": "#/definitions/MarketingAnalyticsItem"
-                                },
-                                "type": "array"
-                            },
-                            "type": "array"
-                        },
-                        "samplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        },
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        },
-                        "types": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "used_data_warehouse_sources": {
-                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
-                            "items": {
-                                "$ref": "#/definitions/DataWarehouseSourceUsage"
-                            },
-                            "type": "array"
-                        },
-                        "warnings": {
-                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
-                            "items": {
-                                "anyOf": [
-                                    {
-                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                                    },
-                                    {
-                                        "$ref": "#/definitions/AccessControlFilterWarning"
-                                    }
-                                ]
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
-                    "type": "object"
-                },
-                {
                     "properties": {},
                     "type": "object"
                 },
@@ -44764,94 +45034,6 @@
                             "items": {
                                 "$ref": "#/definitions/QueryTiming"
                             },
-                            "type": "array"
-                        },
-                        "used_data_warehouse_sources": {
-                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
-                            "items": {
-                                "$ref": "#/definitions/DataWarehouseSourceUsage"
-                            },
-                            "type": "array"
-                        },
-                        "warnings": {
-                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
-                            "items": {
-                                "anyOf": [
-                                    {
-                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                                    },
-                                    {
-                                        "$ref": "#/definitions/AccessControlFilterWarning"
-                                    }
-                                ]
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "columns": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "error": {
-                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                            "type": "string"
-                        },
-                        "hasMore": {
-                            "type": "boolean"
-                        },
-                        "hogql": {
-                            "description": "Generated HogQL query.",
-                            "type": "string"
-                        },
-                        "limit": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "modifiers": {
-                            "$ref": "#/definitions/HogQLQueryModifiers",
-                            "description": "Modifiers used when performing the query"
-                        },
-                        "offset": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus",
-                            "description": "Query status indicates whether next to the provided data, a query is still running."
-                        },
-                        "resolved_compare_date_range": {
-                            "$ref": "#/definitions/ResolvedDateRangeResponse",
-                            "description": "The resolved previous/comparison period date range, when comparing against another period"
-                        },
-                        "resolved_date_range": {
-                            "$ref": "#/definitions/ResolvedDateRangeResponse",
-                            "description": "The date range used for the query"
-                        },
-                        "results": {
-                            "items": {
-                                "items": {
-                                    "$ref": "#/definitions/MarketingAnalyticsItem"
-                                },
-                                "type": "array"
-                            },
-                            "type": "array"
-                        },
-                        "samplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        },
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        },
-                        "types": {
-                            "items": {},
                             "type": "array"
                         },
                         "used_data_warehouse_sources": {
@@ -48036,6 +48218,75 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "hasMore": {
+                            "description": "Whether another page of individual model identifiers is available.",
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/MCPModelBreakdownItem"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -49015,6 +49266,108 @@
                 }
             ]
         },
+        "QueryScanAnalysis": {
+            "additionalProperties": false,
+            "description": "The stored analysis of one query, kept for 30 days by cache key and put on every response for that query.",
+            "properties": {
+                "assistant_prompt": {
+                    "description": "The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query.",
+                    "type": "string"
+                },
+                "findings": {
+                    "description": "Empty when the analysis found nothing to fix.",
+                    "items": {
+                        "$ref": "#/definitions/QueryScanWarning"
+                    },
+                    "type": "array"
+                },
+                "project_share": {
+                    "description": "How much of all the project's events the query read, 0 to 1.",
+                    "type": "number"
+                },
+                "range_share": {
+                    "description": "How much of the project's events in the query's date range the query read, 0 to 1.",
+                    "type": "number"
+                }
+            },
+            "required": ["findings"],
+            "type": "object"
+        },
+        "QueryScanFindingKind": {
+            "description": "`no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.",
+            "enum": ["no_event_filter", "no_start_date", "persons_join"],
+            "type": "string"
+        },
+        "QueryScanFindingReason": {
+            "description": "Why a filter the query does have did not narrow the read. `in_or`: it sits inside an OR. `wrapped`: `event` is inside a function call. `negated`: it excludes events, which narrows nothing. `dynamic`: `event` is compared to a column. `not_pruned`: ClickHouse reported it unused. `filters`: the date range comes from `{filters}` and the insight left it open.",
+            "enum": ["in_or", "wrapped", "negated", "dynamic", "not_pruned", "filters"],
+            "type": "string"
+        },
+        "QueryScanResponse": {
+            "additionalProperties": false,
+            "description": "From `GET /query/scan/{cache_key}`: the analysis once the job has stored it. Empty while the job runs, 404 when nothing is stored.",
+            "properties": {
+                "analysis": {
+                    "$ref": "#/definitions/QueryScanAnalysis"
+                }
+            },
+            "type": "object"
+        },
+        "QueryScanSummary": {
+            "additionalProperties": false,
+            "description": "What a query cost and, once analyzed, why. Only on responses to a signed-in user of a team whose flag shows findings.",
+            "properties": {
+                "analysis": {
+                    "$ref": "#/definitions/QueryScanAnalysis",
+                    "description": "The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested."
+                },
+                "analysis_requested": {
+                    "description": "True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it.",
+                    "type": "boolean"
+                },
+                "duration_ms": {
+                    "$ref": "#/definitions/integer",
+                    "description": "ClickHouse time for the last fresh run, summed over its ClickHouse queries."
+                },
+                "killed": {
+                    "description": "True when ClickHouse stopped the run instead of finishing it.",
+                    "type": "boolean"
+                },
+                "rows_read": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rows ClickHouse read for the last fresh run, all tables included."
+                }
+            },
+            "required": ["rows_read", "duration_ms"],
+            "type": "object"
+        },
+        "QueryScanWarning": {
+            "additionalProperties": false,
+            "description": "One finding of a query's analysis.",
+            "properties": {
+                "evidence": {
+                    "description": "The one fact the finding rests on.",
+                    "type": "string"
+                },
+                "fix": {
+                    "description": "What \"Fix with AI\" and the assistant are told to do.",
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/QueryScanFindingKind"
+                },
+                "message": {
+                    "description": "Shown to the person: what happened and what to do.",
+                    "type": "string"
+                },
+                "reason": {
+                    "$ref": "#/definitions/QueryScanFindingReason",
+                    "description": "Only with `no_event_filter` and `no_start_date`."
+                }
+            },
+            "required": ["kind", "message", "fix"],
+            "type": "object"
+        },
         "QuerySchema": {
             "discriminator": {
                 "propertyName": "kind"
@@ -49156,9 +49509,6 @@
                     "$ref": "#/definitions/MarketingAnalyticsRetentionQuery"
                 },
                 {
-                    "$ref": "#/definitions/NonIntegratedConversionsTableQuery"
-                },
-                {
                     "$ref": "#/definitions/DataVisualizationNode"
                 },
                 {
@@ -49279,6 +49629,9 @@
                     "$ref": "#/definitions/MCPHarnessBreakdownQuery"
                 },
                 {
+                    "$ref": "#/definitions/MCPModelBreakdownQuery"
+                },
+                {
                     "$ref": "#/definitions/MCPToolTopUsersQuery"
                 },
                 {
@@ -49333,6 +49686,16 @@
         "QueryStatus": {
             "additionalProperties": false,
             "properties": {
+                "budget_remaining_bytes": {
+                    "$ref": "#/definitions/integer"
+                },
+                "bytes_read": {
+                    "$ref": "#/definitions/integer"
+                },
+                "cache_key": {
+                    "description": "Cache key of the run that failed, so clients can ask for its query scan.",
+                    "type": "string"
+                },
                 "complete": {
                     "default": false,
                     "description": "Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set.",
@@ -49389,6 +49752,9 @@
                 },
                 "query_progress": {
                     "$ref": "#/definitions/ClickhouseQueryProgress"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "results": {},
                 "start_time": {
@@ -49676,6 +50042,10 @@
                     },
                     "type": "array"
                 },
+                "recommended_only": {
+                    "description": "Restrict results to recordings above the replay relevance threshold.",
+                    "type": "boolean"
+                },
                 "response": {
                     "$ref": "#/definitions/RecordingsQueryResponse"
                 },
@@ -49709,6 +50079,10 @@
                 "experiment_id": {
                     "$ref": "#/definitions/integer",
                     "description": "Experiment whose exposed persons' sessions to show. Must belong to the environment the query runs in."
+                },
+                "in_session": {
+                    "description": "Only sessions carrying in-session exposure evidence: an event matching the experiment's exposure criteria inside the session (with the stamped `$feature/<flag_key>` property standing in when the exposure event was never captured with a session id). Defaults to all exposed persons' sessions from first exposure onward.",
+                    "type": "boolean"
                 },
                 "variant": {
                     "description": "Narrow to persons exposed to this variant. Defaults to all of the experiment's variants.",
@@ -52850,6 +53224,11 @@
             "required": ["id", "tool_call_id", "content"],
             "type": "object"
         },
+        "SubscriptionAIContextLimit": {
+            "const": 3,
+            "description": "Maximum number of dashboards and insights an AI subscription may use as context.",
+            "type": "number"
+        },
         "SubscriptionAIPromptMaxLength": {
             "const": 4000,
             "description": "Maximum length, in characters, of an AI subscription prompt.",
@@ -53839,6 +54218,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -57759,6 +58142,9 @@
                     "type": "boolean"
                 },
                 "includeScrollDepth": {
+                    "type": "boolean"
+                },
+                "includeTrafficMetrics": {
                     "type": "boolean"
                 },
                 "interval": {

@@ -487,6 +487,55 @@ describe('hogFlowOutputMappingLogic', () => {
             })
         })
 
+        describe('setMappingVariable', () => {
+            it('creates the workflow variable when the name is new, then maps and persists it', async () => {
+                const node = makeActionNode('action-new-var')
+                await expectLogic(editorLogic, () => {
+                    editorLogic.actions.setNodesRaw([node])
+                    editorLogic.actions.setSelectedNodeId('action-new-var')
+                }).toMatchValues({ selectedNode: node })
+                logic.actions.initMappings([{ key: '', result_path: 'output.verdict' }])
+
+                await expectLogic(logic, () => {
+                    logic.actions.setMappingVariable(0, 'verdict')
+                })
+                    .toDispatchActions([
+                        (action: any) => action.type === wfLogic.actionCreators.setWorkflowAction('', {} as any).type,
+                    ])
+                    .toMatchValues({ mappings: [{ key: 'verdict', result_path: 'output.verdict' }] })
+
+                expect(wfLogic.values.workflow.variables).toEqual([
+                    { key: 'verdict', label: 'verdict', type: 'string', default: '' },
+                ])
+            })
+
+            it('drops a pick of a variable another mapping already stores into', async () => {
+                logic.actions.initMappings([
+                    { key: 'verdict', result_path: 'output.verdict' },
+                    { key: '', result_path: 'output.score' },
+                ])
+
+                logic.actions.setMappingVariable(1, 'verdict')
+
+                expect(logic.values.mappings).toEqual([
+                    { key: 'verdict', result_path: 'output.verdict' },
+                    { key: '', result_path: 'output.score' },
+                ])
+            })
+
+            it('changes the type of the mapped variable in place', async () => {
+                wfLogic.actions.setWorkflowInfo({
+                    variables: [{ key: 'score', label: 'Score', type: 'string', default: '' }],
+                })
+
+                logic.actions.setVariableType('score', 'number')
+
+                expect(wfLogic.values.workflow.variables).toEqual([
+                    { key: 'score', label: 'Score', type: 'number', default: '' },
+                ])
+            })
+        })
+
         describe('addMapping and removeMapping', () => {
             it('addMapping appends an empty mapping to the existing list', async () => {
                 logic.actions.initMappings([{ key: 'existing', result_path: 'x' }])

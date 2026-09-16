@@ -1,5 +1,7 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
+import type { MlWireVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/schema'
+
 import { type ImageTransportRejectionReason } from './image-transport'
 import { ScrubWaitReason } from './scrub-client'
 
@@ -7,6 +9,11 @@ export type ImageScrubSkipReason = ImageTransportRejectionReason | 'sidecar_reje
 export type ImageScrubSource = 'inline' | 'url'
 
 export class ImageScrubConsumerMetrics {
+    private static readonly wireVersion = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_version_total',
+        help: 'Images accepted by wire format version, counted before scrubbing. Version 2 arrived as an encrypted envelope this consumer decrypted, version 1 as cleartext. The mirror stamps the version, so this is the consumer-side view of its switchover and the two rates should track each other across a deploy',
+        labelNames: ['version'],
+    })
     private static readonly scrubbed = new Counter({
         name: 'ml_mirror_image_scrub_consumer_scrubbed_total',
         help: 'Images scrubbed by the sidecar and buffered for a shard write',
@@ -68,7 +75,7 @@ export class ImageScrubConsumerMetrics {
      */
     private static readonly scrubWaits = new Counter({
         name: 'ml_mirror_image_scrub_consumer_scrub_waits_total',
-        help: 'Scrub attempts that returned no bytes and will be retried, by reason: "busy" (503, shed), "timeout" (no reply inside the request timeout), "transport" (socket refused or reset, or an unexpected status). Retried rather than dropped, so this is backpressure and not loss',
+        help: 'Scrub attempts that returned no bytes and will be retried, by reason: "busy" (503, shed), "timeout" (no reply inside the request timeout), "refused" (nothing listening on the sidecar port, so the sidecar is down or restarting), "reset" (a connection the sidecar accepted and then dropped before replying, which its shutdown does to idle sockets), "transport" (any other socket failure, so a sustained rate outside a rollout is a fault), "rejected" (a 5xx other than 503, a 408, a 429, or an empty 200). Retried rather than dropped, so this is backpressure and not loss. The unreachable alert selects "refused" and "transport"',
         labelNames: ['reason'],
     })
     /**
@@ -209,6 +216,12 @@ export class ImageScrubConsumerMetrics {
     public static incInvalidKey(): void {
         this.invalidKey.inc()
     }
+    public static incrementVersion(version: MlWireVersion, count: number): void {
+        if (count > 0) {
+            this.wireVersion.labels(version).inc(count)
+        }
+    }
+
     public static observeBatchMessages(count: number): void {
         this.batchMessages.observe(count)
     }

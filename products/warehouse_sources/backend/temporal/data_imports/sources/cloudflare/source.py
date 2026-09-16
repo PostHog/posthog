@@ -59,7 +59,7 @@ class CloudflareSource(SimpleSource[CloudflareSourceConfig]):
 Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/profile/api-tokens) with read permissions for the areas you want to sync, such as Account Settings, Zone, DNS, Firewall Services, Logs, Workers, and Access. Zone tables are synced from every zone the token can read, and account tables from every account. Zones and accounts the token can't read are skipped.""",
             iconPath="/static/services/cloudflare.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/cloudflare",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -124,11 +124,11 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
         if status is None or status == 429 or status >= 500:
             return (
                 False,
-                "Couldn't reach Cloudflare to verify your API token. Please try again in a moment.",
+                "Couldn't reach Cloudflare to verify your API token. Try again in a moment.",
             )
         return (
             False,
-            "Invalid Cloudflare API token. Please check the token has read permissions and hasn't been revoked.",
+            "Your Cloudflare API token was rejected. Create a new token with read permissions in your Cloudflare dashboard, then reconnect.",
         )
 
     def source_for_pipeline(self, config: CloudflareSourceConfig, inputs: SourceInputs) -> SourceResponse:

@@ -156,12 +156,12 @@ class TestIntercomSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
     )
     def test_validate_credentials_integration_value_error(self, mock_get_integration):
-        mock_get_integration.side_effect = ValueError("integration not found")
+        mock_get_integration.side_effect = ValueError("Integration not found: 162559")
 
         is_valid, error = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
-        assert error == "integration not found"
+        assert error == "Intercom integration not found. Please reconnect your Intercom integration."
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"

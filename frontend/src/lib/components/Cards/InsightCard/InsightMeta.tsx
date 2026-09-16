@@ -12,6 +12,7 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -20,6 +21,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -45,9 +47,10 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { Node, ProductKey } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode } from '~/queries/utils'
+import { isDataVisualizationNode, isDataVisualizationNodeWithHogQLQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -69,9 +72,12 @@ import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
+import { useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
+import type { DashboardVisualizationPersistence } from './dashboardVisualizationOptions'
 import { dashboardWidgetMenusLogic } from './dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from './DashboardWidgetPlacementMenus'
 import { InsightCardProps } from './InsightCard'
+import { insightCardCaptureTarget } from './insightCardImageCapture'
 import { InsightDetails } from './InsightDetails'
 
 interface InsightMetaProps extends Pick<
@@ -82,6 +88,7 @@ interface InsightMetaProps extends Pick<
     | 'removeFromDashboard'
     | 'deleteWithUndo'
     | 'refresh'
+    | 'refreshAfterDisplayOptionsChange'
     | 'loading'
     | 'loadingQueued'
     | 'rename'
@@ -123,6 +130,7 @@ export function InsightMeta({
     removeFromDashboard,
     deleteWithUndo,
     refresh,
+    refreshAfterDisplayOptionsChange,
     loading,
     loadingQueued,
     rename,
@@ -154,10 +162,13 @@ export function InsightMeta({
         variablesOverride: variablesOverride ?? null,
         tileFiltersOverride: tileFiltersOverride ?? null,
         setQuery: persistDisplayOptions,
+        refreshAfterDisplayOptionsChange,
     }
     const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
-    const { exportContext, insightData, query } = useValues(insightDataLogic(insightLogicProps))
+    const { exportContext, insightData, query, savingDisplayOptions, savingSqlVisualization, sqlVisualizationVersion } =
+        useValues(insightDataLogic(insightLogicProps))
+    const { persistSqlVisualization } = useActions(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
     const { loadAlerts: loadDeferredInsightAlerts } = useActions(
         insightAlertsLogic({
@@ -177,6 +188,8 @@ export function InsightMeta({
             dashboard_tiles: insight.dashboard_tiles,
         })
     )
+    const { copyImage } = useActions(captureImageLogic)
+    const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { updateInsightDirect } = useActions(insightsModel)
     const { reportDashboardInsightMetaUpdated } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -189,7 +202,7 @@ export function InsightMeta({
         placement === DashboardPlacement.Dashboard ||
         placement === DashboardPlacement.Public ||
         placement === DashboardPlacement.Builtin
-    const isSqlInsight = isDataVisualizationNode(insight.query)
+    const isSqlInsight = isDataVisualizationNodeWithHogQLQuery(insight.query)
     const showCompactHeading = !showCompactTile || !isSqlInsight
 
     const ignoresDashboardFilters = !!tileFiltersOverride?.ignoreDashboardFilters
@@ -233,6 +246,15 @@ export function InsightMeta({
               )
             : true
 
+    // A killed run has no result to carry the scan, so it arrives on the query status instead.
+    const queryScan: QueryBasedInsightModel['query_scan'] = insight.query_scan ?? insight.query_status?.query_scan
+    const scanFindings = queryScan?.analysis?.findings ?? []
+    // Without a finding the tag can only say that PostHog was slow, which leaves the viewer nothing to do.
+    const queryScanTooltip =
+        canEditInsight && queryScan && scanFindings.length > 0 ? (
+            <QueryScanTileTooltip summary={queryScan} findings={scanFindings} />
+        ) : null
+
     const showDashboardAlertsMenuItem = isUsedAsDashboardTile && !!dashboardId && !!insight.id && canViewInsight
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
         metricsAlertsEnabled: !!featureFlags[FEATURE_FLAGS.METRICS],
@@ -240,9 +262,26 @@ export function InsightMeta({
     const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query)
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
-    // Hoist the hook out of the More overlay so kea logics it mounts don't do so lazily inside a
+    // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
     // portal, which cascades into closing the dropdown before the user can interact with it.
-    const { items: displayOptionItems } = useInsightDisplayOptions()
+    const { tabs: displayOptionTabs } = useInsightDisplayOptions()
+    const dashboardVisualizationPersistence: DashboardVisualizationPersistence | undefined = persistDisplayOptions
+        ? {
+              saving: savingSqlVisualization,
+              version: sqlVisualizationVersion,
+              persistChartType: (display) => persistSqlVisualization({ type: 'chart-type', display }),
+              persistDisplayOptions: (sqlQuery) =>
+                  persistSqlVisualization({ type: 'display-options', query: sqlQuery }),
+          }
+        : undefined
+    const visualizationItems = useDashboardVisualizationOptions({
+        query,
+        insightData,
+        variablesOverride,
+        loading: loading || loadingQueued,
+        persistence: dashboardVisualizationPersistence,
+        savingDisplayOptions,
+    })
 
     const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
@@ -332,6 +371,14 @@ export function InsightMeta({
     // The always-visible "⋯" menu keeps refresh reachable on touch/keyboard. Unlike the hover
     // icon (which hides while this tile refreshes) the menu item stays but disables.
     const refreshMenuDisabledReason = tileRefreshing ? 'Refreshing…' : refreshDisabledReason
+
+    // A browser capture takes whatever is on screen, so a tile captured mid-load makes a valid PNG of an
+    // empty card.
+    const copyImageDisabledReason = isCapturingImage
+        ? 'Copying…'
+        : tileRefreshing
+          ? 'Wait for the insight to finish loading'
+          : undefined
 
     // Gate the hover icon on `showEditingControls` so it doesn't appear on public/export
     // dashboards, matching the "⋯" menu (which is already gated there).
@@ -424,6 +471,7 @@ export function InsightMeta({
                         compact={showCompactTile}
                         showDescription={tile?.show_description !== false}
                         dataRetentionWarning={dataRetentionWarning}
+                        queryScanTooltip={queryScanTooltip}
                         infoPopover={
                             showCompactTile ? (
                                 <CompactInfoPopover
@@ -513,7 +561,12 @@ export function InsightMeta({
                                 Alerts
                             </LemonButton>
                         ) : null}
-                        {showDisplayOptionsMenu && <DashboardInsightDisplayOptions items={displayOptionItems} />}
+                        {showDisplayOptionsMenu && (
+                            <DashboardInsightDisplayOptions
+                                visualizationItems={visualizationItems}
+                                tabs={displayOptionTabs}
+                            />
+                        )}
 
                         {canShowCopyToDashboardTile && !canEditDashboard && (
                             <>
@@ -629,6 +682,15 @@ export function InsightMeta({
                                 />
                             </>
                         ) : null}
+                        <LemonButton
+                            onClick={() => copyImage(insightCardCaptureTarget(insight, tile, dashboardId))}
+                            disabledReason={copyImageDisabledReason}
+                            tooltip="Copy the tile to your clipboard as a PNG"
+                            fullWidth
+                            data-attr="insight-card-copy-image"
+                        >
+                            Copy as PNG
+                        </LemonButton>
                         {refresh && (
                             <DashboardTileRefreshDataButton
                                 onRefresh={refresh}
@@ -647,8 +709,8 @@ export function InsightMeta({
                 }
                 moreTooltip={
                     canEditInsight
-                        ? 'Rename, duplicate, export, refresh and more…'
-                        : 'Duplicate, export, refresh and more…'
+                        ? 'Rename, duplicate, export, copy as PNG, refresh and more…'
+                        : 'Duplicate, export, copy as PNG, refresh and more…'
                 }
                 extraControls={
                     placement !== DashboardPlacement.Public &&
@@ -740,6 +802,7 @@ export function InsightMetaContent({
     showDescription,
     infoPopover,
     dataRetentionWarning,
+    queryScanTooltip,
 }: {
     title: string
     fallbackTitle?: string
@@ -752,15 +815,28 @@ export function InsightMetaContent({
     showDescription?: boolean
     infoPopover?: JSX.Element | null
     dataRetentionWarning?: string | null
+    queryScanTooltip?: JSX.Element | null
 }): JSX.Element {
     const dataRetentionIndicator = dataRetentionWarning ? (
         <Tooltip title={dataRetentionWarning}>
             <IconWarning className="ml-1.5 text-base shrink-0 text-warning" />
         </Tooltip>
     ) : null
+    const queryScanIndicator = queryScanTooltip ? (
+        <Tooltip title={queryScanTooltip}>
+            <LemonTag type="warning" size="small" className="ml-1.5 shrink-0" data-attr="insight-card-query-scan">
+                Slow query
+            </LemonTag>
+        </Tooltip>
+    ) : null
     const titleContent = (
         <>
-            <span className={clsx('text-primary', (infoPopover || dataRetentionIndicator) && 'truncate')}>
+            <span
+                className={clsx(
+                    'text-primary',
+                    (infoPopover || dataRetentionIndicator || queryScanIndicator) && 'truncate'
+                )}
+            >
                 {title || <i>{fallbackTitle || 'Untitled'}</i>}
             </span>
             {(loading || loadingQueued) && (
@@ -776,7 +852,10 @@ export function InsightMetaContent({
         <h4
             title={!compact ? title : undefined}
             data-attr="insight-card-title"
-            className={clsx((infoPopover || dataRetentionIndicator) && 'inline-flex items-center overflow-visible')}
+            className={clsx(
+                (infoPopover || dataRetentionIndicator || queryScanIndicator) &&
+                    'inline-flex items-center overflow-visible'
+            )}
         >
             {link ? (
                 <Link to={link} className="max-w-full truncate">
@@ -786,6 +865,7 @@ export function InsightMetaContent({
                 titleContent
             )}
             {dataRetentionIndicator}
+            {queryScanIndicator}
             {infoPopover}
         </h4>
     )
@@ -793,7 +873,7 @@ export function InsightMetaContent({
     return (
         <>
             {titleEl}
-            {(!compact || showDescription) && !!description && (
+            {showDescription !== false && !!description && (
                 <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
                     {description}
                 </LemonMarkdown>

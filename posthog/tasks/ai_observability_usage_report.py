@@ -106,6 +106,7 @@ class TeamMetrics:
     ai_metric_count: int = 0
     ai_feedback_count: int = 0
     ai_evaluation_count: int = 0
+    ai_tag_count: int = 0
     ai_is_error_count: int = 0
     ai_llm_judge_evaluation_count: int = 0
     ai_hog_evaluation_count: int = 0
@@ -319,7 +320,7 @@ def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
 
             metrics = team_metrics[team_id]
 
-            # Event counts (indices 1-11)
+            # Event counts (indices 1-12)
             metrics.ai_generation_count += row[1] or 0
             metrics.ai_embedding_count += row[2] or 0
             metrics.ai_span_count += row[3] or 0
@@ -327,38 +328,39 @@ def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
             metrics.ai_metric_count += row[5] or 0
             metrics.ai_feedback_count += row[6] or 0
             metrics.ai_evaluation_count += row[7] or 0
-            metrics.ai_trace_summary_count += row[8] or 0
-            metrics.ai_generation_summary_count += row[9] or 0
-            metrics.ai_trace_clusters_count += row[10] or 0
-            metrics.ai_generation_clusters_count += row[11] or 0
+            metrics.ai_tag_count += row[8] or 0
+            metrics.ai_trace_summary_count += row[9] or 0
+            metrics.ai_generation_summary_count += row[10] or 0
+            metrics.ai_trace_clusters_count += row[11] or 0
+            metrics.ai_generation_clusters_count += row[12] or 0
 
-            # Cost metrics (indices 12-16)
-            metrics.total_cost += row[12] or 0.0
-            metrics.input_cost += row[13] or 0.0
-            metrics.output_cost += row[14] or 0.0
-            metrics.request_cost += row[15] or 0.0
-            metrics.web_search_cost += row[16] or 0.0
+            # Cost metrics (indices 13-17)
+            metrics.total_cost += row[13] or 0.0
+            metrics.input_cost += row[14] or 0.0
+            metrics.output_cost += row[15] or 0.0
+            metrics.request_cost += row[16] or 0.0
+            metrics.web_search_cost += row[17] or 0.0
 
-            # Token metrics (indices 17-22)
-            metrics.prompt_tokens += row[17] or 0
-            metrics.completion_tokens += row[18] or 0
-            metrics.total_tokens += row[19] or 0
-            metrics.reasoning_tokens += row[20] or 0
-            metrics.cache_read_tokens += row[21] or 0
-            metrics.cache_creation_tokens += row[22] or 0
+            # Token metrics (indices 18-23)
+            metrics.prompt_tokens += row[18] or 0
+            metrics.completion_tokens += row[19] or 0
+            metrics.total_tokens += row[20] or 0
+            metrics.reasoning_tokens += row[21] or 0
+            metrics.cache_read_tokens += row[22] or 0
+            metrics.cache_creation_tokens += row[23] or 0
 
-            # Cost anomaly counts (indices 23-25)
-            metrics.total_cost_count += row[23] or 0
-            metrics.total_cost_negative_count += row[24] or 0
-            metrics.total_cost_zero_count += row[25] or 0
+            # Cost anomaly counts (indices 24-26)
+            metrics.total_cost_count += row[24] or 0
+            metrics.total_cost_negative_count += row[25] or 0
+            metrics.total_cost_zero_count += row[26] or 0
 
-            # Error count (index 26)
-            metrics.ai_is_error_count += row[26] or 0
+            # Error count (index 27)
+            metrics.ai_is_error_count += row[27] or 0
 
-            # Evaluation runtime counts (indices 27-29)
-            metrics.ai_llm_judge_evaluation_count += row[27] or 0
-            metrics.ai_hog_evaluation_count += row[28] or 0
-            metrics.ai_sentiment_evaluation_count += row[29] or 0
+            # Evaluation runtime counts (indices 28-30)
+            metrics.ai_llm_judge_evaluation_count += row[28] or 0
+            metrics.ai_hog_evaluation_count += row[29] or 0
+            metrics.ai_sentiment_evaluation_count += row[30] or 0
 
     return team_metrics
 
@@ -395,6 +397,7 @@ def get_all_ai_metrics(
             countIf(event = '$ai_metric') as ai_metric_count,
             countIf(event = '$ai_feedback') as ai_feedback_count,
             countIf(event = '$ai_evaluation') as ai_evaluation_count,
+            countIf(event = '$ai_tag') as ai_tag_count,
             countIf(event = '$ai_trace_summary') as ai_trace_summary_count,
             countIf(event = '$ai_generation_summary') as ai_generation_summary_count,
             countIf(event = '$ai_trace_clusters') as ai_trace_clusters_count,
@@ -1017,6 +1020,7 @@ def _get_all_ai_observability_reports(
                 "ai_metric_count": 0,
                 "ai_feedback_count": 0,
                 "ai_evaluation_count": 0,
+                "ai_tag_count": 0,
                 "ai_is_error_count": 0,
                 "ai_llm_judge_evaluation_count": 0,
                 "ai_hog_evaluation_count": 0,
@@ -1064,6 +1068,7 @@ def _get_all_ai_observability_reports(
             report["ai_metric_count"] += metrics.ai_metric_count
             report["ai_feedback_count"] += metrics.ai_feedback_count
             report["ai_evaluation_count"] += metrics.ai_evaluation_count
+            report["ai_tag_count"] += metrics.ai_tag_count
             report["ai_is_error_count"] += metrics.ai_is_error_count
             report["ai_llm_judge_evaluation_count"] += metrics.ai_llm_judge_evaluation_count
             report["ai_hog_evaluation_count"] += metrics.ai_hog_evaluation_count

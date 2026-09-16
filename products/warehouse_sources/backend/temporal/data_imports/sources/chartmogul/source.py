@@ -58,7 +58,7 @@ class ChartMogulSource(ResumableSource[ChartMogulSourceConfig, ChartMogulResumeC
 You can find your API key in your [ChartMogul admin settings](https://app.chartmogul.com/#/admin/api).""",
             iconPath="/static/services/chartmogul.png",
             docsUrl="https://posthog.com/docs/cdp/sources/chartmogul",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

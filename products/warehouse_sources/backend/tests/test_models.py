@@ -322,6 +322,32 @@ class TestSaveSyncTypeConfigRetriesOnConnectionDrop(BaseTest):
                 schema.record_partition_measurement(123)
 
 
+class TestPartitionMeasurementPreservesConcurrentKeys(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+
+    def test_a_key_written_after_this_instance_loaded_survives(self) -> None:
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source=self.source, name="users", sync_type_config={"incremental_field": "updated_at"}
+        )
+        stale = ExternalDataSchema.objects.get(id=schema.id)
+
+        update_sync_type_config_keys(schema.id, self.team.pk, updates={"last_full_run_at": "2026-09-03T12:00:00+00:00"})
+        stale.record_partition_measurement(4096)
+
+        schema.refresh_from_db()
+        assert schema.sync_type_config["last_full_run_at"] == "2026-09-03T12:00:00+00:00"
+        assert schema.sync_type_config["max_partition_bytes"] == 4096
+        assert schema.sync_type_config["incremental_field"] == "updated_at"
+
+
 class TestExternalDataSchemaOOMEvent(BaseTest):
     def _source(self, team_id: int | None = None) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
@@ -1255,3 +1281,62 @@ class TestRepartitionHoldsImport:
         naive = (datetime.now(UTC) - timedelta(minutes=5)).replace(tzinfo=None).isoformat()
         schema = self._schema_with({"temp_uri": "s3://t", "held_at": naive})
         assert schema.repartition_holds_import is True
+
+
+class TestMergeConnectionMetadata(BaseTest):
+    def _source(self, connection_metadata: Any) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            source_type="MongoDB",
+            connection_metadata=connection_metadata,
+        )
+
+    def test_a_write_that_lands_before_the_merge_survives(self) -> None:
+        source = self._source({})
+        ExternalDataSource.objects.filter(pk=source.pk).update(connection_metadata={"database": "analytics"})
+
+        source.merge_connection_metadata({"engine": "mongodb", "wire_version": 7})
+
+        source.refresh_from_db()
+        assert source.connection_metadata == {"database": "analytics", "engine": "mongodb", "wire_version": 7}
+
+    def test_the_merged_value_wins_on_overlap(self) -> None:
+        source = self._source({"wire_version": 21})
+
+        source.merge_connection_metadata({"wire_version": 7})
+
+        source.refresh_from_db()
+        assert source.connection_metadata == {"wire_version": 7}
+
+    @parameterized.expand([("a_list", ["unexpected"]), ("null", None)])
+    def test_a_value_that_is_not_a_mapping_is_replaced(self, _name: str, stored: Any) -> None:
+        source = self._source(stored)
+
+        source.merge_connection_metadata({"engine": "mongodb"})
+
+        source.refresh_from_db()
+        assert source.connection_metadata == {"engine": "mongodb"}
+
+    def test_the_lock_stays_off_the_joined_config_row(self) -> None:
+        # The default manager joins revenue_analytics_config, so an unqualified FOR UPDATE would
+        # lock that table's rows as well as this one.
+        source = self._source({})
+
+        with CaptureQueriesContext(connection) as queries:
+            source.merge_connection_metadata({"engine": "mongodb"})
+
+        locking = [query["sql"] for query in queries.captured_queries if "FOR UPDATE" in query["sql"]]
+        assert len(locking) == 1
+        assert 'FOR UPDATE OF "posthog_externaldatasource"' in locking[0]
+
+    def test_updated_at_is_left_where_it_was(self) -> None:
+        # A probe is not a customer edit, so it must not move the source's updated_at.
+        source = self._source({})
+        before = source.updated_at
+
+        source.merge_connection_metadata({"engine": "mongodb"})
+
+        source.refresh_from_db()
+        assert source.updated_at == before

@@ -23,6 +23,10 @@ export const WATCHED_REFRESH_INTERVAL_MS = 120_000
 
 // Redis XADD MAXLEN ~ (approximate trim, not exact).
 export const STREAM_MAX_LENGTH = 5_000
+// Thin-tail runs serve connect-time backlog from the durable run log, so Redis
+// only needs a live tail. Applied per write, and only to id-carrying events, so
+// a run on an agent that predates event ids keeps the full window.
+export const STREAM_THIN_MAX_LENGTH = 500
 
 // XREAD tuning
 export const READ_COUNT = 16

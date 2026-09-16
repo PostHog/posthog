@@ -11,10 +11,12 @@ export interface BoxPlotBucket {
     /** Samples in the bucket; 0 renders an empty slot. */
     count: number
     minSeconds: number | null
+    p05Seconds: number | null
     p25Seconds: number | null
     p50Seconds: number | null
     meanSeconds: number | null
     p75Seconds: number | null
+    p95Seconds: number | null
     maxSeconds: number | null
 }
 
@@ -26,6 +28,12 @@ export interface LeadTimeBoxPlotProps {
     buckets: BoxPlotBucket[]
     /** Value formatter for the tooltip rows (seconds in, short label out). */
     formatSeconds: (seconds: number) => string
+    /** Draw the whiskers at p5/p95 instead of min/max, so one extreme PR can't flatten the boxes. */
+    excludeOutliers?: boolean
+    /** List the buckets down the side with the time axis along the bottom. Suits a few buckets. */
+    horizontal?: boolean
+    /** Put the time axis on a log scale, so minutes and days both stay readable on one axis. */
+    logScale?: boolean
     dataAttr: string
     className?: string
 }
@@ -35,7 +43,10 @@ interface BucketMeta {
     counts: number[]
 }
 
-function toDatum(bucket: BoxPlotBucket): BoxPlotDatum | null {
+/** The six numbers a box draws, for the checks that have to cover all of them. */
+const BOX_STATS = ['min', 'p25', 'median', 'mean', 'p75', 'max'] as const
+
+function toDatum(bucket: BoxPlotBucket, excludeOutliers: boolean): BoxPlotDatum | null {
     if (
         bucket.count === 0 ||
         bucket.minSeconds == null ||
@@ -47,13 +58,16 @@ function toDatum(bucket: BoxPlotBucket): BoxPlotDatum | null {
     ) {
         return null
     }
+    // Older cached responses may lack p5/p95; fall back to the full range rather than dropping the bucket.
+    const lower = excludeOutliers ? (bucket.p05Seconds ?? bucket.minSeconds) : bucket.minSeconds
+    const upper = excludeOutliers ? (bucket.p95Seconds ?? bucket.maxSeconds) : bucket.maxSeconds
     return {
-        min: bucket.minSeconds,
+        min: lower,
         p25: bucket.p25Seconds,
         median: bucket.p50Seconds,
         mean: bucket.meanSeconds,
         p75: bucket.p75Seconds,
-        max: bucket.maxSeconds,
+        max: upper,
     }
 }
 
@@ -61,13 +75,16 @@ function toDatum(bucket: BoxPlotBucket): BoxPlotDatum | null {
  * One box-and-whisker per bucket (quill BoxPlot): whisker min→max, box p25→p75, a median line
  * and a mean dot, on a shared seconds scale. Empty buckets stay empty slots so a quiet stretch
  * reads as "nothing deployed", not missing data. One lead-time stage per instance; the Health
- * tab stacks three so the stages compare bucket by bucket.
+ * tab stacks three vertical ones so the stages compare bucket by bucket.
  */
 export function LeadTimeBoxPlot({
     seriesKey,
     seriesLabel,
     buckets,
     formatSeconds,
+    excludeOutliers = false,
+    horizontal = false,
+    logScale = false,
     dataAttr,
     className,
 }: LeadTimeBoxPlotProps): JSX.Element {
@@ -78,11 +95,25 @@ export function LeadTimeBoxPlot({
             {
                 key: seriesKey,
                 label: seriesLabel,
-                data: buckets.map(toDatum),
+                data: buckets.map((bucket) => toDatum(bucket, excludeOutliers)),
                 meta: { counts: buckets.map((bucket) => bucket.count) },
             },
         ],
-        [seriesKey, seriesLabel, buckets]
+        [seriesKey, seriesLabel, buckets, excludeOutliers]
+    )
+    const hasZeroDuration = useMemo(
+        () => series[0].data.some((datum) => datum != null && BOX_STATS.some((stat) => datum[stat] <= 0)),
+        [series]
+    )
+    const config = useMemo(
+        () => ({
+            yTickFormatter: formatSeconds,
+            axisOrientation: horizontal ? ('horizontal' as const) : ('vertical' as const),
+            // A log axis has no zero: the scale clamps a zero-second stat onto the axis floor, where
+            // it would read as a real duration. Such a bucket falls back to the linear axis.
+            yScaleType: logScale && !hasZeroDuration ? ('log' as const) : ('linear' as const),
+        }),
+        [formatSeconds, horizontal, logScale, hasZeroDuration]
     )
     return (
         // The chart's root is a `flex-1` child, so the sized wrapper must be a flex column —
@@ -92,9 +123,16 @@ export function LeadTimeBoxPlot({
                 series={series}
                 labels={labels}
                 theme={theme}
-                config={{ yTickFormatter: formatSeconds }}
+                config={config}
                 dataAttr={dataAttr}
-                tooltip={(ctx) => <BucketTooltip ctx={ctx} dataAttr={dataAttr} formatSeconds={formatSeconds} />}
+                tooltip={(ctx) => (
+                    <BucketTooltip
+                        ctx={ctx}
+                        dataAttr={dataAttr}
+                        formatSeconds={formatSeconds}
+                        excludeOutliers={excludeOutliers}
+                    />
+                )}
             />
         </div>
     )
@@ -104,10 +142,12 @@ function BucketTooltip({
     ctx,
     dataAttr,
     formatSeconds,
+    excludeOutliers,
 }: {
     ctx: BoxPlotTooltipContext<BucketMeta>
     dataAttr: string
     formatSeconds: (seconds: number) => string
+    excludeOutliers: boolean
 }): JSX.Element | null {
     const entry = ctx.seriesData[0]
     const datum = entry?.series.meta?.datums?.[ctx.dataIndex]
@@ -116,12 +156,12 @@ function BucketTooltip({
     }
     const count = entry?.series.meta?.user?.counts?.[ctx.dataIndex] ?? 0
     const rows: [string, number][] = [
-        ['Max', datum.max],
+        [excludeOutliers ? '95th percentile' : 'Max', datum.max],
         ['75th percentile', datum.p75],
         ['Median', datum.median],
         ['Mean', datum.mean],
         ['25th percentile', datum.p25],
-        ['Min', datum.min],
+        [excludeOutliers ? '5th percentile' : 'Min', datum.min],
     ]
     return (
         <TooltipSurface data-attr={`${dataAttr}-tooltip`}>

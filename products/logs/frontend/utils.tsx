@@ -3,7 +3,7 @@ import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyOperator } from '~/types'
 
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import {
@@ -132,6 +132,8 @@ const DISTINCT_ID_KEYS = [
     'posthog.distinct.id',
     'posthog.distinct_id',
 ]
+// Mirror of SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS in products/logs/backend/models.py — keep the
+// two in sync, or the impact counts stop covering logs this list renders as session links.
 // Some pipelines emit `posthogSessionId` even though no SDK does. Removing it breaks them.
 const SESSION_ID_KEYS = [
     'session.id',
@@ -146,58 +148,92 @@ const SESSION_ID_KEYS = [
     'posthog.session_id',
 ]
 
-function matchesKey(key: string, candidates: string[]): boolean {
-    return candidates.some((candidate) => key === candidate || key.endsWith(`.${candidate}`))
+// Built once at module scope: this runs per attribute key of every log row, and per attribute
+// of every span of an open trace.
+const DISTINCT_ID_EXACT_KEYS = new Set(DISTINCT_ID_KEYS)
+const DISTINCT_ID_SUFFIXES = DISTINCT_ID_KEYS.map((candidate) => `.${candidate}`)
+const SESSION_ID_EXACT_KEYS = new Set(SESSION_ID_KEYS)
+const SESSION_ID_SUFFIXES = SESSION_ID_KEYS.map((candidate) => `.${candidate}`)
+
+function matchesKey(key: string, exactKeys: Set<string>, suffixes: string[]): boolean {
+    return exactKeys.has(key) || suffixes.some((suffix) => key.endsWith(suffix))
 }
 
 // Configured keys (the team's `logs_distinct_id_attribute_keys` setting) match exactly;
 // only the built-in convention list gets dot-suffix matching.
 export function isDistinctIdKey(key: string, configuredKeys?: string[]): boolean {
-    return (configuredKeys ?? []).includes(key) || matchesKey(key, DISTINCT_ID_KEYS)
+    return !!configuredKeys?.includes(key) || matchesKey(key, DISTINCT_ID_EXACT_KEYS, DISTINCT_ID_SUFFIXES)
 }
 
 // Configured keys (the team's `logs_session_id_attribute_keys` setting) match exactly;
 // only the built-in convention list gets dot-suffix matching.
 export function isSessionIdKey(key: string, configuredKeys?: string[]): boolean {
-    return (configuredKeys ?? []).includes(key) || matchesKey(key, SESSION_ID_KEYS)
+    return !!configuredKeys?.includes(key) || matchesKey(key, SESSION_ID_EXACT_KEYS, SESSION_ID_SUFFIXES)
 }
 
-export interface SessionIdMatch {
+export interface LogIdentityMatch {
     key: string
     value: string
     source: 'attribute' | 'resource_attribute'
+}
+
+// A configured key is an arbitrary team setting, so read it as an own property. Bare bracket
+// access resolves a key like `constructor` or `valueOf` to the Object.prototype member, which is
+// truthy and would be returned as though the attribute held it.
+function ownValue(attributes: Record<string, unknown> | undefined, key: string): unknown {
+    return attributes && Object.hasOwn(attributes, key) ? attributes[key] : undefined
+}
+
+function getIdentityMatch(
+    attributes: Record<string, unknown> | undefined,
+    resourceAttributes: Record<string, unknown> | undefined,
+    configuredKeys: string[] | undefined,
+    isConventionKey: (key: string) => boolean
+): LogIdentityMatch | null {
+    // Configured keys win over the built-in conventions, in list order: for each key,
+    // attributes are checked before resource_attributes, and the first value found wins.
+    for (const key of configuredKeys ?? []) {
+        const attributeValue = ownValue(attributes, key)
+        if (attributeValue) {
+            return { key, value: String(attributeValue), source: 'attribute' }
+        }
+        const resourceAttributeValue = ownValue(resourceAttributes, key)
+        if (resourceAttributeValue) {
+            return { key, value: String(resourceAttributeValue), source: 'resource_attribute' }
+        }
+    }
+    // Built-in convention fallback only — the configured-key pass already ran above, so
+    // isConventionKey is deliberately called without the configured keys here.
+    for (const key of Object.keys(attributes || {})) {
+        const value = attributes?.[key]
+        if (value && isConventionKey(key)) {
+            return { key, value: String(value), source: 'attribute' }
+        }
+    }
+    for (const key of Object.keys(resourceAttributes || {})) {
+        const value = resourceAttributes?.[key]
+        if (value && isConventionKey(key)) {
+            return { key, value: String(value), source: 'resource_attribute' }
+        }
+    }
+    return null
 }
 
 export function getSessionIdWithKey(
     attributes: Record<string, unknown> | undefined,
     resourceAttributes: Record<string, unknown> | undefined,
     configuredKeys?: string[]
-): SessionIdMatch | null {
-    // Configured keys win over the built-in conventions, in list order: for each key,
-    // attributes are checked before resource_attributes, and the first value found wins.
-    for (const key of configuredKeys ?? []) {
-        const attributeValue = attributes?.[key]
-        if (attributeValue) {
-            return { key, value: String(attributeValue), source: 'attribute' }
-        }
-        const resourceAttributeValue = resourceAttributes?.[key]
-        if (resourceAttributeValue) {
-            return { key, value: String(resourceAttributeValue), source: 'resource_attribute' }
-        }
-    }
-    // Built-in convention fallback only — the configured-key pass already ran above,
-    // so isSessionIdKey is deliberately called without configuredKeys here.
-    for (const [key, value] of Object.entries(attributes || {})) {
-        if (isSessionIdKey(key) && value) {
-            return { key, value: String(value), source: 'attribute' }
-        }
-    }
-    for (const [key, value] of Object.entries(resourceAttributes || {})) {
-        if (isSessionIdKey(key) && value) {
-            return { key, value: String(value), source: 'resource_attribute' }
-        }
-    }
-    return null
+): LogIdentityMatch | null {
+    return getIdentityMatch(attributes, resourceAttributes, configuredKeys, (key) => isSessionIdKey(key))
+}
+
+/** The distinct-id counterpart of `getSessionIdWithKey`, resolved the same way. */
+export function getDistinctIdWithKey(
+    attributes: Record<string, unknown> | undefined,
+    resourceAttributes: Record<string, unknown> | undefined,
+    configuredKeys?: string[]
+): LogIdentityMatch | null {
+    return getIdentityMatch(attributes, resourceAttributes, configuredKeys, (key) => isDistinctIdKey(key))
 }
 
 export function getSessionIdFromLogAttributes(
@@ -207,6 +243,17 @@ export function getSessionIdFromLogAttributes(
 ): string | null {
     return getSessionIdWithKey(attributes, resourceAttributes, configuredKeys)?.value ?? null
 }
+
+// Log timestamps are ISO strings, but some pipelines send epoch numbers instead. Shared so every
+// surface reading `LogMessage.timestamp` parses it the same way.
+export function parseLogTimestamp(timestamp: string): dayjs.Dayjs {
+    const epoch = Number(timestamp)
+    return Number.isNaN(epoch) ? dayjs(timestamp) : dayjs(epoch)
+}
+
+// How far either side of a log the Related errors lookup searches for exceptions in the same
+// session. Shared so the drawer's tab and the row badge that opens it agree on the range.
+export const RELATED_ERRORS_WINDOW_HOURS = 6
 
 // Wide enough to cover a session around a single event without drowning it in unrelated logs.
 export const SESSION_LOGS_WINDOW_MINUTES = 30
@@ -219,48 +266,20 @@ export function buildDateRangeAround(timestamp: string, windowMinutes: number): 
     }
 }
 
-// Builds logs viewer filters scoped to one session, for other products surfacing logs
-// (error tracking, session replay). Filters (OR across keys, exact match) on the team's
-// configured session ID keys plus the SESSION_ID_KEYS conventions, deduped, configured
-// first — the same breadth `getSessionIdWithKey` resolves, so a team whose stored key their
-// pipeline never emits still matches. Literal keys only: an exact filter can't express the
-// dot-suffix variants `matchesKey` allows. A timestamp scopes the date range to ±30 minutes
-// so old sessions aren't hidden by the default range.
-export function buildLogsSessionFilters(
+// Builds the viewer scope for one session, for other products surfacing logs (error tracking,
+// session replay). The session id goes to the server as a scope rather than a filter group: it
+// has to match across every configured and conventional key in both attribute maps, and the
+// query runner reads a filter group's inner group as an AND of its leaves, so a group could only
+// ever express "every key holds this id at once". A timestamp scopes the date range to ±30
+// minutes so old sessions aren't hidden by the default range.
+export function buildLogsSessionScope(
     sessionId: string,
-    configuredKeys?: string[],
     timestamp?: string
-): Partial<LogsViewerFilters> {
-    const keys = Array.from(new Set([...(configuredKeys ?? []), ...SESSION_ID_KEYS]))
-    const filters: Partial<LogsViewerFilters> = {
-        filterGroup: {
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    type: FilterLogicalOperator.Or,
-                    // Each key is queried in both maps, because getSessionIdWithKey renders the
-                    // session link off attributes or resource_attributes. Person scoping resolves
-                    // distinct ids across both maps for the same reason.
-                    values: keys.flatMap((key) => [
-                        {
-                            key,
-                            value: [sessionId],
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.LogAttribute,
-                        },
-                        {
-                            key,
-                            value: [sessionId],
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.LogResourceAttribute,
-                        },
-                    ]),
-                },
-            ],
-        },
+): { sessionId: string; initialFilters?: Partial<LogsViewerFilters> } {
+    return {
+        sessionId,
+        initialFilters: timestamp
+            ? { dateRange: buildDateRangeAround(timestamp, SESSION_LOGS_WINDOW_MINUTES) }
+            : undefined,
     }
-    if (timestamp) {
-        filters.dateRange = buildDateRangeAround(timestamp, SESSION_LOGS_WINDOW_MINUTES)
-    }
-    return filters
 }

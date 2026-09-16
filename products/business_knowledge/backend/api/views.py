@@ -55,6 +55,11 @@ from .serializers import (
 logger = structlog.get_logger(__name__)
 
 
+def _ensure_user_managed_source(source: KnowledgeSource) -> None:
+    if source.is_generated:
+        raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
+
+
 class _ConflictError(exceptions.APIException):
     # 409 is the right semantics for "resource is currently busy / in a
     # state that conflicts with the request". DRF has no first-class helper
@@ -76,9 +81,35 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id)
 
-    @extend_schema(responses={200: KnowledgeSourceSerializer(many=True)})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive substring match against the source name and URL.",
+            ),
+            OpenApiParameter(
+                "source_type",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=[choice.value for choice in SourceType],
+                description="Filter to a single source type (text, url, or file).",
+            ),
+        ],
+        responses={200: KnowledgeSourceSerializer(many=True)},
+    )
     def list(self, request: Request, **kwargs) -> Response:
-        sources = logic.list_for_team(self.team_id)
+        source_type = request.query_params.get("source_type") or None
+        if source_type is not None and source_type not in SourceType.values:
+            raise exceptions.ValidationError({"source_type": "Must be one of: text, url, file."})
+        sources = logic.list_for_team(
+            self.team_id,
+            search=request.query_params.get("search") or None,
+            source_type=source_type,
+        )
         page = self.paginate_queryset(sources)
         if page is not None:
             return self.get_paginated_response(KnowledgeSourceSerializer(instance=page, many=True).data)
@@ -90,6 +121,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request: Request, **kwargs) -> Response:
         source_type = request.data.get("source_type", SourceType.TEXT.value)
+        if str(request.data.get("is_generated", "")).lower() in {"1", "true"}:
+            raise exceptions.ValidationError({"is_generated": "Generated sources are created automatically."})
         if source_type == SourceType.FILE.value:
             return self._create_file_source(request)
         if source_type == SourceType.URL.value:
@@ -240,6 +273,10 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except KnowledgeSource.DoesNotExist:
             raise exceptions.NotFound()
 
+        if source.is_generated:
+            if source.source_type != SourceType.TEXT:
+                _ensure_user_managed_source(source)
+            return self._update_text_or_file_source(source, request)
         if source.source_type == SourceType.URL.value:
             return self._update_url_source(source, request)
         if source.source_type == SourceType.FILE.value:
@@ -264,6 +301,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
+        except logic.GeneratedSourceReadOnlyError:
+            raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
         if updated is None:
             raise exceptions.NotFound()
         return Response(KnowledgeSourceSerializer(instance=updated).data)
@@ -281,8 +320,14 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except logic.TextTooLargeError:
             raise exceptions.ValidationError({"text": "Text exceeds the maximum allowed size."})
+        except logic.GeneratedSourceHasMultipleDocuments:
+            raise exceptions.ValidationError(logic.GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE)
+        except logic.InvalidGeneratedKnowledgeDocument:
+            raise exceptions.ValidationError("Couldn't save this learned source. Refresh the page and try again.")
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
+        except logic.GeneratedSourceReadOnlyError:
+            raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
         if updated is None:
             raise exceptions.NotFound()
         return Response(KnowledgeSourceSerializer(instance=updated).data)
@@ -309,6 +354,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise _ConflictError("A refresh is already in progress for this source.")
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
+        except logic.GeneratedSourceReadOnlyError:
+            raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
         if updated is None:
             raise exceptions.NotFound()
         return Response(KnowledgeSourceSerializer(instance=updated).data)
@@ -320,7 +367,14 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             source_id = UUID(pk)
         except (ValueError, DjangoValidationError):
             raise exceptions.NotFound()
-        content = logic.get_source_text_for_team(source_id, self.team_id)
+        try:
+            content = logic.get_source_text_for_team(source_id, self.team_id)
+        except logic.GeneratedSourceHasMultipleDocuments:
+            raise exceptions.ValidationError(logic.GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE)
+        except logic.InvalidGeneratedKnowledgeDocument:
+            raise exceptions.ValidationError("Couldn't load this learned source. Refresh the page and try again.")
+        except logic.GeneratedSourceReadOnlyError:
+            raise exceptions.PermissionDenied(detail="Generated sources must be read through document windows.")
         if content is None:
             raise exceptions.NotFound()
         return Response({"text": content})
@@ -342,6 +396,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError({"url": "Only URL sources can be refreshed."})
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
+        except logic.GeneratedSourceReadOnlyError:
+            raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
         self._start_background_refresh(source)
         fresh = logic.get_for_team(source.id, self.team_id) or source
         return Response(KnowledgeSourceSerializer(instance=fresh).data)
@@ -370,7 +426,11 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             source_id = UUID(pk)
         except (ValueError, DjangoValidationError):
             raise exceptions.NotFound()
-        if not logic.delete_source(source_id, self.team_id):
+        try:
+            deleted = logic.delete_source(source_id, self.team_id)
+        except logic.GeneratedSourceReadOnlyError:
+            raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
+        if not deleted:
             raise exceptions.NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

@@ -18,6 +18,7 @@ export interface logsViewerModalLogicValues {
     isOpen: boolean
     personId: string | null
     pinnedFilters: UniversalFiltersGroup | null
+    sessionId: string | null
     viewerId: string
 }
 
@@ -53,6 +54,7 @@ export interface logsViewerModalLogicActions {
         initialFilters: Partial<LogsViewerFilters> | null
         personId: string | null
         pinnedFilters: UniversalFiltersGroup | null
+        sessionId: string | null
     }
 }
 
@@ -70,6 +72,7 @@ export const logsViewerModalLogic = kea<logsViewerModalLogicType>([
             initialFilters: options?.initialFilters ?? null,
             pinnedFilters: options?.pinnedFilters ?? null,
             personId: options?.personId ?? null,
+            sessionId: options?.sessionId ?? null,
         }),
         closeLogsViewerModal: true,
     }),
@@ -93,12 +96,12 @@ export const logsViewerModalLogic = kea<logsViewerModalLogicType>([
                 openLogsViewerModal: (_, { fullScreen }) => fullScreen,
             },
         ],
-        // The three props below are what the modal binds its viewer with, and they deliberately
+        // The four props below are what the modal binds its viewer with, and they deliberately
         // survive close. useKeepMountedWhileOpen holds the modal rendered for 300ms so the exit
         // animation can finish, so clearing them on close would rebind the viewer logics (shared
         // with the embedding tab, which is keyed by the same id) with no filters and no scope for
         // that beat, firing an unscoped project-wide query. Nothing leaks into the next open
-        // because openLogsViewerModal always writes all three, falling back to null.
+        // because openLogsViewerModal always writes all four, falling back to null.
         initialFilters: [
             null as Partial<LogsViewerFilters> | null,
             {
@@ -115,6 +118,12 @@ export const logsViewerModalLogic = kea<logsViewerModalLogicType>([
             null as string | null,
             {
                 openLogsViewerModal: (_, { personId }) => personId,
+            },
+        ],
+        sessionId: [
+            null as string | null,
+            {
+                openLogsViewerModal: (_, { sessionId }) => sessionId,
             },
         ],
     }),

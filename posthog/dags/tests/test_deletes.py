@@ -1,20 +1,24 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import cast
 from uuid import UUID
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import patch
 
 from django.conf import settings as django_settings
 
+import dagster
 from clickhouse_driver import Client
 from dagster import build_op_context
 
-from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner
+from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner, NodeRole, Query
+from posthog.dags.common.staged_dictionary import create_on_every_cluster
 from posthog.dags.deletes import (
     _DELETE_PREDICATE,
+    _SURVIVOR_COUNT_ATTEMPTS,
+    DELETES_RUN_CONFIG,
     AdhocEventDeletesDictionary,
     AdhocEventDeletesTable,
     DeleteConfig,
@@ -22,13 +26,19 @@ from posthog.dags.deletes import (
     PendingDeletesDictionary,
     PendingDeletesTable,
     StagedDictionary,
+    _count_through,
     _count_unswept_rows,
     _delete_predicate_params,
     cleanup_old_events_by_partition,
     deletes_job,
+    ensure_no_concurrent_deletes_run,
     find_partitions_to_cleanup,
+    manual_deletes_job,
+    mark_deletions_verified,
     monthly_old_events_cleanup_job,
+    run_deletes_after_manual_trigger,
 )
+from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.deletion_targets import EVENTS, TargetPlacement
@@ -57,14 +67,18 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
     events = [(i, f"distinct_id_{i}", UUID(int=i), timestamp - timedelta(hours=i)) for i in range(event_count)]
 
     def insert_events(client: Client) -> None:
+        # Straight into the storage table with inserted_at pinned to the event time:
+        # writable_events does not expose inserted_at, and each deletion request below carries
+        # created_at an hour after its event, so the DEFAULT of insert time would put every row
+        # out of its backdated request's scope.
         client.execute(
-            """INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp)
+            f"""INSERT INTO {EVENTS_DATA_TABLE()} (team_id, distinct_id, person_id, timestamp, inserted_at)
             VALUES
             """,
-            events,
+            [(*event, event[3]) for event in events],
         )
 
-    cluster.any_host(insert_events).result()
+    cluster.any_host_by_role(insert_events, NodeRole.DATA).result()
 
     # Flag-evaluation rows for one person whose deletion lands inside the window and one whose
     # deletion sits past the override watermark, mirroring the two event assertions below. The
@@ -74,7 +88,14 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
         partial(
             insert_flag_evaluations,
             [
-                (i, f"distinct_id_{i}", UUID(int=i), UUID(int=i), timestamp - timedelta(hours=i))
+                (
+                    i,
+                    f"distinct_id_{i}",
+                    UUID(int=i),
+                    UUID(int=i),
+                    timestamp - timedelta(hours=i),
+                    timestamp - timedelta(hours=i),
+                )
                 for i in (swept_person, retained_person)
             ],
         )
@@ -395,12 +416,14 @@ def test_full_job_adhoc_event_deletes(cluster: ClickhouseCluster):
             return {}
         return {(row[0], row[1]): row[2] for row in result}
 
-    # Insert some pending deletions
+    # Insert some pending deletions. created_at is explicit and past every ingestion above:
+    # the sweep only covers rows ingested before their request was created, and the column's
+    # DEFAULT would race the data inserts across host clocks at sub-second distance.
     def insert_adhoc_event_deletes(client: Client) -> None:
-        deletes = [(events[i][0], events[i][2]) for i in range(delete_count)]
+        deletes = [(events[i][0], events[i][2], timestamp) for i in range(delete_count)]
 
         client.execute(
-            """INSERT INTO adhoc_events_deletion (team_id, uuid)
+            """INSERT INTO adhoc_events_deletion (team_id, uuid, created_at)
             VALUES
             """,
             deletes,
@@ -419,11 +442,12 @@ def test_full_job_adhoc_event_deletes(cluster: ClickhouseCluster):
         return result[0][0]
 
     cluster.any_host(insert_events).result()
-    cluster.any_host(insert_adhoc_event_deletes).result()
 
     # The queue holds (team_id, uuid) and the drain applies it to every personal-data table, so a
     # flag-evaluation row sharing a queued uuid has to go with the event. This is the assumption
     # the producer must honor: mirror the source event's uuid, or the two tables diverge here.
+    # Inserted before the deletion requests: the sweep only covers rows ingested before their
+    # request was created, which is the order production follows too.
     queued_uuid, unqueued_uuid = 5, delete_count + 5
     cluster.any_host(
         partial(
@@ -431,6 +455,8 @@ def test_full_job_adhoc_event_deletes(cluster: ClickhouseCluster):
             [(i, f"distinct_id_{i}", UUID(int=i), UUID(int=i), timestamp) for i in (queued_uuid, unqueued_uuid)],
         )
     ).result()
+
+    cluster.any_host(insert_adhoc_event_deletes).result()
 
     # Check preconditions
     initial_events = cluster.any_host(partial(get_by_team_and_uuid, "writable_events")).result()
@@ -582,7 +608,7 @@ def test_cleanup_old_events_by_partition(cluster: ClickhouseCluster):
 
 
 @pytest.mark.django_db
-@freeze_time("2025-09-15")
+@time_machine.travel("2025-09-15", tick=False)
 def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snapshot):
     from unittest.mock import patch
 
@@ -794,6 +820,71 @@ def test_a_rerun_stages_over_the_previous_runs_object(cluster: ClickhouseCluster
 
 
 @pytest.mark.django_db
+def test_the_adhoc_dictionary_holds_one_row_per_key_when_the_source_has_duplicates(cluster: ClickhouseCluster):
+    # The source is a ReplacingMergeTree, so a uuid requested twice reads as two rows until a merge
+    # collapses them. A dictionary keeps one row per key either way, but a source query that emits
+    # both leaves the winner to the order the rows arrive, and that order is not stable when a host
+    # parses a staged Parquet in parallel. Two clusters then disagree and the run is blocked.
+    adhoc = AdhocEventDeletesDictionary(source=AdhocEventDeletesTable())
+    team_id = 424244
+    uuid = UUID(int=13)
+    earlier = datetime(2026, 8, 28, 9, 0, 0, tzinfo=UTC)
+    later = datetime(2026, 8, 28, 11, 0, 0, tzinfo=UTC)
+
+    def insert_duplicate_requests(client: Client) -> None:
+        client.execute(
+            "INSERT INTO adhoc_events_deletion (team_id, uuid, created_at) VALUES",
+            [(team_id, uuid, earlier), (team_id, uuid, later)],
+        )
+
+    def read_back(client: Client) -> list:
+        return client.execute(f"SELECT count(), max(created_at) FROM {adhoc.qualified_name} WHERE team_id = {team_id}")
+
+    try:
+        cluster.any_host(insert_duplicate_requests).result()
+        cluster.any_host(partial(adhoc.create, shards=1, max_execution_time=0, max_memory_usage=0)).result()
+        cluster.any_host(adhoc.load).result()
+
+        [[held, created_at]] = cluster.any_host(read_back).result()
+
+        assert held == 1
+        assert created_at == later
+    finally:
+        cluster.any_host(adhoc.drop).result()
+        cluster.any_host(
+            lambda client: client.execute(f"DELETE FROM adhoc_events_deletion WHERE team_id = {team_id}")
+        ).result()
+
+
+@pytest.mark.django_db
+def test_creating_on_a_second_cluster_points_it_at_the_staged_object(cluster: ClickhouseCluster):
+    # A cluster that shares no Keeper with the source table never receives it, so its dictionary
+    # has to read the staged object. A call site that hands it the source query instead leaves it
+    # loading from a table it cannot see, and the dictionary fails or comes back empty.
+    table = PendingDeletesTable(timestamp=datetime(2026, 8, 26, 10, 11, 14))
+    dictionary = PendingDeletesDictionary(source=table)
+    sibling = cluster.sibling(django_settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)
+    context = build_op_context()
+
+    def show_create(client: Client) -> str:
+        [[query]] = client.execute(f"SHOW CREATE DICTIONARY {dictionary.qualified_name}")
+        return query
+
+    try:
+        cluster.any_host(table.create).result()
+        cluster.any_host(partial(_insert_pending_deletes, table)).result()
+
+        create_on_every_cluster(
+            context, [cluster, sibling], dictionary, shards=1, max_execution_time=0, max_memory_usage=0
+        )
+
+        assert dictionary.staged().key in sibling.any_host(show_create).result()
+    finally:
+        cluster.any_host(dictionary.drop).result()
+        cluster.any_host(table.drop).result()
+
+
+@pytest.mark.django_db
 def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: ClickhouseCluster):
     # The count only earns its place if it can come back non-zero. A predicate or parameter that
     # matched nothing would report a clean sweep every week and nobody would notice.
@@ -825,10 +916,38 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
         )
 
     def insert_events(client: Client) -> None:
+        # Straight into the storage table: writable_events does not expose inserted_at. Distinct
+        # uuids keep separate ORDER BY keys, and one NULL inserted_at covers rows that predate
+        # the column, which must still count.
         client.execute(
-            "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp) VALUES",
-            [(team_id, "d", person_uuid, timestamp - timedelta(hours=1))],
+            f"INSERT INTO {EVENTS_DATA_TABLE()} (uuid, team_id, distinct_id, person_id, timestamp, inserted_at) VALUES",
+            [
+                (UUID(int=1001), team_id, "d", person_uuid, timestamp - timedelta(hours=1), timestamp),
+                (UUID(int=1002), team_id, "d", person_uuid, timestamp - timedelta(hours=2), None),
+            ],
         )
+
+    def insert_late_event(client: Client) -> None:
+        client.execute(
+            f"INSERT INTO {EVENTS_DATA_TABLE()} (uuid, team_id, distinct_id, person_id, timestamp, inserted_at) VALUES",
+            [
+                (
+                    UUID(int=1003),
+                    team_id,
+                    "d",
+                    person_uuid,
+                    timestamp - timedelta(hours=1),
+                    timestamp + timedelta(hours=2),
+                )
+            ],
+        )
+
+    def count_late_event_rows(client: Client) -> int:
+        [[count]] = client.execute(
+            "SELECT count() FROM events WHERE uuid = %(uuid)s AND _row_exists = 1",
+            {"uuid": UUID(int=1003)},
+        )
+        return count
 
     try:
         cluster.any_host(table.create).result()
@@ -837,14 +956,14 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
         cluster.any_host(dictionary.load).result()
         cluster.any_host(create_adhoc).result()
         cluster.any_host(adhoc.load).result()
-        cluster.any_host(insert_events).result()
+        cluster.any_host_by_role(insert_events, NodeRole.DATA).result()
 
         context = build_op_context()
         before = _count_unswept_rows(
             context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time
         )
         surviving = before["events"]
-        assert surviving is not None and surviving >= 1, "the count cannot see rows the sweep has not removed yet"
+        assert surviving is not None and surviving >= 2, "the count cannot see rows the sweep has not removed yet"
 
         runner = LightweightDeleteMutationRunner(
             table=EVENTS_DATA_TABLE(),
@@ -856,6 +975,16 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
 
         after = _count_unswept_rows(context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time)
         assert after["events"] == 0
+
+        # A row ingested after its request was created is outside that request's scope, so it
+        # must fail neither the delete nor the verification: counting it would let one tenant
+        # that keeps ingesting backdated events block every tenant's deletions from being marked.
+        cluster.any_host_by_role(insert_late_event, NodeRole.DATA).result()
+        late = _count_unswept_rows(context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time)
+        assert late["events"] == 0, "a row inserted after its request's created_at must not count as unswept"
+        assert cluster.any_host_by_role(count_late_event_rows, NodeRole.DATA).result() == 1, (
+            "the created_at bound, not a delete, must be what hides the late row"
+        )
     finally:
         cluster.any_host(dictionary.drop).result()
         cluster.any_host(adhoc.drop).result()
@@ -894,9 +1023,10 @@ def test_a_target_on_another_cluster_is_also_counted_on_its_storage_table(cluste
         )
 
     def insert_events(client: Client) -> None:
+        # Straight into the storage table: writable_events does not expose inserted_at.
         client.execute(
-            "INSERT INTO writable_events (team_id, distinct_id, person_id, timestamp) VALUES",
-            [(team_id, "d", person_uuid, timestamp - timedelta(hours=1))],
+            f"INSERT INTO {EVENTS_DATA_TABLE()} (uuid, team_id, distinct_id, person_id, timestamp, inserted_at) VALUES",
+            [(UUID(int=1004), team_id, "d", person_uuid, timestamp - timedelta(hours=1), timestamp)],
         )
 
     # A second handle over the same node stands in for a target whose storage is elsewhere.
@@ -910,11 +1040,15 @@ def test_a_target_on_another_cluster_is_also_counted_on_its_storage_table(cluste
         cluster.any_host(dictionary.load).result()
         cluster.any_host(partial(adhoc.create, shards=1, max_execution_time=0, max_memory_usage=0)).result()
         cluster.any_host(adhoc.load).result()
-        cluster.any_host(insert_events).result()
+        cluster.any_host_by_role(insert_events, NodeRole.DATA).result()
 
         with patch("posthog.dags.deletes.resolve_placements", return_value=[placement]):
             counts = _count_unswept_rows(
-                build_op_context(), cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time
+                build_op_context(),
+                cluster,
+                dictionary,
+                adhoc,
+                DeleteConfig().verification_max_execution_time,
             )
 
         storage = counts[EVENTS.data_table]
@@ -923,3 +1057,111 @@ def test_a_target_on_another_cluster_is_also_counted_on_its_storage_table(cluste
         cluster.any_host(dictionary.drop).result()
         cluster.any_host(adhoc.drop).result()
         cluster.any_host(table.drop).result()
+
+
+@pytest.mark.parametrize(
+    "unswept",
+    [
+        {"events": 3},
+        # None is a count that completed no attempt. Marking on it is the mistake this gate
+        # exists to stop: unknown is not zero.
+        {"events": None},
+    ],
+)
+def test_marking_is_refused_when_a_count_survives_or_cannot_complete(unswept: dict):
+    with patch("posthog.dags.deletes._count_unswept_rows", return_value=unswept):
+        with pytest.raises(dagster.Failure) as excinfo:
+            mark_deletions_verified(
+                build_op_context(),
+                DeleteConfig(),
+                cast(ClickhouseCluster, None),
+                PendingDeletesDictionary(source=PendingDeletesTable(timestamp=datetime(2026, 9, 1))),
+                AdhocEventDeletesDictionary(source=AdhocEventDeletesTable()),
+            )
+    assert "events" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "failing_attempts,expected",
+    [
+        (1, 5),
+        (_SURVIVOR_COUNT_ATTEMPTS, None),
+    ],
+)
+def test_the_survivor_count_retries_before_reporting_unknown(failing_attempts: int, expected: int | None):
+    calls = {"count": 0}
+
+    def runner(query: Query) -> list:
+        calls["count"] += 1
+        if calls["count"] <= failing_attempts:
+            raise TimeoutError("count exceeded max_execution_time")
+        return [[[5]]]
+
+    assert _count_through(build_op_context(), runner, "events", {}, 300) == expected
+
+
+@pytest.mark.parametrize(
+    "blocking_job",
+    [
+        deletes_job,
+        # A squash run blocks whatever its age: manual_deletes_job's preflight can go stale
+        # before the sensor launches the run, so the guard checks squash again at run start.
+        squash_person_overrides,
+    ],
+)
+def test_the_deletes_guard_yields_to_an_executing_deletes_or_squash_run(blocking_job: dagster.JobDefinition):
+    assert "ensure_no_concurrent_deletes_run" in deletes_job.graph.node_names()
+
+    @dagster.job(name=deletes_job.name)
+    def guard_only_job() -> None:
+        ensure_no_concurrent_deletes_run()
+
+    instance = dagster.DagsterInstance.ephemeral()
+    assert guard_only_job.execute_in_process(instance=instance).success, "a lone run must pass its own guard"
+
+    instance.create_run_for_job(job_def=blocking_job, status=dagster.DagsterRunStatus.STARTED)
+    result = guard_only_job.execute_in_process(instance=instance, raise_on_error=False)
+    assert not result.success
+
+
+@pytest.mark.parametrize(
+    "blocking_job,status",
+    [
+        (deletes_job, dagster.DagsterRunStatus.STARTED),
+        # A run that has not started yet blocks here even though the in-job guard ignores it: it
+        # is a collision about to happen, and the manual trigger has launched nothing yet.
+        (squash_person_overrides, dagster.DagsterRunStatus.NOT_STARTED),
+    ],
+)
+def test_the_manual_trigger_refuses_while_the_weekly_chain_is_active(
+    blocking_job: dagster.JobDefinition, status: dagster.DagsterRunStatus
+):
+    instance = dagster.DagsterInstance.ephemeral()
+    assert manual_deletes_job.execute_in_process(instance=instance).success
+
+    instance.create_run_for_job(job_def=blocking_job, status=status)
+    result = manual_deletes_job.execute_in_process(instance=instance, raise_on_error=False)
+    assert not result.success
+
+
+def test_the_manual_trigger_sensor_launches_a_real_deletes_run():
+    # A stopped sensor would let manual_deletes_job succeed while launching nothing, and a lost
+    # run config would hand manual runs the default retry budget the weekly runs outgrew.
+    sensor = run_deletes_after_manual_trigger
+    assert sensor.default_status == dagster.DefaultSensorStatus.RUNNING
+
+    manual_run = dagster.DagsterRun(job_name="manual_deletes_job", run_id="22222222-2222-2222-2222-222222222222")
+    request = sensor(
+        dagster.build_run_status_sensor_context(
+            sensor_name="run_deletes_after_manual_trigger",
+            dagster_event=dagster.DagsterEvent(
+                event_type_value=dagster.DagsterEventType.RUN_SUCCESS.value, job_name="manual_deletes_job"
+            ),
+            dagster_instance=dagster.DagsterInstance.ephemeral(),
+            dagster_run=manual_run,
+        )
+    )
+    assert isinstance(request, dagster.RunRequest)
+    assert request.run_config == DELETES_RUN_CONFIG
+    # One deletes_job per manual success: re-evaluating the same event must not launch another.
+    assert request.run_key == "22222222-2222-2222-2222-222222222222"
