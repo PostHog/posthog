@@ -33,7 +33,9 @@ Unlike `query-llm-traces-list`, this tool does NOT return `errorCount`, `isSuppo
 
 The response carries the `$ai_*` properties of each event, plus `$session_id`, `$lib`, and `$lib_version`. Every other property is withheld in both detail modes, because that half of the bag is caller-controlled and can hold credentials, authentication state, request headers, user identity, permissions, budget context, or location. The same rule applies to a trace's `person.properties`. Only that bag is filtered, so the person's `uuid`, `distinct_id`, and `created_at` are untouched.
 
-A bag that has something withheld lists those names under `_redactedKeys`, with no values. A bag that has nothing withheld carries no `_redactedKeys`. A trace with any withheld property also carries one `_redacted` object explaining the rule.
+A bag that has something withheld lists those names under `_redactedKeys`, with no values. A bag that has nothing withheld carries no `_redactedKeys`. When a response withheld anything, it carries one top-level `_redacted` object, next to `results`, explaining the rule.
+
+`$ai_debug_data` is a copy of the raw pre-conversion event bag, so its members go through the same filter.
 
 The values are unchanged in PostHog. Open the trace there, or query the one property you need, if a diagnosis depends on it.
 

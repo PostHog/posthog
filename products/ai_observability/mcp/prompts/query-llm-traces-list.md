@@ -2,7 +2,7 @@ List LLM traces to inspect AI/LLM usage across your application. Returns traces 
 
 Set `detail: "summary"` to preview event content when picking candidate traces, then read the one you pick with `query-llm-trace`. Omitting `detail` preserves the existing full-detail response, subject to size limits.
 
-The response carries the `$ai_*` properties of each event, plus `$session_id`, `$lib`, and `$lib_version`. Every other property is withheld, because it can hold credentials, authentication state, request headers, user identity, permissions, or budget context. The same rule applies to a trace's `person.properties`. Only that bag is filtered, so the person's `uuid`, `distinct_id`, and `created_at` are untouched. A bag that has something withheld lists those names under `_redactedKeys`, with no values. The values are unchanged in PostHog.
+The response carries the `$ai_*` properties of each event, plus `$session_id`, `$lib`, and `$lib_version`. Every other property is withheld, because it can hold credentials, authentication state, request headers, user identity, permissions, or budget context. The same rule applies to a trace's `person.properties`. Only that bag is filtered, so the person's `uuid`, `distinct_id`, and `created_at` are untouched. A bag that has something withheld lists those names under `_redactedKeys`, with no values, and a response that withheld anything carries one top-level `_redacted` object next to `results`. The values are unchanged in PostHog.
 
 Use 'read-data-schema' to discover available event properties for filtering (e.g. `$ai_model`, `$ai_provider`).
 
@@ -134,7 +134,7 @@ Generations (`$ai_generation`) and embeddings (`$ai_embedding`) are always leaf 
 
 `detail` controls how much of each event you get back.
 
-- `"full"` (default) returns every property in full, subject to response size limits. Existing callers that omit `detail` keep this behavior.
+- `"full"` (default) returns every retained property in full, subject to response size limits. Existing callers that omit `detail` keep this behavior.
 - `"summary"` opts into trace and event metadata with previews of prompts, outputs, span states, and other content. A summarized trace carries `_detail: { "mode": "summary" }`.
 
 Request `detail: "summary"` when finding candidate traces from their metadata; read the one you picked with `query-llm-trace` and `detail: "full"` when you need its content.
@@ -210,4 +210,4 @@ Use `limit` and `offset` for pagination. The default limit is 100. The response 
 - This tool returns raw trace data — it does not aggregate or visualize. For aggregated LLM metrics over time (e.g. total token usage per day), use `query-trends` with AI events like `$ai_generation` instead.
 - Use `filterTestAccounts: true` by default to exclude internal users unless the user asks otherwise.
 - The default time range is last 7 days. LLM trace data tends to be recent, so shorter ranges are usually appropriate.
-- For deep inspection of a single trace (full event tree with all nested children and complete properties), use `query-llm-trace` with the trace's `id`.
+- For deep inspection of a single trace (full event tree with all nested children and every retained property), use `query-llm-trace` with the trace's `id`.

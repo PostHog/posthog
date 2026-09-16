@@ -39,7 +39,7 @@
         },
         "detail": {
             "default": "full",
-            "description": "How much of each event to return. \"full\" (default) returns complete event properties, subject to response size limits, preserving existing behavior when detail is omitted. Set \"summary\" to browse trace and event metadata (IDs, timestamps, model, latency, tokens, cost, tools called, errors) with short previews of prompts and outputs.",
+            "description": "How much of each retained event property to return. Properties outside the `$ai_*` namespace are withheld in both modes. \"full\" (default) returns every retained property, subject to response size limits. Set \"summary\" to browse trace and event metadata (IDs, timestamps, model, latency, tokens, cost, tools called, errors) with short previews of prompts and outputs.",
             "enum": ["summary", "full"],
             "type": "string"
         },

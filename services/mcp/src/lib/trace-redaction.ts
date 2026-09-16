@@ -14,6 +14,12 @@ const ALLOWED_KEY_PREFIX = '$ai_'
 // trace to its session recording, and the library pair identifies the sending SDK.
 const ALLOWED_KEYS = new Set(['$session_id', '$lib', '$lib_version'])
 
+// `$ai_debug_data` is inside the allowed namespace but is defined as a copy of the
+// raw pre-conversion bag, taken before ingestion strips `user.id` and
+// `posthog.distinct_id`. Filter its members with the same rule rather than let the
+// prefix wave the whole snapshot through.
+const NESTED_PROPERTY_BAGS = new Set(['$ai_debug_data'])
+
 const REDACTION_REASON =
     'Each `_redactedKeys` list names properties this response withholds, because they can carry authentication state, credentials, request headers, user identity, permissions, location, or budget context.'
 const REDACTION_NOTE =
@@ -40,7 +46,7 @@ function redactProperties(properties: unknown, state: RedactionState): unknown {
     for (const [key, value] of Object.entries(properties)) {
         if (isAllowed(key)) {
             // `__proto__` fails `isAllowed`, so this cannot reach the inherited setter.
-            kept[key] = value
+            kept[key] = NESTED_PROPERTY_BAGS.has(key) ? redactProperties(value, state) : value
         } else {
             withheld.push(key)
         }
@@ -59,29 +65,39 @@ function redactBag(owner: Record<string, unknown>, state: RedactionState): Recor
     return { ...owner, properties: redactProperties(owner.properties, state) }
 }
 
-function redactTrace(trace: unknown): unknown {
+function redactTrace(trace: unknown, state: RedactionState): unknown {
     if (!isRecord(trace)) {
         return trace
     }
     const out = { ...trace }
-    const state: RedactionState = { withheldAny: false }
     if (Array.isArray(out.events)) {
         out.events = out.events.map((event) => (isRecord(event) ? redactBag(event, state) : event))
     }
     if (isRecord(out.person)) {
         out.person = redactBag(out.person, state)
     }
-    if (state.withheldAny) {
-        // Once per trace, not once per bag: a trace holds hundreds of bags, and
-        // repeating the explanation would spend the compaction budget on boilerplate.
-        out._redacted = { reason: REDACTION_REASON, note: REDACTION_NOTE }
-    }
     return out
 }
 
-export function redactTraceResults(results: unknown): unknown {
+export interface RedactedTraceResults {
+    results: unknown
+    /** The explanation to attach to the response, or undefined when nothing was withheld. */
+    notice?: { reason: string; note: string }
+}
+
+/**
+ * The notice rides on the response rather than on each trace. A list response can
+ * hold a hundred traces against one compaction budget, so a per-trace copy of the
+ * same sentence would push candidate traces out of the tail.
+ */
+export function redactTraceResults(results: unknown): RedactedTraceResults {
     if (!Array.isArray(results)) {
-        return results
+        return { results }
     }
-    return results.map(redactTrace)
+    const state: RedactionState = { withheldAny: false }
+    const redacted = results.map((trace) => redactTrace(trace, state))
+    return {
+        results: redacted,
+        ...(state.withheldAny ? { notice: { reason: REDACTION_REASON, note: REDACTION_NOTE } } : {}),
+    }
 }

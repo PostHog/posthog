@@ -20,11 +20,11 @@ describe('trace redaction', () => {
     }
 
     it('withholds every property outside the AI namespace and reports it by name', () => {
-        const result = redactTraceResults([
+        const { results } = redactTraceResults([
             traceWithProperties({ $ai_model: 'gpt-4', $ai_input: 'summarize this', ...SECRETS }),
         ]) as any
-        const properties = result[0].events[0].properties
-        const serialized = JSON.stringify(result)
+        const properties = results[0].events[0].properties
+        const serialized = JSON.stringify(results)
 
         for (const [key, value] of Object.entries(SECRETS)) {
             expect(properties).not.toHaveProperty(key)
@@ -36,37 +36,64 @@ describe('trace redaction', () => {
     })
 
     it.each(['$session_id', '$lib', '$lib_version'])('keeps %s, which an agent needs to act on a trace', (key) => {
-        const result = redactTraceResults([traceWithProperties({ [key]: 'kept' })]) as any
+        const { results } = redactTraceResults([traceWithProperties({ [key]: 'kept' })]) as any
 
-        expect(result[0].events[0].properties[key]).toBe('kept')
+        expect(results[0].events[0].properties[key]).toBe('kept')
     })
 
     it('adds no marker when a bag holds nothing to withhold', () => {
         const trace = traceWithProperties({ $ai_model: 'gpt-4', $session_id: 's1' })
 
-        expect(redactTraceResults([trace])).toEqual([trace])
+        expect(redactTraceResults([trace])).toEqual({ results: [trace] })
     })
 
-    it('explains the redaction once per trace, not once per event bag', () => {
-        const events = Array.from({ length: 50 }, (_, i) => ({ id: `e${i}`, properties: { api_key: 'invented' } }))
-        const result = redactTraceResults([{ id: 'trace-1', events }]) as any
+    it('explains the redaction once for the whole response, not once per trace', () => {
+        const traces = Array.from({ length: 50 }, (_, i) => traceWithProperties({ api_key: `invented-${i}` }))
+        const { results, notice } = redactTraceResults(traces) as any
 
-        expect(result[0]._redacted.reason).toBeTruthy()
-        expect(JSON.stringify(result).split(result[0]._redacted.reason).length - 1).toBe(1)
+        expect(notice.reason).toBeTruthy()
+        expect(JSON.stringify(results)).not.toContain(notice.reason)
+    })
+
+    it('filters inside $ai_debug_data, which the prefix rule would wave through whole', () => {
+        const { results } = redactTraceResults([
+            traceWithProperties({
+                $ai_debug: true,
+                $ai_debug_data: {
+                    'user.id': 'someone@example.com',
+                    authorization: 'Bearer invented-token-value',
+                    $ai_model: 'gpt-4',
+                },
+            }),
+        ]) as any
+        const debugData = results[0].events[0].properties.$ai_debug_data
+
+        expect(JSON.stringify(results)).not.toContain('invented-token-value')
+        expect(JSON.stringify(results)).not.toContain('someone@example.com')
+        expect(debugData._redactedKeys).toEqual(['user.id', 'authorization'])
+        expect(debugData.$ai_model).toBe('gpt-4')
     })
 
     it('redacts the person properties a trace carries, not only its events', () => {
-        const result = redactTraceResults([
-            { id: 'trace-1', person: { uuid: 'p1', distinct_id: 'd1', properties: { email: 'someone@example.com' } } },
+        const { results } = redactTraceResults([
+            {
+                id: 'trace-1',
+                person: {
+                    uuid: 'p1',
+                    distinct_id: 'd1',
+                    created_at: 'yesterday',
+                    properties: { email: 'someone@example.com' },
+                },
+            },
         ]) as any
 
-        expect(JSON.stringify(result)).not.toContain('someone@example.com')
-        expect(result[0].person.uuid).toBe('p1')
-        expect(result[0].person.properties._redactedKeys).toEqual(['email'])
+        expect(JSON.stringify(results)).not.toContain('someone@example.com')
+        expect(results[0].person).toMatchObject({ uuid: 'p1', distinct_id: 'd1', created_at: 'yesterday' })
+        expect(results[0].person.properties._redactedKeys).toEqual(['email'])
     })
 
     it('redacts every trace of a list response, not just the first', () => {
-        const results = redactTraceResults([
+        const { results } = redactTraceResults([
             traceWithProperties({ api_key: 'invented-key-one' }),
             traceWithProperties({ api_key: 'invented-key-two' }),
         ]) as any

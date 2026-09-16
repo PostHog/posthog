@@ -19,7 +19,7 @@ const TRACE_QUERY_KINDS = new Set(['TraceQuery', 'TracesQuery'])
 const TRACE_DETAIL_FIELD = 'detail'
 const DEFAULT_TRACE_DETAIL: TraceDetail = 'full'
 const TRACE_DETAIL_DESCRIPTION =
-    'How much of each event to return. "full" (default) returns complete event properties, subject to response size limits, preserving existing behavior when detail is omitted. Set "summary" to browse trace and event metadata (IDs, timestamps, model, latency, tokens, cost, tools called, errors) with short previews of prompts and outputs.'
+    'How much of each retained event property to return. Properties outside the `$ai_*` namespace are withheld in both modes. "full" (default) returns every retained property, subject to response size limits. Set "summary" to browse trace and event metadata (IDs, timestamps, model, latency, tokens, cost, tools called, errors) with short previews of prompts and outputs.'
 
 /**
  * Add the `detail` control to the trace wrappers only. The field is a tool-level
@@ -231,9 +231,8 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             // properties past the redactor. No trace formatter exists yet; this keeps
             // the boundary closed if one lands.
             const shouldSurfaceFormatted = !isTraceQuery && effectiveOutputFormat !== 'json' && data.formatted_results
-            const results = isTraceQuery
-                ? compactTraceResults(redactTraceResults(data.results), traceDetail)
-                : data.results
+            const redacted = isTraceQuery ? redactTraceResults(data.results) : undefined
+            const results = redacted ? compactTraceResults(redacted.results, traceDetail) : data.results
             // Include `query` in the payload so UI apps (TrendsVisualizer, LifecycleVisualizer)
             // can honor query-level filters like `lifecycleFilter.toggledLifecycles` and
             // `trendsFilter.display`.
@@ -241,6 +240,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 query,
                 results,
                 _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
+                ...(redacted?.notice ? { _redacted: redacted.notice } : {}),
                 ...(data.warnings ? { warnings: data.warnings } : {}),
                 ...(shouldSurfaceFormatted ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
             }

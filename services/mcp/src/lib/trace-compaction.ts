@@ -109,7 +109,7 @@ const SUMMARY_METADATA_PROPERTIES = new Set([
 const SUMMARY_PREVIEWED_TRACE_FIELDS = new Set(['inputState', 'outputState'])
 
 const SUMMARY_NOTE =
-    'Event content is previewed. Re-run this tool with detail: "full" for complete prompts, outputs, and custom properties, or open the trace in PostHog.'
+    'Event content is previewed. Re-run this tool with detail: "full" for complete prompts and outputs, or open the trace in PostHog.'
 
 function metaReserveFor(budget: number): number {
     return Math.min(META_RESERVE, Math.floor(Math.max(0, budget) * SMALL_BUDGET_RESERVE_RATIO))

@@ -490,7 +490,24 @@ describe('createQueryWrapper trace redaction and compaction', () => {
         for (const result of [summary, full]) {
             expect(JSON.stringify(result)).not.toContain('invented-key-value')
             expect(result.results[0].events[0].properties.$ai_model).toBe('gpt-4')
+            expect(result._redacted.reason).toBeTruthy()
         }
+    })
+
+    it('explains the redaction once per response, keeping it out of the trace-list budget', async () => {
+        const traces = Array.from({ length: 20 }, (_, i) => ({
+            id: `trace-${i}`,
+            events: [{ properties: { api_key: `invented-${i}` } }],
+        }))
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TracesQuery' })()
+
+        const result = (await tool.handler(
+            contextWithResults(traces),
+            tool.schema.parse({ kind: 'TracesQuery', detail: 'summary' })
+        )) as any
+
+        expect(result.results).toHaveLength(traces.length)
+        expect(JSON.stringify(result.results)).not.toContain(result._redacted.reason)
     })
 
     it.each(['TraceQuery', 'TracesQuery'])(
