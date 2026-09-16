@@ -107,27 +107,27 @@
             "type": "array"
         },
         "delivery_config": {
-            "description": "Per-delivery rendering options. Each option documents which delivery targets it applies to.",
+            "description": "Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and the request is rejected when an option does not apply. Omit this field unless the user asks for one of the options.",
             "properties": {
                 "include_feedback": {
-                    "description": "AI prompt subscriptions only: include report feedback links. Defaults to true when omitted.",
+                    "description": "Prompt subscriptions only: include report feedback links. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
                     "type": "boolean"
                 },
                 "include_images": {
-                    "description": "AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.",
+                    "description": "Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
                     "type": "boolean"
                 },
                 "include_manage_link": {
-                    "description": "AI prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted.",
+                    "description": "Prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
                     "type": "boolean"
                 },
                 "include_posthog_hint": {
-                    "description": "AI prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted.",
+                    "description": "Prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
                     "type": "boolean"
                 },
                 "post_all_insights_in_main_message": {
                     "default": false,
-                    "description": "Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.",
+                    "description": "Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', and when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message.",
                     "type": "boolean"
                 }
             },

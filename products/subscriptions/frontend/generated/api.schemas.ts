@@ -203,15 +203,15 @@ export interface UserBasicApi {
  * Typed view over the Subscription.delivery_config JSON blob.
  */
 export interface DeliveryConfigApi {
-    /** Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. */
+    /** Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', and when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message. */
     post_all_insights_in_main_message?: boolean
-    /** AI prompt subscriptions only: include generated chart images. Defaults to true when omitted. */
+    /** Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that. */
     include_images?: boolean
-    /** AI prompt subscriptions only: include report feedback links. Defaults to true when omitted. */
+    /** Prompt subscriptions only: include report feedback links. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that. */
     include_feedback?: boolean
-    /** AI prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted. */
+    /** Prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that. */
     include_manage_link?: boolean
-    /** AI prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted. */
+    /** Prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that. */
     include_posthog_hint?: boolean
 }
 
@@ -335,7 +335,7 @@ export interface SubscriptionApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
-    /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+    /** Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and the request is rejected when an option does not apply. Omit this field unless the user asks for one of the options. */
     delivery_config?: DeliveryConfigApi
 }
 
@@ -503,7 +503,7 @@ export interface SubscriptionWriteApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
-    /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+    /** Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and the request is rejected when an option does not apply. Omit this field unless the user asks for one of the options. */
     delivery_config?: DeliveryConfigApi
 }
 
@@ -662,7 +662,7 @@ export interface PatchedSubscriptionWriteApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
-    /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+    /** Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and the request is rejected when an option does not apply. Omit this field unless the user asks for one of the options. */
     delivery_config?: DeliveryConfigApi
 }
 

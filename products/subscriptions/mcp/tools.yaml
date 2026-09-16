@@ -47,9 +47,16 @@ tools:
             rejected.
 
             For insight and dashboard subscriptions you can attach an AI-generated summary to each delivery by setting
-            `summary_enabled: true` (optionally steered by `summary_prompt_guide`). This requires the organization to
-            have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the
-            create is rejected. Prompt subscriptions are themselves AI-generated, so these fields do not apply to them.
+            `summary_enabled: true` (optionally steered by `summary_prompt_guide`, which must be 500 characters or
+            fewer). This requires the organization to have approved AI data processing and to be within its
+            active-summary cap and AI credit budget; otherwise the create is rejected. Prompt subscriptions are
+            themselves AI-generated, so these fields do not apply to them.
+
+            `delivery_config` is optional, and every option in it applies to one subscription kind or delivery target
+            only. Omit the whole field unless the user asks for one of its options, because the create is rejected when
+            an option does not apply. Each option's own description says where it applies. None of them control the AI
+            summary on an insight or dashboard subscription, so use `summary_enabled` and `summary_prompt_guide` for
+            that instead.
 
             IMPORTANT — when creating an insight (or dashboard) subscription, always ask the user whether to enable the
             AI-generated summary before creating it. Present it as their choice: they can turn it on (`summary_enabled:
@@ -180,8 +187,12 @@ tools:
             webhook URL; the host returned by this API is not a valid replacement.
 
             For insight and dashboard subscriptions, toggle the per-delivery AI summary with `summary_enabled` and steer
-            it with `summary_prompt_guide`. Enabling a summary requires the organization to have approved AI data
-            processing and to be within its active-summary cap and AI credit budget; otherwise the update is rejected.
+            it with `summary_prompt_guide` (500 characters or fewer). Enabling a summary requires the organization to
+            have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the
+            update is rejected.
+
+            `delivery_config` follows the same rules as on create. The update is rejected when an option does not apply
+            to this subscription.
         exclude_params:
             - contexts
             - deleted

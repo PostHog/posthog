@@ -739,7 +739,10 @@ class TestSubscriptionTemporal(APILicensedTest):
     def test_cannot_set_post_all_insights_in_main_message_on_email_subscription(self):
         response = self._create_subscription(delivery_config={"post_all_insights_in_main_message": True})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "only supported for Slack subscriptions" in response.json()["detail"]
+        assert response.json()["detail"] == (
+            "post_all_insights_in_main_message only applies to Slack subscriptions. "
+            "This subscription delivers to email, so remove it from delivery_config."
+        )
 
     def test_can_patch_delivery_config_on_slack_subscription(self):
         integration = Integration.objects.create(
@@ -794,7 +797,12 @@ class TestSubscriptionTemporal(APILicensedTest):
             },
         )
         assert res.status_code == status.HTTP_400_BAD_REQUEST
-        assert "files:write" in str(res.json())
+        assert res.json()["detail"] == (
+            "post_all_insights_in_main_message requires the Slack files:write permission. "
+            "Reconnect Slack to grant it, or remove the option from delivery_config to create the "
+            "subscription now. Each delivery then posts the first image in the main message and the "
+            "rest as threaded replies."
+        )
 
     def test_patch_post_all_in_main_requires_files_write_scope(self):
         integration = Integration.objects.create(
@@ -851,7 +859,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             {"target_type": "email", "target_value": "a@b.com"},
         )
         assert res.status_code == status.HTTP_400_BAD_REQUEST
-        assert "only supported for Slack" in str(res.json())
+        assert "post_all_insights_in_main_message only applies to Slack subscriptions" in str(res.json())
 
     def test_post_all_in_main_allowed_with_files_write(self):
         integration = Integration.objects.create(
@@ -3984,17 +3992,40 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert patch_response.status_code == status.HTTP_400_BAD_REQUEST, patch_response.json()
         assert "files:write" in str(patch_response.json())
 
+    @parameterized.expand(
+        [
+            (
+                "single",
+                {"include_images": False},
+                "include_images only applies to prompt subscriptions. This subscription has "
+                "resource_type 'insight', so remove it from delivery_config.",
+            ),
+            (
+                "several",
+                {"include_images": False, "include_feedback": True},
+                "include_feedback and include_images only apply to prompt subscriptions. This "
+                "subscription has resource_type 'insight', so remove them from delivery_config.",
+            ),
+            (
+                "alongside_a_valid_option",
+                {"include_manage_link": True, "post_all_insights_in_main_message": False},
+                "include_manage_link only applies to prompt subscriptions. This subscription has "
+                "resource_type 'insight', so remove it from delivery_config.",
+            ),
+        ]
+    )
     def test_ai_delivery_display_flags_are_rejected_for_insight_subscriptions(
-        self, mock_is_cloud, mock_flag, mock_sync
+        self, mock_is_cloud, mock_flag, mock_sync, _name, delivery_config, expected_detail
     ):
         self._mock_temporal(mock_sync)
         payload = self._insight_payload()
-        payload["delivery_config"] = {"include_images": False}
+        payload["delivery_config"] = delivery_config
 
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "only supported for prompt subscriptions" in str(response.json())
+        # The valid option in the same delivery_config must not be named as the offender.
+        assert response.json()["detail"] == expected_detail
 
 
 class TestSubscriptionObjectAccessControl(APILicensedTest):

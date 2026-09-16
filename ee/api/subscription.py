@@ -48,7 +48,7 @@ from posthog.security.url_validation import is_microsoft_teams_webhook_url
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
-from posthog.utils import str_to_bool
+from posthog.utils import human_list, str_to_bool
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -90,6 +90,12 @@ SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
 MAX_AI_SUBSCRIPTION_CONTEXTS: int = int(SubscriptionAIContextLimit.model_fields["root"].default)
 AI_DELIVERY_DISPLAY_FIELDS = frozenset(
     {"include_images", "include_feedback", "include_manage_link", "include_posthog_hint"}
+)
+# An agent reads one field's description in isolation, so every field repeats the scope rule.
+_AI_DISPLAY_FIELD_SCOPE_NOTE = (
+    "The request is rejected when the subscription sets insight or dashboard instead of prompt. "
+    "It does not control the AI summary on an insight or dashboard subscription: use "
+    "summary_enabled and summary_prompt_guide for that."
 )
 
 
@@ -287,27 +293,31 @@ class DeliveryConfigSerializer(serializers.Serializer):
         help_text=(
             "Slack only: when true, upload all insight images together in the main Slack message "
             "instead of posting the first image in the main message and the rest as threaded replies. "
-            "Defaults to false."
+            "Defaults to false. The request is rejected when target_type is not 'slack', and when the "
+            "Slack integration does not hold the files:write permission. Omit it unless the user asks "
+            "for one combined message."
         ),
     )
     include_images = serializers.BooleanField(
         required=False,
-        help_text="AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.",
+        help_text="Prompt subscriptions only: include generated chart images. Defaults to true when omitted. "
+        + _AI_DISPLAY_FIELD_SCOPE_NOTE,
     )
     include_feedback = serializers.BooleanField(
         required=False,
-        help_text="AI prompt subscriptions only: include report feedback links. Defaults to true when omitted.",
+        help_text="Prompt subscriptions only: include report feedback links. Defaults to true when omitted. "
+        + _AI_DISPLAY_FIELD_SCOPE_NOTE,
     )
     include_manage_link = serializers.BooleanField(
         required=False,
-        help_text="AI prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted.",
+        help_text="Prompt subscriptions only: include a link to manage the subscription. "
+        "Defaults to true when omitted. " + _AI_DISPLAY_FIELD_SCOPE_NOTE,
     )
     include_posthog_hint = serializers.BooleanField(
         required=False,
-        help_text=(
-            "AI prompt subscriptions only: include PostHog product guidance. Slack only. "
-            "Email and Microsoft Teams reports do not include it. Defaults to true when omitted."
-        ),
+        help_text="Prompt subscriptions only: include PostHog product guidance. Slack only. "
+        "Email and Microsoft Teams reports do not include it. Defaults to true when omitted. "
+        + _AI_DISPLAY_FIELD_SCOPE_NOTE,
     )
 
 
@@ -438,7 +448,11 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
     )
     delivery_config = DeliveryConfigSerializer(
         required=False,
-        help_text="Per-delivery rendering options. Each option documents which delivery targets it applies to.",
+        help_text=(
+            "Per-delivery rendering options. Every option applies to one subscription kind or delivery "
+            "target only, and the request is rejected when an option does not apply. Omit this field "
+            "unless the user asks for one of the options."
+        ),
     )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
@@ -773,7 +787,14 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         if validate_for_resource_type is None:
             raise ValidationError({"resource_type": [f"Unsupported resource_type: {resource_type}."]})
         if resource_type != Subscription.ResourceType.AI_PROMPT and attrs.get("ai_prompt_config"):
-            raise ValidationError({"ai_prompt_config": ["AI report settings only apply to AI subscriptions."]})
+            raise ValidationError(
+                {
+                    "ai_prompt_config": [
+                        "ai_prompt_config only applies to prompt subscriptions. This subscription has "
+                        f"resource_type '{resource_type}', so remove it from the request."
+                    ]
+                }
+            )
         if "contexts" in attrs:
             if resource_type != Subscription.ResourceType.AI_PROMPT:
                 raise ValidationError({"contexts": ["Context only applies to AI subscriptions."]})
@@ -805,12 +826,19 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             if "delivery_config" in attrs
             else (self.instance.delivery_config if self.instance else None)
         ) or {}
-        if resource_type != Subscription.ResourceType.AI_PROMPT and any(
-            field in effective_delivery_config for field in AI_DELIVERY_DISPLAY_FIELDS
-        ):
-            raise ValidationError(
-                {"delivery_config": ["AI delivery display options are only supported for prompt subscriptions."]}
-            )
+        if resource_type != Subscription.ResourceType.AI_PROMPT:
+            unsupported = sorted(AI_DELIVERY_DISPLAY_FIELDS & effective_delivery_config.keys())
+            if unsupported:
+                verb, pronoun = ("applies", "it") if len(unsupported) == 1 else ("apply", "them")
+                raise ValidationError(
+                    {
+                        "delivery_config": [
+                            f"{human_list(unsupported)} only {verb} to prompt subscriptions. "
+                            f"This subscription has resource_type '{resource_type}', "
+                            f"so remove {pronoun} from delivery_config."
+                        ]
+                    }
+                )
 
         # Reject re-enables of subscriptions whose delivery prerequisite is still
         # permanently broken — otherwise the next delivery would just auto-disable
@@ -880,8 +908,10 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                 raise ValidationError(
                     {
                         "delivery_config": [
-                            "Posting all insights in the main message requires the Slack files:write permission. "
-                            "Reconnect Slack to grant it."
+                            "post_all_insights_in_main_message requires the Slack files:write permission. "
+                            "Reconnect Slack to grant it, or remove the option from delivery_config to "
+                            "create the subscription now. Each delivery then posts the first image in the "
+                            "main message and the rest as threaded replies."
                         ]
                     }
                 )
@@ -891,7 +921,12 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             and target_type != Subscription.SubscriptionTarget.SLACK
         ):
             raise ValidationError(
-                {"delivery_config": ["post_all_insights_in_main_message is only supported for Slack subscriptions."]}
+                {
+                    "delivery_config": [
+                        "post_all_insights_in_main_message only applies to Slack subscriptions. "
+                        f"This subscription delivers to {target_type}, so remove it from delivery_config."
+                    ]
+                }
             )
 
         prompt_guide = attrs.get("summary_prompt_guide")
