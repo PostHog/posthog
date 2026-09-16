@@ -139,8 +139,15 @@ field definitions. The response is a dict keyed by source type. Each entry descr
 
 - `name` — the canonical source_type string you'll pass to later calls (e.g. `"Postgres"`, `"Stripe"`, `"Hubspot"`).
 - `caption` — human-readable description.
-- `fields` — the config fields needed (host, port, database, api_key, client_id/secret, ...). Each has `name`,
-  `type` (input, password, switch, select, file-upload), and `required`.
+- `fields` — the config fields needed (host, port, database, api_key, client_id/secret, ...). Each has a `name`, a
+  `type`, and usually a `required` flag.
+  - Read `type` from the response. New source types add new values, so do not assume a fixed list.
+    Current values are `text`, `password`, `textarea`, `number`, `email`, `url`, `time`, `search`, `select`,
+    `oauth`, `oauth-account-select`, `switch-group`, `file-upload`, and `ssh-tunnel`.
+  - A separate boolean `secret` marks a field that holds a sensitive value. The `type` does not tell you this. A
+    `text` or a `textarea` field can carry `secret: true`. Collect every secret field through
+    `data-warehouse-source-connect-link`, never in chat.
+  - `switch-group` and `select` options nest their own `fields` array. Read those the same way.
 - `featured`, `unreleasedSource` — use to gauge readiness. Skip sources marked `unreleasedSource: true` unless the
   user explicitly asked for a preview.
 
