@@ -41,6 +41,9 @@ describe("createPiContextWikiExtension", () => {
     expect(result.systemPrompt).toContain(
       "Ordinary tasks cannot approve suggestions or publish commit bundles.",
     );
+    expect(result.systemPrompt).toContain(
+      "For server-owned nightly maintenance only, use scripts/publish --dream <summary-file>",
+    );
   });
 
   it("leaves the prompt alone when the mount path is absent on disk", async () => {

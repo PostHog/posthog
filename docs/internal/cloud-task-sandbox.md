@@ -64,6 +64,8 @@ The helper uses the current UTC date for the branch, reuses that branch on retri
 The server records the authenticated maintenance run ID in the merge commit. Dream publication status matches this ID, not the commit time, so overlapping runs cannot hide a failed publication.
 GitHub signed-commit tools do not apply to this local bundle repository.
 The helper reports `publish: landed` only after a successful upload, reports `publish: no changes` for an unchanged wiki, and returns a nonzero exit for failures.
+The Dreams tab also shows the latest finished task when it has no published update, with a link to the task outcome.
+A finished task can mean either no changes were needed or publication failed; task completion alone does not confirm publication.
 Direct human page editing remains available.
 This review gate applies to server-minted task and loop tokens. Human/API credentials keep their existing permissions.
 
