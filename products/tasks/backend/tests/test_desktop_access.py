@@ -262,3 +262,33 @@ class TestEnforceCodeAccess(APIBaseTest):
 
         with self.assertRaises(Throttled):
             self._enforce()
+
+
+class TestCreateAndRunTaskAppliesTheCodeAccessGate(APIBaseTest):
+    @patch("products.tasks.backend.facade.api.Task.create_and_run")
+    @patch("products.tasks.backend.facade.api.enforce_code_access", side_effect=PermissionDenied("denied"))
+    def test_a_denied_run_never_reaches_task_creation(self, mock_enforce, mock_create) -> None:
+        from products.tasks.backend.facade.api import create_and_run_task
+        from products.tasks.backend.models import Task
+
+        with self.assertRaises(PermissionDenied):
+            create_and_run_task(
+                team=self.team,
+                title="Clean up the flag",
+                description="...",
+                origin_product=Task.OriginProduct.EXPERIMENTS,
+                user_id=self.user.id,
+                repository="acme/web",
+                create_pr=True,
+            )
+
+        mock_create.assert_not_called()
+        self.assertEqual(
+            mock_enforce.call_args.kwargs,
+            {
+                "origin_product": Task.OriginProduct.EXPERIMENTS,
+                "create_pr": True,
+                "internal": False,
+                "signal_report_id": None,
+            },
+        )
