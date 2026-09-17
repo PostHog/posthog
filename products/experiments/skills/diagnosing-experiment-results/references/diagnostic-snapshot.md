@@ -95,15 +95,18 @@ precomputes experiment results on a schedule (gated behind a minimum runtime —
 `data: null` placeholders that fill in on their own. Transient query load (e.g. rate-limiting at the
 moment you pulled the snapshot) produces the same shape.
 
-**Disambiguate transient from a real failure before reporting it:**
+**Disambiguate transient from a real failure before reporting it.** Both calls need `id`, the
+experiment ID resolved in Step 1 of `SKILL.md`. `experiment-results-get` has no implicit current
+experiment.
 
-- **Re-pull** `experiment-results-get` (cached) a while later — if the previously-null rows now carry
-  data, they were transient, not failing.
-- **Force one recompute** with `experiment-results-get { refresh: true }` — this triggers an on-demand
-  compute of every metric. If it returns the rows populated (no `data: null`), the backend compute path
-  is healthy and the earlier nulls were transient. If a row stays `null` after a successful
-  force-refresh, that metric genuinely fails to compute — then inspect its definition (e.g. a `mean`
-  metric over a property that doesn't exist, a baseline of zero, or a malformed funnel).
+- **Re-pull** `experiment-results-get { id: <experiment_id> }` (cached — `refresh` defaults to false)
+  a while later — if the previously-null rows now carry data, they were transient, not failing.
+- **Force one recompute** with `experiment-results-get { id: <experiment_id>, refresh: true }` — this
+  triggers an on-demand compute of every metric. If it returns the rows populated (no `data: null`),
+  the backend compute path is healthy and the earlier nulls were transient. If a row stays `null`
+  after a successful force-refresh, that metric genuinely fails to compute — then inspect its
+  definition (e.g. a `mean` metric over a property that doesn't exist, a baseline of zero, or a
+  malformed funnel).
 
 Two cautions:
 
