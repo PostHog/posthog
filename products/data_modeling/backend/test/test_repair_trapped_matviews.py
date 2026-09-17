@@ -114,7 +114,7 @@ class TestTargetForTrappedQuery(BaseTest):
 class TestClampingTheTargetToWhatTheDagAccepts(BaseTest):
     """`target_for` guesses, and the write refuses a guess slower than a consumer downstream."""
 
-    def _trapped(self, name: str) -> Node:
+    def _trapped(self, name: str) -> tuple[Node, DataWarehouseSavedQuery]:
         sq = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name=name,
@@ -122,7 +122,8 @@ class TestClampingTheTargetToWhatTheDagAccepts(BaseTest):
             is_materialized=True,
         )
         dag, _ = DAG.objects.get_or_create(team=self.team, name="Default")
-        return Node.objects.create(team=self.team, dag=dag, name=name, type=NodeType.VIEW, saved_query=sq)
+        node = Node.objects.create(team=self.team, dag=dag, name=name, type=NodeType.VIEW, saved_query=sq)
+        return node, sq
 
     def _consumer_of(self, node: Node, target: timedelta) -> None:
         name = f"{node.name}_consumer"
@@ -139,23 +140,23 @@ class TestClampingTheTargetToWhatTheDagAccepts(BaseTest):
         Edge.objects.create(team=self.team, dag=node.dag, source=node, target=consumer)
 
     def test_a_guess_slower_than_a_consumer_is_pulled_up_to_it(self):
-        node = self._trapped("feeds_an_hourly_view")
+        node, sq = self._trapped("feeds_an_hourly_view")
         self._consumer_of(node, timedelta(hours=1))
-        assert clamp_to_bounds(node.saved_query, timedelta(days=1)) == timedelta(hours=1)
+        assert clamp_to_bounds(sq, timedelta(days=1)) == timedelta(hours=1)
 
     def test_a_guess_the_dag_already_accepts_is_left_alone(self):
-        node = self._trapped("fast_enough")
+        node, sq = self._trapped("fast_enough")
         self._consumer_of(node, timedelta(hours=1))
-        assert clamp_to_bounds(node.saved_query, timedelta(minutes=15)) == timedelta(minutes=15)
+        assert clamp_to_bounds(sq, timedelta(minutes=15)) == timedelta(minutes=15)
 
     def test_a_v1_interval_that_is_not_a_bucket_lands_on_one(self):
         # v1 never constrained `sync_frequency_interval` to a schedulable bucket, so a trapped
         # query can prefer a cadence no tier runs at. The write refuses that as readily as one
         # outside the bounds, so the clamp has to return a member, not just something in range.
-        node = self._trapped("prefers_ninety_minutes")
+        node, sq = self._trapped("prefers_ninety_minutes")
         self._consumer_of(node, timedelta(hours=6))
-        target = clamp_to_bounds(node.saved_query, timedelta(minutes=90))
-        bounds = saved_query_target_bounds(self.team.pk, node.saved_query_id)
+        target = clamp_to_bounds(sq, timedelta(minutes=90))
+        bounds = saved_query_target_bounds(self.team.pk, sq.id)
         assert bounds is not None
         assert target in bounds.bounds.allowed
 
