@@ -10,13 +10,22 @@ _DROPPED_CONNECTION_MARKERS = (
     # answering, and psycopg's report of the same dead socket found client-side. psycopg raises
     # both as ProtocolViolation (SQLSTATE 08P01), which is too broad to whitelist by class because
     # a genuine protocol violation is a driver bug that must keep reaching error tracking, so
-    # match the message. Also reaches us wrapped in pgbouncer's cached-login message below.
+    # match the message. pgbouncer also embeds it in the cached-login error below, which
+    # `is_dropped_connection_error` rejects.
     "server conn crashed",
     # Reuse of a connection a previous failure already closed. psycopg 3 and psycopg 2 word this
     # differently, and the Django postgresql backend picks whichever driver is installed.
     "the connection is closed",
     "connection already closed",
 )
+
+# pgbouncer's server_login_retry cooldown: a backend connect attempt failed, so pgbouncer caches
+# the failure and hands it to every client asking for a connection until the cooldown (default
+# 15s) elapses and it retries the backend itself. Self-heals without our retry doing anything
+# special, so it's transient by construction, not a symptom of the underlying cause. The cached
+# text quotes the backend's own failure, so a dropped-connection marker can match it, but only a
+# caller that waits out the cooldown gets a different answer.
+_POOLER_LOGIN_COOLDOWN_MARKER = "server login has been failing, cached error"
 
 # Substrings identifying transient Postgres failures. pgbouncer kills queries that wait too long
 # for a backend connection with `query_wait_timeout`, and surfaces dropped/reset backend
@@ -29,11 +38,7 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     "query_wait_timeout",
     "the database system is starting up",
     "the database system is shutting down",
-    # pgbouncer's server_login_retry cooldown: a backend connect attempt failed, so pgbouncer
-    # caches the failure and hands it to every client asking for a connection until the cooldown
-    # (default 15s) elapses and it retries the backend itself. Self-heals without our retry doing
-    # anything special, so it's transient by construction, not a symptom of the underlying cause.
-    "server login has been failing, cached error",
+    _POOLER_LOGIN_COOLDOWN_MARKER,
     # The pooler (pgbouncer/pgcat) itself draining for a restart or deploy, refusing new
     # connections while it does. Same self-healing shape as "the database system is shutting
     # down" above, just raised by the pooler in front of Postgres rather than Postgres itself.
@@ -72,9 +77,12 @@ def is_dropped_connection_error(error: BaseException) -> bool:
 
     Narrower than `is_transient_db_error` on purpose: a caller that retries immediately, with no
     backoff, must not retry a saturated pool or a restarting server straight back into the same
-    failure.
+    failure. The same rule excludes the pooler's login cooldown, even though the error it caches
+    quotes a dead connection.
     """
     if not isinstance(error, OperationalError | InterfaceError):
         return False
     message = str(error)
+    if _POOLER_LOGIN_COOLDOWN_MARKER in message:
+        return False
     return any(marker in message for marker in _DROPPED_CONNECTION_MARKERS)
