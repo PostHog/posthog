@@ -338,9 +338,12 @@ def bulk_create_symbol_sets(
         missing_sets = sorted(set(chunk_ids) - {s.ref for s in existing_symbol_sets})
 
         symbol_sets_to_be_created = []
+        # Held back from `id_url_map` until the insert is known to have won, because an entry
+        # there promises the client a `symbol_set_id` as well as an upload url.
+        urls_for_rows_we_insert: dict[str, dict[str, Any]] = {}
         for chunk_id in missing_sets:
             storage_ptr = generate_symbol_set_file_key()
-            id_url_map[chunk_id] = generate_symbol_set_upload_presigned_urls(storage_ptr)
+            urls_for_rows_we_insert[chunk_id] = generate_symbol_set_upload_presigned_urls(storage_ptr)
             # Note that on creation, we /do not set/ the content hash. We use content hashes included in
             # the create request only to see if we can skip updated - we set the content hash when we
             # get upload confirmation, during `bulk_finish_upload`, not before
@@ -359,11 +362,15 @@ def bulk_create_symbol_sets(
 
         # `ignore_conflicts` leaves the primary key unset, so read the rows back. A row whose
         # storage pointer is not the one we generated belongs to the request that won the race, so
-        # it is handled below as an existing row and gets an upload url bound to it.
+        # it is handled below as an existing row, which either reissues a complete entry or leaves
+        # the chunk out of the map because the other request already uploaded that content.
         storage_ptrs_we_generated = {s.ref: s.storage_ptr for s in symbol_sets_to_be_created}
         for symbol_set in ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=missing_sets):
             if symbol_set.storage_ptr == storage_ptrs_we_generated[symbol_set.ref]:
-                id_url_map[symbol_set.ref]["symbol_set_id"] = str(symbol_set.pk)
+                id_url_map[symbol_set.ref] = {
+                    **urls_for_rows_we_insert[symbol_set.ref],
+                    "symbol_set_id": str(symbol_set.pk),
+                }
             else:
                 existing_symbol_sets.append(symbol_set)
 
