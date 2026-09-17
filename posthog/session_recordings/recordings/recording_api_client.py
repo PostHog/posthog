@@ -6,7 +6,11 @@ from django.conf import settings
 import aiohttp
 import structlog
 
-from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.session_recordings.recordings.errors import (
+    BlockFetchError,
+    RecordingApiConfigurationError,
+    RecordingDeletedError,
+)
 from posthog.session_recordings.recordings.recording_api_jwt import recording_api_auth_headers
 
 logger = structlog.get_logger(__name__)
@@ -127,7 +131,7 @@ async def recording_api_client() -> AsyncIterator[RecordingApiClient]:
             content = await client.fetch_block(key, start, end, session_id, team_id, decompress=True)
     """
     if not settings.RECORDING_API_URL:
-        raise RuntimeError("RECORDING_API_URL is not configured")
+        raise RecordingApiConfigurationError("RECORDING_API_URL is not configured")
 
     timeout = aiohttp.ClientTimeout(total=30, connect=5)
     # Authorization is per-request (a team + operation scoped JWT), so no session-level auth header.
