@@ -85,12 +85,17 @@ describe('ActivityLogRow', () => {
                             </>
                         ),
                         created_at: dayjs(),
+                        client: 'mcp',
                     }}
                 />
             </Provider>
         )
 
-        expect(screen.getByText('Anonymous user')).toBeInTheDocument()
+        const actor = screen.getByText('Anonymous user')
+        expect(actor).toBeInTheDocument()
+        expect(
+            actor.compareDocumentPosition(screen.getByText('via MCP')) & Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
         expect(screen.queryByText('A user')).not.toBeInTheDocument()
     })
 })

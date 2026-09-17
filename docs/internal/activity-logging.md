@@ -22,6 +22,7 @@ Describers can supply an optional `summary` with `actor`, `action`, `target`, an
 The row uses that structure without parsing a JSX sentence.
 The complete `description` remains available to notifications and other activity consumers.
 Describers without a summary keep their original sentence, including any specialized actor attribution.
+The sentence aligns with the avatar, with the client tag and time underneath.
 Agent intent and task links remain optional and retain their existing attribution rules.
 
 ## How a change becomes an activity row
