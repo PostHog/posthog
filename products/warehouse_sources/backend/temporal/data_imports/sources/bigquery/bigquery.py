@@ -50,7 +50,8 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration.google_cloud import (
     GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR,
-    GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS,
+    InvalidGoogleTokenUriError,
+    require_google_token_uri,
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -186,10 +187,10 @@ class BigQueryInvalidTokenUriError(Exception):
 
 
 def _require_google_token_uri(token_uri: str) -> str:
-    token_uri = token_uri.strip()
-    if token_uri not in GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS:
+    try:
+        return require_google_token_uri(token_uri)
+    except InvalidGoogleTokenUriError:
         raise BigQueryInvalidTokenUriError(BIGQUERY_INVALID_TOKEN_URI_ERROR)
-    return token_uri
 
 
 # Onboarding-time messages. Unlike the sync-path classifier these are only reached during credential

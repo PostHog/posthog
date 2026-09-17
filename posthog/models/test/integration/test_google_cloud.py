@@ -13,6 +13,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import GoogleCloudIntegration, GoogleCloudServiceAccountIntegration, Integration
+from posthog.models.integration.google_cloud import GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
@@ -203,6 +204,9 @@ class TestGoogleCloudIntegrationModel(BaseTest):
             GoogleCloudIntegration(integration).refresh_access_token()
 
         mock_credentials.assert_not_called()
+        integration.refresh_from_db()
+        assert integration.config["refresh_failure_count"] == 1
+        assert integration.config["refresh_terminal"] is True
 
 
 class TestGoogleCloudServiceAccountIntegration(BaseTest):
@@ -233,8 +237,10 @@ class TestGoogleCloudServiceAccountIntegration(BaseTest):
             sensitive_config={"private_key": "something", "private_key_id": "something", "token_uri": token_uri},
         )
 
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError) as exc_info:
             _ = GoogleCloudServiceAccountIntegration(integration).service_account_info
+
+        assert str(exc_info.value) == GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR
 
     def test_stores_key_file_token_uri_stripped(self) -> None:
         integration = GoogleCloudServiceAccountIntegration.integration_from_service_account(

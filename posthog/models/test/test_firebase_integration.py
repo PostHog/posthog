@@ -153,6 +153,9 @@ class TestFirebaseIntegration(BaseTest):
             FirebaseIntegration(integration).refresh_access_token()
 
         mock_from_sa.assert_not_called()
+        integration.refresh_from_db()
+        assert integration.config["refresh_failure_count"] == 1
+        assert integration.config["refresh_terminal"] is True
 
     def test_wrapper_properties(self):
         integration = self._create_firebase_integration()

@@ -28,9 +28,19 @@ GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR = (
 )
 
 
+class InvalidGoogleTokenUriError(ValidationError):
+    """Still a 400 through DRF, and named so the batch-export retry classifier can match it."""
+
+    def __init__(self) -> None:
+        super().__init__(GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR)
+
+    def __str__(self) -> str:
+        return GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR
+
+
 def require_google_token_uri(token_uri: object) -> str:
     if not isinstance(token_uri, str) or token_uri.strip() not in GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS:
-        raise ValidationError(GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR)
+        raise InvalidGoogleTokenUriError()
     return token_uri.strip()
 
 
@@ -218,8 +228,10 @@ class GoogleCloudIntegration:
         key_info = self.integration.sensitive_config.get("key_info", self.integration.sensitive_config)
         try:
             key_info["token_uri"] = require_google_token_uri(key_info.get("token_uri"))
-        except ValidationError:
-            refresh_tracking.record_refresh_failure(self.integration)
+        except InvalidGoogleTokenUriError:
+            refresh_tracking.record_refresh_failure(
+                self.integration, reason=refresh_tracking.REFRESH_FAILURE_REASON_INVALID_TOKEN_URI
+            )
             self.integration.save(update_fields=["config"])
             raise
         credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])

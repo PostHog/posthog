@@ -60,6 +60,10 @@ REFRESH_FAILURE_REASON_OTHER = "other"
 # made. Terminal on the first occurrence, since no later attempt can make the secret readable.
 REFRESH_FAILURE_REASON_UNREADABLE_SECRET = "unreadable_secret"
 
+# Not a provider response either: the stored key file names a token endpoint that is not Google's,
+# so no request is made. Terminal on the first occurrence, since only a re-upload changes the key.
+REFRESH_FAILURE_REASON_INVALID_TOKEN_URI = "invalid_token_uri"
+
 # Failures that say nothing about the grant: the provider was unavailable or throttling us. The
 # credentials in hand are still good, so a caller refreshing on use must not flag the connection
 # for re-authorization over one - that strands a working connection until someone reconnects it.
@@ -112,9 +116,9 @@ def record_refresh_failure(integration: "model.Integration", *, reason: str = RE
     itself is dead and only a customer re-auth can fix it, so after an unbroken streak of them the
     integration goes terminal and the sweep stops retrying entirely. The streak is tracked
     separately from the total failure count and resets on any other reason, so one transient
-    invalid_grant amid e.g. a 5xx outage can't brick the integration. `unreadable_secret` goes
-    terminal on the first occurrence - we never even reached the provider, and retrying can't make
-    an undecryptable token readable. Other reasons (invalid_client, 5xx, network, rate_limited)
+    invalid_grant amid e.g. a 5xx outage can't brick the integration. `unreadable_secret` and
+    `invalid_token_uri` go terminal on the first occurrence - we never even reached the provider,
+    and retrying can't make an undecryptable token readable or an edited key file valid. Other reasons (invalid_client, 5xx, network, rate_limited)
     never go terminal - a platform-side credential fix must let the fleet self-recover.
 
     Returns "first"/"retry" for the metric's `attempt` label - a spike in first failures means
@@ -127,7 +131,7 @@ def record_refresh_failure(integration: "model.Integration", *, reason: str = RE
     integration.config["refresh_next_attempt_at"] = int(time.time()) + min(
         REFRESH_BACKOFF_BASE_SECONDS * 2 ** (count - 1), REFRESH_BACKOFF_MAX_SECONDS
     )
-    if reason == REFRESH_FAILURE_REASON_UNREADABLE_SECRET:
+    if reason in (REFRESH_FAILURE_REASON_UNREADABLE_SECRET, REFRESH_FAILURE_REASON_INVALID_TOKEN_URI):
         integration.config.pop("refresh_invalid_grant_count", None)
         if not integration.config.get("refresh_terminal"):
             integration.config["refresh_terminal"] = True
