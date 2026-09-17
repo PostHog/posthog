@@ -114,7 +114,12 @@ export function DashboardWidgetPlacementMenu({
                                     key={dashboard.id}
                                     fullWidth
                                     disabledReason={disabledReason}
-                                    onClick={() => !disabledReason && onSelect(dashboard)}
+                                    onClick={() => {
+                                        if (!disabledReason) {
+                                            onSelect(dashboard)
+                                            setSearchTermState('')
+                                        }
+                                    }}
                                 >
                                     {dashboard.name || <i>Untitled</i>}
                                 </LemonButton>
@@ -148,6 +153,8 @@ export function DashboardWidgetPlacementMenu({
             onVisibilityChange={(visible) => {
                 if (visible) {
                     onOpen?.()
+                } else {
+                    setSearchTermState('')
                 }
             }}
         >
