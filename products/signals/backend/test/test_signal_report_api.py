@@ -1023,6 +1023,11 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["is_suggested_reviewer"] is expected_suggested
 
+        # The detail takes the other branch of the same annotation, so it must agree.
+        detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert detail.status_code == status.HTTP_200_OK
+        assert detail.json()["is_suggested_reviewer"] is expected_suggested
+
     def test_is_suggested_reviewer_true_when_no_actionability_judgment(self):
         UserSocialAuth.objects.create(
             user=self.user,
@@ -1577,6 +1582,24 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(self._list_url())
         ids = {r["id"] for r in response.json()["results"]}
         assert {str(a.id), str(b.id)} <= ids
+
+    @parameterized.expand([("no_view", None), ("actionable_view", "actionable")])
+    def test_list_does_not_select_the_latest_judgment_values(self, _name, view: str | None):
+        # Selecting one buys a correlated artefact walk per candidate row that nothing reads: the
+        # rendered actionability comes from the prefetched artefacts instead. The Actionable view is
+        # the case that filters on both values, so it is where re-selecting them costs the most.
+        report = self._create_report()
+        self._actionability_artefact(report, actionability="immediately_actionable")
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(self._list_url(**({"view": view} if view else {})))
+
+        assert response.status_code == status.HTTP_200_OK
+        report_queries = [q["sql"] for q in ctx.captured_queries if 'FROM "signals_signalreport"' in q["sql"]]
+        assert report_queries
+        for sql in report_queries:
+            assert "latest_actionability_value" not in sql
+            assert "latest_already_addressed_value" not in sql
 
     def test_filter_actionability_invalid_value_returns_400(self):
         response = self.client.get(self._list_url(actionability="maybe_later"))
