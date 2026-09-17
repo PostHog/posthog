@@ -53,7 +53,9 @@ def _first_citation_video_s(model_output: dict[str, Any] | None, clock: VideoClo
 def _pick_video_time_s(
     inputs: ObservationMediaInputs, model_output: dict[str, Any] | None, clock: VideoClock | None, duration_s: float
 ) -> float:
-    picked = _first_citation_video_s(model_output, clock)
+    picked = float(inputs.thumbnail_video_s) if inputs.thumbnail_video_s is not None else None
+    if picked is None:
+        picked = _first_citation_video_s(model_output, clock)
     if picked is None and inputs.signal_video_times:
         start, end = inputs.signal_video_times[0]
         picked = (start + end) / 2

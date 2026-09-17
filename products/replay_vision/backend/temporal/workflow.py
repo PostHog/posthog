@@ -56,7 +56,7 @@ from products.replay_vision.backend.temporal.errors import (
     ScannerFailureError,
 )
 from products.replay_vision.backend.temporal.media_types import ObservationMediaInputs
-from products.replay_vision.backend.temporal.scanners.base import BaseScannerOutput, SignalFinding
+from products.replay_vision.backend.temporal.scanners.base import BaseScannerOutput
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.types import (
     OBSERVATION_PHASE_INDEX,
@@ -396,7 +396,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 )
             except Exception:
                 wf.logger.exception("Event emission failed for succeeded observation %s", observation_id)
-            await self._render_media(inputs, observation_id, asset_result.asset_id, call_output.signals)
+            await self._render_media(inputs, observation_id, asset_result.asset_id, call_output)
             await self._apply_scanner_side_effects(inputs, observation_id, call_output.model_output)
         except Exception as e:
             ineligible_kind = _extract_kind_for_type(e, INELIGIBLE_SESSION_ERROR_TYPE)
@@ -545,7 +545,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         inputs: ApplyScannerInputs,
         observation_id: UUID,
         analysis_asset_id: int,
-        signals: list[SignalFinding],
+        call_output: ScannerCallOutput,
     ) -> None:
         """Render the observation's thumbnail. Fail-soft: a missing poster must never fail a paid-for scan."""
         if not wf.patched("replay-vision-media-2026-09"):
@@ -560,7 +560,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     observation_id=observation_id,
                     session_id=inputs.session_id,
                     analysis_asset_id=analysis_asset_id,
-                    signal_video_times=[(signal.start_time, signal.end_time) for signal in signals],
+                    signal_video_times=[(s.start_time, s.end_time) for s in call_output.signals],
+                    thumbnail_video_s=call_output.thumbnail_video_s,
                 ),
                 id=f"replay-vision-media-{observation_id}",
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,

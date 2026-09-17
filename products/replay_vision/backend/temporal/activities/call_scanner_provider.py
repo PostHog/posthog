@@ -75,6 +75,7 @@ from products.replay_vision.backend.temporal.network_tool import (
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_CORE,
+    STEP_MEDIA,
     STEP_SIGNALS,
     TIMESTAMP_CITATION_RE,
     BaseScanner,
@@ -142,6 +143,7 @@ class _MissionOutcome:
     finalized: BaseScannerOutput
     signals: list[SignalFinding]
     verification: VerificationRecord | None = None
+    thumbnail_video_s: int | None = None
 
 
 @activity.defn
@@ -321,7 +323,20 @@ async def run_scan(
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     finalized = _resolve_citations(outcome.finalized, scanner, duration_ms, video_clock)
     signals = [_signal_on_session_clock(signal, video_clock) for signal in outcome.signals]
-    return ScannerCallOutput(model_output=finalized, signals=signals, verification=outcome.verification)
+    return ScannerCallOutput(
+        model_output=finalized,
+        signals=signals,
+        verification=outcome.verification,
+        thumbnail_video_s=_clamp_thumbnail(outcome.thumbnail_video_s, video_clock, duration_ms),
+    )
+
+
+def _clamp_thumbnail(thumbnail_video_s: int | None, video_clock: VideoClock, duration_ms: int) -> int | None:
+    """Hold the model's pick inside the rendered video, which is shorter than the session wherever the render cut."""
+    if thumbnail_video_s is None:
+        return None
+    ceiling = video_clock.video_duration_s if video_clock.video_duration_s is not None else duration_ms / 1000
+    return max(0, min(thumbnail_video_s, int(ceiling)))
 
 
 def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
@@ -629,7 +644,10 @@ async def _run_mission(
             await _delete_video_cache(cache_client, cache.name)
 
     finalized, signals = scanner.assemble(step_outputs)
-    return _MissionOutcome(finalized=finalized, signals=signals, verification=verification)
+    thumbnail_video_s = getattr(step_outputs.get(STEP_MEDIA), "thumbnail_t", None)
+    return _MissionOutcome(
+        finalized=finalized, signals=signals, verification=verification, thumbnail_video_s=thumbnail_video_s
+    )
 
 
 async def _verify_positive_verdict(

@@ -89,6 +89,16 @@ class TestObservationMedia(BaseTest):
         assert asset.export_context["session_recording_id"] == self.session_id
         assert 89 <= (asset.expires_after - asset.created_at).days <= 90
 
+    def test_the_models_pick_wins_over_every_fallback(self) -> None:
+        self.observation.scanner_result = {
+            "model_output": {"summary_segments": [{"kind": "chip", "timestamp_ms": 12_000}]}
+        }
+        self.observation.save(update_fields=["scanner_result"])
+
+        prepared = self._prepare(thumbnail_video_s=70, signal_video_times=[(40, 60)])
+
+        assert prepared.activity_input.video_time_s == 70.0
+
     @parameterized.expand(
         [
             ("citation_wins", {"summary_segments": [{"kind": "chip", "timestamp_ms": 12_000}]}, [(40, 60)], 12.0),

@@ -271,6 +271,8 @@ class ScannerCallOutput(BaseModel, frozen=True):
     # Extracted from the LLM response before `finalize` so per-type output mapping can't drop them.
     signals: list[SignalFinding] = Field(default_factory=list)
     verification: VerificationRecord | None = None
+    # Video seconds the model picked for the thumbnail; None when the best-effort media turn produced nothing.
+    thumbnail_video_s: int | None = None
 
 
 class CleanupGeminiFileInputs(BaseModel, frozen=True):

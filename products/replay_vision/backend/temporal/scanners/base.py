@@ -40,6 +40,7 @@ MIN_SIGNAL_CONFIDENCE = 0.4
 # Stable step names the producer (`mission_steps`) and consumers (`assemble`) key on.
 STEP_CORE = "core"
 STEP_SIGNALS = "signals"
+STEP_MEDIA = "media"
 
 # Ceiling on one step's response, thought tokens included, because Gemini counts thinking against the cap.
 # Every response schema is a few hundred tokens of JSON, so this only bounds the tail: a model that thinks
@@ -47,6 +48,10 @@ STEP_SIGNALS = "signals"
 # loose enough that dynamic thinking on a long video is not cut off, which would bill the thoughts and force
 # a re-prompt that bills them again.
 STEP_MAX_OUTPUT_TOKENS = 16_384
+
+# The media turn answers with one integer, so its whole cost is the thinking in front of it. Held well
+# below the shared cap, because this turn rides every scan in the product.
+MEDIA_STEP_MAX_OUTPUT_TOKENS = 2_048
 
 
 class SignalFinding(BaseModel, frozen=True):
@@ -109,6 +114,18 @@ class SignalsResponse(BaseModel, frozen=True):
         if any(signal.end_time < signal.start_time for signal in self.signals):
             raise ValueError("end_time must be greater than or equal to start_time")
         return self
+
+
+class MediaResponse(BaseModel, frozen=True):
+    """The media turn's structured output: which frame of the video illustrates the finding."""
+
+    thumbnail_t: int = Field(
+        ge=0,
+        description=(
+            "The moment to cut the thumbnail from, in whole seconds of video time counted from the start of the "
+            "video file — the same scale you cite moments in, not the footer's `REC_T`."
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -275,11 +292,23 @@ class BaseScanner(BaseModel, frozen=True):
         ]
 
     def mission_steps(self) -> list[MissionStep]:
-        """The full ordered turn list: the core task, then the signals side mission when enabled."""
+        """The full ordered turn list: the core task, the signals side mission when enabled, then the media turn."""
         steps = self.core_steps()
         if self.emits_signals:
             steps.append(self._signals_step())
+        steps.append(self._media_step())
         return steps
+
+    def _media_step(self) -> MissionStep:
+        instruction = render_prompt("media_step.jinja")
+        # Best-effort, and last, so the thumbnail can never move a calibrated answer or sink a paid-for scan.
+        return MissionStep(
+            name=STEP_MEDIA,
+            instruction=instruction,
+            response_model=MediaResponse,
+            required=False,
+            max_output_tokens=MEDIA_STEP_MAX_OUTPUT_TOKENS,
+        )
 
     def _signals_step(self) -> MissionStep:
         instruction = render_prompt("signals_step.jinja", min_signal_confidence=MIN_SIGNAL_CONFIDENCE)

@@ -22,6 +22,7 @@ class ObservationMediaInputs(BaseModel, frozen=True):
     analysis_asset_id: int
     # Video-time seconds, used to pick a moment when the model cited none.
     signal_video_times: list[tuple[int, int]] = Field(default_factory=list)
+    thumbnail_video_s: int | None = None
 
 
 class ExtractThumbnailActivityInput(BaseModel, frozen=True):
