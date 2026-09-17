@@ -253,6 +253,7 @@ function startReplayOpenObservation(
                     canPresentReplayFrame(values.rootFrame, values.player?.replayer.iframe, props.playerRef?.current) &&
                     !values.isBuffering &&
                     !values.playerError &&
+                    !values.playerFrameDocumentFailed &&
                     !values.recordingTooLargeToPlay
                 ),
             })
@@ -2476,6 +2477,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // show, so a frame that failed in a hidden tab would never get its retry.
                 { pauseOnPageHidden: false }
             )
+        },
+        stopRetryingPlayerFrameLoad: () => {
+            cache.replayOpenReadiness?.dispose()
+            cache.replayOpenJourney?.finish('failed', { error_type: 'load_error' })
         },
         playerErrorSeen: ({ error }) => {
             const fingerprint = encodeURIComponent(error.message + error.filename + error.lineno + error.colno)

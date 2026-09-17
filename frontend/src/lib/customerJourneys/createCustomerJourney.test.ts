@@ -128,6 +128,96 @@ describe('customer journey lifecycle', () => {
         })
     })
 
+    it('projects identified tile results with deterministic bounds and marks malformed coverage incomplete', () => {
+        const b = boundary()
+        const journey = createCustomerJourney(context, b.dependencies)!
+        const boundedRows = Array.from({ length: 55 }, (_, index) => ({
+            tile_id: 154 - index,
+            insight_short_id: `insight-${154 - index}`,
+            insight_type: 'TRENDS',
+            state: 'pending',
+            leaked_query: 'do not emit',
+        }))
+        const summary = {
+            total_count: 60,
+            ready_count: 1,
+            failed_count: 1,
+            pending_count: 58,
+            tile_results_truncated: false,
+            tile_results: [
+                ...boundedRows,
+                {
+                    tile_id: 3,
+                    insight_short_id: 'ready-insight',
+                    insight_type: 'RETENTION',
+                    state: 'ready',
+                    duration_ms: 31.5,
+                    result: [{ secret: true }],
+                },
+                {
+                    tile_id: 2,
+                    insight_short_id: 'failed-insight',
+                    insight_type: 'FUNNELS',
+                    state: 'failed',
+                    duration_ms: 999,
+                },
+                {
+                    tile_id: 1,
+                    insight_short_id: 'pending-insight',
+                    insight_type: 'PATHS',
+                    state: 'pending',
+                },
+                {
+                    tile_id: 1,
+                    insight_short_id: 'duplicate-tile',
+                    insight_type: 'TRENDS',
+                    state: 'pending',
+                },
+                { tile_id: -1, insight_short_id: 'invalid-id', insight_type: 'TRENDS', state: 'pending' },
+                { tile_id: 4, insight_short_id: '', insight_type: 'TRENDS', state: 'pending' },
+                { tile_id: 5, insight_short_id: 'bad-type', insight_type: 'SQL', state: 'pending' },
+                { tile_id: 6, insight_short_id: 'bad-state', insight_type: 'TRENDS', state: 'unknown' },
+                { tile_id: 7, insight_short_id: 'missing-duration', insight_type: 'TRENDS', state: 'ready' },
+            ],
+        }
+        const originalSummary = structuredClone(summary)
+
+        journey.finish('failed', summary as any)
+
+        expect(summary).toEqual(originalSummary)
+        const event = b.capture.mock.calls[1][1]
+        expect(event.tile_results).toHaveLength(50)
+        expect(event.tile_results.map((row: { tile_id: number }) => row.tile_id)).toEqual([
+            1,
+            2,
+            3,
+            ...Array.from({ length: 47 }, (_, index) => 100 + index),
+        ])
+        expect(event.tile_results.slice(0, 3)).toEqual([
+            {
+                tile_id: 1,
+                insight_short_id: 'pending-insight',
+                insight_type: 'PATHS',
+                state: 'pending',
+            },
+            {
+                tile_id: 2,
+                insight_short_id: 'failed-insight',
+                insight_type: 'FUNNELS',
+                state: 'failed',
+            },
+            {
+                tile_id: 3,
+                insight_short_id: 'ready-insight',
+                insight_type: 'RETENTION',
+                state: 'ready',
+                duration_ms: 31.5,
+            },
+        ])
+        expect(event.tile_results_truncated).toBe(true)
+        expect(event).toMatchObject({ total_count: 60, ready_count: 1, failed_count: 1, pending_count: 58 })
+    })
+
     it.each([false, 'true', undefined])('projects only boolean exposure cache evidence (%s)', (value) => {
         const b = boundary()
         const journey = createCustomerJourney(context, b.dependencies)!

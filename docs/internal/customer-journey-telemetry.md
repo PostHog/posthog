@@ -27,7 +27,11 @@ For experiments and replay, `first_useful_ms` is the final readiness boundary in
 
 Duplicate detection uses the complete dashboard tile inventory, including offscreen siblings. A duplicated saved insight is excluded even if only one copy is visible. The pilot retains the existing product state model; it does not fix duplicate rendering or error ownership. If uniqueness cannot be established from a complete inventory, no attempt is started.
 
-Dashboard per-type `max_duration_ms` is a maximum elapsed-to-commit time within that attempt, not a tile percentile. Per-type denominators are currently finish metadata; a browser lost before finish has no recorded per-type denominator.
+Dashboard per-type `max_duration_ms` is a maximum elapsed-to-commit time within that attempt, not a tile percentile. Dashboard finishes also include up to 50 `tile_results`, selected deterministically by numeric tile ID. Each row identifies the eligible dashboard tile and saved insight, its bounded insight type, and its observed `ready`, `failed`, or `pending` state. A ready row's `duration_ms` measures manual refresh intent to the matching result's committed visualization branch; it is not query-only latency or browser paint timing. Failed and pending rows never receive an inferred duration.
+
+`tile_results_truncated` is always present with dashboard tile rows. When true, aggregate counts and per-type summaries still describe the full required set, while the rows are incomplete. Exclude truncated attempts from per-tile percentile calculations, or label them as a deterministic partial sample: selecting the lowest numeric tile IDs is stable but is not a statistical sample. For non-truncated attempts, calculate tile p95 from ready-row durations and keep failed/pending counts beside it. Per-type denominators and tile rows are finish metadata; a browser lost before finish has neither.
+
+This dashboard journey covers manual refresh only. The existing dashboard loading events do not establish initial page-open render readiness across regular, streamed, and cached dashboard paths.
 
 Experiment child readiness counts are emitted only for a usable committed result. Earlier outcomes keep the required total and outcome details, but omit partial rendered counts because response arrival alone does not prove them.
 

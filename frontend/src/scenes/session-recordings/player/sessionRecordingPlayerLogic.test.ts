@@ -281,6 +281,60 @@ describe('sessionRecordingPlayerLogic', () => {
     })
 
     describe('customer journey observation', () => {
+        it.each([true, false])('ends only the terminal frame failure once (online=%s)', (online) => {
+            logic.unmount()
+            const capture = jest.fn(() => true)
+            jest.mocked(startCustomerJourney).mockImplementation((options) =>
+                createCustomerJourney(
+                    {
+                        ...options,
+                        attempt_id: 'synthetic-frame-failure',
+                        region: 'US',
+                        project_id: 101,
+                        organization_id: 'synthetic-org',
+                        registry_version: 'test-v1',
+                    },
+                    { now: () => 10, capture, visibility: { getState: () => 'visible', subscribe: () => () => {} } }
+                )
+            )
+            const onLine = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(online)
+            jest.useFakeTimers()
+            try {
+                logic.mount()
+                expect(capture).toHaveBeenCalledTimes(1)
+                if (online) {
+                    for (let attempt = 1; attempt <= 2; attempt++) {
+                        logic.actions.playerFrameDocumentLoadFailed(null)
+                        expect(logic.values.playerFrameDocumentFailed).toBe(false)
+                        expect(capture).toHaveBeenCalledTimes(1)
+                        jest.advanceTimersByTime(1000 * attempt)
+                        expect(logic.values.playerFrameLoadRetries).toBe(attempt)
+                    }
+                }
+                logic.actions.playerFrameDocumentLoadFailed(null)
+                expect(logic.values.playerFrameDocumentFailed).toBe(true)
+                expect(logic.values.currentPlayerState).toBe(SessionPlayerState.ERROR)
+                expect(logic.values.playerError).toBeNull()
+                expect(capture).toHaveBeenLastCalledWith(
+                    'customer_journey_finished',
+                    expect.objectContaining({
+                        outcome: 'failed',
+                        error_type: 'load_error',
+                    })
+                )
+                logic.actions.playerFrameDocumentLoadFailed(null)
+                logic.actions.stopRetryingPlayerFrameLoad()
+                logic.actions.setPause()
+                logic.unmount()
+                expect(capture).toHaveBeenCalledTimes(2)
+            } finally {
+                logic.unmount()
+                onLine.mockRestore()
+                jest.useRealTimers()
+                jest.mocked(startCustomerJourney).mockReset()
+            }
+        })
+
         it('starts before loading, observes terminal failures and starts a new attempt on explicit retry', async () => {
             logic.unmount()
             const capture = jest.fn(() => true)

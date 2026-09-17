@@ -3,7 +3,9 @@ import type {
     CustomerJourneyEndReason,
     CustomerJourneyInsightType,
     CustomerJourneySummary,
+    CustomerJourneyTileResult,
 } from 'lib/customerJourneys/createCustomerJourney'
+import { CUSTOMER_JOURNEY_TILE_RESULTS_LIMIT } from 'lib/customerJourneys/createCustomerJourney'
 import { startCustomerJourney } from 'lib/customerJourneys/startCustomerJourney'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -177,7 +179,7 @@ export class DashboardRefreshJourneyController {
     }
 
     private summary(active: ActiveDashboardJourney): CustomerJourneySummary {
-        const tiles = Object.values(active.requiredTiles)
+        const tiles = Object.values(active.requiredTiles).sort((a, b) => a.tileId - b.tileId)
         const insight_type_summary: NonNullable<CustomerJourneySummary['insight_type_summary']> = {}
         for (const tile of tiles) {
             const current = insight_type_summary[tile.insightType] ?? {
@@ -197,6 +199,26 @@ export class DashboardRefreshJourneyController {
         }
         const ready_count = Object.keys(active.ready).length
         const failed_count = Object.keys(active.failed).length
+        const tile_results: CustomerJourneyTileResult[] = tiles
+            .slice(0, CUSTOMER_JOURNEY_TILE_RESULTS_LIMIT)
+            .map((tile) => {
+                const duration = active.ready[tile.tileId]
+                if (duration !== undefined) {
+                    return {
+                        tile_id: tile.tileId,
+                        insight_short_id: tile.insightShortId,
+                        insight_type: tile.insightType,
+                        state: 'ready',
+                        duration_ms: duration,
+                    }
+                }
+                return {
+                    tile_id: tile.tileId,
+                    insight_short_id: tile.insightShortId,
+                    insight_type: tile.insightType,
+                    state: active.failed[tile.tileId] ? 'failed' : 'pending',
+                }
+            })
         return {
             total_count: tiles.length,
             ready_count,
@@ -204,6 +226,8 @@ export class DashboardRefreshJourneyController {
             pending_count: tiles.length - ready_count - failed_count,
             excluded_count: active.excludedCount,
             insight_type_summary,
+            tile_results,
+            tile_results_truncated: tiles.length > CUSTOMER_JOURNEY_TILE_RESULTS_LIMIT,
         }
     }
 }
