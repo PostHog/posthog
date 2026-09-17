@@ -182,9 +182,18 @@ class TestMarkdownBlockSpans(SimpleTestCase):
         "Closing paragraph."
     )
 
-    def test_every_block_span_slices_back_to_its_source(self) -> None:
-        blocks = list(iter_markdown_blocks(self.MARKDOWN))
-        assert [self.MARKDOWN[block.start : block.end] for block in blocks] == [block.source for block in blocks]
+    @parameterized.expand(
+        [
+            ("no_terminator", ""),
+            ("newline", "\n"),
+            ("crlf", "\r\n"),
+        ]
+    )
+    def test_every_block_span_slices_back_to_its_source(self, _name: str, ending: str) -> None:
+        markdown = self.MARKDOWN + ending
+        blocks = list(iter_markdown_blocks(markdown))
+        assert [markdown[block.start : block.end] for block in blocks] == [block.source for block in blocks]
+        assert blocks[-1].source == "Closing paragraph."
 
     def test_a_fenced_block_stays_whole_across_its_blank_line(self) -> None:
         sources = [block.source for block in iter_markdown_blocks(self.MARKDOWN)]

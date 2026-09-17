@@ -75,7 +75,9 @@ const AddCellInputSchema = z
         after_node_id: z
             .string()
             .optional()
-            .describe('Insert after this cell (node_id from a previous add). Defaults to the end of the document.'),
+            .describe(
+                'Insert after this block: any node_id notebooks-get returns, a markdown block included. Defaults to the end of the document. A markdown block id comes from the text, so pass one from the read you are acting on.'
+            ),
     })
     .strict()
 
@@ -94,8 +96,92 @@ export interface AddCellResult {
  */
 const BLOCK_SEPARATOR = '\n\n\n'
 
-function insertBlock(markdown: string, block: string, afterNodeId: string | undefined): string {
+/**
+ * A prose block resolved through the state endpoint, which owns the block grammar this side
+ * cannot reproduce. `source` re-locates the block when an edit elsewhere has moved the offsets.
+ */
+interface ProseAnchor {
+    nodeId: string
+    source: string
+    start: number
+    end: number
+    /** Notebook version the span was read at. The span is exact for that version only. */
+    version: number | null
+}
+
+// Notebook markdown keeps CRLF and lone-CR line endings, and the backend walk splits on all three.
+// The lookahead keeps the two halves of a CRLF from counting as two line breaks.
+const EOL = '(?:\\r\\n|\\r(?!\\n)|\\n)'
+
+/**
+ * Whether the text at `index` stands as a block of its own, rather than sitting inside a longer
+ * one. A blank line separates two blocks, so a match with one on each side covers a whole block.
+ *
+ * Deliberately strict. A layout this does not recognize is refused and the caller reads again,
+ * which costs a round trip. Accepting a match inside a longer paragraph would split that
+ * paragraph around the inserted cell, which costs the reader their text.
+ */
+const BLOCK_START_BOUNDARY = new RegExp(`(?:^|${EOL}[ \\t]*${EOL}[ \\t]*)$`)
+const BLOCK_END_BOUNDARY = new RegExp(`^(?:[ \\t]*${EOL}[ \\t]*${EOL}|[ \\t]*${EOL}?$)`)
+
+function isWholeBlockAt(markdown: string, index: number, source: string): boolean {
+    return (
+        BLOCK_START_BOUNDARY.test(markdown.slice(0, index)) &&
+        BLOCK_END_BOUNDARY.test(markdown.slice(index + source.length))
+    )
+}
+
+/**
+ * Where the anchor block ends in `markdown`, by the offsets the read reported, or by its text
+ * when an edit elsewhere has moved them.
+ *
+ * Refuses a source that now appears more than once rather than picking one: the insert would
+ * land on a block the caller never saw. The same refusal guards a prose edit in updateCell.ts.
+ */
+function locateProseAnchorEnd(markdown: string, anchor: ProseAnchor, version: number): number {
+    // The backend's grammar set this span, so it is trusted only for the version it was read at.
+    // In a later version the same offsets can still hold the same text while the block has grown
+    // past them, and an insert at the old end would split the block.
+    if (version === anchor.version && markdown.slice(anchor.start, anchor.end) === anchor.source) {
+        return anchor.end
+    }
+    const matches: number[] = []
+    for (
+        let index = markdown.indexOf(anchor.source);
+        index !== -1;
+        index = markdown.indexOf(anchor.source, index + 1)
+    ) {
+        if (isWholeBlockAt(markdown, index, anchor.source)) {
+            matches.push(index)
+        }
+    }
+    if (matches.length === 0) {
+        throw new Error(
+            `Block ${anchor.nodeId} is no longer a block of its own in notebook, so a cell cannot be placed after it. Read the notebook again with notebooks-get and retry with the id it returns.`
+        )
+    }
+    if (matches.length > 1) {
+        throw new Error(
+            `Block ${anchor.nodeId} now matches more than one block, so it cannot name one of them. Read the notebook again with notebooks-get and retry with the id it returns.`
+        )
+    }
+    return matches[0]! + anchor.source.length
+}
+
+function insertBlock(
+    markdown: string,
+    block: string,
+    afterNodeId: string | undefined,
+    proseAnchor: ProseAnchor | undefined,
+    version: number
+): string {
     const trimmed = markdown.replace(/\s+$/, '')
+    if (proseAnchor) {
+        const end = locateProseAnchorEnd(markdown, proseAnchor, version)
+        const rest = markdown.slice(end).replace(/^[\r\n]+/, '')
+        const head = `${markdown.slice(0, end)}${BLOCK_SEPARATOR}${block}`
+        return rest ? `${head}${BLOCK_SEPARATOR}${rest}` : `${head}\n`
+    }
     if (afterNodeId) {
         const anchor = findCellTag(markdown, afterNodeId)
         if (!anchor) {
@@ -106,6 +192,51 @@ function insertBlock(markdown: string, block: string, afterNodeId: string | unde
         return rest ? `${head}${BLOCK_SEPARATOR}${rest}` : `${head}\n`
     }
     return trimmed ? `${trimmed}${BLOCK_SEPARATOR}${block}\n` : `${block}\n`
+}
+
+/**
+ * Resolve `after_node_id` to a prose anchor, or to `undefined` when a cell tag already carries
+ * the id and `insertBlock` can find it in the markdown on its own.
+ *
+ * A prose id is derived from block text, so it resolves only against the read that produced it.
+ * Only the state endpoint walks prose, so a miss in the tag scan goes there rather than failing.
+ */
+async function resolveInsertAnchor(
+    context: Context,
+    notebookId: string,
+    afterNodeId: string | undefined
+): Promise<ProseAnchor | undefined> {
+    if (!afterNodeId) {
+        return undefined
+    }
+    const { markdown } = await fetchMarkdownNotebook(context, notebookId)
+    if (findCellTag(markdown, afterNodeId)) {
+        return undefined
+    }
+
+    const projectId = await context.stateManager.getProjectId()
+    const state = await context.api.request<{ version: number | null; cells: Schemas.NotebookCellState[] }>({
+        method: 'GET',
+        path: `${notebookPathFor(projectId, notebookId)}sql_v2/state/`,
+    })
+    const matches = state.cells.filter((cell) => cell.node_id === afterNodeId)
+    if (matches.length === 0) {
+        throw new Error(
+            `No block with node_id ${afterNodeId} in notebook ${notebookId} to insert after. Read the current ids with notebooks-get; an insight short id is not one of them.`
+        )
+    }
+    if (matches.length > 1) {
+        throw new Error(
+            `Block ${afterNodeId} names ${matches.length} blocks in notebook ${notebookId}, so it cannot name one of them. Read the notebook again with notebooks-get.`
+        )
+    }
+    const block = matches[0]!
+    if (block.cell_type !== 'markdown') {
+        throw new Error(
+            `Cell ${afterNodeId} is a ${block.cell_type} cell but carries no tag identity, so a cell cannot be placed after it. Insert at the end by omitting after_node_id.`
+        )
+    }
+    return { nodeId: afterNodeId, source: block.code, start: block.start, end: block.end, version: state.version }
 }
 
 async function runAndWriteBack(
@@ -202,6 +333,9 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     }
 
     const title = params.title?.trim() || undefined
+    // Resolved before any branch, so every cell type places after prose the same way and a bad
+    // anchor fails before a cell is created or a query runs.
+    const proseAnchor = await resolveInsertAnchor(context, params.notebook_id, params.after_node_id)
 
     if (params.cell_type === 'markdown') {
         if (title) {
@@ -209,8 +343,8 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
                 'A markdown cell has no header to title — put the heading in the markdown itself (e.g. "## Weekly signups").'
             )
         }
-        await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
-            insertBlock(markdown, params.markdown!.trim(), params.after_node_id)
+        await applyMarkdownEdit(context, params.notebook_id, (markdown, version) =>
+            insertBlock(markdown, params.markdown!.trim(), params.after_node_id, proseAnchor, version)
         )
         return {}
     }
@@ -223,8 +357,8 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
             title,
             query: { kind: 'SavedInsightNode', shortId: params.insight_short_id },
         })
-        await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
-            insertBlock(markdown, tag, params.after_node_id)
+        await applyMarkdownEdit(context, params.notebook_id, (markdown, version) =>
+            insertBlock(markdown, tag, params.after_node_id, proseAnchor, version)
         )
         return { node_id: nodeId }
     }
@@ -232,8 +366,8 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     if (params.cell_type === 'component') {
         // `title` last only when set, so a component that carries its own title prop keeps it.
         const tag = buildCellTag(params.tag_name!, { ...params.props, nodeId, ...(title ? { title } : {}) })
-        await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
-            insertBlock(markdown, tag, params.after_node_id)
+        await applyMarkdownEdit(context, params.notebook_id, (markdown, version) =>
+            insertBlock(markdown, tag, params.after_node_id, proseAnchor, version)
         )
         return { node_id: nodeId }
     }
@@ -252,8 +386,8 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     // The save response carries the notebook as it stood when the save committed, so it holds a
     // variable edit that landed after the read above. The run binds those values to stay in step
     // with what the notebook now declares.
-    const { notebook, markdown } = await applyMarkdownEdit(context, params.notebook_id, (current) =>
-        insertBlock(current, tag, params.after_node_id)
+    const { notebook, markdown } = await applyMarkdownEdit(context, params.notebook_id, (current, version) =>
+        insertBlock(current, tag, params.after_node_id, proseAnchor, version)
     )
     const run = await runAndWriteBack(
         context,
