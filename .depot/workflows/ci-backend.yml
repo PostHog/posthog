@@ -381,6 +381,7 @@ jobs:
                         # widening or fixing the script doesn't trigger
                         # tests it controls.
                         - 'products/*/package.json'
+                        - 'products/canvas/packages/canvas_builder/**'
                         - bin/build-schema-latest-versions.py
                         - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
@@ -590,6 +591,9 @@ jobs:
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
                         - 'services/mcp/schema/tool-definitions-all.json'
+                        # Exec command reference templates - feed generate-exec-docs.ts
+                        - 'services/mcp/src/templates/sections/**/*'
+                        - 'services/mcp/schema/exec-command-reference.md'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
