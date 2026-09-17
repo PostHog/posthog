@@ -1,5 +1,6 @@
 import asyncio
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 
@@ -9,7 +10,19 @@ from temporalio.common import WorkflowIDConflictPolicy
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.delete_teams.types import DeleteOrganizationWorkflowInputs, DeleteProjectDataWorkflowInputs
 
+if TYPE_CHECKING:
+    from posthog.models.project import Project
+
 PROJECT_DELETION_DELAY = timedelta(hours=48)
+
+
+def project_deletion_delay(project: "Project") -> timedelta:
+    """How long to wait before the project deletion workflow starts.
+
+    The delay is a recovery window for a deletion the user did not mean to request. A project
+    where no environment ever ingested an event holds nothing to recover, so it deletes at once.
+    """
+    return PROJECT_DELETION_DELAY if project.has_ingested_data() else timedelta()
 
 
 def start_delete_project_data_workflow(
