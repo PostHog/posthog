@@ -35,8 +35,10 @@ PERSON_TABLE_NAME: str = os.getenv("PERSON_TABLE_NAME", "posthog_person")
 # libpq reads a client certificate from $HOME/.postgresql when no path is given, and
 # fails the connection when it cannot read that path. Our container runs the app as
 # `nobody` while $HOME stays /root, so the probe kills every connection. Point the
-# unset paths at a file that does not exist, which libpq ignores.
-NO_POSTGRES_CERT_PATH = "/tmp/no.txt"
+# unset paths at a file that does not exist, which libpq ignores. The directory is
+# writable by root only, so no other process in the container can plant a file there
+# and break every connection.
+NO_POSTGRES_CLIENT_CERT_PATH = "/etc/posthog/no-client-cert.pem"
 
 
 def postgres_config(host: str) -> dict:
@@ -62,9 +64,9 @@ def postgres_config(host: str) -> dict:
         "DISABLE_SERVER_SIDE_CURSORS": DISABLE_SERVER_SIDE_CURSORS,
         "SSL_OPTIONS": {
             "sslmode": os.getenv("POSTHOG_POSTGRES_SSL_MODE", None),
-            "sslrootcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CA", NO_POSTGRES_CERT_PATH),
-            "sslcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CRT", NO_POSTGRES_CERT_PATH),
-            "sslkey": os.getenv("POSTHOG_POSTGRES_CLI_SSL_KEY", NO_POSTGRES_CERT_PATH),
+            "sslrootcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CA", None),
+            "sslcert": get_from_env("POSTHOG_POSTGRES_CLI_SSL_CRT", NO_POSTGRES_CLIENT_CERT_PATH),
+            "sslkey": get_from_env("POSTHOG_POSTGRES_CLI_SSL_KEY", NO_POSTGRES_CLIENT_CERT_PATH),
         },
         "TEST": {
             "MIRROR": "default",
