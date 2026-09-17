@@ -53,6 +53,7 @@ EMBED_PATH = "products.signals.backend.scout_report.persistence.emit_embedding_r
 # Patched at its source module so the lazy import inside `_maybe_autostart_report` picks up the mock.
 AUTOSTART_PATH = "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts"
 CAPTURE_PATH = "products.signals.backend.scout_harness.tools.report.posthoganalytics.capture"
+METRICS_GATE_PATH = "products.signals.backend.scout_harness.tools.report.organization_report_metrics_enabled"
 # The customer-facing copy lands in the scout's own team project via capture_internal (a network boundary).
 CAPTURE_INTERNAL_PATH = "products.signals.backend.scout_harness.tools.report.capture_internal"
 CONNECTED_REPOS_PATH = "products.signals.backend.scout_harness.tools.report._connected_repositories"
@@ -92,6 +93,10 @@ class TestScoutReportAPI(APIBaseTest):
         # Keep it inert by default so emit/edit tests don't hit the network; the two dedicated tests
         # assert against this mock.
         self.capture_internal_mock = patch(CAPTURE_INTERNAL_PATH).start()
+        # Report metrics ship behind an organization-level flag that is off outside DEBUG. Opt this
+        # organization in, so the metric cases assert the contract rather than the rollout; the two
+        # gate tests below turn it back off.
+        self.metrics_enabled_mock = patch(METRICS_GATE_PATH, return_value=True).start()
         self.addCleanup(patch.stopall)
 
     def _emit_url(self, run_id: str) -> str:
@@ -1651,20 +1656,38 @@ class TestScoutReportAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("omitted", {}, 1, None),
-            ("null", {"metrics": None}, 1, None),
-            ("empty_list", {"metrics": []}, 0, 0),
+            ("omitted", True, "omit", ["affected-users"], None),
+            ("null", True, "null", ["affected-users"], None),
+            ("replace", True, "replace", ["replacement"], 1),
+            ("empty_list", True, "clear", [], 0),
+            # While the organization is not opted in, a supplied set is dropped, so the report keeps
+            # the metric it holds. A clear carries no definition to gate, so it still lands.
+            ("not_opted_in_replace", False, "replace", ["affected-users"], None),
+            ("not_opted_in_clear", False, "clear", [], 0),
         ]
     )
-    def test_edit_metrics_distinguishes_untouched_from_cleared(
-        self, _name: str, metric_field: dict, expected_stored: int, expected_metrics_set: int | None
+    def test_edit_metrics_distinguishes_untouched_replaced_and_cleared(
+        self,
+        _name: str,
+        opted_in: bool,
+        instruction: str,
+        expected_stored: list[str],
+        expected_metrics_set: int | None,
     ) -> None:
         run = _make_run(self.team)
-        metric = self._affected_users_metric()
+        metric_field = {
+            "omit": {},
+            "null": {"metrics": None},
+            "clear": {"metrics": []},
+            "replace": {"metrics": [{**self._affected_users_metric(), "metric_id": "replacement"}]},
+        }[instruction]
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH):
             created = self.client.post(
-                self._emit_url(str(run.id)), data=self._payload(metrics=[metric]), format="json"
+                self._emit_url(str(run.id)),
+                data=self._payload(metrics=[self._affected_users_metric()]),
+                format="json",
             ).json()
+            self.metrics_enabled_mock.return_value = opted_in
             response = self.client.post(
                 self._edit_url(str(run.id)),
                 data={"report_id": created["report_id"], "append_note": "checked", **metric_field},
@@ -1673,7 +1696,8 @@ class TestScoutReportAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["metrics_set"] == expected_metrics_set
-        assert len(SignalReport.objects.get(id=created["report_id"]).metrics) == expected_stored
+        stored = SignalReport.objects.get(id=created["report_id"]).metrics
+        assert [entry["metric_id"] for entry in stored] == expected_stored
 
     def test_clearing_metrics_is_a_valid_sole_edit(self) -> None:
         run = _make_run(self.team)
@@ -1692,6 +1716,23 @@ class TestScoutReportAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["metrics_set"] == 0
         assert SignalReport.objects.get(id=created["report_id"]).metrics == []
+
+    def test_emit_stores_no_metrics_while_the_organization_is_not_opted_in(self) -> None:
+        # The report still surfaces; only the metrics drop. Without the gate an organization whose
+        # Inbox hides metrics accumulates metric definitions, and the refresh queries behind them.
+        run = _make_run(self.team)
+        self.metrics_enabled_mock.return_value = False
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH):
+            response = self.client.post(
+                self._emit_url(str(run.id)),
+                data=self._payload(metrics=[self._affected_users_metric()]),
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["emitted"] is True
+        assert SignalReport.objects.get(id=body["report_id"], team=self.team).metrics == []
 
     def test_suggested_prompt_edit_event_uuid_keys_on_the_prompts(self) -> None:
         # Same collision class as the chart case above: suggested prompts are a valid sole input to an
