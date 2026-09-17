@@ -163,7 +163,7 @@ class Migration(migrations.Migration):
                 ],
                 "constraints": [
                     models.UniqueConstraint(
-                        condition=models.Q(("source_id__isnull", False)),
+                        condition=models.Q(("source_id__isnull", False), models.Q(("source_id", ""), _negated=True)),
                         fields=("hog_flow", "source_id"),
                         name="unique_workflow_proposal_source",
                     )
