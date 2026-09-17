@@ -115,7 +115,8 @@ def _build_recipe(iteration: AutoresearchIteration, *, trained_on: date) -> dict
         "feature_sql": snapshot.get("feature_sql", ""),
         "feature_transforms": snapshot.get("feature_transforms", []),
         "model_class": spec.get("model_class", "sklearn.linear_model.LogisticRegression"),
-        "model_params": spec.get("model_params", {}),
+        # Recording accepts an absent or null model_params; both mean the constructor defaults.
+        "model_params": spec.get("model_params") or {},
         "fit_signature": (iteration.recipe_hash or "")[:16],
         "trained_on": trained_on.isoformat(),
         "holdout_score": iteration.holdout_score or 0.0,

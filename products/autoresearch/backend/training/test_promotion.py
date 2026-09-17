@@ -22,6 +22,7 @@ from products.autoresearch.backend.training.artifacts import ArtifactBundle, Inv
 from products.autoresearch.backend.training.promotion import PromotionError, complete_training_run
 
 ANCHORED_FEATURE_SQL = "SELECT a.person_id AS distinct_id, count() AS c FROM {anchors} a GROUP BY a.person_id"
+_DEFAULT_PARAMS = object()
 LITERAL_FEATURE_SQL = (
     "SELECT a.person_id AS distinct_id, count() AS c, 'plan upgraded' AS marker FROM {anchors} a GROUP BY a.person_id"
 )
@@ -58,7 +59,7 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         feature_sql: str = ANCHORED_FEATURE_SQL,
         feature_transforms: list[dict[str, str]] | None = None,
         model_class: str = "sklearn.linear_model.LogisticRegression",
-        model_params: object = None,
+        model_params: object = _DEFAULT_PARAMS,
     ) -> AutoresearchIteration:
         recipe_snapshot: dict[str, object] = {"feature_sql": feature_sql} if feature_sql else {}
         if feature_transforms:
@@ -69,7 +70,10 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
             iteration_number=number,
             recipe_hash=f"hash{number}",
             recipe_snapshot=recipe_snapshot,
-            model_spec={"model_class": model_class, "model_params": {} if model_params is None else model_params},
+            model_spec={
+                "model_class": model_class,
+                "model_params": {} if model_params is _DEFAULT_PARAMS else model_params,
+            },
             holdout_score=holdout,
             status=status,
             agent_description=f"iteration {number}",
@@ -208,6 +212,15 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         run.refresh_from_db()
         assert run.status == AutoresearchTrainingRun.Status.RUNNING
         assert not AutoresearchModel.objects.filter(pipeline=self.pipeline).exists()
+
+    def test_null_model_params_promote_with_constructor_defaults(self):
+        run = self._run()
+        self._iteration(run, number=0, holdout=0.8, model_params=None)
+
+        result = complete_training_run(run)
+
+        assert result["promoted"] is True
+        assert self._champion().model_recipe["model_params"] == {}
 
     def test_bundle_matching_the_selected_iteration_completes(self):
         run = self._run()
