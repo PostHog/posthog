@@ -2428,8 +2428,16 @@ snapshots:
         hash: v1.k794b7964.1030bfe45ba31d3fe94873ce09cdaeda8f81e86c0f71072d64a6267c551c6242.0pD2zOgFDmK5w5r-MnEbEzSAtOGpgYFKzEI8oJ8gUcs
     errortracking-exceptioncard--exception-card-logs--light:
         hash: v1.k794b7964.c691f17c502c069287778c899ef298787ba804c2a2ce40f47e2ce7fffdcac348.SwdlNY656OF7LWj_IFuHcynkhxd0_yhTkfFFwRPO3gU
+    errortracking-exceptioncard--exception-card-logs-with-session-only--dark:
+        hash: v1.k794b7964.5bd0ad8b67ae58b27062a16c1a1ebb0680acbd1b5c80f2a55db66c040561c090.sfXIy31iHEXoyLQzR6UugSfwFTceEDkzDhKJa9FTTF0
+    errortracking-exceptioncard--exception-card-logs-with-session-only--light:
+        hash: v1.k794b7964.35ec7d6a2911530552a6e2943bff6398f5a228aefcfe80b92b8533ad9ca37393.X9IqNWtb6dRuoz_Qt0KuN72wJH4_V38-sX_tC96o66U
+    errortracking-exceptioncard--exception-card-logs-with-trace-only--dark:
+        hash: v1.k794b7964.a6175cdf02a385b48a39e93883c6f399051d0a47754145322f85ff546f4c68b9.dFOA4sl5dE--49Gdw_bZ7qIa8q64tCMm1iqbk2yfN9I
+    errortracking-exceptioncard--exception-card-logs-with-trace-only--light:
+        hash: v1.k794b7964.59092739b11c0f25d7d3358f393659aa44b1b2ff575dea689be61f7812893951.bRcmx48NZLYMzT1L9Q5ePERt8aVXPyXIC9c0ZlWpLzE
     errortracking-exceptioncard--exception-card-logs-without-session--dark:
-        hash: v1.k794b7964.1c55aa5eb5758c9f5710a62fe92cccab572ef04501b69d7981a7e0964d6b09e3.59UJwC1G6msLdy-Nn_qOGijQsWoReclGYPWDGeM3kto
+        hash: v1.k794b7964.c29d713699bbbdaaad8a3f5d7697c5ef8d453f18a63c9a661894370b4521a658.9WjMf2zGXEiWpaxY3IYj28PMe5FOoYFsFqBkzjBWhjs
     errortracking-exceptioncard--exception-card-logs-without-session--light:
         hash: v1.k794b7964.036417710485b035128e3d9334c9ab22ea6c216c567ece5a1668af80de4e16ca.A9auY_Pt1XV2Gixl_rwuvhkMLFZFPlW5S0szuhtkHWQ
     errortracking-exceptioncard--exception-card-no-in-app--dark:
