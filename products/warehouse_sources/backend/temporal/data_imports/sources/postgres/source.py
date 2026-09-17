@@ -85,6 +85,15 @@ _HOST_HAS_PORT_ERROR = (
     "in the port field instead."
 )
 
+# Railway's DATABASE_URL points at the service's private-network host, so it is the value customers
+# paste most often. The name only resolves inside Railway's own network, and the DNS failure that
+# follows asks them to check a spelling that is already correct, so name the public host instead.
+_RAILWAY_INTERNAL_HOST_SUFFIX = ".railway.internal"
+_RAILWAY_INTERNAL_HOST_ERROR = (
+    "Railway's .railway.internal host only resolves inside Railway's private network. Use the "
+    "public TCP proxy host and port Railway shows for your database instead."
+)
+
 # ENETUNREACH / EHOSTUNREACH at connect time: the host resolved to a public address PostHog can't
 # route to. The common cause is a host that only accepts IPv6 (PostHog egresses over IPv4) — for
 # example a Supabase direct-connection host — or a firewall dropping PostHog's IPs. Deterministic
@@ -1486,6 +1495,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         host_value = config.host.strip()
         if host_value.count(":") == 1 and not host_value.startswith("["):
             return False, _HOST_HAS_PORT_ERROR
+
+        # A bastion inside the customer's Railway project can reach the private host, so only reject
+        # it for a direct connection.
+        if not self.ssh_tunnel_enabled(config) and host_value.lower().endswith(_RAILWAY_INTERNAL_HOST_SUFFIX):
+            return False, _RAILWAY_INTERNAL_HOST_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
             config.host, team_id, using_ssh_tunnel=self.ssh_tunnel_enabled(config)

@@ -4915,6 +4915,55 @@ class TestValidateCredentialsErrorMapping:
         assert host not in (error or "")
         assert "port field" in (error or "")
 
+    def test_railway_private_host_named_as_such_instead_of_a_spelling_error(self, source):
+        config = source.parse_config(
+            {
+                "host": "postgres.railway.internal",
+                "port": 5432,
+                "database": "railway",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+            }
+        )
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", side_effect=AssertionError("should not resolve")),
+            mock.patch.object(source, "get_schemas", side_effect=AssertionError("should not connect")),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert "private network" in (error or "")
+        # The host is spelled correctly, so the generic DNS guidance would send the user in circles.
+        assert "spelled correctly" not in (error or "")
+
+    def test_railway_private_host_still_allowed_through_an_ssh_tunnel(self, source):
+        config = source.parse_config(
+            {
+                "host": "postgres.railway.internal",
+                "port": 5432,
+                "database": "railway",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": True,
+                    "host": "bastion.example.com",
+                    "port": "22",
+                    "auth": {"selection": "password", "username": "tunnel", "password": "tunnel"},
+                },
+            }
+        )
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "get_schemas", return_value=[]),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert (valid, error) == (True, None)
+
 
 class TestPostgresSchemaDiscovery:
     def _mock_connection(self, *fetchall_results: list[tuple[object, ...]]):
