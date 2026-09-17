@@ -140,8 +140,7 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
                         </LemonField>
                         <div className="mb-4 text-xs text-secondary">
                             Pick RFC 4180 if your CSV wraps values in double quotes (the usual way to keep commas inside
-                            a field). If import fails with a column count mismatch, switching to RFC 4180 usually fixes
-                            it.
+                            a field). If the file doesn't parse, we'll tell you which setting to use.
                         </div>
                     </>
                 )}

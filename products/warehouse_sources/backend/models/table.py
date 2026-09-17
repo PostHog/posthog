@@ -1107,10 +1107,38 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         }
     )
 
+    def _csv_parses_with_double_quotes(self, allow_double_quotes: bool) -> bool:
+        """Read a few rows under one quote setting. False when the rows don't parse; any other
+        failure (credentials, a missing file) is raised for the caller to surface as-is."""
+        ctx = HogQLContext(team_id=self.team.pk)
+        func = build_function_call(
+            url=self.url_pattern,
+            queryable_folder=self.queryable_folder,
+            format=self.format,
+            access_key=self.credential.access_key if self.credential else None,
+            access_secret=self.credential.access_secret if self.credential else None,
+            context=ctx,
+            table_size_mib=0,
+        )
+        try:
+            sync_execute(
+                f"SELECT 1 FROM {func} LIMIT 100",
+                args=ctx.values,
+                settings={
+                    **DISABLE_HIVE_PARTITIONING_SETTINGS,
+                    "format_csv_allow_double_quotes": 1 if allow_double_quotes else 0,
+                },
+            )
+        except ClickHouseServerException as e:
+            if e.code in self._CSV_PARSE_ERROR_CODES:
+                return False
+            raise
+        return True
+
     def _validate_csv_double_quotes_setting(self) -> None:
         """Validate the user-chosen csv_allow_double_quotes setting by trying to parse data rows.
         Raises Exception with a helpful message if parsing fails."""
-        setting = self.csv_allow_double_quotes
+        setting = bool(self.csv_allow_double_quotes)
         tag_queries(
             team_id=self.team.pk,
             table_id=self.id,
@@ -1119,29 +1147,21 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             product=Product.WAREHOUSE,
             feature=Feature.QUERY,
         )
-        try:
-            ctx = HogQLContext(team_id=self.team.pk)
-            func = build_function_call(
-                url=self.url_pattern,
-                queryable_folder=self.queryable_folder,
-                format=self.format,
-                access_key=self.credential.access_key if self.credential else None,
-                access_secret=self.credential.access_secret if self.credential else None,
-                context=ctx,
-                table_size_mib=0,
+        if self._csv_parses_with_double_quotes(setting):
+            return
+
+        # Naming the other setting is only useful when it actually parses the file. When neither
+        # does, the same advice sends the user toggling between two failing options.
+        if self._csv_parses_with_double_quotes(not setting):
+            other_label = "Literal quotes" if setting else "RFC 4180 double quotes"
+            raise Exception(
+                "Your CSV didn't parse with the quote setting you picked. "
+                f"Set CSV quote handling to '{other_label}', then save again."
             )
-            sync_execute(
-                f"SELECT 1 FROM {func} LIMIT 100",
-                args=ctx.values,
-                settings={**DISABLE_HIVE_PARTITIONING_SETTINGS, "format_csv_allow_double_quotes": 1 if setting else 0},
-            )
-        except ClickHouseServerException as e:
-            if e.code in self._CSV_PARSE_ERROR_CODES:
-                other_label = "Literal quotes" if setting else "RFC 4180 double quotes"
-                raise Exception(
-                    f"CSV parsing failed with the selected quote setting. Try selecting '{other_label}' instead."
-                )
-            raise
+        raise Exception(
+            "Your CSV didn't parse with either quote setting. Check that the file is comma-separated "
+            "and that every row has the same number of values."
+        )
 
     def _safe_expose_ch_error(self, err):
         # Match ExtractErrors against the raw ClickHouse message: wrap_clickhouse_query_error may

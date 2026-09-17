@@ -872,7 +872,53 @@ class TestTable(BaseTest):
             "products.warehouse_sources.backend.models.table.sync_execute",
             side_effect=ServerException("Expected end of line", code=code),
         ):
-            with pytest.raises(Exception, match="CSV parsing failed"):
+            with pytest.raises(Exception, match="didn't parse with either quote setting"):
+                table._validate_csv_double_quotes_setting()
+
+    @parameterized.expand(
+        [
+            (True, "Literal quotes"),
+            (False, "RFC 4180 double quotes"),
+        ]
+    )
+    def test_validate_csv_double_quotes_names_the_setting_that_parses(self, selected, expected_label):
+        from clickhouse_driver.errors import ServerException
+
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            options={"csv_allow_double_quotes": selected},
+            team=self.team,
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.models.table.sync_execute",
+            side_effect=[ServerException("Expected end of line", code=117), None],
+        ):
+            with pytest.raises(Exception, match=f"Set CSV quote handling to '{expected_label}'"):
+                table._validate_csv_double_quotes_setting()
+
+    def test_validate_csv_double_quotes_reraises_a_non_parse_error(self):
+        from clickhouse_driver.errors import ServerException
+
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            options={"csv_allow_double_quotes": True},
+            team=self.team,
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.models.table.sync_execute",
+            side_effect=ServerException("Access Denied", code=499),
+        ):
+            with pytest.raises(ServerException):
                 table._validate_csv_double_quotes_setting()
 
     @parameterized.expand(
