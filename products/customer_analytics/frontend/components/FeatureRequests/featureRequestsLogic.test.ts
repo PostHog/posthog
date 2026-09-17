@@ -42,6 +42,7 @@ const createdRequest: FeatureRequestApi = {
     archived_by: null,
     version: 1,
     can_update: true,
+    github_link: null,
     account: { id: 'account-1', name: 'Acme' },
     account_links: [
         {

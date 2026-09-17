@@ -7,12 +7,14 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { NEW_COHORT } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { urls } from 'scenes/urls'
 
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
-import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
+import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator, InsightShortId } from '~/types'
 
 import { CohortEdit } from './CohortEdit'
 
@@ -422,6 +424,38 @@ describe('cohortEditLogic', () => {
             expect(screen.queryByText(/Calculation failed:/)).not.toBeInTheDocument()
         })
 
+        it('shows the failure banner without a retry for a static cohort whose population failed', async () => {
+            const cohortId = 7
+
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        id: cohortId,
+                        name: 'Test Cohort',
+                        // A static cohort that never populated reports count 0, so the only signal
+                        // that the population failed is this banner.
+                        is_static: true,
+                        filters: { properties: {} },
+                        query: { kind: 'HogQLQuery', query: 'SELECT person_id FROM events' },
+                        version: null,
+                        pending_version: null,
+                        is_calculating: false,
+                        errors_calculating: 1,
+                        last_calculation: null,
+                        last_error_message: 'Cohort calculation was terminated for reading too much data.',
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            await screen.findByText(/Calculation failed:/)
+            expect(screen.getByText(/reading too much data/)).toBeInTheDocument()
+            expect(screen.getByText('contact support')).toBeInTheDocument()
+            // The edit form does not resend the source query, so a Retry would not repopulate.
+            expect(screen.queryByText('Retry')).not.toBeInTheDocument()
+        })
+
         // Pins the selector contract the fix changed, including the errors_calculating=0 and
         // version=null boundaries the DOM tests above don't exercise.
         it.each([
@@ -493,6 +527,61 @@ describe('cohortEditLogic', () => {
         )
     })
 
+    describe('calculation history action', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        // ScenePanel portals its actions into the host element the app layout registers. A
+        // standalone render never creates one, so the panel stays empty without this.
+        function renderWithScenePanel(cohortId: number): void {
+            const panelHost = document.createElement('div')
+            document.body.appendChild(panelHost)
+            const layoutLogic = sceneLayoutLogic()
+            layoutLogic.mount()
+            layoutLogic.actions.registerScenePanelElement(panelHost)
+            render(<CohortEdit id={cohortId} />)
+        }
+
+        it.each([
+            { type: 'static', isStatic: true },
+            { type: 'dynamic', isStatic: false },
+        ])('offers calculation history for a saved $type cohort', async ({ isStatic }) => {
+            const cohortId = 8
+
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        id: cohortId,
+                        name: 'Test Cohort',
+                        is_static: isStatic,
+                        filters: { properties: { type: 'AND', values: [] } },
+                        version: null,
+                        pending_version: null,
+                        is_calculating: false,
+                        errors_calculating: 0,
+                        last_calculation: null,
+                    },
+                },
+            })
+
+            renderWithScenePanel(cohortId)
+
+            // The panel fills in behind a one second timer, so the default one second find budget
+            // has almost no margin. Waiting on a sibling action also separates a panel that never
+            // rendered from one that rendered without this entry.
+            await screen.findByText('Message this cohort', {}, { timeout: 5000 })
+
+            // An unloaded cohort has a falsy is_static, which satisfies the gate this test exists
+            // to catch, so pin that the fixture reached the scene before asserting on it.
+            expect(screen.getByText(isStatic ? 'Static' : 'Dynamic')).toBeInTheDocument()
+
+            // Both cohort types record calculation history, so neither may have the tab that lists
+            // it gated away.
+            expect(screen.getByText('Calculation history')).toBeInTheDocument()
+        })
+    })
+
     describe('import warning', () => {
         afterEach(() => {
             cleanup()
@@ -543,6 +632,73 @@ describe('cohortEditLogic', () => {
             expect(heading).toBeInTheDocument()
             expect(heading.closest('[aria-live="polite"]')).toBeInTheDocument()
             expect(screen.getByText(/2 of 7 IDs weren't added to this cohort/)).toBeInTheDocument()
+        })
+    })
+
+    describe('used-in summary', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        const cohortId = 8
+        const cohortName = 'Referenced cohort'
+        // 42 insights behind a 2-item page, and a cohorts block nothing references.
+        const usedInMocks = {
+            get: {
+                [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                    ...mockCohort,
+                    id: cohortId,
+                    name: cohortName,
+                },
+                [`/api/projects/:team_id/cohorts/${cohortId}/used_in/`]: {
+                    feature_flags: {
+                        results: [{ id: 7, key: 'my-flag', name: 'My flag' }],
+                        total: 1,
+                        has_more: false,
+                    },
+                    insights: {
+                        results: [
+                            { id: 1, short_id: 'abc123', name: 'Weekly signups' },
+                            { id: 2, short_id: 'def456', name: 'Activation funnel' },
+                        ],
+                        total: 42,
+                        has_more: true,
+                    },
+                    cohorts: { results: [], total: 0, has_more: false },
+                },
+            },
+        }
+
+        it('counts every use from the total and leaves the list collapsed', async () => {
+            useMocks(usedInMocks)
+
+            render(<CohortEdit id={cohortId} />)
+
+            // Anchored: 42 rather than the 2 results the page carried, and no trailing mention of
+            // the cohorts block, which nothing references.
+            expect(await screen.findByTestId('cohort-used-in-toggle')).toHaveTextContent(
+                /^Used in 1 feature flag and 42 insights$/
+            )
+            expect(screen.queryByText('Weekly signups')).not.toBeInTheDocument()
+        })
+
+        it('reveals the grouped links and the truncation note once expanded', async () => {
+            useMocks(usedInMocks)
+
+            render(<CohortEdit id={cohortId} />)
+
+            await userEvent.click(await screen.findByTestId('cohort-used-in-toggle'))
+
+            // The rendered href carries the project prefix these helpers leave off.
+            expect(screen.getByText('My flag').closest('a')).toHaveAttribute(
+                'href',
+                expect.stringContaining(urls.featureFlag(7))
+            )
+            expect(screen.getByText('Weekly signups').closest('a')).toHaveAttribute(
+                'href',
+                expect.stringContaining(urls.insightView('abc123' as InsightShortId))
+            )
+            expect(screen.getByText(/2 of 42 shown/)).toBeInTheDocument()
         })
     })
 

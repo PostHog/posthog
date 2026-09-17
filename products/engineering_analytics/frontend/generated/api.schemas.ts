@@ -606,7 +606,7 @@ export interface WorkflowJobAggregateApi {
      */
     p95_seconds: number | null
     /**
-     * Decisive failures ('failure', 'timed_out') over completed instances (0-1). Null if none completed.
+     * Decisive failures over job instances with a pass-or-fail verdict (0-1). Skipped, cancelled, neutral, and action-required instances are excluded. Null if none reached a verdict.
      * @nullable
      */
     failure_rate: number | null
@@ -862,6 +862,15 @@ export interface WorkflowRunDetailApi {
      * @nullable
      */
     commit_pr_number: number | null
+    /** True when a merge queue pushed this run to gate pr_number, rather than the author pushing it. Count it when measuring CI; drop it when counting what the author did. */
+    is_merge_queue: boolean
+}
+
+export interface PRTimelinePushApi {
+    /** The pushed head commit. */
+    head_sha: string
+    /** When the commit's first workflow run was created, which is when the commit arrived. */
+    pushed_at: string
 }
 
 /**
@@ -921,6 +930,8 @@ export interface PRTimelineSegmentApi {
 export interface PRTimelineApi {
     /** The repository the pull request belongs to. */
     repo: RepoRefApi
+    /** Distinct head commits that triggered CI, oldest first, merge-queue gate runs excluded. A PR listed for an author or a team misses pushes from more than 30 days before the window. */
+    pushes: PRTimelinePushApi[]
     /** Consecutive segments from started_at to the merge, the close, or now, with no gaps. */
     segments: PRTimelineSegmentApi[]
     /** Pull request number. */
@@ -946,8 +957,6 @@ export interface PRTimelineApi {
      * @nullable
      */
     merged_at: string | null
-    /** Distinct head commits that triggered CI, merge-queue gate runs excluded. */
-    pushes: number
     /**
      * Estimated CI cost over the PR's runs, in USD. Null when nothing was costable.
      * @nullable
@@ -996,6 +1005,8 @@ export interface CIStatusRollupApi {
     failing: number
     /** Latest runs not yet completed (queued or in progress). */
     pending: number
+    /** Latest runs that completed without a pass-or-fail verdict: cancelled, skipped, neutral, or action required. Together with the three counts above this covers every run, so a PR whose CI was entirely cancelled is not readable as passing. */
+    inconclusive: number
     /** The workflow names behind `failing`, sorted - names what is failing instead of leaving a bare count. */
     failing_workflows?: string[]
 }
@@ -1182,9 +1193,10 @@ export interface QuarantineFileApi {
  * * `extend` - EXTEND
  * * `remove` - REMOVE
  */
-export type OperationEnumApi = (typeof OperationEnumApi)[keyof typeof OperationEnumApi]
+export type QuarantineRequestOperationEnumApi =
+    (typeof QuarantineRequestOperationEnumApi)[keyof typeof QuarantineRequestOperationEnumApi]
 
-export const OperationEnumApi = {
+export const QuarantineRequestOperationEnumApi = {
     Quarantine: 'quarantine',
     Extend: 'extend',
     Remove: 'remove',
@@ -1210,7 +1222,7 @@ export interface QuarantineRequestApi {
      * * `quarantine` - QUARANTINE
      * * `extend` - EXTEND
      * * `remove` - REMOVE */
-    operation: OperationEnumApi
+    operation: QuarantineRequestOperationEnumApi
     /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
     selector: string
     /** Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries and Jest file extensions are inferred for older clients that omit it; other selectors default to 'pytest'.
@@ -1802,6 +1814,10 @@ export interface TrunkQuarantineDebtApi {
      * @nullable
      */
     trunk_url: string | null
+    /** True when more tests are quarantined than limit. The per-team counts then cover only the returned tests, so treat them as lower bounds. */
+    truncated: boolean
+    /** Maximum tests returned, oldest quarantine first. */
+    limit: number
 }
 
 export interface WorkflowHealthBucketApi {
@@ -2477,6 +2493,10 @@ export type EngineeringAnalyticsWorkflowHealthParams = {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
+    /**
+     * Optional exact workflow name to scope results to, e.g. 'Backend CI'. Omit to rank every workflow. Pass it when you want one workflow's figures over the whole window rather than the top slice.
+     */
+    workflow_name?: string
 }
 
 export type EngineeringAnalyticsWorkflowHealthRunScope =

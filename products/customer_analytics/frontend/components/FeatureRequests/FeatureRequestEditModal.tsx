@@ -18,6 +18,7 @@ import { featureRequestsLogic } from './featureRequestsLogic'
 export function FeatureRequestEditModal(): JSX.Element {
     const {
         editRequestOpen,
+        activeRequest,
         editTitle,
         editDescription,
         editAccountIds,
@@ -89,6 +90,9 @@ export function FeatureRequestEditModal(): JSX.Element {
                             options={FEATURE_REQUEST_STATUS_OPTIONS}
                             fullWidth
                         />
+                        {activeRequest?.github_link && (
+                            <span className="text-xs text-tertiary">Changing the status pauses GitHub sync.</span>
+                        )}
                     </div>
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Priority</LemonLabel>

@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -17,6 +19,7 @@ from products.notebooks.backend.sql_v2_state import (
     build_dependency_edges,
     build_notebook_cell_state,
     extract_cells,
+    get_dataframe_owners,
     validate_cell_count,
 )
 from products.notebooks.backend.sql_v2_variables import (
@@ -37,6 +40,15 @@ def markdown_content(markdown: str) -> dict[str, Any]:
 
 
 class TestCellExtractionAndEdges(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (case["name"], case["markdown"], case["owners"])
+            for case in json.loads((Path(__file__).parents[2] / "dataframe-names.test.json").read_text())
+        ]
+    )
+    def test_shared_dataframe_names(self, _name: str, markdown: str, owners: dict[str, str]) -> None:
+        assert get_dataframe_owners(extract_cells(markdown_content(markdown))) == owners
+
     def test_extracts_runnable_cells_and_skips_unknown_or_idless_tags(self) -> None:
         content = markdown_content(
             "# Doc\n\n"
@@ -45,6 +57,7 @@ class TestCellExtractionAndEdges(SimpleTestCase):
             '<PythonV2 nodeId="p2" code="import pandas as pd\n\nout = pd.DataFrame()" returnVariable="multiline" />\n\n'
             '\\<PythonV2 nodeId="p3" code="\\# Build the frame\n\nout = df.head()" returnVariable="recovered" />\n\n'
             '<Query nodeId="q1" query={{"kind":"SavedInsightNode","shortId":"abc"}} />\n\n'
+            '<Insight nodeId="i1" id="example" returnVariable="insight_df" dataframeQuery="SELECT 1" />\n\n'
             '<SQLV2 code="select 2" returnVariable="anon" />\n\n'
             '<RevenueCard metric="arr" />\n'
         )
@@ -55,9 +68,11 @@ class TestCellExtractionAndEdges(SimpleTestCase):
             ("p2", "python", "multiline"),
             ("p3", "python", "recovered"),
             ("q1", "saved_insight", ""),
+            ("i1", "saved_insight", "insight_df"),
         ]
         assert cells[2].code == "import pandas as pd\n\nout = pd.DataFrame()"
         assert cells[3].code == "# Build the frame\n\nout = df.head()"
+        assert cells[5].code == "SELECT 1"
 
     @parameterized.expand(
         [
@@ -99,24 +114,55 @@ class TestCellExtractionAndEdges(SimpleTestCase):
             # Python deps come from globals analysis, so a comment mention is not an edge.
             ("python_comment", '<PythonV2 nodeId="b" code="# df\\nx = 1" returnVariable="" />', []),
             ("python_use", '<PythonV2 nodeId="b" code="x = df.head()" returnVariable="" />', ["a"]),
+            ("insight_source", '<SQLV2 nodeId="b" code="select * from df" returnVariable="" />', ["a"]),
         ]
     )
     def test_dependency_edges(self, _name: str, downstream_tag: str, expected_depends_on: list[str]) -> None:
-        content = markdown_content(f'<SQLV2 nodeId="a" code="select 1" returnVariable="df" />\n\n{downstream_tag}\n')
+        source = (
+            '<Insight nodeId="a" id="example" dataframeQuery="select 1" returnVariable="df" />'
+            if _name == "insight_source"
+            else '<SQLV2 nodeId="a" code="select 1" returnVariable="df" />'
+        )
+        content = markdown_content(f"{source}\n\n{downstream_tag}\n")
         cells = extract_cells(content)
         build_dependency_edges(cells)
         assert cells[1].depends_on == expected_depends_on
         assert cells[0].dependents == (["b"] if expected_depends_on else [])
 
-    def test_sql_wins_dataframe_name_collision(self) -> None:
+    @parameterized.expand(
+        [
+            ("python", '<PythonV2 nodeId="p" code="df = 1" returnVariable="df" />'),
+            ("insight", '<Insight nodeId="i" dataframeQuery="select 2" returnVariable="df" />'),
+        ]
+    )
+    def test_sql_wins_dataframe_name_collision(self, _name: str, other_source: str) -> None:
         content = markdown_content(
-            '<PythonV2 nodeId="p" code="df = 1" returnVariable="df" />\n\n'
+            f"{other_source}\n\n"
             '<SQLV2 nodeId="s" code="select 1" returnVariable="df" />\n\n'
             '<SQLV2 nodeId="user" code="select * from df" returnVariable="" />\n'
         )
         cells = extract_cells(content)
         build_dependency_edges(cells)
         assert cells[2].depends_on == ["s"]
+
+    @parameterized.expand(
+        [
+            ("missing_name", 'dataframeQuery="select 1"', "insight_df", ["a"]),
+            ("blank_name", 'dataframeQuery="select 1" returnVariable=""', "", []),
+            ("missing_query", "", "", []),
+        ]
+    )
+    def test_insight_default_dataframe_binding(
+        self, _name: str, props: str, expected_name: str, expected_depends_on: list[str]
+    ) -> None:
+        cells = extract_cells(
+            markdown_content(
+                f'<Insight nodeId="a" id="example" {props} />\n\n<SQLV2 nodeId="b" code="select * from insight_df" />'
+            )
+        )
+        build_dependency_edges(cells)
+        assert cells[0].dataframe_name == expected_name
+        assert cells[1].depends_on == expected_depends_on
 
 
 def cells_markdown(count: int) -> dict[str, Any]:
@@ -131,14 +177,24 @@ class TestMarkdownBlockSpans(SimpleTestCase):
     MARKDOWN = (
         "# Title\n\n"
         "Some prose.\nA second line.\n\n"
+        "<!--ph:phb-anchored-->\nAn anchored paragraph.\n\n"
         '<SQLV2 nodeId="s1" code="select 1" returnVariable="df" />\n\n'
         "```python\nx = 1\n\ny = 2\n```\n\n"
         "Closing paragraph."
     )
 
-    def test_every_block_span_slices_back_to_its_source(self) -> None:
-        blocks = list(iter_markdown_blocks(self.MARKDOWN))
-        assert [self.MARKDOWN[block.start : block.end] for block in blocks] == [block.source for block in blocks]
+    @parameterized.expand(
+        [
+            ("no_terminator", ""),
+            ("newline", "\n"),
+            ("crlf", "\r\n"),
+        ]
+    )
+    def test_every_block_span_slices_back_to_its_source(self, _name: str, ending: str) -> None:
+        markdown = self.MARKDOWN + ending
+        blocks = list(iter_markdown_blocks(markdown))
+        assert [markdown[block.start : block.end] for block in blocks] == [block.source for block in blocks]
+        assert blocks[-1].source == "Closing paragraph."
 
     def test_a_fenced_block_stays_whole_across_its_blank_line(self) -> None:
         sources = [block.source for block in iter_markdown_blocks(self.MARKDOWN)]
@@ -176,6 +232,39 @@ class TestMarkdownBlockSpans(SimpleTestCase):
         blocks = list(iter_markdown_blocks("Same text.\n\nSame text."))
         assert len({block.node_id for block in blocks}) == 2
 
+    def test_an_anchored_block_keeps_its_id_when_its_text_changes(self) -> None:
+        edited = self.MARKDOWN.replace("An anchored paragraph.", "A rewritten paragraph.")
+        before = {block.node_id for block in iter_markdown_blocks(self.MARKDOWN)}
+        after = {block.node_id for block in iter_markdown_blocks(edited)}
+        assert "phb-anchored" in before & after
+
+    def test_a_tag_prop_id_wins_over_an_anchor_above_it(self) -> None:
+        markdown = '<!--ph:phb-outer-->\n<SQLV2 nodeId="s1" code="select 1" returnVariable="df" />'
+        blocks = list(iter_markdown_blocks(markdown))
+        assert [block.node_id for block in blocks] == ["s1"]
+
+    def test_a_repeated_anchor_names_only_the_first_block(self) -> None:
+        markdown = "<!--ph:phb-abc-->\nFirst.\n\n<!--ph:phb-abc-->\nSecond."
+        node_ids = [block.node_id for block in iter_markdown_blocks(markdown)]
+        assert node_ids[0] == "phb-abc"
+        assert len(set(node_ids)) == 2
+
+    def test_a_left_behind_anchor_names_no_block(self) -> None:
+        blocks = list(iter_markdown_blocks("<!--ph:phb-abc-->\n\n\nThe next paragraph.\n"))
+        assert [block.source for block in blocks] == ["The next paragraph."]
+        assert blocks[0].node_id != "phb-abc"
+
+    def test_a_comment_that_is_not_a_stored_id_is_not_an_anchor(self) -> None:
+        blocks = list(iter_markdown_blocks("<!--ph:note-->\n\nA paragraph."))
+        assert [block.node_id for block in blocks] != ["note"]
+        assert blocks[0].source == "<!--ph:note-->"
+
+    def test_an_anchor_inside_a_fence_is_not_read_as_one(self) -> None:
+        markdown = "```\n<!--ph:phb-example-->\n```\n\nParagraph."
+        blocks = list(iter_markdown_blocks(markdown))
+        assert [block.node_id for block in blocks] != ["phb-example"]
+        assert blocks[0].source == "```\n<!--ph:phb-example-->\n```"
+
 
 class TestCellCountLimit(SimpleTestCase):
     @parameterized.expand(
@@ -212,8 +301,9 @@ class TestCellCountLimit(SimpleTestCase):
         blocks = iter_markdown_blocks(markdown, max_prose_blocks=MAX_ADDRESSABLE_PROSE_BLOCKS)
         assert [block.node_id for block in blocks if block.kind == "component"] == ["s1"]
 
-    def test_prose_does_not_count_toward_the_ceiling(self) -> None:
-        prose = "\n\n".join(f"Paragraph {index}." for index in range(MAX_NOTEBOOK_CELLS * 2))
+    @parameterized.expand([("prose", "Paragraph {index}."), ("insights", '<Insight nodeId="i{index}" id="example" />')])
+    def test_display_cells_do_not_count_toward_the_ceiling(self, _name: str, template: str) -> None:
+        prose = "\n\n".join(template.format(index=index) for index in range(MAX_NOTEBOOK_CELLS * 2))
         validate_cell_count(None, markdown_content(prose))
 
     def test_a_notebook_already_over_the_ceiling_still_cannot_grow(self) -> None:

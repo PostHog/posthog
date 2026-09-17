@@ -10,9 +10,10 @@ import {
     PanelPosition,
     ReactFlow,
     ReactFlowProvider,
+    useReactFlow,
 } from '@xyflow/react'
 import { useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useEffect } from 'react'
 
 import { IconArchive } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
@@ -36,6 +37,7 @@ export interface LineageGraphProps {
     /** Enable zoom/pan. Off by default for inline previews */
     interactive?: boolean
     fitViewOptions?: FitViewOptions
+    focusNodeIds?: Set<string>
     showMinimap?: boolean
     minimapPosition?: PanelPosition
     showControls?: boolean
@@ -54,8 +56,9 @@ export interface LineageGraphProps {
 }
 
 function LineageGraphContent(props: LineageGraphProps): JSX.Element {
+    const { fitView, viewportInitialized } = useReactFlow()
     const { isDarkModeOn } = useValues(themeLogic)
-    const { currentNodeId, nodeState, nodeCallbacks, onNodeClick } = props
+    const { currentNodeId, nodeState, nodeCallbacks, onNodeClick, focusNodeIds } = props
     const { layout } = useValues(
         lineageGraphLogic({
             nodes: props.nodes,
@@ -64,6 +67,16 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             direction: props.direction ?? 'RIGHT',
         })
     )
+
+    useEffect(() => {
+        if (!viewportInitialized || !focusNodeIds?.size || !layout) {
+            return
+        }
+        const nodes = layout.nodes.filter((node) => focusNodeIds.has(node.id))
+        if (nodes.length > 0) {
+            void fitView({ nodes, padding: 0.2, maxZoom: 1 })
+        }
+    }, [fitView, viewportInitialized, focusNodeIds, layout])
 
     if (!layout) {
         return (
