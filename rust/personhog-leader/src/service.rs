@@ -129,7 +129,7 @@ pub struct PersonHogLeaderService {
     fence_healer: Option<Arc<FenceHealer>>,
     /// The committed-release mark check, one query per op per pod. Absent
     /// without a fallback pool, in which case a release is refused.
-    mark_verifier: Option<Arc<MarkVerifier>>,
+    mark_verifier: Option<MarkVerifier>,
     /// Memory fuse for the fence map (see `fence_map_max_entries` in the
     /// config for the full policy): at this many live fences, FencePerson
     /// sheds new fences with RESOURCE_EXHAUSTED.
@@ -242,7 +242,7 @@ impl PersonHogLeaderService {
             fence_healer: fallback
                 .as_ref()
                 .map(|f| Arc::new(FenceHealer::new(f.clone(), Arc::clone(&fences)))),
-            mark_verifier: fallback.as_ref().map(|f| Arc::new(MarkVerifier::new(f))),
+            mark_verifier: fallback.as_ref().map(MarkVerifier::new),
             fallback,
             inflight,
             num_partitions,
@@ -1748,7 +1748,6 @@ mod tests {
     use tonic::Code;
 
     use super::*;
-    use crate::fence::FenceOrigin;
     use crate::recovery::RecoveryConfig;
 
     fn make_key(team_id: i64, person_id: i64) -> PersonCacheKey {
@@ -2214,7 +2213,7 @@ mod tests {
             FenceState {
                 op_id,
                 op_type: LifecycleOpType::Delete,
-                installed_by: FenceOrigin::Seal,
+                sealed_at: None,
             },
         );
 
@@ -2274,7 +2273,7 @@ mod tests {
             FenceState {
                 op_id,
                 op_type: LifecycleOpType::Delete,
-                installed_by: FenceOrigin::Seal,
+                sealed_at: None,
             },
         );
 
