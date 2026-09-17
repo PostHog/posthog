@@ -11,6 +11,7 @@ export {
     MAX_STASHED_PAYLOAD_BYTES,
     PAYLOAD_STASH_TTL_MARGIN_SECONDS,
     SIGNING_KEY_ENV_VAR,
+    SIGNING_KEY_MIN_BYTES,
     STASH_QUOTA_BYTES_PER_WINDOW,
 } from './constants'
 export {
@@ -24,6 +25,7 @@ export {
 } from './errors'
 export { loadSigningKeyFromEnv, SignedStateCodec } from './codec'
 export type { SignedStateClaims, SignedStateCodecOptions } from './codec'
+export { FileKeyValueStore } from './file-store'
 export { NonceLedger } from './nonce-ledger'
 export type { NonceLedgerRedis } from './nonce-ledger'
 export { PayloadStash } from './payload-stash'
