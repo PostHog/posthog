@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { useId, useState } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { exampleApiSurvey, exampleSurveyClient } from './apiSurvey.fixtures'
 import { APISurveyForm } from './APISurveyForm'
@@ -56,4 +57,37 @@ export const KeyboardNavigation: Story = {
             <LemonButton>After the survey</LemonButton>
         </div>
     ),
+}
+
+export const Dialog: Story = {
+    render: (args, { parameters }) => {
+        const [isOpen, setIsOpen] = useState(!!parameters.initiallyOpen)
+        const titleId = useId()
+        return (
+            <>
+                <LemonButton
+                    type="secondary"
+                    onClick={() => setIsOpen(true)}
+                    data-attr="api-survey-share-more-feedback"
+                >
+                    Share more feedback
+                </LemonButton>
+                <LemonModal
+                    isOpen={isOpen}
+                    onClose={() => setIsOpen(false)}
+                    title={<span id={titleId}>Share more feedback</span>}
+                    contentRef={(element) => element?.setAttribute('aria-labelledby', titleId)}
+                    width={520}
+                    hasUnsavedInput
+                >
+                    {isOpen && <APISurveyForm {...args} />}
+                </LemonModal>
+            </>
+        )
+    },
+}
+
+export const DialogOpen: Story = {
+    ...Dialog,
+    parameters: { initiallyOpen: true },
 }

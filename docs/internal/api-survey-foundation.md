@@ -51,5 +51,10 @@ Replay is off by default.
 `Surveys/API survey form` covers the reference form, unavailable and loading states, and request failures.
 `Surveys/API survey question` covers each supported control.
 Stories inject a client that uses invented surveys and never sends analytics events.
+The Dialog story explores an explicit Share more feedback action using LemonModal; DialogOpen captures the open state.
+The form mounts only while the dialog is open, and Escape or the close button returns focus to the trigger.
+Backdrop clicks leave the dialog open to avoid losing input accidentally.
+Closing discards the draft; reopening starts a new response.
+This placement is a Storybook prototype, with product integration still owned by callers.
 Product-specific context capture and response-quality experiments belong in later integrations.
 Voice recording and transcription are a separate foundation change.
