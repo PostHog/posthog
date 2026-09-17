@@ -13,6 +13,7 @@ from django.db.models import F
 from django.utils import timezone
 
 import posthoganalytics
+from asgiref.sync import sync_to_async
 from croniter import CroniterError, croniter
 
 from posthog.dataclasses import frozen
@@ -291,7 +292,12 @@ async def arun_signals_scout(
             # has no author to resolve, so withholding it would withhold it on every run. Cleared
             # in memory only: the runner never saves the config row, so a person's grant is back
             # the moment the author's identity resolves again.
-            declared = set(canonical_config_write_scopes_for(skill.name)) if skill.origin == "canonical" else set()
+            declared: set[str] = set()
+            if skill.origin == "canonical":
+                # Reads the skill fleet from disk on a cold cache, so keep it off the event loop.
+                declared = set(
+                    await sync_to_async(canonical_config_write_scopes_for, thread_sensitive=False)(skill.name)
+                )
             stored = config.write_scopes if isinstance(config.write_scopes, list) else []
             kept = sorted(declared & {scope for scope in stored if isinstance(scope, str)})
             if kept != sorted(set(stored)):
