@@ -3752,7 +3752,6 @@ def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
 
     # Build project config
     project_config = {
-        "api_host": request.build_absolute_uri("/").rstrip("/"),
         "token": survey.team.api_token,
     }
 
