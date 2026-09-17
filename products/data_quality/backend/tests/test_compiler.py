@@ -523,6 +523,7 @@ class TestCheckSerialization:
             ("string_column_reads_a_bool_as_text", "String", [True], ["true"]),
             ("low_cardinality_string_reads_a_number_as_text", "LowCardinality(String)", [200], ["200"]),
             ("unknown_column_type", None, ["1"], ["1"]),
+            ("values_that_coercion_makes_equal_collapse", "Int64", ["1", 1], [1.0]),
         ]
     )
     def test_accepted_values_are_read_as_the_column_reads_them(self, _name, column_type, given, expected) -> None:
@@ -534,6 +535,17 @@ class TestCheckSerialization:
         coerced = spec.coerce_to_column(parsed, column_type)
 
         assert coerced.model_dump(mode="json")["values"] == expected
+
+    def test_reading_accepted_values_as_the_column_reads_them_keeps_the_lookback_window(self) -> None:
+        # The window is only authorable on a subject that has a time column, which is exactly where
+        # an accepted-values check would otherwise lose it and read the subject's whole history.
+        spec = get_spec(CheckType.ACCEPTED_VALUES)
+        parsed = spec.validate({"values": ["1"], "lookback_hours": 24}, "status")
+
+        coerced = spec.coerce_to_column(parsed, "Int64")
+
+        assert coerced.lookback_hours == 24
+        assert coerced.model_dump(mode="json")["values"] == [1.0]
 
     @parameterized.expand(
         [
