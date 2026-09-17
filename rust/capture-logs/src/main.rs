@@ -5,6 +5,7 @@ use axum::{extract::DefaultBodyLimit, http::Method, routing::get, routing::post,
 use capture::metrics_middleware::track_metrics;
 use capture_logs::authorizer::Authorizer;
 use capture_logs::config::Config;
+use capture_logs::endpoints::aws_firehose;
 use capture_logs::endpoints::datadog;
 use capture_logs::endpoints::prometheus;
 use capture_logs::kafka::KafkaSink;
@@ -120,14 +121,20 @@ async fn main() {
 
     let token_dropper = TokenDropper::new(&config.drop_events_by_token.unwrap_or_default());
     let authorizer = Authorizer::new(Arc::new(token_dropper));
-    let logs_service =
-        match Service::new(kafka_sink, authorizer, config.max_request_body_size_bytes).await {
-            Ok(service) => service,
-            Err(e) => {
-                error!("Failed to initialize log service: {}", e);
-                panic!("Could not start log capture service: {e}");
-            }
-        };
+    let logs_service = match Service::new(
+        kafka_sink,
+        authorizer,
+        config.max_request_body_size_bytes,
+        config.firehose_max_request_body_size_bytes,
+    )
+    .await
+    {
+        Ok(service) => service,
+        Err(e) => {
+            error!("Failed to initialize log service: {}", e);
+            panic!("Could not start log capture service: {e}");
+        }
+    };
     let http_bind = format!("{}:{}", config.host, config.port);
     info!("Listening on {}", http_bind);
     let http_listener = tokio::net::TcpListener::bind(http_bind)
@@ -201,11 +208,37 @@ async fn main() {
             "/i/v1/prometheus/write/:token",
             post(prometheus::export_prometheus_remote_write_http).options(options_handler),
         )
-        .with_state(logs_service)
+        .with_state(logs_service.clone())
         .layer(DefaultBodyLimit::max(config.max_request_body_size_bytes))
         .layer(axum::middleware::from_fn(track_metrics));
 
-    let http_router = http_router.merge(prometheus_router).layer(cors);
+    // Amazon Data Firehose HTTP endpoint destination. Its own router because Firehose buffers up to
+    // 64 MiB per delivery, so the body cap is separate, and because Firehose only understands a
+    // JSON error body: the outermost layer re-shapes rejections raised by the layers below it.
+    let firehose_router = Router::new()
+        .route(
+            "/i/v1/logs/aws/firehose",
+            post(aws_firehose::export_aws_firehose_logs_http).options(options_handler),
+        )
+        .route(
+            "/i/v1/logs/aws/firehose/:source_id",
+            post(aws_firehose::export_aws_firehose_logs_http).options(options_handler),
+        )
+        .with_state(logs_service)
+        .layer(DefaultBodyLimit::max(
+            config.firehose_max_request_body_size_bytes,
+        ))
+        .layer(axum::middleware::from_fn(track_metrics))
+        .layer(RequestDecompressionLayer::new())
+        .layer(axum::middleware::from_fn(translate_compression_query_param))
+        .layer(axum::middleware::from_fn(
+            aws_firehose::shape_layer_rejections,
+        ));
+
+    let http_router = http_router
+        .merge(prometheus_router)
+        .merge(firehose_router)
+        .layer(cors);
 
     let http_server = tokio::spawn(async move {
         if let Err(e) = axum::serve(

@@ -117,6 +117,10 @@ pub struct KafkaSink {
     logs_topic: String,
     traces_topic: String,
     metrics_topic: String,
+    logs_schema: Schema,
+    traces_schema: Schema,
+    metrics_schema: Schema,
+    logs_message_max_bytes: usize,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -323,7 +327,17 @@ impl KafkaSink {
             logs_topic: config.kafka_topic,
             traces_topic: config.kafka_traces_topic,
             metrics_topic: config.kafka_metrics_topic,
+            logs_schema: Schema::parse_str(AVRO_SCHEMA)?,
+            traces_schema: Schema::parse_str(TRACES_AVRO_SCHEMA)?,
+            metrics_schema: Schema::parse_str(METRICS_AVRO_SCHEMA)?,
+            logs_message_max_bytes: config.kafka_producer_message_max_bytes as usize,
         })
+    }
+
+    /// The producer's `message.max.bytes` for the logs topic, so an intake that chunks a large
+    /// delivery can size its batches against the real cap instead of a guess.
+    pub fn logs_message_max_bytes(&self) -> usize {
+        self.logs_message_max_bytes
     }
 
     pub fn flush(&self) -> Result<(), KafkaError> {
@@ -338,16 +352,16 @@ impl KafkaSink {
         &self,
         producer: &FutureProducer<KafkaContext>,
         topic: &str,
-        avro_schema_str: &str,
+        schema: &Schema,
         token: &str,
         rows: &[T],
         uncompressed_bytes: u64,
         records_uncompressed_bytes: Option<u64>,
         timestamps_overridden: u64,
+        source_id: Option<&str>,
     ) -> Result<(), anyhow::Error> {
-        let schema = Schema::parse_str(avro_schema_str)?;
         let mut writer = Writer::with_codec(
-            &schema,
+            schema,
             Vec::new(),
             Codec::Zstandard(ZstandardSettings::new(1)),
         );
@@ -383,6 +397,15 @@ impl KafkaSink {
                         value: Some(&records_bytes.to_string()),
                     });
                 }
+                // Which configured log source produced the batch, so the consumer can attribute
+                // health metrics and drop traffic for a disabled source. Absent for intakes that
+                // have no source concept.
+                if let Some(source_id) = source_id {
+                    headers = headers.insert(Header {
+                        key: "source_id",
+                        value: Some(source_id),
+                    });
+                }
                 headers
                     .insert(Header {
                         key: "bytes_compressed",
@@ -415,12 +438,14 @@ impl KafkaSink {
         Ok(())
     }
 
+    /// `source_id` names the configured log source that delivered the batch, when the intake knows it.
     pub async fn write(
         &self,
         token: &str,
         rows: Vec<KafkaLogRow>,
         uncompressed_bytes: u64,
         timestamps_overridden: u64,
+        source_id: Option<&str>,
     ) -> Result<(), anyhow::Error> {
         if rows.is_empty() {
             return Ok(());
@@ -442,12 +467,13 @@ impl KafkaSink {
         self.write_avro_batch(
             &self.logs_producer,
             &self.logs_topic,
-            AVRO_SCHEMA,
+            &self.logs_schema,
             token,
             &rows,
             uncompressed_bytes,
             Some(records_uncompressed_bytes),
             timestamps_overridden,
+            source_id,
         )
         .await?;
 
@@ -472,12 +498,13 @@ impl KafkaSink {
         self.write_avro_batch(
             &self.traces_producer,
             &self.traces_topic,
-            TRACES_AVRO_SCHEMA,
+            &self.traces_schema,
             token,
             &rows,
             uncompressed_bytes,
             None,
             timestamps_overridden,
+            None,
         )
         .await?;
 
@@ -502,12 +529,13 @@ impl KafkaSink {
         self.write_avro_batch(
             &self.metrics_producer,
             &self.metrics_topic,
-            METRICS_AVRO_SCHEMA,
+            &self.metrics_schema,
             token,
             &rows,
             uncompressed_bytes,
             None,
             timestamps_overridden,
+            None,
         )
         .await?;
 

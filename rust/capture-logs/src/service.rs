@@ -304,6 +304,7 @@ pub struct Service {
     pub(crate) sink: KafkaSink,
     pub(crate) authorizer: Authorizer,
     pub(crate) max_request_body_size_bytes: usize,
+    pub(crate) firehose_max_request_body_size_bytes: usize,
 }
 
 #[derive(Deserialize)]
@@ -316,12 +317,39 @@ impl Service {
         kafka_sink: KafkaSink,
         authorizer: Authorizer,
         max_request_body_size_bytes: usize,
+        firehose_max_request_body_size_bytes: usize,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             sink: kafka_sink,
             authorizer,
             max_request_body_size_bytes,
+            firehose_max_request_body_size_bytes,
         })
+    }
+}
+
+/// Gunzip `bytes` when they start with the gzip magic header, capped at `limit` decoded bytes.
+/// `Ok(None)` means the input was not gzip and can be used as is.
+pub(crate) fn gunzip_if_magic(
+    bytes: &[u8],
+    limit: usize,
+) -> Result<Option<Vec<u8>>, (StatusCode, String)> {
+    if !has_gzip_magic_header(bytes) {
+        return Ok(None);
+    }
+    match decompress_gzip_capped(bytes, limit) {
+        Ok(decompressed) => Ok(Some(decompressed)),
+        Err(CompressionError::OutputTooLarge {
+            decompressed,
+            limit,
+        }) => Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!("Decompressed request body exceeds limit ({decompressed} > {limit} bytes)"),
+        )),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            format!("Failed to decompress gzip request body: {e}"),
+        )),
     }
 }
 
@@ -329,25 +357,10 @@ pub(crate) fn decode_body_if_gzip_magic(
     body: Bytes,
     max_request_body_size_bytes: usize,
 ) -> Result<Bytes, (StatusCode, Json<serde_json::Value>)> {
-    if !has_gzip_magic_header(&body) {
-        return Ok(body);
-    }
-
-    match decompress_gzip_capped(&body, max_request_body_size_bytes) {
-        Ok(decompressed) => Ok(Bytes::from(decompressed)),
-        Err(CompressionError::OutputTooLarge {
-            decompressed,
-            limit,
-        }) => Err((
-            StatusCode::PAYLOAD_TOO_LARGE,
-            Json(json!({
-                "error": format!("Decompressed request body exceeds limit ({decompressed} > {limit} bytes)")
-            })),
-        )),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": format!("Failed to decompress gzip request body: {e}")})),
-        )),
+    match gunzip_if_magic(&body, max_request_body_size_bytes) {
+        Ok(None) => Ok(body),
+        Ok(Some(decompressed)) => Ok(Bytes::from(decompressed)),
+        Err((status, message)) => Err((status, Json(json!({"error": message})))),
     }
 }
 
@@ -441,7 +454,7 @@ pub async fn export_logs_http(
     let row_count = rows.len();
     if let Err(e) = service
         .sink
-        .write(token, rows, body.len() as u64, timestamps_overridden)
+        .write(token, rows, body.len() as u64, timestamps_overridden, None)
         .await
     {
         error!("Failed to send logs to Kafka: {}", e);
