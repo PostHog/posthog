@@ -439,6 +439,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
     listeners(({ actions, cache }) => ({
         openContextPicker: () => {
             dashboardsModel.mount()
+            dashboardsModel.actions.loadDashboardsIfNeeded()
         },
         locationChanged: () => {
             // Don't reset context if the only change is the side panel opening/closing
