@@ -31,26 +31,17 @@ role "ops" {
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/ops/shared", "roles/ops/cloud", "roles/ops/prod", "roles/ops/prod-eu"] }
 }
 
-# Every logs node composes the trace suite and the metrics ingest chain
-# (roles/logs/metrics, created locally by migration 0309); the local node adds a
-# self-contained roles/logs/local (extracted from the live node) for the legacy
-# logs32 family it still runs.
 role "logs" {
-  env "local-multi"   { layers = ["roles/shared/qla.hcl", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/local"] }
-  env "dev"     { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/shared", "roles/logs/dev"] }
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-eu"] }
+  env "local-multi"   { layers = ["roles/shared/qla.hcl", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/coshared/metrics_columns", "roles/coshared/metrics_input", "roles/logs/metrics", "roles/coshared/metrics_views", "roles/coshared/metrics_legacy_lag", "roles/logs/local"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/coshared/metrics_columns", "roles/coshared/metrics_input", "roles/logs/metrics", "roles/logs/shared", "roles/logs/dev"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/coshared/metrics_columns", "roles/coshared/metrics_input", "roles/logs/metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/coshared/metrics_columns", "roles/coshared/metrics_input", "roles/logs/metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-eu"] }
 }
 
-# APM satellite: the ingestion-apm nodes. Every env runs the shared custom_metrics
-# suite and writes into the query log archive, but not the query_log_archive reader
-# itself. dev additionally runs the APM ingest chain -- the Kafka consumers for logs,
-# traces and metrics and the writable proxies they feed -- which the prod envs still
-# run on their logs nodes.
 role "apm" {
-  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/apm/dev"] }
-  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/custom_metrics"] }
-  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/custom_metrics"] }
+  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/coshared/metrics_legacy_lag", "roles/apm/dev", "roles/coshared/metrics_columns", "roles/coshared/metrics_input", "roles/coshared/metrics_views", "roles/apm/metrics"] }
+  env "prod-us" { layers = ["roles/coshared/named_collections", "roles/shared/qla_write.hcl", "roles/coshared/custom_metrics", "roles/coshared/metrics_columns", "roles/coshared/metrics_input", "roles/coshared/metrics_views", "roles/apm/metrics"] }
+  env "prod-eu" { layers = ["roles/coshared/named_collections", "roles/shared/qla_write.hcl", "roles/coshared/custom_metrics", "roles/coshared/metrics_columns", "roles/coshared/metrics_input", "roles/coshared/metrics_views", "roles/apm/metrics"] }
 }
 
 # AI_EVENTS satellite (LLM analytics). local/hobby run the MSK variant
@@ -147,7 +138,7 @@ role "medium" {
 # and not MULTINODE_CLICKHOUSE. Composed as the deduped union of the local-multi stacks it
 # hosts, so any name two of those roles declare fails this load instead of drifting.
 role "all" {
-  env "local-single" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/local", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/coshared/person_property_mutations", "roles/coshared/aux_small", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/data/shared", "roles/data/common", "roles/data/local", "roles/ingestion_events/shared", "roles/ingestion_events/local", "roles/ingestion_events/local-single", "roles/ingestion_small/local", "roles/ingestion_medium/local"] }
+  env "local-single" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/logs_avro_ingest", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/coshared/metrics_columns", "roles/coshared/metrics_input", "roles/logs/metrics", "roles/coshared/metrics_views", "roles/coshared/metrics_legacy_lag", "roles/logs/local", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/coshared/person_property_mutations", "roles/coshared/aux_small", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/data/shared", "roles/data/common", "roles/data/local", "roles/ingestion_events/shared", "roles/ingestion_events/local", "roles/ingestion_events/local-single", "roles/ingestion_small/local", "roles/ingestion_medium/local"] }
 }
 
 # role "endpoints" {

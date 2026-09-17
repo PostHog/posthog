@@ -38,6 +38,7 @@ class NodeRole(StrEnum):
     INGESTION_MEDIUM = "medium"
     ENDPOINTS = "endpoints"
     LOGS = "logs"
+    INGESTION_APM = "apm"
 
     # Below nodes are part of separate clusters.
     AI_EVENTS = "ai_events"

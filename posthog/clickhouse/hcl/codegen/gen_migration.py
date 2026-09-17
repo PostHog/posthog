@@ -53,7 +53,7 @@ HCLEXP = os.path.join(HCL_DIR, "bin", "hclexp")
 # Canonical role order for emitted node_roles (mirrors ALL_ROLES in migration 0273).
 # Only roles present in the manifest appear; the rest are listed for stable ordering
 # if/when they are uncommented there.
-ROLE_ORDER = ["data", "endpoints", "aux", "ai_events", "sessions", "logs", "ops", "events", "small", "medium"]
+ROLE_ORDER = ["data", "endpoints", "aux", "ai_events", "sessions", "logs", "ops", "events", "small", "medium", "apm"]
 
 # Manifest roles are named after the hostClusterRole macro, which is the NodeRole *value*.
 # For most roles the member name is that value uppercased; the ingestion members are not.
@@ -61,6 +61,7 @@ NODE_ROLE_MEMBERS = {
     "events": "INGESTION_EVENTS",
     "small": "INGESTION_SMALL",
     "medium": "INGESTION_MEDIUM",
+    "apm": "INGESTION_APM",
 }
 
 # Manifest roles that are modeled for drift detection but are NOT migration targets:
@@ -70,7 +71,6 @@ NODE_ROLE_MEMBERS = {
 NON_TARGET_ROLES = {
     "batch_exports": "dump-baselined; no NodeRole member",
     "all": "the local-single dev node; mirrors what migrations produce",
-    "apm": "modeled for drift detection; no NodeRole member, so migrations cannot address it",
 }
 
 # Envs that mirror what the migrations produce rather than declaring intent, so they
