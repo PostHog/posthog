@@ -151,8 +151,21 @@
 
   // ---------- simple SVG line chart ----------
   // series: [{name, color, points: [[Date, number | null]]}]; a null y breaks the line.
-  function chart(series, { yfmt = v => fmt.dec(v, 1) } = {}) {
+  // stacked: every series is drawn as an area on top of the ones before it; a
+  // missing x in a series counts as 0 so the stack stays continuous.
+  function chart(series, { yfmt = v => fmt.dec(v, 1), stacked = false } = {}) {
     const W = 800, H = 140, P = { l: 48, r: 8, t: 8, b: 20 };
+    if (stacked) {
+      const xs = [...new Set(series.flatMap(s => s.points.map(p => +p[0])))].sort((a, b) => a - b);
+      let base = new Map(xs.map(x => [x, 0]));
+      series = series.map(s => {
+        const own = new Map(s.points.map(p => [+p[0], p[1] || 0]));
+        const top = new Map(xs.map(x => [x, base.get(x) + (own.get(x) || 0)]));
+        const out = { ...s, points: xs.map(x => [new Date(x), top.get(x)]), base: xs.map(x => [new Date(x), base.get(x)]) };
+        base = top;
+        return out;
+      });
+    }
     const all = series.flatMap(s => s.points).filter(p => p[1] != null);
     if (!all.length) return el('div', { class: 'empty' }, 'no data points');
     const xs = all.map(p => +p[0]), ys = all.map(p => p[1]);
@@ -167,6 +180,10 @@
       const pts = [...s.points].sort((a, b) => a[0] - b[0]);
       let d = '', pen = false;
       for (const p of pts) { if (p[1] == null) { pen = false; continue; } d += (pen ? 'L' : 'M') + X(+p[0]).toFixed(1) + ' ' + Y(p[1]).toFixed(1); pen = true; }
+      if (s.base) {
+        const back = [...s.base].sort((a, b) => b[0] - a[0]).map(p => 'L' + X(+p[0]).toFixed(1) + ' ' + Y(p[1]).toFixed(1)).join('');
+        svg.append(n('path', { d: d + back + 'Z', fill: s.color, 'fill-opacity': 0.35, stroke: 'none' }));
+      }
       svg.append(n('path', { d, fill: 'none', stroke: s.color, 'stroke-width': 1.5, 'vector-effect': 'non-scaling-stroke' }));
     }
     return el('div', {}, svg, el('div', { class: 'legend' }, series.map(s => el('span', {}, el('i', { style: `background:${s.color}` }), s.name))));
@@ -417,17 +434,44 @@
   pages.system = async () => {
     const d = await api(`/servers/${state.server}/system`, { since: state.range });
     const byInst = (rows, key) => { const m = {}; for (const r of rows) (m[r.instance] ||= []).push([new Date(r.collected_at), r[key]]); return Object.entries(m).map(([n, pts], i) => ({ name: n, color: COLORS[i], points: pts })); };
+    const cpuTitle = 'Host CPU %' + (d.host.length ? ` (${d.host.map(h => `${h.instance}: ${h.ncpu} vCPU`).join(', ')})` : '');
+    const noProctab = () => el('div', { class: 'empty' }, 'No pg_proctab data. Run CREATE EXTENSION pg_proctab in the database the collector connects to; rows start within 10 minutes.');
+    const userSeries = (() => { const m = {}; for (const r of d.cpu_by_user_series) (m[`${r.label}${d.host.length > 1 ? ' @' + r.instance : ''}`] ||= []).push([new Date(r.collected_at), r.cores]); const names = Object.keys(m).sort((a, b) => a.startsWith('other') - b.startsWith('other')); return names.map((n, i) => ({ name: n, color: n.startsWith('other') ? '#565f73' : COLORS[i % COLORS.length], points: m[n] })); })();
+    const cores = v => v == null ? '–' : fmt.dec(v, 3);
+    const cpuCols = [
+      { key: 'cpu_seconds', label: 'CPU time', num: true, fmt: v => fmt.dec(v, 1) + ' s' },
+      { key: 'avg_cores', label: 'avg cores', num: true, fmt: cores },
+      { key: 'host_pct', label: '% of host', num: true, fmt: v => v == null ? '–' : fmt.dec(v, 2) + '%' },
+      { key: 'backends', label: 'backends', num: true, fmt: fmt.num },
+    ];
     return [
       el('h1', {}, 'System'),
       el('div', { class: 'grid two' },
-        panel('CPU % (pg_proctab)', d.cpu.length ? chart(byInst(d.cpu, 'cpu_pct'), { yfmt: fmt.pct }) : el('div', { class: 'empty' }, 'no pg_proctab data (CREATE EXTENSION pg_proctab)')),
+        panel(cpuTitle, d.cpu.length ? chart(byInst(d.cpu, 'cpu_pct'), { yfmt: fmt.pct }) : noProctab()),
         panel('Load average', d.memory.length ? chart(byInst(d.memory, 'load1'), { yfmt: v => fmt.dec(v, 2) }) : el('div', { class: 'empty' }, 'no pg_proctab data')),
+      ),
+      el('div', { style: 'margin-top:12px' }, panel('CPU by user (cores, stacked)', userSeries.length ? chart(userSeries, { yfmt: cores, stacked: true }) : noProctab())),
+      el('div', { style: 'margin-top:12px' }, panel('CPU by user', table(d.cpu_by_user, [
+          { key: 'usename', label: 'user', render: r => el('span', {}, r.usename || el('span', { class: 'muted' }, r.backend_type), r.application_name ? el('span', { class: 'muted' }, ' · ' + r.application_name) : null, d.host.length > 1 ? el('span', { class: 'muted' }, ' @' + r.instance) : null) },
+          { key: 'datname', label: 'db' },
+          ...cpuCols,
+          { key: 'hottest_backend_cores', label: 'hottest backend', num: true, fmt: cores },
+        ], { empty: 'no backend CPU rows in this range' }))),
+      el('div', { style: 'margin-top:12px' }, panel('CPU by code path (query tags)', table(d.cpu_by_code_path, [
+          { key: 'tags', label: 'code path', render: r => el('a', { href: `#/${state.server}/queries?tags=${encodeURIComponent(tagEntries(r.tags).map(([k, v]) => `${k}=${v}`).join(','))}` }, tagPills(r.tags, 4)) },
+          ...cpuCols,
+        ], { empty: 'no query tags seen on active backends in this range' }))),
+      el('div', { style: 'margin-top:12px' }, panel('CPU by query (sampled from the active statement each minute)', table(d.cpu_by_query, [
+        { key: 'query', label: 'query', render: r => el('a', { href: `#/${state.server}/query?queryid=${r.queryid}` }, queryLabel(r)) },
+        { key: 'datname', label: 'db' },
+        ...cpuCols,
+      ], { empty: 'no query ids seen on active backends in this range' }))),
+      el('div', { class: 'grid two', style: 'margin-top:12px' },
         panel('Checkpoints (from the log)', table(d.checkpoints, [{ key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'kind', label: 'kind' }, { key: 'buffers_written', label: 'buffers', num: true, fmt: fmt.num }, { key: 'buffers_pct', label: '%', num: true, fmt: fmt.pct }, { key: 'write_s', label: 'write', num: true, fmt: v => fmt.dec(v, 2) + ' s' }, { key: 'sync_s', label: 'sync', num: true, fmt: v => fmt.dec(v, 2) + ' s' }, { key: 'distance_kb', label: 'distance', num: true, fmt: v => fmt.bytes(v * 1024) }], { empty: 'none in range' })),
         panel('bgwriter / checkpointer (summed)', table(d.bgwriter, [{ key: 'instance', label: 'instance' }, { key: 'checkpoints_timed', label: 'timed', num: true, fmt: fmt.num }, { key: 'checkpoints_req', label: 'requested', num: true, fmt: fmt.num }, { key: 'buffers_checkpoint', label: 'ckpt buffers', num: true, fmt: fmt.num }, { key: 'buffers_clean', label: 'bgw buffers', num: true, fmt: fmt.num }, { key: 'buffers_alloc', label: 'allocated', num: true, fmt: fmt.num }])),
         panel('Aurora replicas', table(d.aurora_replicas, [{ key: 'instance_id', label: 'instance' }, { key: 'role', label: 'role' }, { key: 'replica_lag_ms', label: 'lag', num: true, fmt: v => v == null ? '–' : fmt.ms(v) }, { key: 'replay_latency_us', label: 'replay', num: true, fmt: v => fmt.ms(v / 1000) }, { key: 'active_txns', label: 'txns', num: true }, { key: 'storage_daemon_cpu', label: 'storage cpu', num: true, fmt: fmt.pct }], { empty: 'not Aurora' })),
         panel('Aurora per-database latency', table(d.aurora_db_latency, [{ key: 'datname', label: 'db' }, { key: 'commit_latency_us', label: 'commit latency (sum)', num: true, fmt: v => fmt.ms(v / 1000) }, { key: 'selects', label: 'selects', num: true, fmt: fmt.num }, { key: 'updates', label: 'updates', num: true, fmt: fmt.num }, { key: 'avg_update_latency_us', label: 'avg update', num: true, fmt: v => fmt.ms(v / 1000) }], { empty: 'not Aurora' })),
       ),
-      d.top_backends_by_cpu.length ? el('div', { style: 'margin-top:12px' }, panel('Top backends by CPU (pg_proctab)', table(d.top_backends_by_cpu, [{ key: 'instance', label: 'instance' }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'application_name', label: 'app' }, { key: 'backend_type', label: 'type' }, { key: 'cpu_jiffies', label: 'cpu jiffies', num: true, fmt: fmt.num }, { key: 'max_rss_kb', label: 'max rss', num: true, fmt: v => fmt.bytes(v * 1024) }]))) : null,
     ];
   };
 
