@@ -21,8 +21,8 @@ value to `$ai_cache_reporting_exclusive` (boolean) on every
 The flag is per event, so it must be in the `GROUP BY`. A model can mix
 exclusive, inclusive and unset events on the same day, and the flag is often
 unset. Never collapse the group with `any()` — that picks one event's flag and
-applies its formula to every event in the group, which can report a rate above
-1. Keep the unset events in their own row with no rate.
+applies its formula to every event in the group, which can report a cache-hit
+rate above 1. Keep the unset events in their own row with no rate.
 
 ```sql
 posthog:execute-sql

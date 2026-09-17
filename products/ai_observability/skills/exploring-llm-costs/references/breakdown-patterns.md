@@ -188,10 +188,11 @@ accounting](./cache-accounting.md). Each one sums only the events whose
 `$ai_cache_reporting_exclusive` matches its branch, so the denominator is
 correct for both reporting styles without hardcoding any provider or model
 name. One model can mix both styles, so a single rate over the whole group is
-wrong and can exceed 1. A null rate means the model has no events in that
-branch. `calls_without_cache_flag` counts the events with no flag — they have
-no valid denominator, so they are in neither rate; read `cache_read_tokens`
-for those.
+wrong and can exceed 1. A null rate means the branch has no valid denominator:
+either the model has no events in it, or those events report no input tokens.
+`calls_without_cache_flag` counts the events with no flag — they have no valid
+denominator either, so they are in neither rate; read `cache_read_tokens` for
+those.
 
 Rank and roll up on `total_cost` — summing only the input/output components
 drops request and web-search fees and can diverge from the `/ai-observability`
