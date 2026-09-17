@@ -866,7 +866,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "moved_at": moved_at,
             }
             # `moved_at_by_project_id` is already newest first, so the response needs no sorting
-            for project_id, moved_at in list(moved_at_by_project_id.items())[:DEPARTED_PROJECTS_LIMIT]
+            for project_id, moved_at in moved_at_by_project_id.items()
             if project_id in projects_by_id
-        ]
+        ][:DEPARTED_PROJECTS_LIMIT]
         return Response(DepartedProjectSerializer(departures, many=True).data)
