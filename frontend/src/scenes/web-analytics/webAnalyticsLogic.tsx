@@ -223,7 +223,6 @@ export interface webAnalyticsLogicValues {
     isGreaterThanMd: boolean
     isPathCleaningEnabled: boolean
     pathTab: string
-    restrictedUiEnabled: boolean | undefined
     preZoomDateFilter: {
         dateFrom: string | null
         dateTo: string | null
@@ -231,6 +230,7 @@ export interface webAnalyticsLogicValues {
     } | null
     productTab: ProductTab
     replayFilters: RecordingUniversalFilters
+    restrictedUiEnabled: boolean
     shouldAutoOpenFocusModeOnboarding: boolean
     shouldFilterTestAccounts: boolean
     shouldShowGeoIPQueries: any
@@ -530,10 +530,7 @@ export interface webAnalyticsLogicMeta {
     key: 'page-visibility' | 'web-analytics'
     __keaTypeGenInternalSelectorTypes: {
         compareFilter: (rawCompareFilter: CompareFilter, dateFilter: DateFilterState) => CompareFilter
-        restrictedUiEnabled: (
-            featureFlags: FeatureFlagsSet,
-            currentTeam: TeamPublicType | TeamType | null
-        ) => boolean | undefined
+        restrictedUiEnabled: (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null) => boolean
         incompatibleFilters: (
             rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
             restrictedUiEnabled: boolean | undefined
