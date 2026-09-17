@@ -100,7 +100,7 @@ const slack: ContextSource = {
     if (archive) {
       return {
         target: input,
-        title: `Channel ${archive[1]}`,
+        title: "Slack channel",
         label: "Slack channel",
       };
     }

@@ -197,7 +197,6 @@ export function KnowledgeList({
       {adding ? (
         <AddContextDialog
           mode={adding}
-          channelName={channelName}
           sources={sources}
           filesFolder={filesFolder}
           existingTargets={links.map((link) => link.target)}
@@ -241,7 +240,8 @@ function LinkRow({
   const parsed = external ? parseContextSourceInput(link.target, null) : null;
   const state = parsed ? sources.byId(parsed.source.id) : undefined;
   const unconnected = state !== undefined && state.status !== "connected";
-  const kind = parsed?.item.label ?? null;
+  const kind =
+    parsed && parsed.item.label !== link.title ? parsed.item.label : null;
   const name = state?.source.name ?? "";
   const warning = state ? unconnectedWarning(state) : null;
   const action = !state

@@ -15,8 +15,17 @@ import {
   looksLikeHogQL,
   parseGoalSentence,
 } from "@posthog/core/canvas/goalComposer";
-import { Button, cn, Input, Kbd, Text } from "@posthog/quill";
+import {
+  Button,
+  cn,
+  DialogBody,
+  DialogFooter,
+  Input,
+  Kbd,
+  Text,
+} from "@posthog/quill";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import type { GoalMeasureTask } from "@posthog/ui/features/canvas/goalMeasureTasks";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useMutation } from "@tanstack/react-query";
 import {
@@ -31,11 +40,17 @@ interface GoalComposerProps {
   /** The goal being edited, or null for a new one. */
   initial: ContextGoal | null;
   onSave: (goal: ContextGoal) => Promise<void>;
-  /** Hand the goal to a task when the instant draft cannot read the sentence. */
+  /** Hand the goal to an agent task that writes its measure. */
   onAskAgent: (goal: ContextGoal) => Promise<void>;
   onDelete?: () => Promise<void>;
   onClose: () => void;
   isSaving: boolean;
+  /** The agent task behind this goal while it has no measure. */
+  measureTask?: GoalMeasureTask | null;
+  onOpenTask?: (taskId: string) => void;
+  onRetryMeasure?: () => Promise<void>;
+  /** Names already used by other goals in this space. */
+  takenNames: string[];
 }
 
 type Step = "ask" | "review";
@@ -58,6 +73,10 @@ export function GoalComposer({
   onDelete,
   onClose,
   isSaving,
+  takenNames,
+  measureTask = null,
+  onOpenTask,
+  onRetryMeasure,
 }: GoalComposerProps) {
   const client = useOptionalAuthenticatedClient();
   const [step, setStep] = useState<Step>(initial ? "review" : "ask");
@@ -77,6 +96,18 @@ export function GoalComposer({
   const askRef = useRef<HTMLTextAreaElement>(null);
 
   const isHogQL = looksLikeHogQL(sentence);
+  const candidateName = (
+    step === "ask"
+      ? sentence.trim()
+        ? parseGoalSentence(sentence.trim()).name
+        : ""
+      : name
+  )
+    .trim()
+    .toLowerCase();
+  const duplicate =
+    candidateName.length > 0 &&
+    takenNames.some((taken) => taken.trim().toLowerCase() === candidateName);
 
   const run = useMutation({
     mutationFn: async (sql: string) => {
@@ -117,7 +148,7 @@ export function GoalComposer({
   const targetInvalid = parsedTarget !== null && !Number.isFinite(parsedTarget);
 
   const buildGoal = (withMeasure: GoalMeasure | null): ContextGoal => ({
-    name: name.trim() || "Untitled goal",
+    name: sentenceCase(name.trim()) || "Untitled goal",
     why: initial?.why ?? "",
     measure: withMeasure,
     target:
@@ -127,7 +158,7 @@ export function GoalComposer({
   });
 
   const save = async () => {
-    if (targetInvalid || isSaving) return;
+    if (targetInvalid || isSaving || duplicate) return;
     await onSave(buildGoal(measure));
   };
 
@@ -138,7 +169,7 @@ export function GoalComposer({
     applyTarget(parsed.target);
     await onAskAgent({
       ...buildGoal(null),
-      name: name.trim() || parsed.name,
+      name: sentenceCase(name.trim() || parsed.name),
       target:
         parsed.target ??
         (parsedTarget !== null && Number.isFinite(parsedTarget)
@@ -149,7 +180,7 @@ export function GoalComposer({
 
   const proceed = async () => {
     const text = sentence.trim();
-    if (!text || askedAgent) return;
+    if (!text || askedAgent || duplicate) return;
     if (isHogQL) {
       setMeasure({ kind: "hogql", sql: text });
       if (!name.trim()) setName("Untitled goal");
@@ -174,161 +205,235 @@ export function GoalComposer({
   };
 
   return (
-    <div className="flex flex-col gap-3">
-      {step === "ask" ? (
-        <>
-          <textarea
-            ref={askRef}
-            value={sentence}
-            onChange={(e) => {
-              setSentence(e.target.value);
-              growToFit(e.target);
-            }}
-            onKeyDown={onAskKeyDown}
-            disabled={askedAgent}
-            spellCheck={!isHogQL}
-            placeholder="Weekly completed checkouts above 1,200 by end of December"
-            className={cn(
-              "w-full resize-none bg-transparent text-foreground outline-none placeholder:text-muted-foreground/60",
-              isHogQL
-                ? "font-mono text-xs leading-relaxed"
-                : "text-base leading-snug",
-            )}
-          />
-          <div className="flex items-center justify-between gap-3">
-            <Text size="xxs" variant="muted">
-              {isHogQL
-                ? "HogQL. The first cell of the first row is the value."
-                : "Say what should move, how far, and by when. An agent finds the events and writes the query."}
-            </Text>
-            <div className="flex items-center gap-2">
-              <Button variant="default" size="sm" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={!sentence.trim() || askedAgent}
-                loading={askedAgent}
-                onClick={() => void proceed()}
-              >
-                {isHogQL ? "Next" : "Add goal"}
-                {!askedAgent ? <Kbd className="ml-1">↵</Kbd> : null}
-              </Button>
-            </div>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="flex items-start gap-2">
-            {!initial ? (
-              <Button
-                variant="default"
-                size="icon-xs"
-                aria-label="Back to the sentence"
-                onClick={() => setStep("ask")}
-              >
-                <ArrowLeftIcon size={13} />
-              </Button>
-            ) : null}
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              aria-label="Goal name"
-              placeholder="Name this goal"
-              className="w-full bg-transparent font-medium text-base text-foreground outline-none placeholder:text-muted-foreground/60"
+    <>
+      <DialogBody>
+        {step === "ask" ? (
+          <div className="flex flex-col gap-3">
+            <textarea
+              ref={askRef}
+              value={sentence}
+              onChange={(e) => {
+                setSentence(e.target.value);
+                growToFit(e.target);
+              }}
+              onKeyDown={onAskKeyDown}
+              disabled={askedAgent}
+              spellCheck={!isHogQL}
+              placeholder="Weekly completed checkouts above 1,200 by end of December"
+              className={cn(
+                "w-full resize-none bg-transparent text-foreground outline-none placeholder:text-muted-foreground/60",
+                isHogQL
+                  ? "font-mono text-xs leading-relaxed"
+                  : "text-base leading-snug",
+              )}
             />
-          </div>
-
-          <MeasureReview
-            measure={measure}
-            onChange={(sql) => setMeasure({ kind: "hogql", sql })}
-            onRun={(sql) => runMutate(sql)}
-            value={run.data?.value ?? null}
-            rows={run.data?.rows ?? null}
-            running={run.isPending}
-            error={run.error?.message ?? null}
-          />
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Text size="xs" variant="muted" className="mr-1">
-              Target
+            <Text
+              size="xs"
+              variant={duplicate ? undefined : "muted"}
+              className={duplicate ? "text-warning-foreground" : undefined}
+            >
+              {duplicate
+                ? "A goal with this name already exists."
+                : isHogQL
+                  ? "HogQL. The first cell of the first row is the value."
+                  : "An agent finds the events and writes the query."}
             </Text>
-            <div className="flex overflow-hidden rounded-md border border-border">
-              {(["at_least", "at_most"] as const).map((dir) => (
-                <button
-                  key={dir}
-                  type="button"
-                  onClick={() => setDirection(dir)}
-                  className={cn(
-                    "px-2 py-1 text-xs tabular-nums",
-                    direction === dir
-                      ? "bg-fill-selected text-foreground"
-                      : "text-muted-foreground hover:bg-fill-hover",
-                  )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-start gap-2">
+              {!initial ? (
+                <Button
+                  variant="default"
+                  size="icon-xs"
+                  aria-label="Back to the sentence"
+                  onClick={() => setStep("ask")}
                 >
-                  {dir === "at_least" ? "≥" : "≤"}
-                </button>
-              ))}
+                  <ArrowLeftIcon size={13} />
+                </Button>
+              ) : null}
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                aria-label="Goal name"
+                placeholder="Name this goal"
+                aria-invalid={duplicate || undefined}
+                className="w-full bg-transparent font-medium text-base text-foreground outline-none placeholder:text-muted-foreground/60"
+              />
             </div>
-            <Input
-              inputMode="decimal"
-              value={targetValue}
-              onChange={(e) => setTargetValue(e.target.value)}
-              placeholder="1,200"
-              aria-label="Target value"
-              aria-invalid={targetInvalid || undefined}
-              className="w-28 tabular-nums"
-            />
-            <Text size="xs" variant="muted">
-              by
-            </Text>
-            <Input
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              aria-label="Due date"
-              className="w-40"
-            />
-            {targetInvalid ? (
-              <Text size="xxs" className="text-destructive">
-                The target must be a number.
+
+            {initial && measure === null && measureTask ? (
+              <MeasureTaskPanel
+                task={measureTask}
+                disabled={isSaving}
+                onOpenTask={(taskId) => {
+                  onOpenTask?.(taskId);
+                  onClose();
+                }}
+                onRetry={onRetryMeasure}
+              />
+            ) : (
+              <MeasureReview
+                measure={measure}
+                onChange={(sql) => setMeasure({ kind: "hogql", sql })}
+                onRun={(sql) => runMutate(sql)}
+                value={run.data?.value ?? null}
+                rows={run.data?.rows ?? null}
+                running={run.isPending}
+                error={run.error?.message ?? null}
+              />
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Text size="xs" variant="muted" className="mr-1">
+                Target
+              </Text>
+              <div className="flex overflow-hidden rounded-md border border-border">
+                {(["at_least", "at_most"] as const).map((dir) => (
+                  <button
+                    key={dir}
+                    type="button"
+                    onClick={() => setDirection(dir)}
+                    className={cn(
+                      "px-2 py-1 text-xs tabular-nums",
+                      direction === dir
+                        ? "bg-fill-selected text-foreground"
+                        : "text-muted-foreground hover:bg-fill-hover",
+                    )}
+                  >
+                    {dir === "at_least" ? "≥" : "≤"}
+                  </button>
+                ))}
+              </div>
+              <Input
+                inputMode="decimal"
+                value={targetValue}
+                onChange={(e) => setTargetValue(e.target.value)}
+                placeholder="1,200"
+                aria-label="Target value"
+                aria-invalid={targetInvalid || undefined}
+                className="w-28 tabular-nums"
+              />
+              <Text size="xs" variant="muted">
+                by
+              </Text>
+              <Input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                aria-label="Due date"
+                className="w-40"
+              />
+            </div>
+            {targetInvalid || duplicate ? (
+              <Text size="xs" className="text-warning-foreground">
+                {duplicate
+                  ? "A goal with this name already exists."
+                  : "The target must be a number."}
               </Text>
             ) : null}
           </div>
+        )}
+      </DialogBody>
+      <DialogFooter className="items-center sm:justify-between">
+        <div className="min-w-0 flex-1">
+          {step === "review" && onDelete ? (
+            <Button
+              variant="destructive-outline"
+              size="sm"
+              disabled={isSaving}
+              onClick={() => void onDelete()}
+            >
+              Remove goal
+            </Button>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          {step === "ask" ? (
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={!sentence.trim() || askedAgent || duplicate}
+              loading={askedAgent}
+              onClick={() => void proceed()}
+            >
+              {isHogQL ? "Next" : "Add goal"}
+              {!askedAgent ? <Kbd className="ml-1">↵</Kbd> : null}
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={targetInvalid || isSaving || !name.trim() || duplicate}
+              loading={isSaving}
+              onClick={() => void save()}
+            >
+              {initial ? "Save" : "Add goal"}
+            </Button>
+          )}
+        </div>
+      </DialogFooter>
+    </>
+  );
+}
 
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              {onDelete ? (
-                <Button
-                  variant="destructive-outline"
-                  size="sm"
-                  disabled={isSaving}
-                  onClick={() => void onDelete()}
-                >
-                  Remove goal
-                </Button>
-              ) : null}
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="default" size="sm" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={targetInvalid || isSaving || !name.trim()}
-                loading={isSaving}
-                onClick={() => void save()}
-              >
-                {initial ? "Save" : "Add goal"}
-              </Button>
-            </div>
-          </div>
-        </>
-      )}
+function MeasureTaskPanel({
+  task,
+  disabled,
+  onOpenTask,
+  onRetry,
+}: {
+  task: GoalMeasureTask;
+  disabled: boolean;
+  onOpenTask: (taskId: string) => void;
+  onRetry?: () => Promise<void>;
+}) {
+  const running = task.state === "running";
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2.5">
+      <div className="flex min-w-0 items-center gap-2">
+        {running ? (
+          <Spinner size="xs" aria-hidden="true" />
+        ) : (
+          <WarningCircleIcon
+            size={14}
+            className="shrink-0 text-warning-foreground"
+          />
+        )}
+        <Text size="xs">
+          {running
+            ? "An agent is writing the measure. It reads the project's events, writes the query, and updates this goal."
+            : "The agent finished without a measure."}
+        </Text>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button
+          variant="outline"
+          size="xs"
+          onClick={() => onOpenTask(task.taskId)}
+        >
+          Open task
+        </Button>
+        {!running && onRetry ? (
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={disabled}
+            onClick={() => void onRetry()}
+          >
+            Try again
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
+}
+
+function sentenceCase(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function MeasureReview({

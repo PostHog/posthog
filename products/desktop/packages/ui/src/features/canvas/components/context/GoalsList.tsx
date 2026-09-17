@@ -16,13 +16,13 @@ import {
   Button,
   cn,
   Dialog,
-  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
   Text,
 } from "@posthog/quill";
+import type { GoalMeasureTask } from "@posthog/ui/features/canvas/goalMeasureTasks";
 import { useGoalMeasure } from "@posthog/ui/features/canvas/hooks/useGoalMeasure";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
@@ -34,8 +34,9 @@ interface GoalsListProps {
   onChange: (goals: ContextGoal[]) => Promise<void>;
   /** Start a task that writes a measure for a goal saved without one. */
   onAskAgentForMeasure: (goal: ContextGoal) => Promise<void>;
-  /** Names of goals an agent is writing a measure for right now. */
-  pendingMeasures: ReadonlySet<string>;
+  /** The agent task behind each goal that has no measure yet, by goal name. */
+  measureTasks: ReadonlyMap<string, GoalMeasureTask>;
+  onOpenMeasureTask: (taskId: string) => void;
   isSaving: boolean;
 }
 
@@ -52,7 +53,8 @@ export function GoalsList({
   goals,
   onChange,
   onAskAgentForMeasure,
-  pendingMeasures,
+  measureTasks,
+  onOpenMeasureTask,
   isSaving,
 }: GoalsListProps) {
   const [editing, setEditing] = useState<Editing>(null);
@@ -103,7 +105,9 @@ export function GoalsList({
               <GoalTile
                 goal={goal}
                 selected={editing?.index === index}
-                pending={pendingMeasures.has(goal.name)}
+                measureTask={measureTasks.get(goal.name) ?? null}
+                onOpenTask={onOpenMeasureTask}
+                onRetry={() => onAskAgentForMeasure(goal)}
                 onOpen={() => setEditing({ index })}
                 disabled={isSaving}
               />
@@ -138,20 +142,35 @@ export function GoalsList({
               <DialogDescription>
                 {editingGoal
                   ? "Change the name, the query, or the target. Agents read the saved version."
-                  : "Say it in a sentence. The query and the target follow."}
+                  : "Say what should move, how far, and by when."}
               </DialogDescription>
             </DialogHeader>
-            <DialogBody>
-              <GoalComposer
-                key={editing.index ?? "new"}
-                initial={editingGoal}
-                onSave={save}
-                onAskAgent={askAgent}
-                onDelete={editingGoal ? remove : undefined}
-                onClose={() => setEditing(null)}
-                isSaving={isSaving}
-              />
-            </DialogBody>
+            <GoalComposer
+              key={editing.index ?? "new"}
+              initial={editingGoal}
+              takenNames={goals
+                .filter((_, i) => i !== editing.index)
+                .map((goal) => goal.name)}
+              onSave={save}
+              onAskAgent={askAgent}
+              onDelete={editingGoal ? remove : undefined}
+              onClose={() => setEditing(null)}
+              isSaving={isSaving}
+              measureTask={
+                editingGoal
+                  ? (measureTasks.get(editingGoal.name) ?? null)
+                  : null
+              }
+              onOpenTask={onOpenMeasureTask}
+              onRetryMeasure={
+                editingGoal
+                  ? async () => {
+                      setEditing(null);
+                      await onAskAgentForMeasure(editingGoal);
+                    }
+                  : undefined
+              }
+            />
           </DialogContent>
         </Dialog>
       ) : null}
@@ -190,14 +209,18 @@ function formatDueDate(iso: string): string {
 function GoalTile({
   goal,
   selected,
-  pending,
+  measureTask,
   onOpen,
+  onOpenTask,
+  onRetry,
   disabled,
 }: {
   goal: ContextGoal;
   selected: boolean;
-  pending: boolean;
+  measureTask: GoalMeasureTask | null;
   onOpen: () => void;
+  onOpenTask: (taskId: string) => void;
+  onRetry: () => Promise<void>;
   disabled: boolean;
 }) {
   const measure = useGoalMeasure(goal.measure);
@@ -210,84 +233,122 @@ function GoalTile({
   const detail = goal.target
     ? `${STATUS_LABEL[status]} · ${describeTarget(goal.target)}`
     : STATUS_LABEL[status];
+  const agentRunning =
+    goal.measure === null && measureTask?.state === "running";
+  const agentEnded = goal.measure === null && measureTask?.state === "ended";
 
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      disabled={disabled}
-      aria-pressed={selected}
+    <div
       className={cn(
-        "flex h-full w-full min-w-0 flex-col gap-4 rounded-lg border border-border p-4 text-left transition-colors hover:bg-fill-hover",
+        "flex h-full min-w-0 flex-col rounded-lg border border-border",
         selected && "bg-fill-selected",
       )}
     >
-      <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="flex items-center gap-1.5 font-medium text-foreground text-sm">
-          {goal.measure?.kind === "insight" ? (
-            <ChartBarIcon
-              size={13}
-              className="shrink-0 text-muted-foreground"
-            />
-          ) : null}
-          <span className="truncate">{goal.name}</span>
-        </span>
-        {goal.why ? (
-          <span className="line-clamp-1 text-muted-foreground text-xs">
-            {goal.why}
-          </span>
-        ) : null}
-      </span>
-      <span className="mt-auto flex min-w-0 flex-col gap-2">
-        {measured ? (
-          <span className="font-semibold text-2xl text-foreground tabular-nums leading-none">
-            {formatNumber(current)}
-          </span>
-        ) : measure.isLoading ? (
-          <Spinner size="xs" aria-hidden="true" />
-        ) : null}
-        {goal.measure === null ? (
-          <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
-            {pending ? (
-              <Spinner size="xs" aria-hidden="true" />
-            ) : (
-              <SparkleIcon size={13} className="shrink-0" />
-            )}
-            {pending
-              ? "An agent is writing the measure"
-              : "Waiting for a measure"}
-          </span>
-        ) : measure.error ? (
-          <span className="flex items-center gap-1.5 text-warning-foreground text-xs">
-            <WarningCircleIcon size={13} className="shrink-0" />
-            Query failed
-          </span>
-        ) : (
-          <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
-            <span
-              className={cn(
-                "size-1.5 shrink-0 rounded-full",
-                STATUS_DOT[status],
-              )}
-            />
-            <span className="truncate">{detail}</span>
-          </span>
+      <button
+        type="button"
+        onClick={onOpen}
+        disabled={disabled}
+        aria-pressed={selected}
+        className={cn(
+          "flex min-h-0 w-full min-w-0 flex-1 flex-col gap-4 p-4 text-left transition-colors hover:bg-fill-hover",
+          agentEnded ? "rounded-t-lg" : "rounded-lg",
         )}
-        {showsBar ? (
-          <span
-            className="h-1 w-full overflow-hidden rounded-full bg-border"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(progress * 100)}
-          >
-            <span
-              className={cn("block h-full rounded-full", STATUS_DOT[status])}
-              style={{ width: `${Math.max(2, Math.round(progress * 100))}%` }}
-            />
+      >
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="flex items-center gap-1.5 font-medium text-foreground text-sm">
+            {goal.measure?.kind === "insight" ? (
+              <ChartBarIcon
+                size={13}
+                className="shrink-0 text-muted-foreground"
+              />
+            ) : null}
+            <span className="truncate">{goal.name}</span>
           </span>
-        ) : null}
-      </span>
-    </button>
+          {goal.why ? (
+            <span className="line-clamp-1 text-muted-foreground text-xs">
+              {goal.why}
+            </span>
+          ) : null}
+        </span>
+        <span className="mt-auto flex min-w-0 flex-col gap-2">
+          {measured ? (
+            <span className="font-semibold text-2xl text-foreground tabular-nums leading-none">
+              {formatNumber(current)}
+            </span>
+          ) : measure.isLoading ? (
+            <Spinner size="xs" aria-hidden="true" />
+          ) : null}
+          {goal.measure === null ? (
+            <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+              {agentRunning ? (
+                <Spinner size="xs" aria-hidden="true" />
+              ) : agentEnded ? (
+                <WarningCircleIcon
+                  size={13}
+                  className="shrink-0 text-warning-foreground"
+                />
+              ) : (
+                <SparkleIcon size={13} className="shrink-0" />
+              )}
+              {agentRunning
+                ? "An agent is writing the measure"
+                : agentEnded
+                  ? "The agent finished without a measure"
+                  : "Waiting for a measure"}
+            </span>
+          ) : measure.error ? (
+            <span className="flex items-center gap-1.5 text-warning-foreground text-xs">
+              <WarningCircleIcon size={13} className="shrink-0" />
+              Query failed
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+              <span
+                className={cn(
+                  "size-1.5 shrink-0 rounded-full",
+                  STATUS_DOT[status],
+                )}
+              />
+              <span className="truncate">{detail}</span>
+            </span>
+          )}
+          {showsBar ? (
+            <span
+              className="h-1 w-full overflow-hidden rounded-full bg-border"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(progress * 100)}
+            >
+              <span
+                className={cn("block h-full rounded-full", STATUS_DOT[status])}
+                style={{
+                  width: `${progress > 0 ? Math.max(2, Math.round(progress * 100)) : 0}%`,
+                }}
+              />
+            </span>
+          ) : null}
+        </span>
+      </button>
+      {agentEnded && measureTask ? (
+        <div className="flex items-center gap-1 border-border border-t px-3 py-1.5">
+          <Button
+            variant="link-muted"
+            size="xs"
+            onClick={() => onOpenTask(measureTask.taskId)}
+          >
+            Open task
+          </Button>
+          <Button
+            variant="link-muted"
+            size="xs"
+            disabled={disabled}
+            onClick={() => void onRetry()}
+          >
+            Try again
+          </Button>
+        </div>
+      ) : null}
+    </div>
   );
 }

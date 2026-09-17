@@ -168,8 +168,14 @@ The goal already exists in the CONTEXT.md of this space under "## Goals" as
 3. Write one HogQL query that returns exactly one row with one numeric cell:
    the current value of the goal. Run it to check it executes and returns a
    number. If the goal reads as a rate, return it in percent.
-4. Edit CONTEXT.md: under "### ${goalName}", keep the text and the Target line
-   as they are, and add the query as a fenced block:
+4. Edit CONTEXT.md under "### ${goalName}":
+   - Correct the heading when it needs it: fix typos and make it a clear
+     metric name in sentence case. Keep its meaning.
+   - Replace the text under the heading with one or two sentences that say
+     what the goal measures and how the query counts it.
+   - Keep the Target line as it is. When the goal name states a target and
+     no Target line exists, add one in the same format as the other goals.
+   - Add the query as a fenced block:
    \`\`\`sql
    <your query>
    \`\`\`

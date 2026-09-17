@@ -63,7 +63,6 @@ const SUBMIT_LABELS: Record<AddContextMode, string> = {
 
 interface AddContextDialogProps {
   mode: AddContextMode;
-  channelName: string;
   sources: ContextSources;
   /** Where this space's Markdown files go; null when the context wiki is not available. */
   filesFolder: string | null;
@@ -83,7 +82,6 @@ interface AddContextDialogProps {
  */
 export function AddContextDialog({
   mode,
-  channelName,
   sources,
   filesFolder,
   existingTargets,
@@ -159,11 +157,11 @@ export function AddContextDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className="w-[560px] max-w-[92vw]">
+      <DialogContent className="w-[640px] max-w-[92vw]">
         <DialogHeader>
           <DialogTitle>{TITLES[mode]}</DialogTitle>
           <DialogDescription>
-            Agents working in {channelName} read everything here.
+            Agents working in this space read everything here.
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -175,18 +173,17 @@ export function AddContextDialog({
                 submit();
               }}
             >
-              <Field label="URL">
-                <Input
-                  autoFocus
-                  value={url}
-                  onChange={(event) => {
-                    setUrl(event.target.value);
-                    setTitle(null);
-                  }}
-                  placeholder="https://"
-                  spellCheck={false}
-                />
-              </Field>
+              <Input
+                autoFocus
+                aria-label="URL"
+                value={url}
+                onChange={(event) => {
+                  setUrl(event.target.value);
+                  setTitle(null);
+                }}
+                placeholder="https://"
+                spellCheck={false}
+              />
               <Detection
                 detected={detected}
                 empty={url.trim().length === 0}
@@ -367,9 +364,9 @@ function Detection({
 }) {
   if (empty || detected === null) {
     return (
-      <Text size="xxs" variant="muted">
-        A Slack channel, a Notion page, a Linear project, a GitHub repository, a
-        PostHog insight or flag, or any web page.
+      <Text size="xs" variant="muted">
+        A Slack channel, Notion page, Linear project, GitHub repo, PostHog
+        insight or flag, or any web page.
       </Text>
     );
   }

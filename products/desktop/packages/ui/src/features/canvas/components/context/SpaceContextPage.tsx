@@ -15,6 +15,11 @@ import {
   goalMeasureTaskTitle,
 } from "@posthog/ui/features/canvas/contextPrompt";
 import { GOAL_MEASURE_AGENT } from "@posthog/ui/features/canvas/goalMeasureAgent";
+import {
+  type GoalMeasureTask,
+  readGoalMeasureTaskIds,
+  writeGoalMeasureTaskIds,
+} from "@posthog/ui/features/canvas/goalMeasureTasks";
 import { useChannelFeed } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import type { ContextDocumentStore } from "@posthog/ui/features/canvas/hooks/useContextDocumentStore";
 import { useGenerateContext } from "@posthog/ui/features/canvas/hooks/useGenerateContext";
@@ -31,7 +36,8 @@ import {
 } from "@posthog/ui/primitives/PageHeader";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
-import { useMemo, useState } from "react";
+import { navigateToChannelTask } from "@posthog/ui/router/navigationBridge";
+import { useEffect, useMemo, useState } from "react";
 import { ContextEmptyHero } from "./ContextEmptyHero";
 import { GoalsList } from "./GoalsList";
 import { KnowledgeList } from "./KnowledgeList";
@@ -68,10 +74,14 @@ export function SpaceContextPage({
 }: SpaceContextPageProps) {
   const [agentOpen, setAgentOpen] = useState(false);
   const [editingContextFile, setEditingContextFile] = useState(false);
-  const [launchedMeasures, setLaunchedMeasures] = useState<ReadonlySet<string>>(
-    () => new Set(),
+  const [measureTaskIds, setMeasureTaskIds] = useState<Record<string, string>>(
+    () => readGoalMeasureTaskIds(channelId),
   );
-  const { tasks: channelTasks } = useChannelFeed(channelId);
+  useEffect(() => {
+    setMeasureTaskIds(readGoalMeasureTaskIds(channelId));
+  }, [channelId]);
+  const { tasks: channelTasks, isLoading: channelTasksLoading } =
+    useChannelFeed(channelId);
   const contextLayerEnabled = useContextLayerFlag();
   const { generate } = useGenerateContext();
   const doc = useMemo(
@@ -83,19 +93,19 @@ export function SpaceContextPage({
     doc.goals.length === 0 &&
     doc.links.length === 0 &&
     doc.objects.length === 0;
-  const referenceCount = doc.links.length + doc.objects.length;
-  const pendingMeasures = useMemo(() => {
-    const names = new Set<string>();
+  const measureTasks = useMemo(() => {
+    const map = new Map<string, GoalMeasureTask>();
     for (const goal of doc.goals) {
-      const title = goalMeasureTaskTitle(goal.name);
-      const task = [...channelTasks].reverse().find((t) => t.title === title);
-      const pending = task?.latest_run
-        ? !isTerminalStatus(task.latest_run.status)
-        : launchedMeasures.has(goal.name);
-      if (pending) names.add(goal.name);
+      const taskId = measureTaskIds[goal.name];
+      if (!taskId || goal.measure !== null) continue;
+      const task = channelTasks.find((t) => t.id === taskId);
+      const ended = task
+        ? isTerminalStatus(task.latest_run?.status)
+        : !channelTasksLoading && channelTasks.length > 0;
+      map.set(goal.name, { taskId, state: ended ? "ended" : "running" });
     }
-    return names;
-  }, [doc.goals, channelTasks, launchedMeasures]);
+    return map;
+  }, [doc.goals, measureTaskIds, channelTasks, channelTasksLoading]);
 
   const saveDoc = (next: ContextDocument) =>
     store.save(serializeContextDocument(next));
@@ -115,7 +125,10 @@ export function SpaceContextPage({
       title: goalMeasureTaskTitle(goal.name),
       agent: GOAL_MEASURE_AGENT,
     });
-    if (task) setLaunchedMeasures((prev) => new Set(prev).add(goal.name));
+    if (!task) return;
+    const next = { ...measureTaskIds, [goal.name]: task.id };
+    setMeasureTaskIds(next);
+    writeGoalMeasureTaskIds(channelId, next);
   };
 
   return (
@@ -155,19 +168,11 @@ export function SpaceContextPage({
             <PageHeaderDescription>
               {isBlank ? (
                 "Every agent working in this space reads this first."
-              ) : (
+              ) : store.updatedAt ? (
                 <>
-                  {store.updatedAt ? (
-                    <>
-                      Updated <RelativeTimestamp timestamp={store.updatedAt} />
-                      {" · "}
-                    </>
-                  ) : null}
-                  {countLabel(doc.goals.length, "goal")}
-                  {" · "}
-                  {countLabel(referenceCount, "reference")}
+                  Updated <RelativeTimestamp timestamp={store.updatedAt} />
                 </>
-              )}
+              ) : null}
             </PageHeaderDescription>
           </PageHeaderHeading>
         </div>
@@ -215,7 +220,10 @@ export function SpaceContextPage({
                   goals={doc.goals}
                   onChange={(goals) => saveDoc({ ...doc, goals })}
                   onAskAgentForMeasure={askAgentForMeasure}
-                  pendingMeasures={pendingMeasures}
+                  measureTasks={measureTasks}
+                  onOpenMeasureTask={(taskId) =>
+                    navigateToChannelTask(channelId, taskId)
+                  }
                   isSaving={store.isSaving}
                 />
                 <div className="grid @4xl:grid-cols-[minmax(0,1fr)_300px] grid-cols-1 @4xl:gap-14 gap-10">
@@ -263,10 +271,6 @@ export function SpaceContextPage({
       ) : null}
     </div>
   );
-}
-
-function countLabel(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 function Notice({
