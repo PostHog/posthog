@@ -1,12 +1,3 @@
-"""The flag editor loads a flag and sends the whole response body back on save.
-
-Every other gated-save test posts a small hand-built body, so none of them carry the
-server-owned timestamps the real client returns. `created_at` and `last_called_at` are the
-fields that matter: if either one deserializes into a `datetime`, it reaches
-`ChangeRequest.intent` — a JSONField psycopg cannot dump — and the whole save fails with an
-opaque "Failed to create approval request" instead of the gate's 409.
-"""
-
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
@@ -42,8 +33,8 @@ class TestFeatureFlagRoundTripGate(APIBaseTest):
         )
 
     def _evaluated_flag(self) -> FeatureFlag:
-        # An evaluated flag carries a real last_called_at. That is what made the round trip fail:
-        # a flag never called back sends `null` and deserializes harmlessly.
+        # last_called_at must be non-null: a null one round-trips as JSON `null` and never
+        # reaches the serializer as a datetime, so the flag has to look evaluated.
         return FeatureFlag.objects.create(
             team=self.team,
             key="round-trip-flag",
