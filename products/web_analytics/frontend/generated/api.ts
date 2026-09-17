@@ -22,6 +22,8 @@ import type {
     ContentAutopilotSiteDiscoveryResponseApi,
     ContentAutopilotSiteProfileApi,
     GeneratePathCleaningSuggestionResponseApi,
+    HeatmapCapturePagesApi,
+    HeatmapCaptureSettingsApi,
     HeatmapEventsResponseApi,
     HeatmapPreflightRequestApi,
     HeatmapPreflightResponseApi,
@@ -39,6 +41,7 @@ import type {
     PaginatedContentAutopilotSiteProfileListApi,
     PaginatedWebAnalyticsFilterPresetListApi,
     PatchedContentAutopilotSiteProfileApi,
+    PatchedHeatmapCaptureSettingsRequestApi,
     PatchedHeatmapScreenshotSettingsRequestApi,
     PatchedSavedHeatmapRequestApi,
     PatchedWebAnalyticsFilterPresetApi,
@@ -79,6 +82,51 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getHeatmapCapturePagesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_capture/pages/`
+}
+
+export const heatmapCapturePagesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<HeatmapCapturePagesApi> => {
+    return apiMutator<HeatmapCapturePagesApi>(getHeatmapCapturePagesRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHeatmapCaptureSettingsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_capture/settings/`
+}
+
+export const heatmapCaptureSettingsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<HeatmapCaptureSettingsApi> => {
+    return apiMutator<HeatmapCaptureSettingsApi>(getHeatmapCaptureSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHeatmapCaptureSettingsUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_capture/settings/`
+}
+
+export const heatmapCaptureSettingsUpdate = async (
+    projectId: string,
+    patchedHeatmapCaptureSettingsRequestApi?: PatchedHeatmapCaptureSettingsRequestApi,
+    options?: RequestInit
+): Promise<HeatmapCaptureSettingsApi> => {
+    return apiMutator<HeatmapCaptureSettingsApi>(getHeatmapCaptureSettingsUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHeatmapCaptureSettingsRequestApi),
+    })
+}
 
 export const getHeatmapScreenshotSettingsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/heatmap_screenshot/settings/`

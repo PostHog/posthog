@@ -45103,6 +45103,53 @@ export namespace Schemas {
       snoozed: HealthIssueCounts;
     }
 
+    export interface HeatmapCapturePage {
+      /** A page URL that currently sends heatmap data. */
+      url: string;
+      /** Heatmap events captured on this page in the last 30 days. */
+      count: number;
+    }
+
+    export interface HeatmapCapturePages {
+      /** Top pages by recent heatmap volume, most active first. */
+      pages: HeatmapCapturePage[];
+    }
+
+    /**
+     * * `all` - All URLs
+     * * `url_allowlist` - Only listed URLs
+     */
+    export type TeamHeatmapConfigCaptureModeEnum = typeof TeamHeatmapConfigCaptureModeEnum[keyof typeof TeamHeatmapConfigCaptureModeEnum];
+
+
+    export const TeamHeatmapConfigCaptureModeEnum = {
+      All: 'all',
+      UrlAllowlist: 'url_allowlist',
+    } as const;
+
+    export interface HeatmapCaptureSettings {
+      /** Whether to capture heatmap data from every page ('all') or only listed URLs ('url_allowlist').
+       *
+       * * `all` - All URLs
+       * * `url_allowlist` - Only listed URLs */
+      capture_mode?: TeamHeatmapConfigCaptureModeEnum;
+      /**
+         * Full http(s) URLs that may send heatmap data. Use * to match any characters.
+         * @maxItems 100
+         * @items.maxLength 2000
+         */
+      url_allowlist?: string[];
+      /** Whether this installation enforces the URL allow-list for heatmap capture. */
+      readonly enforcement_enabled: boolean;
+      /** Whether this organization's plan may capture heatmaps on every page. */
+      readonly can_capture_all_urls: boolean;
+      /**
+         * How many URLs this plan may capture, or null when the plan captures all pages.
+         * @nullable
+         */
+      readonly capture_url_limit: number | null;
+    }
+
     export interface HeatmapEventItem {
       /** @nullable */
       session_id?: string | null;
@@ -68559,6 +68606,20 @@ export namespace Schemas {
          * @nullable
          */
       readonly resolved_at?: string | null;
+    }
+
+    export interface PatchedHeatmapCaptureSettingsRequest {
+      /** Whether to capture heatmap data from every page ('all') or only listed URLs ('url_allowlist').
+       *
+       * * `all` - All URLs
+       * * `url_allowlist` - Only listed URLs */
+      capture_mode?: TeamHeatmapConfigCaptureModeEnum;
+      /**
+         * Full http(s) URLs that may send heatmap data. Use * to match any characters.
+         * @maxItems 100
+         * @items.maxLength 2000
+         */
+      url_allowlist?: string[];
     }
 
     export interface PatchedHeatmapScreenshotSettingsRequest {

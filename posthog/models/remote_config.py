@@ -215,6 +215,7 @@ class RemoteConfig(UUIDTModel):
         from products.feature_flags.backend.models.feature_flag import FeatureFlag
         from products.messaging.backend.remote_config import build_push_config
         from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
+        from products.web_analytics.backend.remote_config import build_heatmaps_config
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -281,7 +282,7 @@ class RemoteConfig(UUIDTModel):
                 config["quotaLimited"] = ["recordings"]
                 config["sessionRecording"] = False
 
-        config["heatmaps"] = True if team.heatmaps_opt_in else False
+        config["heatmaps"] = build_heatmaps_config(team) if team.heatmaps_opt_in else False
 
         # MARK: Conversations
         if team.conversations_enabled:
@@ -594,6 +595,11 @@ def error_tracking_suppression_rule_saved(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender="posthog.TeamJsSnippetConfig")
 def js_snippet_config_saved(sender, instance, created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender="posthog.TeamHeatmapConfig")
+def heatmap_config_saved(sender, instance, created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 

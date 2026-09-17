@@ -134,6 +134,52 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.sync_remote_config()
         assert self.remote_config.config["autocaptureExceptions"]
 
+    def test_heatmaps_disabled_returns_false(self):
+        self.team.heatmaps_opt_in = False
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["heatmaps"] is False
+
+    def test_heatmaps_enabled_paid_org_defaults_to_all(self):
+        self.team.organization.has_active_subscription = True
+        self.team.organization.save()
+        self.team.heatmaps_opt_in = True
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["heatmaps"] == {
+            "captureMode": "all",
+            "urlAllowlist": [],
+            "urlAllowlistEnforced": False,
+        }
+
+    def test_heatmaps_enabled_free_org_defaults_to_allowlist(self):
+        self.team.organization.has_active_subscription = False
+        self.team.organization.save()
+        self.team.heatmaps_opt_in = True
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["heatmaps"] == {
+            "captureMode": "url_allowlist",
+            "urlAllowlist": [],
+            "urlAllowlistEnforced": False,
+        }
+
+    @override_settings(HEATMAP_URL_ALLOWLIST_ENFORCEMENT_ENABLED=True)
+    def test_heatmaps_config_reflects_enforcement_and_allowlist(self):
+        from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
+
+        self.team.heatmaps_opt_in = True
+        self.team.save()
+        TeamHeatmapConfig.objects.update_or_create(
+            team=self.team, defaults={"capture_url_allowlist": ["https://example.com/pricing"]}
+        )
+        self.sync_remote_config()
+        assert self.remote_config.config["heatmaps"] == {
+            "captureMode": "url_allowlist",
+            "urlAllowlist": ["https://example.com/pricing"],
+            "urlAllowlistEnforced": True,
+        }
+
     @parameterized.expand([("firebase", True), ("apns", True), ("slack", False)])
     def test_only_push_integrations_schedule_a_config_rebuild(self, kind, expects_rebuild):
         # Configuring push is the moment the payload has to change, and nothing else on the team is
