@@ -561,6 +561,31 @@ describe('scratchpadLogic', () => {
         expect(logic.values.loadFailed).toBe(true)
     })
 
+    // The span controls stay live through the first read, so a reader can change the span while
+    // that read hangs. Nothing clears the flag on its own, so a superseded read that fails late
+    // would leave the banner warning about rows that do answer the controls above.
+    it('keeps a read that times out late from failing the window that superseded it', async () => {
+        let reads = 0
+        useMocks({
+            get: {
+                [SCRATCHPAD_URL]: () => {
+                    reads += 1
+                    return reads === 1 ? new Promise(() => {}) : [200, [WHOLE]]
+                },
+            },
+        })
+        jest.useFakeTimers()
+
+        logic.actions.loadEntries()
+        await jest.advanceTimersByTimeAsync(PANEL_LOAD_TIMEOUT_MS / 2)
+        logic.actions.setTimeFilter('1h')
+        await jest.advanceTimersByTimeAsync(PANEL_LOAD_TIMEOUT_MS / 2)
+
+        expect(reads).toEqual(2)
+        expect(logic.values.entries).toEqual([WHOLE])
+        expect(logic.values.loadFailed).toBe(false)
+    })
+
     it('keeps the card usable when the body lookup fails', async () => {
         useMocks({ get: { [SCRATCHPAD_URL]: () => [500, {}] } })
 

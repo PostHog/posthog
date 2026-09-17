@@ -379,7 +379,12 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                             },
                             options
                         )
-                    )
+                    ).catch((error: unknown) => {
+                        // A superseded read's own timeout is a stale answer too. Without this the
+                        // throw jumps the breakpoint below and fails a window that already landed.
+                        breakpoint()
+                        throw error
+                    })
                     // Drop a stale response if the span moved on while this request was in flight.
                     // A wider span is the slower read, so narrowing right after widening is the
                     // order that would otherwise let the older response answer last.
