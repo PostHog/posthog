@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments import (
     FANOUT_INCREMENTAL_FIELD,
+    FINANCIAL_ACTIONS_UNAVAILABLE_MARKER,
     PAYMENTS_ENDPOINTS,
     PAYMENTS_INCREMENTAL_FIELD,
     SYNC_BUDGET_EXCEEDED_MARKER,
@@ -71,6 +72,7 @@ _REPORT_ROWS_INCREMENTAL_FIELDS: list[IncrementalField] = [incremental_field("re
 _PAYMENTS_INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "payments": [incremental_field(PAYMENTS_INCREMENTAL_FIELD)],
     "payment_actions": [incremental_field(FANOUT_INCREMENTAL_FIELD)],
+    "financial_actions": [incremental_field(FANOUT_INCREMENTAL_FIELD)],
     "customers": [incremental_field(FANOUT_INCREMENTAL_FIELD)],
     "instruments": [incremental_field(FANOUT_INCREMENTAL_FIELD)],
 }
@@ -78,6 +80,7 @@ _PAYMENTS_INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 _PAYMENTS_ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "payments": "Payment requests (approved and declined) from the payments search API.",
     "payment_actions": "Authorization, capture, refund and void actions for each payment.",
+    "financial_actions": "Settlement ledger entries for each payment: captures, refunds, chargebacks and their fee breakdowns.",
     "customers": "Customer records referenced by your payments.",
     "instruments": "Stored payment instruments referenced by your payments.",
 }
@@ -113,6 +116,14 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
                 "identifier, so the referenced records can't be fetched and this table can't be filled. "
                 "Re-enable syncing to skip those payments and continue with newer ones."
             ),
+            # Checkout.com documents the financial actions endpoint on a per-account base
+            # URL, so an account not served on the standard host 404s every lookup no
+            # matter how often it retries.
+            FINANCIAL_ACTIONS_UNAVAILABLE_MARKER: (
+                "Checkout.com returned no financial actions for any of your payments. Financial actions may not be "
+                "enabled for your account. Sync the financial actions report table instead, or contact "
+                "Checkout.com support to enable the financial actions API."
+            ),
         }
         for host in ("https://api.checkout.com", "https://api.sandbox.checkout.com"):
             errors[f"403 Client Error: Forbidden for url: {host}/disputes"] = (
@@ -132,6 +143,9 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
             )
             errors[f"403 Client Error: Forbidden for url: {host}/payments/pay_"] = (
                 "Checkout.com denied access to payment details. Please check that your access key has the gateway scope."
+            )
+            errors[f"403 Client Error: Forbidden for url: {host}/financial-actions"] = (
+                "Checkout.com denied access to financial actions. Please check that your access key has the financial-actions scope."
             )
             errors[f"403 Client Error: Forbidden for url: {host}/customers"] = (
                 "Checkout.com denied access to customers. Please check that your access key has the vault scope."
@@ -170,9 +184,9 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
             label="Checkout.com",
             caption="""Enter your Checkout.com API access keys to pull your payments data into the PostHog Data warehouse.
 
-Create an access key in the [Checkout.com dashboard](https://dashboard.checkout.com/) under Settings > Access keys. Grant it the scopes for the tables you want to sync: `disputes`, `reports`, `payments` (search), `gateway` (payment actions and instruments), and `vault` (customers and instruments).
+Create an access key in the [Checkout.com dashboard](https://dashboard.checkout.com/) under Settings > Access keys. Grant it the scopes for the tables you want to sync: `disputes`, `reports`, `payments` (search), `gateway` (payment actions and instruments), `financial-actions` (the settlement ledger), and `vault` (customers and instruments).
 
-Payments, payment actions, customers and instruments sync from the payments search API. It reaches back 90 days by default. Set a start date to sync more history. Financial reporting data (financial actions, payouts, balances) syncs from your generated report files: each report type available for your account becomes a table. If no report tables show up, set up scheduled reports in your Checkout.com dashboard first.""",
+Payments, payment actions, financial actions, customers and instruments sync from the payments search API. It reaches back 90 days by default. Set a start date to sync more history. Financial reporting data (financial actions, payouts, balances) syncs from your generated report files: each report type available for your account becomes a table. If no report tables show up, set up scheduled reports in your Checkout.com dashboard first.""",
             iconPath="/static/services/checkout_com.png",
             docsUrl="https://posthog.com/docs/cdp/sources/checkout-com",
             releaseStatus=ReleaseStatus.ALPHA,

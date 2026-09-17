@@ -1434,23 +1434,23 @@ Diffed against: <https://checkmarx.stoplight.io/docs/checkmarx-one-api-reference
 
 Note: docs.checkmarx.com now redirects the API reference to Stoplight; I pulled the full operation tree from https://checkmarx.stoplight.io/api/v1/projects/cHJqOjE5ODM2OQ==/table-of-contents (project 198369) and read every GET operation from it. The gap concentration is in triage state history and the small lookup tables that decode the ids on scan_results.
 
-## CheckoutCom — **thin**
+## CheckoutCom — adequate
 
-Today (1): `disputes`
+Today (7 + one table per report type the account generates): `disputes`, `payments`, `payment_actions`, `financial_actions`, `customers`, `instruments`, `reports`
 
 Diffed against: <https://api-reference.checkout.com/v1/swagger.yaml>
 
-- [ ] `POST /payments/search` — the bulk payments surface (beta, paginated) - payments are the whole point of the integration and are entirely missing (high)
-- [ ] `GET /financial-actions` — the settlement ledger: captures, refunds, chargebacks and fees per payment; reconciliation is impossible without it (high)
-- [ ] `GET /payments/{id}/actions` — per-payment action history (authorize, capture, void, refund) with response codes - the transition history behind decline analysis (high)
-- [ ] `GET /reports and GET /reports/{id}/files/{fileId}` — the settlement and payments report files Checkout.com itself points finance teams at for reconciliation (high)
+- [x] `POST /payments/search` — the bulk payments surface (beta, paginated) - payments are the whole point of the integration and are entirely missing (high)
+- [x] `GET /financial-actions` — the settlement ledger: captures, refunds, chargebacks and fees per payment; reconciliation is impossible without it (high)
+- [x] `GET /payments/{id}/actions` — per-payment action history (authorize, capture, void, refund) with response codes - the transition history behind decline analysis (high)
+- [x] `GET /reports and GET /reports/{id}/files/{fileId}` — the settlement and payments report files Checkout.com itself points finance teams at for reconciliation (high)
 - [ ] `GET /balances/{id}` — per-currency-account balances for an entity, needed for payout and float reporting (medium)
 - [ ] `GET /issuing/transactions` — card issuing transaction fact table for anyone using Issuing (medium)
 - [ ] `GET /disputes/{dispute_id}/evidence (and /evidence/submitted, /schemefiles)` — evidence submitted per dispute; win-rate analysis needs it alongside the disputes already synced (medium)
 - [ ] `GET /accounts/entities/{id}/payment-instruments and /accounts/entities/{entityId}/members` — platform sub-entity payout instruments and members, the dimension tables for marketplace reporting (low)
 - [ ] `GET /forex/rates` — indicative FX rates for normalizing multi-currency volume (requires processing_channel_id and currency pairs) (low)
 
-Note: Official OpenAPI 3.0.1 (2.8 MB, 173 paths) is served at api-reference.checkout.com/v1/swagger.yaml. The source implementation comments that "Checkout.com has no list-all-payments endpoint - bulk payment data only exists via report files", but the current spec does expose POST /payments/search (beta, cursor-paginated) and GET /financial-actions as real bulk surfaces, so that constraint is out of date. Only `disputes` is synced today, out of a payments API - this is a small fraction of the vendor's queryable surface.
+Note: Official OpenAPI 3.0.1 (2.8 MB, 173 paths) is served at api-reference.checkout.com/v1/swagger.yaml. `POST /payments/search` is the only server-side payments listing (`GET /payments` looks up by reference only) and takes no page cursor, so `payments` walks the time range and splits any window that fills a page. `GET /financial-actions` is not a bulk listing either — it requires a `payment_id` or a single `action_id` — so `financial_actions` fans out per payment over those same windows, as `payment_actions`, `customers` and `instruments` already do. `GET /reports` plus `GET /reports/{id}/files/{fileId}` back the `reports` table and one parsed table per report type the account generates, which is where the bulk settlement and payments files land.
 
 ## Churnkey — adequate
 

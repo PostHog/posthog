@@ -1,4 +1,4 @@
-"""Checkout.com payments, payment actions, customers and instruments.
+"""Checkout.com payments, payment actions, financial actions, customers and instruments.
 
 Bulk payment objects come from ``POST /payments/search`` (the one server-side
 listing surface; ``GET /payments`` only looks up by reference). The search
@@ -19,9 +19,12 @@ report the schema ``Completed`` while the table stayed where it was. Each fully-
 window is also checkpointed in Redis, so a retry within the same job resumes where
 the budget ran out.
 
-``payment_actions``, ``customers`` and ``instruments`` have no listing
-endpoints at all, so their syncs walk the same payment windows and fan out per
-referenced record. The search response references a customer by email alone
+``payment_actions``, ``financial_actions``, ``customers`` and ``instruments``
+have no listing endpoints at all, so their syncs walk the same payment windows
+and fan out per referenced record. ``GET /financial-actions`` requires a
+``payment_id`` (or a single ``action_id``), so the settlement ledger — captures,
+refunds, chargebacks and their fee breakdowns — is fetched per payment and
+paginated with ``pagination_token``. The search response references a customer by email alone
 (its ``customer`` object carries no ``cus_`` id) and describes a card source
 without an instrument id, so customers are fetched via ``GET
 /customers/{identifier}`` (the endpoint accepts an email) and instruments via
@@ -48,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.reports import (
     _make_api_session,
+    _next_pagination_token,
     _strip_links,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import OAuth2Auth
@@ -58,7 +62,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     SourceResponse,
 )
 
-PAYMENTS_ENDPOINTS = ("payments", "payment_actions", "customers", "instruments")
+PAYMENTS_ENDPOINTS = ("payments", "payment_actions", "financial_actions", "customers", "instruments")
 
 # The search endpoint caps `limit` at 1000.
 SEARCH_PAGE_LIMIT = 1000
@@ -95,6 +99,11 @@ MAX_FANOUT_LOOKUPS_PER_SYNC = 10_000
 # and never re-read, so raising could not backfill the nulls anyway.
 MAX_CUSTOMER_ID_LOOKUPS_PER_SYNC = 10_000
 FANOUT_CHUNK_SIZE = 500
+# The financial actions listing caps `limit` at 100 and pages with `pagination_token`.
+FINANCIAL_ACTIONS_PAGE_LIMIT = 100
+# One payment's ledger is a handful of actions; this only bounds a pathological response
+# (or a `next` token that never advances) rather than any realistic payment.
+MAX_FINANCIAL_ACTIONS_PAGES_PER_PAYMENT = 50
 # Bucket count for the md5(id) partitioning of `payments` (see
 # checkout_com_payments_source): enough buckets to keep each per-partition merge small
 # on multi-million-row accounts, matching the count other id-hashed sources use.
@@ -117,6 +126,9 @@ FANOUT_INCREMENTAL_FIELD = "payment_requested_on"
 SYNC_BUDGET_EXCEEDED_MARKER = "Checkout.com sync fell behind"
 # Stable marker so the source can map an id-less run to a customer-facing error.
 UNRESOLVED_REFERENCES_MARKER = "Checkout.com payments reference records without a usable identifier"
+# Stable marker so the source can map an unroutable financial actions endpoint to a
+# customer-facing error instead of syncing an empty ledger.
+FINANCIAL_ACTIONS_UNAVAILABLE_MARKER = "Checkout.com financial actions are not available for this account"
 
 
 class CheckoutComSyncBudgetExceeded(Exception):
@@ -139,6 +151,17 @@ class CheckoutComUnresolvedReferencesError(Exception):
     table silently stays empty, hiding that the account's payments carry references we
     cannot resolve. A run that resolves at least one reference completes and only logs
     the leftover count: partial data with a visible log beats pausing a working table.
+    """
+
+
+class CheckoutComFinancialActionsUnavailableError(Exception):
+    """Every financial actions lookup in a run answered 404, and nothing landed.
+
+    The endpoint documents no 404 for a payment that simply has none yet — it returns an
+    empty ``data`` array — so a 404 on every payment means the route is not served for
+    this account rather than that the ledger is empty. Raised rather than returned: a
+    settlement table reporting `Completed` while holding nothing is the failure that makes
+    reconciliation quietly wrong.
     """
 
 
@@ -188,6 +211,11 @@ class _FanoutRunState:
     instrument_ids_by_card: dict[_CardIdentity, Optional[str]] = dataclasses.field(default_factory=dict)
     unresolvable_references: int = 0
     rows_landed: int = 0
+    # Counted separately from `rows_landed`, which the customers/instruments path owns:
+    # these two decide whether an empty financial actions run is an unroutable endpoint
+    # (every lookup 404'd) or an account that genuinely has no settled payments yet.
+    financial_actions_missing: int = 0
+    financial_actions_found: int = 0
 
 
 def _to_datetime(value: Any) -> datetime | None:
@@ -361,6 +389,80 @@ def _payment_actions_rows(
         row["payment_id"] = payment_id
         row["payment_requested_on"] = payment.get("requested_on")
         rows.append(row)
+    return rows
+
+
+def _financial_actions_page(
+    session: requests.Session,
+    auth: OAuth2Auth,
+    api_base: str,
+    params: dict[str, Any],
+    logger: FilteringBoundLogger,
+) -> Optional[dict[str, Any]]:
+    """One page of ``GET /financial-actions``; ``None`` means the endpoint answered 404.
+
+    Unlike the other fan-out lookups, a 404 here does not mean "this record is gone", so
+    it is reported rather than skipped (see CheckoutComFinancialActionsUnavailableError).
+    """
+    response = session.get(f"{api_base}/financial-actions", params=params, auth=auth, timeout=REQUEST_TIMEOUT_SECONDS)
+    if response.status_code == 404:
+        return None
+    if not response.ok:
+        logger.error(
+            f"Checkout.com API error: status={response.status_code}, "
+            f"url={api_base}/financial-actions, body={_error_details(response)}"
+        )
+        response.raise_for_status()
+    payload = response.json()
+    return payload if isinstance(payload, dict) else {}
+
+
+def _financial_actions_rows(
+    session: requests.Session,
+    auth: OAuth2Auth,
+    api_base: str,
+    payment: dict[str, Any],
+    logger: FilteringBoundLogger,
+    budget: _SyncBudget,
+    state: _FanoutRunState,
+) -> list[dict[str, Any]]:
+    payment_id = str(payment.get("id") or "")
+    params: dict[str, Any] = {"payment_id": payment_id, "limit": FINANCIAL_ACTIONS_PAGE_LIMIT}
+    rows: list[dict[str, Any]] = []
+    pagination_token: Optional[str] = None
+    for _ in range(MAX_FINANCIAL_ACTIONS_PAGES_PER_PAYMENT):
+        if not budget.take_lookup():
+            return rows
+        page_params = dict(params)
+        if pagination_token:
+            page_params["pagination_token"] = pagination_token
+        payload = _financial_actions_page(session, auth, api_base, page_params, logger)
+        if payload is None:
+            state.financial_actions_missing += 1
+            return rows
+        data = payload.get("data")
+        if not isinstance(data, list):
+            return rows
+        for action in data:
+            if not isinstance(action, dict):
+                continue
+            row = _strip_links(action)
+            # The parent payment's id and request time key the row to its payment and
+            # carry the incremental watermark; they always win over same-named fields.
+            # `payment_id` is also a documented field of the action itself, so this only
+            # normalizes it to the payment the row was fetched for.
+            row["payment_id"] = payment_id
+            row["payment_requested_on"] = payment.get("requested_on")
+            rows.append(row)
+            state.financial_actions_found += 1
+        next_token = _next_pagination_token(payload)
+        if not next_token or next_token == pagination_token:
+            return rows
+        pagination_token = next_token
+    logger.error(
+        "Checkout.com financial actions paging cap reached for a payment; later actions may be missing",
+        payment_id=payment_id,
+    )
     return rows
 
 
@@ -695,6 +797,13 @@ def _get_rows(
                 if not budget.take_lookup():
                     break
                 chunk.extend(_payment_actions_rows(session, auth, hosts["api"], payment, logger))
+            elif schema_name == "financial_actions":
+                if not str(payment.get("id") or ""):
+                    continue
+                # Budget is taken per page inside, since one payment can paginate.
+                chunk.extend(_financial_actions_rows(session, auth, hosts["api"], payment, logger, budget, state))
+                if budget.exhausted:
+                    break
             else:
                 row = (
                     _customer_row(session, auth, hosts["api"], payment, logger, budget, state)
@@ -719,6 +828,13 @@ def _get_rows(
     if chunk:
         latest_yielded = _latest_incremental_value(schema_name, chunk, latest_yielded)
         yield chunk
+    # Checked before the budget branch, so an unroutable endpoint reports its own cause
+    # rather than the generic falling-behind message a row-less run would otherwise raise.
+    if state.financial_actions_missing and not state.financial_actions_found:
+        raise CheckoutComFinancialActionsUnavailableError(
+            f"{FINANCIAL_ACTIONS_UNAVAILABLE_MARKER}: every financial actions lookup in this run "
+            f"({state.financial_actions_missing} payment(s)) returned 404, so no settlement data could be read"
+        )
     if budget.exhausted:
         advanced = latest_yielded is not None and (watermark is None or latest_yielded > watermark)
         if should_use_incremental_field and advanced:
@@ -776,6 +892,16 @@ def checkout_com_payments_source(
         # Action ids look globally unique, but the API doesn't document that scope,
         # so the parent payment id is part of the key.
         primary_keys = ["payment_id", "id"]
+        partition_keys = ["payment_requested_on"]
+        partition_mode = "datetime"
+        partition_format = "month"
+        partition_count = 1
+    elif schema_name == "financial_actions":
+        # `action_id` is documented as the id of the action impacting your balances, but
+        # not as globally unique, so the payment it was fetched for is part of the key.
+        # The fee `breakdown` stays nested here — the FinancialActions *report* flattens it
+        # and keys on (action_id, breakdown_type); the API returns one row per action.
+        primary_keys = ["payment_id", "action_id"]
         partition_keys = ["payment_requested_on"]
         partition_mode = "datetime"
         partition_format = "month"
