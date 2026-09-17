@@ -11,10 +11,13 @@ changes accordingly:
 
 Don't hardcode provider behavior — it varies by SDK and by SDK version,
 and providers can change their own reporting style over time. Instead,
-trust the per-event flag: ingestion auto-detects and writes the resolved
-value to `$ai_cache_reporting_exclusive` (boolean) on every
-`$ai_generation`. Callers can also override with
-`$ai_cache_reporting_exclusive: true|false` when manually capturing.
+trust the per-event flag: when ingestion prices the input tokens, it
+auto-detects the reporting style and writes the resolved value to
+`$ai_cache_reporting_exclusive` (boolean). A generation that never reaches
+that step can carry no flag at all — a caller-reported cost, an unmatched
+model, and a missing input token count each skip it. Callers can also
+override with `$ai_cache_reporting_exclusive: true|false` when manually
+capturing.
 
 ## Cache-hit rate, branching on the per-event flag
 
