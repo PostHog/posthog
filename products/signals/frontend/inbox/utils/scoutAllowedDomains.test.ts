@@ -13,6 +13,7 @@ describe('scoutAllowedDomains', () => {
         ['upper case and padding', '  Status.Example.COM ', 'status.example.com'],
         ['leftmost wildcard', '*.Example.com', '*.example.com'],
         ['rooted name', 'example.com.', 'example.com'],
+        ['internationalized name', 'bücher.example', 'xn--bcher-kva.example'],
         ['scheme', 'https://example.com', null],
         ['path', 'example.com/status', null],
         ['port', 'example.com:8443', null],

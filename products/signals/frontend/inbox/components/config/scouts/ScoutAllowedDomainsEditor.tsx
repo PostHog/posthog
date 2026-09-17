@@ -88,6 +88,8 @@ export function ScoutAllowedDomainsEditor({
                         key={domain}
                         type="highlight"
                         size="small"
+                        wrap
+                        className="max-w-full"
                         closable={!updating}
                         onClose={() => removeDomain(domain)}
                     >

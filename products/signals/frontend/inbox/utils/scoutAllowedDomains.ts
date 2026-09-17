@@ -5,21 +5,32 @@ export const MAX_SCOUT_ALLOWED_DOMAINS = 100
 export const MAX_SCOUT_ALLOWED_DOMAIN_LENGTH = 255
 
 // The reasons the sandbox rejects a domain, checked here so a typo is caught before the request
-// instead of coming back as a toast. `normalize_domain` on the backend stays the authority: it also
-// runs IDNA encoding and Django's domain validator, which this does not attempt to reproduce.
+// instead of coming back as a toast. `normalize_domain` on the backend stays the authority; the
+// URL parser gives the same IDNA (punycode) form it stores, so a Unicode name passes here too.
 const DOMAIN_LABELS = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/
 const IPV4 = /^\d{1,3}(?:\.\d{1,3}){3}$/
+// A scheme, port, path, query, or userinfo. Checked on the raw text because the URL parser would
+// otherwise strip them and hand back a hostname the person never typed.
+const NOT_A_BARE_HOST = /[/:?#@\s]/
 const LOCAL_HOSTS = new Set(['localhost', 'host.docker.internal'])
+
+function idnaHostname(host: string): string | null {
+    try {
+        return new URL(`http://${host}`).hostname
+    } catch {
+        return null
+    }
+}
 
 /** The domain as the sandbox would store it, or null when it could never be a domain. */
 export function normalizeScoutDomain(raw: string): string | null {
     const trimmed = raw.trim().toLowerCase().replace(/\.$/, '')
-    if (!trimmed || trimmed.length > MAX_SCOUT_ALLOWED_DOMAIN_LENGTH) {
+    if (!trimmed || trimmed.length > MAX_SCOUT_ALLOWED_DOMAIN_LENGTH || NOT_A_BARE_HOST.test(trimmed)) {
         return null
     }
     const wildcard = trimmed.startsWith('*.')
-    const hostname = wildcard ? trimmed.slice(2) : trimmed
-    if (LOCAL_HOSTS.has(hostname) || IPV4.test(hostname) || !DOMAIN_LABELS.test(hostname)) {
+    const hostname = idnaHostname(wildcard ? trimmed.slice(2) : trimmed)
+    if (!hostname || LOCAL_HOSTS.has(hostname) || IPV4.test(hostname) || !DOMAIN_LABELS.test(hostname)) {
         return null
     }
     return wildcard ? `*.${hostname}` : hostname
