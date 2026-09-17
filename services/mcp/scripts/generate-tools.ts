@@ -918,7 +918,7 @@ function buildPathExpr(
 // Response filtering templates
 // ------------------------------------------------------------------
 
-type ResponseFilterHelper = 'pickResponseFields' | 'omitResponseFields' | 'stripNullFields'
+type ResponseFilterHelper = 'pickResponseFields' | 'omitResponseFields' | 'stripNullFields' | 'redactResponseUrls'
 
 function buildResponseFilter(config: ToolConfig): {
     code: string
@@ -950,6 +950,14 @@ function buildResponseFilter(config: ToolConfig): {
         const inner = shapeItem
         helperImports.push('stripNullFields')
         shapeItem = (target) => `stripNullFields(${inner(target)})`
+    }
+
+    // Redaction runs last, so it only walks the fields the response still returns.
+    if (config.response?.redact_urls?.length) {
+        const paths = config.response.redact_urls.map((f) => `'${f}'`).join(', ')
+        const inner = shapeItem
+        helperImports.push('redactResponseUrls')
+        shapeItem = (target) => `redactResponseUrls(${inner(target)}, [${paths}])`
     }
 
     if (helperImports.length === 0) {
@@ -1877,6 +1885,10 @@ function generateCategoryFile(
                 if (wrapperConfig.url_prefix) {
                     configParts.push(`urlPrefix: '${wrapperConfig.url_prefix}'`)
                 }
+                if (wrapperConfig.response?.redact_urls?.length) {
+                    const paths = wrapperConfig.response.redact_urls.map((f) => `'${f}'`).join(', ')
+                    configParts.push(`redactUrlPaths: [${paths}]`)
+                }
                 return `    '${name}': createQueryWrapper({ ${configParts.join(', ')} }),`
             })
             .join('\n')
@@ -2242,6 +2254,10 @@ function generateQueryWrapperFile(
 
             if (toolConfig.url_prefix) {
                 configParts.push(`urlPrefix: '${toolConfig.url_prefix}'`)
+            }
+            if (toolConfig.response?.redact_urls?.length) {
+                const paths = toolConfig.response.redact_urls.map((f) => `'${f}'`).join(', ')
+                configParts.push(`redactUrlPaths: [${paths}]`)
             }
             return `    '${name}': createQueryWrapper({ ${configParts.join(', ')} }),`
         })

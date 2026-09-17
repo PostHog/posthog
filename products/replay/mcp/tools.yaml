@@ -72,6 +72,8 @@ tools:
         response:
             exclude:
                 - person.properties
+            redact_urls:
+                - start_url
     session-recording-playlist-create:
         operation: session_recording_playlists_create
         enabled: true
@@ -186,3 +188,6 @@ wrappers:
             - response
             - modifiers
         url_prefix: /replay
+        response:
+            redact_urls:
+                - start_url

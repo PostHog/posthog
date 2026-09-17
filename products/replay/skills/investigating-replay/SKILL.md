@@ -261,8 +261,9 @@ with a throwaway scanner — but **ask the user's permission before creating any
   Note this rather than suggesting something is broken.
 - Console error count from the recording metadata is a good signal for whether
   to dig into exceptions. If it's 0, skip step 3.
-- The `start_url` from the recording tells you where the user's journey began —
-  use this to frame the narrative.
+- The `start_url` from the recording tells you where the user's journey began.
+  Use this to frame the narrative. Credentials and email addresses in the URL come
+  back as `[redacted]`.
 - If `person` is null on the recording, the user was anonymous.
   Person properties won't be available, but events still are.
 

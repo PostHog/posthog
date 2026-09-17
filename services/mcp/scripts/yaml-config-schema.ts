@@ -212,6 +212,14 @@ export const ToolConfigSchema = z
                  * fields dominate the payload.
                  */
                 strip_nulls: z.boolean().optional(),
+                /**
+                 * Dot-path patterns of URL fields whose credentials and personal identifiers are
+                 * replaced with `[redacted]`. Applied after `include`/`exclude`, per item on a list
+                 * endpoint. Use it on any field holding a URL captured from a user's browser: an
+                 * OAuth callback, a magic link, or a signed-in page can carry a live secret, and a
+                 * tool result reaches an agent's transcript.
+                 */
+                redact_urls: z.array(z.string()).optional(),
                 /** Wrap user-authored response data in an explicit informational-only tag boundary. */
                 informational_wrapper: z
                     .object({
@@ -567,6 +575,18 @@ export const QueryWrapperToolConfigSchema = z
         superseded_by: z.array(z.string()).optional(),
         /** Extra guidance appended to the successor message, for a redirect a bare tool name cannot carry. */
         redirect_hint: z.string().optional(),
+        response: z
+            .object({
+                /**
+                 * Dot-path patterns, relative to one result row, of URL fields whose credentials and
+                 * personal identifiers are replaced with `[redacted]`. See the REST equivalent in
+                 * `ToolConfigSchema`. Formatter output (`use_optimized_output`) is not covered, so a
+                 * wrapper that needs both has to redact inside its formatter too.
+                 */
+                redact_urls: z.array(z.string()).optional(),
+            })
+            .strict()
+            .optional(),
     })
     .strict()
     .refine((data) => !(data.description && data.description_file), {

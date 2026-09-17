@@ -165,6 +165,9 @@ tools:
       selectable: true # add optional `fields` param so the agent picks a subset of `include` per call
       # (constrained to the allowlist); omit `fields` to return the full set. Requires `include`.
       strip_nulls: true # remove keys whose value is `null`, applied after include/exclude
+      redact_urls: [start_url] # replace credentials and email addresses in these URL fields with
+      # `[redacted]`. Use it on any field holding a URL captured from a user's browser. Query
+      # wrappers take the same option, applied per result row.
       # Use it on tools that echo a nested serializer schema, where the unset optional fields
       # dominate the payload. Rejected with `list: true`, where per-row null removal makes the
       # TOON table larger. Use `exclude` to drop the fields on a list tool instead.

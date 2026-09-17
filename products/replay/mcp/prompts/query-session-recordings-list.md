@@ -72,7 +72,7 @@ Each recording in results contains:
 - `active_seconds` / `inactive_seconds` — activity breakdown
 - `click_count`, `keypress_count`, `mouse_activity_count` — interaction counts
 - `console_log_count`, `console_warn_count`, `console_error_count` — console output counts
-- `start_url` — first page URL visited
+- `start_url` — first page URL visited. Credentials and email addresses in it are replaced with `[redacted]`, so treat those parts as unavailable rather than as the real value.
 - `activity_score` — engagement score (higher = more active)
 - `ongoing` — whether the session is still active
 

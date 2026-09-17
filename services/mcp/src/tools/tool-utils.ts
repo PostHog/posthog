@@ -1,3 +1,4 @@
+import { redactUrlSecrets } from '@/lib/redact-url-secrets'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_INFORMATIONAL_RESPONSE_KEY, type Context } from '@/tools/types'
 
 /**
@@ -209,4 +210,44 @@ function stripNulls(value: unknown): unknown {
         }
     }
     return result
+}
+
+/**
+ * Replace the credentials and personal identifiers carried by the URL fields at the given
+ * dot-path patterns with `[redacted]`. Supports the same `*` wildcard as the other field
+ * helpers, and leaves a field that holds no URL untouched.
+ */
+export function redactResponseUrls<T>(obj: T, paths: string[]): T {
+    const result = structuredClone(obj)
+    for (const p of paths) {
+        redactAtPath(result, p.split('.'))
+    }
+    return result as T
+}
+
+function redactAtPath(obj: unknown, segments: string[]): void {
+    if (obj === null || obj === undefined || typeof obj !== 'object') {
+        return
+    }
+    const [head, ...rest] = segments
+    if (!head) {
+        return
+    }
+    if (head === '*') {
+        for (const item of Array.isArray(obj) ? obj : Object.values(obj)) {
+            redactAtPath(item, rest)
+        }
+        return
+    }
+    const record = obj as Record<string, unknown>
+    if (rest.length > 0) {
+        redactAtPath(record[head], rest)
+        return
+    }
+    const value = record[head]
+    if (typeof value === 'string') {
+        record[head] = redactUrlSecrets(value)
+    } else if (Array.isArray(value)) {
+        record[head] = value.map((item) => (typeof item === 'string' ? redactUrlSecrets(item) : item))
+    }
 }

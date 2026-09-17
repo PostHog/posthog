@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { type TraceDetail, compactTraceResults } from '@/lib/trace-compaction'
+import { redactResponseUrls } from '@/tools/tool-utils'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
@@ -54,6 +55,12 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
      * `/ai-observability/traces/{traceId}`.
      */
     urlPrefix?: string
+    /**
+     * Dot-path patterns, relative to one result row, of URL fields whose credentials and personal
+     * identifiers are replaced with `[redacted]`. A URL captured from a user's browser can carry a
+     * live secret, and a tool result reaches an agent's transcript.
+     */
+    redactUrlPaths?: string[]
 }
 
 const TEST_ACCOUNT_FILTER_FIELD = 'filterTestAccounts'
@@ -136,6 +143,14 @@ function resolveUrlPrefix(urlPrefix: string, query: Record<string, unknown>): st
         segments.push(encodeRouterPathSegment(String(value)))
     }
     return segments.join('/')
+}
+
+/** Apply `redactUrlPaths` to each result row, which is where a query's URL fields live. */
+function redactRowUrls(results: unknown, paths: string[]): unknown {
+    if (Array.isArray(results)) {
+        return results.map((row) => redactResponseUrls(row, paths))
+    }
+    return redactResponseUrls(results, paths)
 }
 
 function buildInsightUrl(
@@ -225,7 +240,10 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
 
             const data = await context.api.query({ projectId }).runQuery({ query })
             const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && data.formatted_results
-            const results = isTraceQuery ? compactTraceResults(data.results, traceDetail) : data.results
+            const queryResults = isTraceQuery ? compactTraceResults(data.results, traceDetail) : data.results
+            const results = config.redactUrlPaths?.length
+                ? redactRowUrls(queryResults, config.redactUrlPaths)
+                : queryResults
             // Include `query` in the payload so UI apps (TrendsVisualizer, LifecycleVisualizer)
             // can honor query-level filters like `lifecycleFilter.toggledLifecycles` and
             // `trendsFilter.display`.
