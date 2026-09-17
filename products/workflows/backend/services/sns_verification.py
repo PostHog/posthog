@@ -165,7 +165,7 @@ def verify_sns_message(message: dict[str, Any]) -> bool:
     if cert_pem is None:
         # No certificate means no check ran, whether the fetch failed, a recent failure is still
         # cached, or the budget for new URLs is spent. False would report a message AWS may have
-        # signed correctly as forged, and the caller would answer the sender accordingly.
+        # signed correctly as forged.
         raise VerifierUnavailable("SNS signing certificate could not be obtained")
     try:
         public_key = load_pem_x509_certificate(cert_pem).public_key()

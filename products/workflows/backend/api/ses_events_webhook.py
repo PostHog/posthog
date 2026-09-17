@@ -75,9 +75,8 @@ def ses_tenant_events_webhook(request: HttpRequest) -> HttpResponse:
     try:
         verified = verify_sns_message(message)
     except VerifierUnavailable:
-        # The signing certificate never arrived, so the signature was never checked. 503 asks SNS
-        # to deliver again, which its retry policy does for a server error. 403 would read as a
-        # verdict on the message and end the delivery.
+        # 503 asks SNS to deliver again, which its retry policy does for a server error. 403 would
+        # read as a verdict on a message whose signature was never checked.
         logger.warning("ses_tenant_events_webhook_verification_unavailable", message_id=message.get("MessageId"))
         return HttpResponse("Verification unavailable", status=503)
     if not verified:

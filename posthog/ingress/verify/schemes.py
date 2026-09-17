@@ -157,9 +157,8 @@ class SnsSignature:
 
     The signature proves "from AWS SNS" and the allowlist proves "from our topic", so
     neither half is optional. The RSA work stays with the caller-supplied verifier, which
-    owns the certificate fetch and its own cache. A verifier that could not obtain the
-    certificate raises `VerifierUnavailable` rather than answering False, because the two
-    need different answers to the sender.
+    owns the certificate fetch and its own cache. That verifier raises `VerifierUnavailable`
+    when it could not obtain the certificate at all.
     """
 
     verify_message: Callable[[Mapping[str, Any]], bool]
@@ -182,9 +181,8 @@ class SnsSignature:
         try:
             verified = self.verify_message(message)
         except VerifierUnavailable:
-            # The certificate never arrived, so the signature was never checked. INVALID here
-            # answers SNS with the invalid-signature status, which SNS reads as a verdict and
-            # does not retry, so a certificate-host outage would lose the delivery for good.
+            # UNAVAILABLE rather than INVALID: the signature was never checked, and SNS reads
+            # the invalid-signature status as a verdict and stops delivering.
             logger.warning("ingress_sns_signing_certificate_unavailable", message_id=message.get("MessageId"))
             return VerificationOutcome.UNAVAILABLE
         if not verified:
