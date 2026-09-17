@@ -77,22 +77,63 @@ def _chain_root(node: ast.expr) -> ast.expr:
             return node
 
 
-def _is_feature_flag_query(node: ast.expr) -> bool:
-    root = _chain_root(node)
-    return isinstance(root, ast.Name) and root.id == "FeatureFlag"
+SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
 
 
-def _names_bound_to_flags(tree: ast.AST) -> set[str]:
-    # Catches flags and querysets held in variables whose name does not say "flag", such as
-    # `existing = FeatureFlag.objects.filter(...).first()` or `row, _ = FeatureFlag.objects.get_or_create(...)`.
-    names: set[str] = set()
+def _imported_aliases(tree: ast.AST, name: str) -> set[str]:
+    aliases = {name}
     for node in ast.walk(tree):
-        if isinstance(node, ast.Assign) and _is_feature_flag_query(node.value):
+        if isinstance(node, ast.ImportFrom):
+            aliases.update(alias.asname for alias in node.names if alias.name == name and alias.asname)
+    return aliases
+
+
+def _is_model_query(node: ast.expr, models: set[str]) -> bool:
+    root = _chain_root(node)
+    return isinstance(root, ast.Name) and root.id in models
+
+
+def _mentions_model(annotation: ast.expr | None, models: set[str]) -> bool:
+    if annotation is None:
+        return False
+    for sub in ast.walk(annotation):
+        if isinstance(sub, (ast.Name, ast.Attribute)) and _terminal_name(sub) in models:
+            return True
+        if isinstance(sub, ast.Constant) and isinstance(sub.value, str) and any(m in sub.value for m in models):
+            return True
+    return False
+
+
+def _own_nodes(scope: ast.AST):
+    """Yield the nodes of `scope` without entering nested functions, classes or lambdas."""
+    stack = list(ast.iter_child_nodes(scope))
+    while stack:
+        node = stack.pop()
+        yield node
+        if not isinstance(node, SCOPE_NODES):
+            stack.extend(ast.iter_child_nodes(node))
+
+
+def _scope_flag_names(scope: ast.AST, models: set[str]) -> set[str]:
+    # Catches flags and querysets held in variables whose name does not say "flag", such as
+    # `existing = FeatureFlag.objects.filter(...).first()`, `row, _ = FeatureFlag.objects.get_or_create(...)`
+    # or a `feature: FeatureFlag` parameter.
+    names: set[str] = set()
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        args = scope.args
+        for arg in [*args.posonlyargs, *args.args, *args.kwonlyargs]:
+            if _mentions_model(arg.annotation, models):
+                names.add(arg.arg)
+    for node in _own_nodes(scope):
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign) and _is_model_query(node.value, models):
             targets = node.targets
-        elif isinstance(node, ast.For) and _is_feature_flag_query(node.iter):
+        elif isinstance(node, ast.AnnAssign) and (
+            _mentions_model(node.annotation, models) or (node.value is not None and _is_model_query(node.value, models))
+        ):
             targets = [node.target]
-        else:
-            continue
+        elif isinstance(node, ast.For) and _is_model_query(node.iter, models):
+            targets = [node.target]
         for target in targets:
             names.update(sub.id for sub in ast.walk(target) if isinstance(sub, ast.Name))
     return names
@@ -110,7 +151,9 @@ def _names_gated_field(values: list[ast.expr]) -> bool:
     return any(not isinstance(v, ast.Constant) or v.value in GATED_FIELDS for v in values)
 
 
-def _write_target(node: ast.AST, flag_names: set[str], *, serializer_exempt: bool) -> str | None:
+def _write_target(
+    node: ast.AST, flag_names: set[str], models: set[str], serializers: set[str], *, serializer_exempt: bool
+) -> str | None:
     """Describe the gated write at `node`, or return None when `node` is not one."""
     if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
@@ -122,7 +165,7 @@ def _write_target(node: ast.AST, flag_names: set[str], *, serializer_exempt: boo
     if not isinstance(node, ast.Call):
         return None
 
-    if _terminal_name(node.func) == "FeatureFlagSerializer":
+    if _terminal_name(node.func) in serializers:
         # Positional data or **kwargs cannot be resolved, so they count as a write.
         is_write = len(node.args) > 1 or any(kw.arg in (None, "data") for kw in node.keywords)
         if not is_write or serializer_exempt:
@@ -133,7 +176,7 @@ def _write_target(node: ast.AST, flag_names: set[str], *, serializer_exempt: boo
     if not isinstance(node.func, ast.Attribute) or node.func.attr not in ORM_WRITE_METHODS:
         return None
     root = _chain_root(node.func)
-    if not _is_feature_flag_query(node.func) and not (isinstance(root, ast.Name) and root.id in flag_names):
+    if not (isinstance(root, ast.Name) and (root.id in models or root.id in flag_names)):
         return None
     method = node.func.attr
     if method == "update" and not any(kw.arg is None or kw.arg in GATED_FIELDS for kw in node.keywords):
@@ -152,21 +195,23 @@ def gated_writes(tree: ast.AST, *, serializer_exempt: bool = False) -> list[str]
     """List every gated write in `tree` as `<enclosing scope>::<write>`.
 
     The enclosing scope keeps an entry stable when lines move, so the baseline changes only when
-    a write is added or removed.
+    a write is added or removed. A nested scope sees the names its enclosing scopes bound.
     """
-    flag_names = _names_bound_to_flags(tree)
+    models = _imported_aliases(tree, "FeatureFlag")
+    serializers = _imported_aliases(tree, "FeatureFlagSerializer")
     found: list[str] = []
 
-    def visit(node: ast.AST, scope: str) -> None:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            scope = f"{scope}.{node.name}" if scope else node.name
-        target = _write_target(node, flag_names, serializer_exempt=serializer_exempt)
-        if target is not None:
-            found.append(f"{scope or '<module>'}::{target}")
-        for child in ast.iter_child_nodes(node):
-            visit(child, scope)
+    def visit(scope: ast.AST, label: str, inherited: set[str]) -> None:
+        flag_names = inherited | _scope_flag_names(scope, models)
+        for node in _own_nodes(scope):
+            target = _write_target(node, flag_names, models, serializers, serializer_exempt=serializer_exempt)
+            if target is not None:
+                found.append(f"{label or '<module>'}::{target}")
+            if isinstance(node, SCOPE_NODES):
+                name = getattr(node, "name", "<lambda>")
+                visit(node, f"{label}.{name}" if label else name, flag_names)
 
-    visit(tree, "")
+    visit(tree, "", set())
     return found
 
 
@@ -245,6 +290,11 @@ def test_feature_flag_gated_fields_are_written_through_the_facade() -> None:
         ("FeatureFlagSerializer(flag, data={'active': True}, partial=True)", 1),
         ("FeatureFlagSerializer(flag, payload, partial=True)", 1),
         ("FeatureFlagSerializer(flag, **kwargs)", 1),
+        ("from m import FeatureFlag as FF\nFF.objects.create(key='k')", 1),
+        ("from m import FeatureFlagSerializer as S\nS(item, data={})", 1),
+        ("def f(feature: FeatureFlag):\n    feature.active = False", 1),
+        ("def f(feature: 'FeatureFlag | None'):\n    feature.filters = {}", 1),
+        ("item: FeatureFlag = load()\nitem.active = True", 1),
         ("FeatureFlag.objects.filter(pk=1).update(last_called_at=now)", 0),
         ("FeatureFlag.objects.bulk_update(flags, ['last_called_at'])", 0),
         ("FeatureFlagSerializer(flags, many=True)", 0),
@@ -254,6 +304,14 @@ def test_feature_flag_gated_fields_are_written_through_the_facade() -> None:
 )
 def test_scanner_detects_gated_writes(snippet: str, expected: int) -> None:
     assert len(gated_writes(ast.parse(snippet))) == expected
+
+
+def test_bindings_do_not_leak_between_functions() -> None:
+    tree = ast.parse(
+        "def a():\n    row = FeatureFlag.objects.first()\n    row.active = False\n"
+        "def b():\n    row = Cohort.objects.first()\n    row.active = False"
+    )
+    assert gated_writes(tree) == ["a::row.active ="]
 
 
 def test_gated_path_exempts_only_serializer_writes() -> None:
