@@ -39,6 +39,7 @@ from posthog.temporal.common.schedule import (
     update_schedule,
 )
 
+from products.batch_exports.backend.facade.contracts import AWSCredentials
 from products.batch_exports.backend.models.batch_export import (
     BatchExport,
     BatchExportBackfill,
@@ -386,21 +387,6 @@ class PostgresBatchExportInputs(BaseBatchExportInputs):
 
 IAMRole = str
 IntegrationID = int
-
-
-@dataclass(frozen=False)
-class AWSCredentials:
-    aws_access_key_id: str
-    aws_secret_access_key: str = field(repr=False)
-    aws_session_token: str | None = field(default=None, repr=False)
-    expiration: dt.datetime | None = field(default=None)
-
-    @property
-    def expiry_time(self) -> str | None:
-        """ISO-8601 expiration time for temporary credentials, if available."""
-        if self.expiration is None:
-            return None
-        return self.expiration.isoformat()
 
 
 @frozen

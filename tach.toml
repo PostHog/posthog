@@ -1091,7 +1091,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(autoresearch|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(autoresearch|batch_exports|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -1248,6 +1248,62 @@ expose = [
 ]
 from = [
     "products.error_tracking",
+]
+
+# isolation:permanent-interface
+# batch_exports exposes its ClickHouse DDL (backend.sql) to ten frozen ClickHouse migrations
+# under posthog/clickhouse/migrations/, which import the view constants by dotted path. A frozen
+# migration can never be rerouted, and the module holds CREATE ... VIEW constants and nothing
+# else, so this coupling is outside the import-reroute path. The marker above declares it
+# permanent rather than a legacy leak, so it does not hold the external seal open. turbo.json
+# must keep backend/sql.py in the contract-check inputs when that narrowing lands, so a change
+# to it still re-runs the Django suite (IsolationChainCheck enforces that).
+
+[[interfaces]]
+expose = [
+    "backend\\.sql.*",
+]
+from = [
+    "products.batch_exports",
+]
+
+# Legacy leaks — core (posthog/ee), cdp and warehouse_sources still import these batch_exports
+# internals directly. Each entry names its crossing and the facade that replaces it. The block
+# drains as those callers move, and keeps backend:contract-check off until it is empty.
+# tach interfaces have no consumer scoping, so this block opens the listed paths to every module,
+# not only to the consumers named below.
+[[interfaces]]
+expose = [
+    # Integration teardown, the organization admin's model counts, the migrate_team command, the
+    # run-failure email, the usage report and team deletion read the models, as do core's API,
+    # activity-log, email, usage-report and HogQL system-table tests.
+    # Exit: facade.api and facade.testing.
+    "backend\\.models.*",
+    # The migrate_team command, team deletion, the shared Temporal test utilities, the payload
+    # codec test and the warehouse_sources S3 writer reach the service layer.
+    # Exit: facade.api, facade.testing and contracts.AWSCredentials.
+    "backend\\.service.*",
+    # The usage report drops non-billable runs itself.
+    # Exit: facade.api.get_teams_with_billable_rows_exported.
+    "backend\\.billing.*",
+    # The worker bootstrap commands, the worker's metrics interceptor, the shared Temporal test
+    # conftest and the team-deletion test register the workflows and activities.
+    # Exit: facade.temporal.
+    "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.WORKFLOWS",
+    "backend\\.temporal\\.metrics.*",
+    "backend\\.temporal\\.noop.*",
+    # The warehouse_sources data-import writers reuse the destination clients and the stream
+    # transformers.
+    # Exit: facade.pipeline.
+    "backend\\.temporal\\.destinations.*",
+    "backend\\.temporal\\.pipeline\\.transformer.*",
+    # cdp's enable_backfills validates with BatchExportSerializer. A facade must not import DRF,
+    # so the exit here is the presentation move, after which presentation.views is the channel.
+    "backend\\.api\\.batch_export.*",
+]
+from = [
+    "products.batch_exports",
 ]
 
 [[interfaces]]
