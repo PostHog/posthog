@@ -42,6 +42,8 @@ from posthog.personhog_client.proto import (
     DeletePersonsBatchForTeamResponse,
     DeletePersonsRequest,
     DeletePersonsResponse,
+    DeleteTombstonedPersonsRequest,
+    DeleteTombstonedPersonsResponse,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest,
@@ -215,6 +217,11 @@ class PersonHogClient:
         self, request: DeletePersonsBatchForTeamRequest, timeout: float | None = None
     ) -> DeletePersonsBatchForTeamResponse:
         return self._stub.DeletePersonsBatchForTeam(request, timeout=timeout or self._timeout)
+
+    def delete_tombstoned_persons(
+        self, request: DeleteTombstonedPersonsRequest, timeout: float | None = None
+    ) -> DeleteTombstonedPersonsResponse:
+        return self._stub.DeleteTombstonedPersons(request, timeout=timeout or self._timeout)
 
     # -- Person split --
 

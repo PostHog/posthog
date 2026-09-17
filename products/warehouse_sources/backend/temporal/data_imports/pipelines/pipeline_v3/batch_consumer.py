@@ -1390,8 +1390,12 @@ class BatchConsumer:
             try:
                 await self._adapter.release_all_owned(self._poll_conn, owner_token=self._owner_token)
             except Exception as e:
-                logger.exception(self._event("release_all_owned_failed_on_shutdown"))
-                capture_exception(e)
+                if _is_admin_shutdown_error(e):
+                    # Admin-initiated disconnect during teardown is expected; the lease just expires.
+                    logger.warning(self._event("release_all_owned_admin_shutdown"), error=str(e))
+                else:
+                    logger.exception(self._event("release_all_owned_failed_on_shutdown"))
+                    capture_exception(e)
         if self._poll_conn is not None and not self._poll_conn.closed:
             await self._poll_conn.close()
 

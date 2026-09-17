@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -19,7 +20,11 @@ import type { ScoutReportAction } from 'products/signals/frontend/inbox/logics/s
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 import type { SignalScoutConfig } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 import type { SignalScoutRunSummary } from 'products/signals/frontend/inbox/types'
-import { prettifyScoutSkillName, runReportActivity } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
+import {
+    prettifyScoutSkillName,
+    runReportActivity,
+    scoutDisplayName,
+} from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 import type { ScoutRollup } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 import { llmSkillsNamePartialUpdate, llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
 
@@ -56,6 +61,8 @@ export interface ScoutDelivery {
 export interface ScoutPrompt {
     skillName: string
     body: string
+    /** The version the body was read at. The skills API needs it as `base_version` to publish an edit. */
+    latestVersion: number
 }
 
 function inputValue(inputs: unknown, key: string): unknown {
@@ -127,6 +134,7 @@ export interface scannerScoutLogicValues {
     scoutReports: ScoutReportApi[]
     scoutReportsFailed: boolean
     scoutReportsLoading: boolean
+    settingsFormId: number
     settingsSaving: boolean
     settingsSkillName: string | null
     skillPrompt: ScoutPrompt | null
@@ -151,6 +159,17 @@ export interface scannerScoutLogicActions {
     loadScoutConfigs: (_?: void | undefined) => void // scoutFleetLogic
     loadScoutMetadata: () => any // scoutFleetLogic
     loadScoutRuns: (_?: void | undefined) => void // scoutFleetLogic
+    patchScoutConfigLocally: (
+        configId: string,
+        updates:
+            | Partial<SignalScoutConfigApi>
+            | import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
+    ) => {
+        configId: string
+        updates:
+            | Partial<SignalScoutConfigApi>
+            | import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
+    } // scoutFleetLogic
     runScoutNow: (configId: string) => {
         configId: string
     } // scoutFleetLogic
@@ -251,7 +270,7 @@ export interface scannerScoutLogicActions {
         scoutReports: ScoutReportApi[]
         payload?: any
     }
-    loadSkillPrompt: () => any
+    loadSkillPrompt: (_: void) => void
     loadSkillPromptFailure: (
         error: string,
         errorObject?: any
@@ -262,15 +281,17 @@ export interface scannerScoutLogicActions {
     loadSkillPromptSuccess: (
         skillPrompt: {
             body: string
+            latestVersion: number
             skillName: string
         } | null,
-        payload?: any
+        payload?: void
     ) => {
         skillPrompt: {
             body: string
+            latestVersion: number
             skillName: string
         } | null
-        payload?: any
+        payload?: void
     }
     openCreateModal: (templateKey: ScannerScoutTemplateKey) => {
         templateKey: ScannerScoutTemplateKey
@@ -367,6 +388,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
             scoutFleetLogic,
             [
                 'loadScoutConfigs',
+                'patchScoutConfigLocally',
                 'updateScoutConfig',
                 'loadScoutRuns',
                 'loadScoutMetadata',
@@ -398,14 +420,42 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
         skillPrompt: [
             null as ScoutPrompt | null,
             {
-                loadSkillPrompt: async () => {
+                loadSkillPrompt: async (_: void, breakpoint: BreakPointFunction) => {
                     const projectId = teamLogic.values.currentProjectId
                     const skillName = values.settingsSkillName
                     if (!projectId || !skillName) {
                         return null
                     }
                     const skill = await llmSkillsNameRetrieve(String(projectId), skillName)
-                    return { skillName, body: skill.body ?? '' }
+                    // Drop a read the user has already moved on from. Without this a slow read for
+                    // one scout can land after a fast read for the next and leave that scout's body
+                    // and version under the open form.
+                    breakpoint()
+                    // A fetch that sends no paging params caps the body at one page and reports the
+                    // rest through body_next_offset. The form seeds from this value and a save
+                    // replaces the whole body, so seeding a capped read would publish over every
+                    // instruction past the first page. Read the rest in one request, pinned to the
+                    // version the first response came from so a publish landing in between cannot
+                    // splice two bodies together.
+                    const full =
+                        skill.body_next_offset === null
+                            ? skill
+                            : await llmSkillsNameRetrieve(String(projectId), skillName, {
+                                  body_offset: 0,
+                                  body_length: skill.body_total_length,
+                                  version: skill.version,
+                              })
+                    breakpoint()
+                    const body = full.body ?? ''
+                    if (body.length < full.body_total_length) {
+                        // Fail the load instead of handing the form a short body. The modal blocks
+                        // saving on a failed load, so this costs the user an edit; seeding what
+                        // arrived would delete the instructions that did not.
+                        throw new Error('The scout instructions did not load in full.')
+                    }
+                    // latest_version comes from the first response, so it is the version this body
+                    // was read at even if another publish landed while the rest was in flight.
+                    return { skillName, body, latestVersion: skill.latest_version }
                 },
             },
         ],
@@ -533,6 +583,16 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
             {
                 openScoutSettings: (_, { skillName }) => skillName,
                 closeScoutSettings: () => null,
+            },
+        ],
+        // Identifies the settings form on screen. The scout name cannot, because the user can
+        // close the form and open the same scout again while a save is still in flight. Both the
+        // open and the close move the count on, so no later form can carry an earlier form's id.
+        settingsFormId: [
+            0,
+            {
+                openScoutSettings: (state) => state + 1,
+                closeScoutSettings: (state) => state + 1,
             },
         ],
         settingsSaving: [
@@ -814,6 +874,12 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 actions.loadOpenedReport()
             },
             openScoutSettings: () => {
+                // Both loaders keep their last value while the next read is in flight, and the form
+                // seeds from whatever is already there for this scout. Clearing them first makes the
+                // form wait for this open's read, so reopening after a conflict cannot seed the body
+                // and the version that the conflict already made stale.
+                actions.loadSkillPromptSuccess(null)
+                actions.loadScoutDeliverySuccess(null)
                 actions.loadSkillPrompt()
                 actions.loadScoutDelivery()
             },
@@ -851,15 +917,30 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 const config = values.scoutConfigsForScanner.find(
                     (candidate) => candidate.skill_name === values.settingsSkillName
                 )
+                // Read with the config, before the first await. Every request below can outlive the
+                // modal that started it, and the user can open another scout meanwhile, so a later
+                // read would return that scout's instructions and version instead of this one's.
+                const prompt = values.skillPrompt
+                const formId = values.settingsFormId
                 if (!teamId || !projectId || !config || !form.body.trim()) {
                     actions.saveScoutSettingsFinished()
                     return
                 }
+                // Without this scout's own instructions there is no version to publish against, and
+                // no way to tell an edited body from an unchanged one. Saving the rest would drop
+                // the instruction edit and still report the whole save as done.
+                if (!prompt || prompt.skillName !== config.skill_name) {
+                    lemonToast.error(
+                        "Couldn't read this scout's current instructions. Close the settings and open them again."
+                    )
+                    actions.saveScoutSettingsFinished()
+                    return
+                }
                 try {
-                    if (form.body !== values.skillPrompt?.body) {
-                        await llmSkillsNamePartialUpdate(String(projectId), config.skill_name, { body: form.body })
-                    }
                     const configUpdates: Record<string, unknown> = {}
+                    if (form.name.trim() !== scoutDisplayName(config)) {
+                        configUpdates.display_name = form.name.trim()
+                    }
                     if (form.cron !== config.run_cron_schedule) {
                         configUpdates.run_cron_schedule = form.cron
                     }
@@ -870,20 +951,63 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                         configUpdates.output_destinations = form.outputDestinations ?? {}
                     }
                     if (Object.keys(configUpdates).length > 0) {
-                        await signalsScoutConfigUpdate(String(teamId), config.id, configUpdates)
+                        const updated = await signalsScoutConfigUpdate(String(teamId), config.id, configUpdates)
+                        // A retry after a conflict reads from the store before loadScoutConfigs
+                        // lands, so the store has to hold this save already.
+                        actions.patchScoutConfigLocally(config.id, updated)
                         actions.loadScoutConfigs()
                     }
                     // Reads the destination from the id the config records, so a retry after a
                     // partial failure patches what exists instead of provisioning a second one.
-                    if (!(await reconcileDelivery(config, form))) {
+                    // A failure here must not hold the instructions back: the destination lives in
+                    // Data pipelines, and a scout that already delivers pays a read and a write on
+                    // every save, so an unrelated outage there would block every instruction edit.
+                    const delivered = await reconcileDelivery(config, form)
+                    // A body edit publishes a new skill version, so the API rejects it without the
+                    // version the form was read at. It runs last because it is the only call here a
+                    // concurrent edit can reject, and the rename, the schedule and the delivery must
+                    // not go down with it.
+                    if (form.body !== prompt.body) {
+                        const published = await llmSkillsNamePartialUpdate(String(projectId), config.skill_name, {
+                            body: form.body,
+                            base_version: prompt.latestVersion,
+                        })
+                        // A second save from the same open modal must not send the version this one
+                        // already replaced. Only while that same form is on screen: a save that
+                        // outlives its own modal would leave this body under whatever form is open
+                        // now, which can be another scout or the same scout opened again.
+                        if (values.settingsFormId === formId) {
+                            actions.loadSkillPromptSuccess({
+                                skillName: config.skill_name,
+                                body: published.body,
+                                latestVersion: published.version,
+                            })
+                        }
+                    }
+                    if (!delivered) {
                         // reconcileDelivery already said what failed. Leaving the form open keeps the
                         // user's delivery edits in front of them instead of closing over the failure.
+                        // Everything else is saved by now, so a retry repeats only the delivery.
                         return
                     }
                     lemonToast.success('Scout updated. Changes take effect on its next run.')
-                    actions.closeScoutSettings()
+                    // Same reason: closing whatever is open now would discard a draft the user
+                    // started after abandoning this save.
+                    if (values.settingsFormId === formId) {
+                        actions.closeScoutSettings()
+                    }
                 } catch (error: any) {
-                    lemonToast.error(`Couldn't save the scout${error?.detail ? `: ${error.detail}` : ''}`)
+                    if (error?.status !== 409) {
+                        lemonToast.error(`Couldn't save the scout${error?.detail ? `: ${error.detail}` : ''}`)
+                        return
+                    }
+                    // Re-read so latestVersion advances. The modal seeds once, so the edit stays.
+                    if (values.settingsFormId === formId) {
+                        actions.loadSkillPrompt()
+                    }
+                    lemonToast.error(
+                        'These instructions changed somewhere else while you were editing. Your edits are still here. Save again to publish them over the current version.'
+                    )
                 } finally {
                     actions.saveScoutSettingsFinished()
                 }

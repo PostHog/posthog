@@ -1,10 +1,9 @@
 import type { Series, TooltipContext } from '@posthog/quill-charts'
 
-import { getStepBreakdownSeries, hasBreakdown } from 'scenes/funnels/funnelUtils'
-
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import { type FunnelStepWithConversionMetrics } from '~/types'
 
+import { getStepBreakdownSeries, getVisibilityKey, hasBreakdown } from '../funnelUtils'
 import {
     buildFunnelBarHorizontalDropOff,
     buildFunnelBarHorizontalFiller,
@@ -55,7 +54,9 @@ export function buildFunnelBarHorizontalData(
     const breakdown = isBreakdownLayout(steps)
     return steps.map((step, stepIndex) => ({
         label: String(stepIndex),
-        series: breakdown ? buildBreakdownSegments(steps, stepIndex, options) : buildSingleSegment(step, options),
+        series: breakdown
+            ? buildBreakdownSegments(steps, stepIndex, options)
+            : buildSingleSegment(step, steps[0], options),
     }))
 }
 
@@ -99,8 +100,8 @@ export interface FunnelBarHorizontalCompareStep {
 
 /** Builds the top-to-bottom compare layout: one bar per period, per step. Each bar is scaled to the
  *  shared baseline already baked into `conversionRates.fromBasisStep` (so the larger period's first
- *  step fills the track and the other is proportional), and takes its color from the *current step's*
- *  variant — both periods share step i's color, with `getColor` dimming the `previous` series. Drop-off
+ *  step fills the track and the other is proportional), and takes its color from the matching first-step
+ *  variant so a series keeps its color across steps. `getColor` dims the `previous` series. Drop-off
  *  stops at each period's entry level (its first-step share of the shared baseline); the space above is
  *  the blank volume gap, left as whitespace rather than rendered as drop-off. */
 export function buildFunnelBarHorizontalCompareData(
@@ -115,15 +116,15 @@ export function buildFunnelBarHorizontalCompareData(
         return buildBreakdownCompareStacks(steps, options)
     }
 
-    // Each period's entry level on the shared axis, indexed to match nested_breakdown order.
-    const entryLevels = firstNested.map((variant) => variant.conversionRates.fromBasisStep * RATE_TO_PERCENT)
     return steps.map((step, stepIndex) => {
         const bars = (step.nested_breakdown ?? []).map((variant, breakdownIndex) => {
+            const representative =
+                firstNested.find((candidate) => candidate.compare_label === variant.compare_label) ?? variant
             const segment: Series<FunnelBarHorizontalSegmentMeta> = {
                 key: `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}${breakdownIndex}`,
                 label: options.getLabel(variant),
                 data: [variant.conversionRates.fromBasisStep * RATE_TO_PERCENT],
-                color: options.getColor(variant),
+                color: options.getColor(representative),
                 meta: { isDropOff: false, breakdownIndex },
             }
             return {
@@ -132,7 +133,7 @@ export function buildFunnelBarHorizontalCompareData(
                     segment,
                     buildFunnelBarHorizontalDropOff(
                         [segment],
-                        entryLevels[breakdownIndex] ?? 0,
+                        representative.conversionRates.fromBasisStep * RATE_TO_PERCENT,
                         options.fillerColor,
                         breakdownIndex
                     ),
@@ -268,6 +269,7 @@ function buildBreakdownCompareStacks(
     steps: FunnelStepWithConversionMetrics[],
     options: BuildOptions
 ): FunnelBarHorizontalCompareStep[] {
+    const firstNested = steps[0]?.nested_breakdown ?? []
     const firstStep = periodTotals(steps[0])
     // Both stacks share the larger period's first-step total, so the smaller stack sits proportionally short.
     const basis = Math.max(firstStep.current, firstStep.previous, 0)
@@ -279,11 +281,17 @@ function buildBreakdownCompareStacks(
         const current: Series<FunnelBarHorizontalSegmentMeta>[] = []
         const previous: Series<FunnelBarHorizontalSegmentMeta>[] = []
         ;(step.nested_breakdown ?? []).forEach((variant, breakdownIndex) => {
+            const representative =
+                firstNested.find(
+                    (candidate) =>
+                        candidate.compare_label === variant.compare_label &&
+                        getVisibilityKey(candidate.breakdown_value) === getVisibilityKey(variant.breakdown_value)
+                ) ?? variant
             const segment: Series<FunnelBarHorizontalSegmentMeta> = {
                 key: `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}${breakdownIndex}`,
                 label: options.getLabel(variant),
                 data: [toPercent(variant.count)],
-                color: options.getColor(variant),
+                color: options.getColor(representative),
                 meta: { isDropOff: false, breakdownIndex },
             }
             ;(variant.compare_label === 'previous' ? previous : current).push(segment)
@@ -325,16 +333,18 @@ function periodTotals(step: FunnelStepWithConversionMetrics | undefined): { curr
 
 function buildSingleSegment(
     step: FunnelStepWithConversionMetrics,
+    firstStep: FunnelStepWithConversionMetrics,
     options: BuildOptions
 ): Series<FunnelBarHorizontalSegmentMeta>[] {
     const displayStep = getStepBreakdownSeries(step, options.breakdownFilter) ?? step
+    const colorRepresentative = getStepBreakdownSeries(firstStep, options.breakdownFilter) ?? firstStep
     const isSingleBreakdownCollapse = displayStep !== step
 
     const segment: Series<FunnelBarHorizontalSegmentMeta> = {
         key: `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}0`,
         label: options.getLabel(displayStep),
         data: [displayStep.conversionRates.fromBasisStep * RATE_TO_PERCENT],
-        color: options.getColor(displayStep),
+        color: options.getColor(colorRepresentative),
         meta: { isDropOff: false, breakdownIndex: isSingleBreakdownCollapse ? 0 : null },
     }
 

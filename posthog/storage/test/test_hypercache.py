@@ -11,6 +11,7 @@ import redis.exceptions
 from botocore.exceptions import BotoCoreError, ClientError
 from django_redis.exceptions import ConnectionInterrupted
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models.team.team import Team
 from posthog.storage import object_storage
@@ -729,9 +730,16 @@ class TestHyperCacheSecondaryCache(BaseTest):
         broken.set.side_effect = RuntimeError("secondary down")
         broken.set_many.side_effect = RuntimeError("secondary down")
         broken.delete.side_effect = RuntimeError("secondary down")
+        broken.delete_many.side_effect = RuntimeError("secondary down")
         hc.secondary_cache_client = broken
 
         # Must not raise.
+        failures_before = (
+            REGISTRY.get_sample_value(
+                "posthog_hypercache_mirror_failure_total", {"namespace": "test", "value": "value"}
+            )
+            or 0
+        )
         hc.set_cache_value(team_id, self.sample_data)
 
         # Primary cache still got the write.
@@ -741,6 +749,109 @@ class TestHyperCacheSecondaryCache(BaseTest):
 
         # The broken secondary received the write attempt.
         broken.set.assert_called()
+
+        # A swallowed mirror failure must still be countable, or the secondary drifts silently.
+        failures_after = REGISTRY.get_sample_value(
+            "posthog_hypercache_mirror_failure_total", {"namespace": "test", "value": "value"}
+        )
+        assert failures_after is not None and failures_after > failures_before
+
+        # The mirrored delete must also swallow the failure and still drop the primary entry.
+        hc.delete_cache_entry(team_id, kinds=["redis"])
+        broken.delete_many.assert_called()
+        assert caches["flags_dedicated"].get(cache_key) is None
+
+    @parameterized.expand([("etag", True), ("no_etag", False)])
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "default-primary-failure-test-cache",
+            },
+            "flags_dedicated": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "flags-dedicated-primary-failure-test-cache",
+            },
+        }
+    )
+    def test_primary_failure_does_not_block_mirror(self, _name, enable_etag):
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=lambda team: self.sample_data,
+            cache_alias="flags_dedicated",
+            secondary_cache_alias="default",
+            enable_etag=enable_etag,
+        )
+
+        team_id = self.team.id
+
+        # The mirror can be the tier the live reader serves from during a migration,
+        # so a primary outage must not stop the mirror write or the mirror delete.
+        broken_primary = Mock()
+        broken_primary.set.side_effect = RuntimeError("primary down")
+        broken_primary.set_many.side_effect = RuntimeError("primary down")
+        broken_primary.delete.side_effect = RuntimeError("primary down")
+        broken_primary.delete_many.side_effect = RuntimeError("primary down")
+        hc.cache_client = broken_primary
+
+        with pytest.raises(RuntimeError):
+            hc.set_cache_value(team_id, self.sample_data)
+
+        cache_key = hc.get_cache_key(team_id)
+        assert caches["default"].get(cache_key) == json.dumps(self.sample_data, sort_keys=True)
+
+        with pytest.raises(RuntimeError):
+            hc.delete_cache_entry(team_id, kinds=["redis"])
+        assert caches["default"].get(cache_key) is None
+        assert caches["default"].get(hc.get_etag_key(team_id)) is None
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "default-secondary-delete-test-cache",
+            },
+            "flags_dedicated": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "flags-dedicated-secondary-delete-test-cache",
+            },
+        }
+    )
+    def test_delete_removes_entry_from_both_caches(self):
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=lambda team: self.sample_data,
+            cache_alias="flags_dedicated",
+            secondary_cache_alias="default",
+            enable_etag=True,
+        )
+
+        team_id = self.team.id
+        hc.set_cache_value(team_id, self.sample_data)
+
+        cache_key = hc.get_cache_key(team_id)
+        etag_key = hc.get_etag_key(team_id)
+        assert caches["default"].get(cache_key) is not None
+        assert caches["default"].get(etag_key) is not None
+
+        hc.delete_cache_entry(team_id, kinds=["redis"])
+
+        assert caches["flags_dedicated"].get(cache_key) is None
+        assert caches["flags_dedicated"].get(etag_key) is None
+        assert caches["default"].get(cache_key) is None
+        assert caches["default"].get(etag_key) is None
 
     def test_unknown_secondary_alias_falls_back_to_no_op(self):
         """A secondary_cache_alias not in settings.CACHES is silently ignored."""
@@ -1313,7 +1424,7 @@ class TestHyperCacheRemoveExpiryTracking(BaseTest):
 
         hc = self._make_hypercache(token_based=False)
         hc.cache_client = Mock()
-        hc.cache_client.delete.side_effect = ConnectionError("Redis unavailable")
+        hc.cache_client.delete_many.side_effect = ConnectionError("Redis unavailable")
 
         with pytest.raises(ConnectionError):
             hc.clear_cache(42)
@@ -1469,6 +1580,63 @@ class TestHyperCacheSkipIfUnchanged(BaseTest):
         assert size == len(json.dumps(self.sample_data, sort_keys=True))
         # The stored ETag is untouched, so readers comparing ETags won't refetch.
         assert hc.get_etag(self.team.id) == etag_before
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "skip-secondary-default-test-cache",
+            },
+            "flags_dedicated": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "skip-secondary-dedicated-test-cache",
+            },
+        }
+    )
+    def test_stale_secondary_defeats_the_skip_and_gets_repaired(self):
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+
+        hc = HyperCache(
+            namespace="skip_ns",
+            value="skip_value",
+            load_fn=lambda team: {"default": "data"},
+            enable_etag=True,
+            expiry_sorted_set_key="skip_ns_expiry",
+            cache_alias="flags_dedicated",
+            secondary_cache_alias="default",
+        )
+        cache_key = hc.get_cache_key(self.team.id)
+        etag_key = hc.get_etag_key(self.team.id)
+
+        with patch.object(hc, "_set_cache_value_s3"):
+            hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+
+            # Simulate a mirror write that failed: the secondary is missing the entry
+            # while the primary ETag matches the rebuild. The primary comparison alone
+            # would skip here, and the secondary would stay un-repaired until its TTL.
+            caches["default"].delete(cache_key)
+            caches["default"].delete(etag_key)
+
+            hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+            assert caches["default"].get(cache_key) == json.dumps(self.sample_data, sort_keys=True)
+            assert caches["default"].get(etag_key) is not None
+
+            # With both tiers current again, the identical rebuild skips.
+            with patch.object(hc, "_set_cache_value_redis", wraps=hc._set_cache_value_redis) as redis_write:
+                hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+            redis_write.assert_not_called()
+
+            # An unreadable secondary must also defeat the skip: a failed read reports
+            # False, so the rebuild writes instead of skipping past possible drift.
+            with (
+                patch.object(hc.secondary_cache_client, "get", side_effect=ConnectionError("secondary read down")),
+                patch.object(hc, "_set_cache_value_redis", wraps=hc._set_cache_value_redis) as redis_write,
+            ):
+                hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+            redis_write.assert_called_once()
 
     def test_changed_write_reuses_serialization_correctly(self):
         """When the content changed, the skip path's serialization is threaded into the Redis

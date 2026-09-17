@@ -299,6 +299,7 @@ class TestBufferedGating:
         [
             ("source_never_flipped", {}),
             ("no_job_inputs", {"job_inputs": None}),
+            ("job_inputs_not_a_mapping", {"job_inputs": "buffered"}),
             ("companion_lane", {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_table_mode": "cdc_only"}),
             ("still_snapshotting", {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_mode": "snapshot"}),
         ]

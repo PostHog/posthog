@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PiRunner } from "../pi-runtime/piRunner";
 import type { TaskCreationEffects } from "./taskCreationEffects";
 import type { ITaskCreationHost } from "./taskCreationHost";
+import { TaskCreationSaga } from "./taskCreationSaga";
 import { buildWorktreeAdoptionInput } from "./taskInput";
 import { TaskService } from "./taskService";
 
@@ -20,7 +21,7 @@ const rootLogger = {
 
 const fileReadClient = { readAbsoluteFile: vi.fn(async () => null) };
 
-function makeService(): TaskService {
+function makeService(overrides: Partial<SessionService> = {}): TaskService {
   const host = {
     // The API client's createTask rejects so tests can observe that an input
     // made it past validation (failedStep lands on task_creation, not
@@ -43,6 +44,7 @@ function makeService(): TaskService {
     markTaskCreationInFlight: vi.fn(),
     connectToTask: vi.fn(),
     disconnectFromTask: vi.fn(),
+    ...overrides,
   } as unknown as SessionService;
   const effects = {
     onWorkspaceCreated: vi.fn(),
@@ -180,6 +182,60 @@ describe("TaskService.resumeCloudPiRun", () => {
 });
 
 describe("TaskService.createTask validation", () => {
+  it.each([
+    { runtime: "acp" as const, adapter: "claude" as const, blocked: false },
+    { runtime: "acp" as const, adapter: "codex" as const, blocked: false },
+    { runtime: "pi" as const, adapter: "claude" as const, blocked: false },
+    { runtime: "acp" as const, adapter: "claude" as const, blocked: true },
+  ])(
+    "checks Claude billing before cloud creation for %s",
+    async ({ runtime, adapter, blocked }) => {
+      const resolveClaudeCloudModelAccess = vi
+        .fn()
+        .mockImplementation(async () => {
+          if (blocked) throw new Error("Save a Claude token first.");
+          return "own-subscription";
+        });
+      const run = vi
+        .spyOn(TaskCreationSaga.prototype, "run")
+        .mockResolvedValue({
+          success: false,
+          failedStep: "task_creation",
+          error: "test result",
+        });
+      try {
+        const result = await makeService({
+          resolveClaudeCloudModelAccess,
+        }).createTask(
+          {
+            content: "Check the build",
+            workspaceMode: "cloud",
+            runtime,
+            adapter,
+          },
+          undefined,
+          { skipCloudUsagePreflight: true },
+        );
+        if (blocked) {
+          expect(run).not.toHaveBeenCalled();
+          expect(result).toMatchObject({
+            success: false,
+            error: "Save a Claude token first.",
+          });
+        } else if (runtime === "acp" && adapter === "claude") {
+          expect(run.mock.calls[0][0].claudeCloudModelAccess).toBe(
+            "own-subscription",
+          );
+        } else {
+          expect(resolveClaudeCloudModelAccess).not.toHaveBeenCalled();
+          expect(run.mock.calls[0][0].claudeCloudModelAccess).toBeUndefined();
+        }
+      } finally {
+        run.mockRestore();
+      }
+    },
+  );
+
   it("rejects an input with neither content nor a taskDescription", async () => {
     const result = await makeService().createTask({
       content: "   ",

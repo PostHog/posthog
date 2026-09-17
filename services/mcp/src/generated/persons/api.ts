@@ -11,7 +11,7 @@ import * as zod from 'zod'
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export const PersonsListParams = /* @__PURE__ */ zod.object({
+export const PersonsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -23,7 +23,7 @@ export const personsListQueryPropertiesItemTypeDefault = `AND`
 export const personsListQueryPropertiesItemValuesItemOperatorDefault = `exact`
 export const personsListQueryPropertiesItemValuesItemTypeDefault = `event`
 
-export const PersonsListQueryParams = /* @__PURE__ */ zod.object({
+export const PersonsListQueryParams = () => zod.object({
     client_query_id: zod
         .string()
         .optional()
@@ -150,7 +150,7 @@ export const PersonsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export const PersonsRetrieveParams = /* @__PURE__ */ zod.object({
+export const PersonsRetrieveParams = () => zod.object({
     id: zod.string().describe('A unique value identifying this person. Accepts both numeric ID and UUID.'),
     project_id: zod
         .string()
@@ -159,14 +159,14 @@ export const PersonsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const PersonsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const PersonsRetrieveQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
 })
 
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export const PersonsDeletePropertyCreateParams = /* @__PURE__ */ zod.object({
+export const PersonsDeletePropertyCreateParams = () => zod.object({
     id: zod.string().describe('A unique value identifying this person. Accepts both numeric ID and UUID.'),
     project_id: zod
         .string()
@@ -175,13 +175,13 @@ export const PersonsDeletePropertyCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const PersonsDeletePropertyCreateQueryParams = /* @__PURE__ */ zod.object({
+export const PersonsDeletePropertyCreateQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
 })
 
 export const personsDeletePropertyCreateBodyUnsetTwoMax = 1000
 
-export const PersonsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
+export const PersonsDeletePropertyCreateBody = () => zod.object({
     $unset: zod
         .union([
             zod.string().min(1),
@@ -193,7 +193,7 @@ export const PersonsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export const PersonsUpdatePropertyCreateParams = /* @__PURE__ */ zod.object({
+export const PersonsUpdatePropertyCreateParams = () => zod.object({
     id: zod.string().describe('A unique value identifying this person. Accepts both numeric ID and UUID.'),
     project_id: zod
         .string()
@@ -202,11 +202,11 @@ export const PersonsUpdatePropertyCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const PersonsUpdatePropertyCreateQueryParams = /* @__PURE__ */ zod.object({
+export const PersonsUpdatePropertyCreateQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
 })
 
-export const PersonsUpdatePropertyCreateBody = /* @__PURE__ */ zod.object({
+export const PersonsUpdatePropertyCreateBody = () => zod.object({
     key: zod.string().describe('The property key to set.'),
     value: zod.unknown().describe('The property value. Can be a string, number, boolean, or object.'),
 })
@@ -214,7 +214,7 @@ export const PersonsUpdatePropertyCreateBody = /* @__PURE__ */ zod.object({
 /**
  * This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
  */
-export const PersonsBulkDeleteCreateParams = /* @__PURE__ */ zod.object({
+export const PersonsBulkDeleteCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -222,7 +222,7 @@ export const PersonsBulkDeleteCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const PersonsBulkDeleteCreateQueryParams = /* @__PURE__ */ zod.object({
+export const PersonsBulkDeleteCreateQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
 })
 
@@ -230,7 +230,7 @@ export const personsBulkDeleteCreateBodyDeleteEventsDefault = false
 export const personsBulkDeleteCreateBodyDeleteRecordingsDefault = false
 export const personsBulkDeleteCreateBodyKeepPersonDefault = false
 
-export const PersonsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
+export const PersonsBulkDeleteCreateBody = () => zod.object({
     ids: zod.array(zod.string()).optional().describe('A list of PostHog person UUIDs to delete (max 1000).'),
     distinct_ids: zod
         .array(zod.string())
@@ -253,7 +253,7 @@ export const PersonsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export const PersonsCohortsRetrieveParams = /* @__PURE__ */ zod.object({
+export const PersonsCohortsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -261,7 +261,7 @@ export const PersonsCohortsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const PersonsCohortsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const PersonsCohortsRetrieveQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
     person_id: zod.string().describe('The person ID or UUID to get cohorts for.'),
 })
@@ -269,7 +269,7 @@ export const PersonsCohortsRetrieveQueryParams = /* @__PURE__ */ zod.object({
 /**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
-export const PersonsValuesRetrieveParams = /* @__PURE__ */ zod.object({
+export const PersonsValuesRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -277,7 +277,7 @@ export const PersonsValuesRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const PersonsValuesRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const PersonsValuesRetrieveQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
     key: zod.string().describe("The person property key to get values for (e.g., 'email', 'plan', 'role')."),
     value: zod

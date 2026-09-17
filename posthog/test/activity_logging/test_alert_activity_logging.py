@@ -149,6 +149,27 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
         self.assertEqual(interval_change["before"], "daily")
         self.assertEqual(interval_change["after"], "hourly")
 
+    def test_alert_schedule_start_time_change_is_logged(self):
+        alert = self.create_alert_configuration("Alert with schedule start time")
+
+        self.update_alert_configuration(alert["id"], {"schedule_start_time": "08:02"})
+
+        update_log = (
+            ActivityLog.objects.filter(
+                team_id=self.team.id, scope="AlertConfiguration", item_id=str(alert["id"]), activity="updated"
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+        assert update_log is not None
+        assert update_log.detail is not None
+        schedule_change = next(
+            (change for change in update_log.detail.get("changes", []) if change.get("field") == "schedule start time"),
+            None,
+        )
+        self.assertIsNotNone(schedule_change)
+
     def test_alert_configuration_threshold_update_logging(self):
         alert = self.create_alert_configuration(
             name="Alert for threshold update",

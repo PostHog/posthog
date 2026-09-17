@@ -11,11 +11,12 @@ PGAPI_DEV_MODE=1 PGAPI_DEV_USER=you@posthog.com \
   cargo run -p pgapi -- --database-url postgres://.../pgcollector
 curl localhost:3400/api/v1/servers
 curl "localhost:3400/api/v1/servers/<id>/queries?since=1h&order=total_exec_time"
+curl "localhost:3400/api/v1/servers/<id>/tags?since=1h&key=operation"        # load per code path (query tags)
 ```
 
 MCP client config (Claude Code / Desktop): `{"type": "http", "url": "http://localhost:3400/mcp"}`.
-17 tools: `list_servers`, `server_overview`, `top_queries`, `query_detail`,
-`wait_events`, `current_activity`, `table_stats`, `index_stats`,
+18 tools: `list_servers`, `server_overview`, `top_queries`, `query_detail`,
+`query_tags`, `wait_events`, `current_activity`, `table_stats`, `index_stats`,
 `vacuum_status`, `events`, `settings`, `schema`, `log_errors`, `system_stats`,
 `collector_health`, `describe_stats_schema`, `query_stats_db` (guarded raw SQL).
 
@@ -56,14 +57,21 @@ authenticate headless clients.
 
 ## Deploying
 
-`values.example.yaml` is the golden-chart values file (ingress.internal +
-tailscaleIngress + NetworkPolicy + read-only `psql`). Also needed:
+The charts app is `apps/pgapi` in PostHog/charts, onboarded through platformctl
+(`service.yaml` per app; platformctl generates the Argo CD Application and the
+Kargo resources). [`values.example.yaml`](values.example.yaml) shows the values:
+`tailscaleIngress` with `whois`, the NetworkPolicy that makes the identity header
+trustworthy, and a read-only `psql` entry for the stats database.
 
-* Tailscale ACL (`posthog-cloud-infra/tailnet-policy.hujson`): `tag:pgapi`
-  owned by `tag:k8s-operator`, `group:engineering@posthog.com → tag:pgapi:443`,
-  plus the positive/negative tests — copy the `tag:secrets-ui` block.
-* Egress to the ALB public-key endpoint for token verification.
-* A `users_readonly` user for the stats DB.
+Outside the chart:
+
+* `tag:pgapi` in `posthog-cloud-infra/tailnet-policy.hujson`, owned by
+  `tag:k8s-operator`, with `group:engineering@posthog.com -> tag:pgapi:443`.
+  That grant is the login for the tailnet host.
+* The `pgapi` readonly user on the stats database, from
+  `terraform/modules/pgcollector`.
+* For the Cognito/ALB path, once enabled: egress to the ALB public-key endpoint
+  for token verification.
 
 ## Layout
 

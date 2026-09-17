@@ -134,6 +134,11 @@ class WebAnalyticsFilterPresetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
     filterset_fields = ["short_id", "created_by"]
     lookup_field = "short_id"
 
+    # Fields the `order` query parameter may sort by. `id` is always appended as the final
+    # tiebreaker so tied rows keep a stable position across limit/offset pages.
+    ALLOWED_ORDER_FIELDS = {"last_modified_at", "created_at", "name", "pinned"}
+    DEFAULT_ORDER = "-last_modified_at"
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if not self.action.endswith("update"):
             queryset = queryset.filter(deleted=False)
@@ -143,13 +148,15 @@ class WebAnalyticsFilterPresetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
         if self.action == "list":
             queryset = self._filter_request(self.request, queryset)
 
-        order = self.request.GET.get("order", None)
-        if order:
-            queryset = queryset.order_by(order)
-        else:
-            queryset = queryset.order_by("-last_modified_at")
+        order = self.request.GET.get("order") or self.DEFAULT_ORDER
+        # Strip at most one leading "-", so a value like "--name" stays invalid rather than
+        # passing validation and then failing in order_by().
+        if order.removeprefix("-") not in self.ALLOWED_ORDER_FIELDS:
+            raise serializers.ValidationError(
+                {"order": f"Cannot order by '{order}'. Allowed fields: {', '.join(sorted(self.ALLOWED_ORDER_FIELDS))}."}
+            )
 
-        return queryset
+        return queryset.order_by(order, "id")
 
     def _filter_request(self, request: Any, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()

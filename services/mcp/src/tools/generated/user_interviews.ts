@@ -2,52 +2,26 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    UserInterviewTopicsAddIntervieweeCreateBody,
-    UserInterviewTopicsAddIntervieweeCreateParams,
-    UserInterviewTopicsCreateBody,
-    UserInterviewTopicsGenerateLinksCreateParams,
-    UserInterviewTopicsIntervieweesBulkCreateBody,
-    UserInterviewTopicsIntervieweesBulkCreateParams,
-    UserInterviewTopicsIntervieweesCreateBody,
-    UserInterviewTopicsIntervieweesCreateParams,
-    UserInterviewTopicsIntervieweesDestroyParams,
-    UserInterviewTopicsIntervieweesListParams,
-    UserInterviewTopicsIntervieweesListQueryParams,
-    UserInterviewTopicsIntervieweesPartialUpdateBody,
-    UserInterviewTopicsIntervieweesPartialUpdateParams,
-    UserInterviewTopicsLinksCsvCreateParams,
-    UserInterviewTopicsListQueryParams,
-    UserInterviewTopicsPartialUpdateBody,
-    UserInterviewTopicsPartialUpdateParams,
-    UserInterviewTopicsPreviewInviteCreateBody,
-    UserInterviewTopicsPreviewInviteCreateParams,
-    UserInterviewTopicsRemoveIntervieweeCreateBody,
-    UserInterviewTopicsRemoveIntervieweeCreateParams,
-    UserInterviewTopicsRetrieveParams,
-    UserInterviewTopicsSendInvitesCreateBody,
-    UserInterviewTopicsSendInvitesCreateParams,
-    UserInterviewsListQueryParams,
-    UserInterviewsPartialUpdateBody,
-    UserInterviewsPartialUpdateParams,
-    UserInterviewsRetrieveParams,
-    UserInterviewsSearchCreateBody,
-} from '@/generated/user_interviews/api'
+import * as orvalSchemas from '@/generated/user_interviews/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const UserInterviewTopicsAddIntervieweeSchema = UserInterviewTopicsAddIntervieweeCreateParams.omit({
-    project_id: true,
-}).extend(UserInterviewTopicsAddIntervieweeCreateBody.shape)
+const UserInterviewTopicsAddIntervieweeSchema = () => {
+    const UserInterviewTopicsAddIntervieweeCreateBody = orvalSchemas.UserInterviewTopicsAddIntervieweeCreateBody()
+    const UserInterviewTopicsAddIntervieweeCreateParams = orvalSchemas.UserInterviewTopicsAddIntervieweeCreateParams()
+    return UserInterviewTopicsAddIntervieweeCreateParams.omit({ project_id: true }).extend(
+        UserInterviewTopicsAddIntervieweeCreateBody.shape
+    )
+}
 
 const userInterviewTopicsAddInterviewee = (): ToolBase<
-    typeof UserInterviewTopicsAddIntervieweeSchema,
+    ReturnType<typeof UserInterviewTopicsAddIntervieweeSchema>,
     Schemas.UserInterviewTopic
 > => ({
     name: 'user-interview-topics-add-interviewee',
-    schema: UserInterviewTopicsAddIntervieweeSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsAddIntervieweeSchema>) => {
+    schema: UserInterviewTopicsAddIntervieweeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UserInterviewTopicsAddIntervieweeSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.identifier !== undefined) {
@@ -62,12 +36,18 @@ const userInterviewTopicsAddInterviewee = (): ToolBase<
     },
 })
 
-const UserInterviewTopicsCreateSchema = UserInterviewTopicsCreateBody
+const UserInterviewTopicsCreateSchema = () => {
+    const UserInterviewTopicsCreateBody = orvalSchemas.UserInterviewTopicsCreateBody()
+    return UserInterviewTopicsCreateBody
+}
 
-const userInterviewTopicsCreate = (): ToolBase<typeof UserInterviewTopicsCreateSchema, Schemas.UserInterviewTopic> => ({
+const userInterviewTopicsCreate = (): ToolBase<
+    ReturnType<typeof UserInterviewTopicsCreateSchema>,
+    Schemas.UserInterviewTopic
+> => ({
     name: 'user-interview-topics-create',
-    schema: UserInterviewTopicsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsCreateSchema>) => {
+    schema: UserInterviewTopicsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UserInterviewTopicsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.interviewee_emails !== undefined) {
@@ -100,15 +80,18 @@ const userInterviewTopicsCreate = (): ToolBase<typeof UserInterviewTopicsCreateS
     },
 })
 
-const UserInterviewTopicsGenerateLinksSchema = UserInterviewTopicsGenerateLinksCreateParams.omit({ project_id: true })
+const UserInterviewTopicsGenerateLinksSchema = () => {
+    const UserInterviewTopicsGenerateLinksCreateParams = orvalSchemas.UserInterviewTopicsGenerateLinksCreateParams()
+    return UserInterviewTopicsGenerateLinksCreateParams.omit({ project_id: true })
+}
 
 const userInterviewTopicsGenerateLinks = (): ToolBase<
-    typeof UserInterviewTopicsGenerateLinksSchema,
+    ReturnType<typeof UserInterviewTopicsGenerateLinksSchema>,
     Schemas.PaginatedInterviewLinkList
 > => ({
     name: 'user-interview-topics-generate-links',
-    schema: UserInterviewTopicsGenerateLinksSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsGenerateLinksSchema>) => {
+    schema: UserInterviewTopicsGenerateLinksSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UserInterviewTopicsGenerateLinksSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedInterviewLinkList>({
             method: 'POST',
@@ -118,17 +101,25 @@ const userInterviewTopicsGenerateLinks = (): ToolBase<
     },
 })
 
-const UserInterviewTopicsIntervieweesBulkCreateSchema = UserInterviewTopicsIntervieweesBulkCreateParams.omit({
-    project_id: true,
-}).extend(UserInterviewTopicsIntervieweesBulkCreateBody.shape)
+const UserInterviewTopicsIntervieweesBulkCreateSchema = () => {
+    const UserInterviewTopicsIntervieweesBulkCreateBody = orvalSchemas.UserInterviewTopicsIntervieweesBulkCreateBody()
+    const UserInterviewTopicsIntervieweesBulkCreateParams =
+        orvalSchemas.UserInterviewTopicsIntervieweesBulkCreateParams()
+    return UserInterviewTopicsIntervieweesBulkCreateParams.omit({ project_id: true }).extend(
+        UserInterviewTopicsIntervieweesBulkCreateBody.shape
+    )
+}
 
 const userInterviewTopicsIntervieweesBulkCreate = (): ToolBase<
-    typeof UserInterviewTopicsIntervieweesBulkCreateSchema,
+    ReturnType<typeof UserInterviewTopicsIntervieweesBulkCreateSchema>,
     Schemas.BulkIntervieweeContextResponse
 > => ({
     name: 'user-interview-topics-interviewees-bulk-create',
-    schema: UserInterviewTopicsIntervieweesBulkCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsIntervieweesBulkCreateSchema>) => {
+    schema: UserInterviewTopicsIntervieweesBulkCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof UserInterviewTopicsIntervieweesBulkCreateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.items !== undefined) {
@@ -143,17 +134,24 @@ const userInterviewTopicsIntervieweesBulkCreate = (): ToolBase<
     },
 })
 
-const UserInterviewTopicsIntervieweesCreateSchema = UserInterviewTopicsIntervieweesCreateParams.omit({
-    project_id: true,
-}).extend(UserInterviewTopicsIntervieweesCreateBody.shape)
+const UserInterviewTopicsIntervieweesCreateSchema = () => {
+    const UserInterviewTopicsIntervieweesCreateBody = orvalSchemas.UserInterviewTopicsIntervieweesCreateBody()
+    const UserInterviewTopicsIntervieweesCreateParams = orvalSchemas.UserInterviewTopicsIntervieweesCreateParams()
+    return UserInterviewTopicsIntervieweesCreateParams.omit({ project_id: true }).extend(
+        UserInterviewTopicsIntervieweesCreateBody.shape
+    )
+}
 
 const userInterviewTopicsIntervieweesCreate = (): ToolBase<
-    typeof UserInterviewTopicsIntervieweesCreateSchema,
+    ReturnType<typeof UserInterviewTopicsIntervieweesCreateSchema>,
     Schemas.IntervieweeContext
 > => ({
     name: 'user-interview-topics-interviewees-create',
-    schema: UserInterviewTopicsIntervieweesCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsIntervieweesCreateSchema>) => {
+    schema: UserInterviewTopicsIntervieweesCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof UserInterviewTopicsIntervieweesCreateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.interviewee_identifier !== undefined) {
@@ -171,17 +169,21 @@ const userInterviewTopicsIntervieweesCreate = (): ToolBase<
     },
 })
 
-const UserInterviewTopicsIntervieweesDestroySchema = UserInterviewTopicsIntervieweesDestroyParams.omit({
-    project_id: true,
-})
+const UserInterviewTopicsIntervieweesDestroySchema = () => {
+    const UserInterviewTopicsIntervieweesDestroyParams = orvalSchemas.UserInterviewTopicsIntervieweesDestroyParams()
+    return UserInterviewTopicsIntervieweesDestroyParams.omit({ project_id: true })
+}
 
 const userInterviewTopicsIntervieweesDestroy = (): ToolBase<
-    typeof UserInterviewTopicsIntervieweesDestroySchema,
+    ReturnType<typeof UserInterviewTopicsIntervieweesDestroySchema>,
     unknown
 > => ({
     name: 'user-interview-topics-interviewees-destroy',
-    schema: UserInterviewTopicsIntervieweesDestroySchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsIntervieweesDestroySchema>) => {
+    schema: UserInterviewTopicsIntervieweesDestroySchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof UserInterviewTopicsIntervieweesDestroySchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -191,17 +193,24 @@ const userInterviewTopicsIntervieweesDestroy = (): ToolBase<
     },
 })
 
-const UserInterviewTopicsIntervieweesListSchema = UserInterviewTopicsIntervieweesListParams.omit({
-    project_id: true,
-}).extend(UserInterviewTopicsIntervieweesListQueryParams.shape)
+const UserInterviewTopicsIntervieweesListSchema = () => {
+    const UserInterviewTopicsIntervieweesListParams = orvalSchemas.UserInterviewTopicsIntervieweesListParams()
+    const UserInterviewTopicsIntervieweesListQueryParams = orvalSchemas.UserInterviewTopicsIntervieweesListQueryParams()
+    return UserInterviewTopicsIntervieweesListParams.omit({ project_id: true }).extend(
+        UserInterviewTopicsIntervieweesListQueryParams.shape
+    )
+}
 
 const userInterviewTopicsIntervieweesList = (): ToolBase<
-    typeof UserInterviewTopicsIntervieweesListSchema,
+    ReturnType<typeof UserInterviewTopicsIntervieweesListSchema>,
     WithPostHogUrl<Schemas.PaginatedIntervieweeContextList>
 > => ({
     name: 'user-interview-topics-interviewees-list',
-    schema: UserInterviewTopicsIntervieweesListSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsIntervieweesListSchema>) => {
+    schema: UserInterviewTopicsIntervieweesListSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof UserInterviewTopicsIntervieweesListSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedIntervieweeContextList>({
             method: 'GET',
@@ -215,17 +224,26 @@ const userInterviewTopicsIntervieweesList = (): ToolBase<
     },
 })
 
-const UserInterviewTopicsIntervieweesPartialUpdateSchema = UserInterviewTopicsIntervieweesPartialUpdateParams.omit({
-    project_id: true,
-}).extend(UserInterviewTopicsIntervieweesPartialUpdateBody.omit({ interviewee_identifier: true }).shape)
+const UserInterviewTopicsIntervieweesPartialUpdateSchema = () => {
+    const UserInterviewTopicsIntervieweesPartialUpdateBody =
+        orvalSchemas.UserInterviewTopicsIntervieweesPartialUpdateBody()
+    const UserInterviewTopicsIntervieweesPartialUpdateParams =
+        orvalSchemas.UserInterviewTopicsIntervieweesPartialUpdateParams()
+    return UserInterviewTopicsIntervieweesPartialUpdateParams.omit({ project_id: true }).extend(
+        UserInterviewTopicsIntervieweesPartialUpdateBody.omit({ interviewee_identifier: true }).shape
+    )
+}
 
 const userInterviewTopicsIntervieweesPartialUpdate = (): ToolBase<
-    typeof UserInterviewTopicsIntervieweesPartialUpdateSchema,
+    ReturnType<typeof UserInterviewTopicsIntervieweesPartialUpdateSchema>,
     Schemas.IntervieweeContext
 > => ({
     name: 'user-interview-topics-interviewees-partial-update',
-    schema: UserInterviewTopicsIntervieweesPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsIntervieweesPartialUpdateSchema>) => {
+    schema: UserInterviewTopicsIntervieweesPartialUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof UserInterviewTopicsIntervieweesPartialUpdateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.agent_context !== undefined) {
@@ -240,12 +258,15 @@ const userInterviewTopicsIntervieweesPartialUpdate = (): ToolBase<
     },
 })
 
-const UserInterviewTopicsLinksCsvSchema = UserInterviewTopicsLinksCsvCreateParams.omit({ project_id: true })
+const UserInterviewTopicsLinksCsvSchema = () => {
+    const UserInterviewTopicsLinksCsvCreateParams = orvalSchemas.UserInterviewTopicsLinksCsvCreateParams()
+    return UserInterviewTopicsLinksCsvCreateParams.omit({ project_id: true })
+}
 
-const userInterviewTopicsLinksCsv = (): ToolBase<typeof UserInterviewTopicsLinksCsvSchema, unknown> => ({
+const userInterviewTopicsLinksCsv = (): ToolBase<ReturnType<typeof UserInterviewTopicsLinksCsvSchema>, unknown> => ({
     name: 'user-interview-topics-links-csv',
-    schema: UserInterviewTopicsLinksCsvSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsLinksCsvSchema>) => {
+    schema: UserInterviewTopicsLinksCsvSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UserInterviewTopicsLinksCsvSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -255,15 +276,18 @@ const userInterviewTopicsLinksCsv = (): ToolBase<typeof UserInterviewTopicsLinks
     },
 })
 
-const UserInterviewTopicsListSchema = UserInterviewTopicsListQueryParams
+const UserInterviewTopicsListSchema = () => {
+    const UserInterviewTopicsListQueryParams = orvalSchemas.UserInterviewTopicsListQueryParams()
+    return UserInterviewTopicsListQueryParams
+}
 
 const userInterviewTopicsList = (): ToolBase<
-    typeof UserInterviewTopicsListSchema,
+    ReturnType<typeof UserInterviewTopicsListSchema>,
     WithPostHogUrl<Schemas.PaginatedUserInterviewTopicList>
 > => ({
     name: 'user-interview-topics-list',
-    schema: UserInterviewTopicsListSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsListSchema>) => {
+    schema: UserInterviewTopicsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UserInterviewTopicsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedUserInterviewTopicList>({
             method: 'GET',
@@ -278,17 +302,21 @@ const userInterviewTopicsList = (): ToolBase<
     },
 })
 
-const UserInterviewTopicsPartialUpdateSchema = UserInterviewTopicsPartialUpdateParams.omit({ project_id: true }).extend(
-    UserInterviewTopicsPartialUpdateBody.shape
-)
+const UserInterviewTopicsPartialUpdateSchema = () => {
+    const UserInterviewTopicsPartialUpdateBody = orvalSchemas.UserInterviewTopicsPartialUpdateBody()
+    const UserInterviewTopicsPartialUpdateParams = orvalSchemas.UserInterviewTopicsPartialUpdateParams()
+    return UserInterviewTopicsPartialUpdateParams.omit({ project_id: true }).extend(
+        UserInterviewTopicsPartialUpdateBody.shape
+    )
+}
 
 const userInterviewTopicsPartialUpdate = (): ToolBase<
-    typeof UserInterviewTopicsPartialUpdateSchema,
+    ReturnType<typeof UserInterviewTopicsPartialUpdateSchema>,
     Schemas.UserInterviewTopic
 > => ({
     name: 'user-interview-topics-partial-update',
-    schema: UserInterviewTopicsPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsPartialUpdateSchema>) => {
+    schema: UserInterviewTopicsPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UserInterviewTopicsPartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.interviewee_emails !== undefined) {
@@ -321,18 +349,25 @@ const userInterviewTopicsPartialUpdate = (): ToolBase<
     },
 })
 
-const UserInterviewTopicsPreviewInviteSchema = UserInterviewTopicsPreviewInviteCreateParams.omit({
-    project_id: true,
-}).extend(UserInterviewTopicsPreviewInviteCreateBody.shape)
+const UserInterviewTopicsPreviewInviteSchema = () => {
+    const UserInterviewTopicsPreviewInviteCreateBody = orvalSchemas.UserInterviewTopicsPreviewInviteCreateBody()
+    const UserInterviewTopicsPreviewInviteCreateParams = orvalSchemas.UserInterviewTopicsPreviewInviteCreateParams()
+    return UserInterviewTopicsPreviewInviteCreateParams.omit({ project_id: true }).extend(
+        UserInterviewTopicsPreviewInviteCreateBody.shape
+    )
+}
 
 const userInterviewTopicsPreviewInvite = (): ToolBase<
-    typeof UserInterviewTopicsPreviewInviteSchema,
+    ReturnType<typeof UserInterviewTopicsPreviewInviteSchema>,
     Schemas.PreviewInviteResult
 > =>
     withUiApp('invite-email-preview', {
         name: 'user-interview-topics-preview-invite',
-        schema: UserInterviewTopicsPreviewInviteSchema,
-        handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsPreviewInviteSchema>) => {
+        schema: UserInterviewTopicsPreviewInviteSchema(),
+        handler: async (
+            context: Context,
+            params: z.infer<ReturnType<typeof UserInterviewTopicsPreviewInviteSchema>>
+        ) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
             if (params.interviewee_identifier !== undefined) {
@@ -347,17 +382,25 @@ const userInterviewTopicsPreviewInvite = (): ToolBase<
         },
     })
 
-const UserInterviewTopicsRemoveIntervieweeSchema = UserInterviewTopicsRemoveIntervieweeCreateParams.omit({
-    project_id: true,
-}).extend(UserInterviewTopicsRemoveIntervieweeCreateBody.shape)
+const UserInterviewTopicsRemoveIntervieweeSchema = () => {
+    const UserInterviewTopicsRemoveIntervieweeCreateBody = orvalSchemas.UserInterviewTopicsRemoveIntervieweeCreateBody()
+    const UserInterviewTopicsRemoveIntervieweeCreateParams =
+        orvalSchemas.UserInterviewTopicsRemoveIntervieweeCreateParams()
+    return UserInterviewTopicsRemoveIntervieweeCreateParams.omit({ project_id: true }).extend(
+        UserInterviewTopicsRemoveIntervieweeCreateBody.shape
+    )
+}
 
 const userInterviewTopicsRemoveInterviewee = (): ToolBase<
-    typeof UserInterviewTopicsRemoveIntervieweeSchema,
+    ReturnType<typeof UserInterviewTopicsRemoveIntervieweeSchema>,
     Schemas.UserInterviewTopic
 > => ({
     name: 'user-interview-topics-remove-interviewee',
-    schema: UserInterviewTopicsRemoveIntervieweeSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsRemoveIntervieweeSchema>) => {
+    schema: UserInterviewTopicsRemoveIntervieweeSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof UserInterviewTopicsRemoveIntervieweeSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.identifier !== undefined) {
@@ -372,15 +415,18 @@ const userInterviewTopicsRemoveInterviewee = (): ToolBase<
     },
 })
 
-const UserInterviewTopicsRetrieveSchema = UserInterviewTopicsRetrieveParams.omit({ project_id: true })
+const UserInterviewTopicsRetrieveSchema = () => {
+    const UserInterviewTopicsRetrieveParams = orvalSchemas.UserInterviewTopicsRetrieveParams()
+    return UserInterviewTopicsRetrieveParams.omit({ project_id: true })
+}
 
 const userInterviewTopicsRetrieve = (): ToolBase<
-    typeof UserInterviewTopicsRetrieveSchema,
+    ReturnType<typeof UserInterviewTopicsRetrieveSchema>,
     Schemas.UserInterviewTopic
 > => ({
     name: 'user-interview-topics-retrieve',
-    schema: UserInterviewTopicsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsRetrieveSchema>) => {
+    schema: UserInterviewTopicsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UserInterviewTopicsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.UserInterviewTopic>({
             method: 'GET',
@@ -390,17 +436,21 @@ const userInterviewTopicsRetrieve = (): ToolBase<
     },
 })
 
-const UserInterviewTopicsSendInvitesSchema = UserInterviewTopicsSendInvitesCreateParams.omit({
-    project_id: true,
-}).extend(UserInterviewTopicsSendInvitesCreateBody.shape)
+const UserInterviewTopicsSendInvitesSchema = () => {
+    const UserInterviewTopicsSendInvitesCreateBody = orvalSchemas.UserInterviewTopicsSendInvitesCreateBody()
+    const UserInterviewTopicsSendInvitesCreateParams = orvalSchemas.UserInterviewTopicsSendInvitesCreateParams()
+    return UserInterviewTopicsSendInvitesCreateParams.omit({ project_id: true }).extend(
+        UserInterviewTopicsSendInvitesCreateBody.shape
+    )
+}
 
 const userInterviewTopicsSendInvites = (): ToolBase<
-    typeof UserInterviewTopicsSendInvitesSchema,
+    ReturnType<typeof UserInterviewTopicsSendInvitesSchema>,
     Schemas.PaginatedInterviewInviteResultList
 > => ({
     name: 'user-interview-topics-send-invites',
-    schema: UserInterviewTopicsSendInvitesSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsSendInvitesSchema>) => {
+    schema: UserInterviewTopicsSendInvitesSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UserInterviewTopicsSendInvitesSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.subject !== undefined) {
@@ -421,15 +471,18 @@ const userInterviewTopicsSendInvites = (): ToolBase<
     },
 })
 
-const UserInterviewsListSchema = UserInterviewsListQueryParams
+const UserInterviewsListSchema = () => {
+    const UserInterviewsListQueryParams = orvalSchemas.UserInterviewsListQueryParams()
+    return UserInterviewsListQueryParams
+}
 
 const userInterviewsList = (): ToolBase<
-    typeof UserInterviewsListSchema,
+    ReturnType<typeof UserInterviewsListSchema>,
     WithPostHogUrl<Schemas.PaginatedUserInterviewList>
 > => ({
     name: 'user-interviews-list',
-    schema: UserInterviewsListSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewsListSchema>) => {
+    schema: UserInterviewsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UserInterviewsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedUserInterviewList>({
             method: 'GET',
@@ -445,14 +498,21 @@ const userInterviewsList = (): ToolBase<
     },
 })
 
-const UserInterviewsPartialUpdateSchema = UserInterviewsPartialUpdateParams.omit({ project_id: true }).extend(
-    UserInterviewsPartialUpdateBody.omit({ interviewee_emails: true, summary: true, audio: true }).shape
-)
+const UserInterviewsPartialUpdateSchema = () => {
+    const UserInterviewsPartialUpdateBody = orvalSchemas.UserInterviewsPartialUpdateBody()
+    const UserInterviewsPartialUpdateParams = orvalSchemas.UserInterviewsPartialUpdateParams()
+    return UserInterviewsPartialUpdateParams.omit({ project_id: true }).extend(
+        UserInterviewsPartialUpdateBody.omit({ interviewee_emails: true, summary: true, audio: true }).shape
+    )
+}
 
-const userInterviewsPartialUpdate = (): ToolBase<typeof UserInterviewsPartialUpdateSchema, Schemas.UserInterview> => ({
+const userInterviewsPartialUpdate = (): ToolBase<
+    ReturnType<typeof UserInterviewsPartialUpdateSchema>,
+    Schemas.UserInterview
+> => ({
     name: 'user-interviews-partial-update',
-    schema: UserInterviewsPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewsPartialUpdateSchema>) => {
+    schema: UserInterviewsPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UserInterviewsPartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.classifications !== undefined) {
@@ -467,12 +527,18 @@ const userInterviewsPartialUpdate = (): ToolBase<typeof UserInterviewsPartialUpd
     },
 })
 
-const UserInterviewsRetrieveSchema = UserInterviewsRetrieveParams.omit({ project_id: true })
+const UserInterviewsRetrieveSchema = () => {
+    const UserInterviewsRetrieveParams = orvalSchemas.UserInterviewsRetrieveParams()
+    return UserInterviewsRetrieveParams.omit({ project_id: true })
+}
 
-const userInterviewsRetrieve = (): ToolBase<typeof UserInterviewsRetrieveSchema, Schemas.UserInterview> => ({
+const userInterviewsRetrieve = (): ToolBase<
+    ReturnType<typeof UserInterviewsRetrieveSchema>,
+    Schemas.UserInterview
+> => ({
     name: 'user-interviews-retrieve',
-    schema: UserInterviewsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewsRetrieveSchema>) => {
+    schema: UserInterviewsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UserInterviewsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.UserInterview>({
             method: 'GET',
@@ -482,12 +548,18 @@ const userInterviewsRetrieve = (): ToolBase<typeof UserInterviewsRetrieveSchema,
     },
 })
 
-const UserInterviewsSearchSchema = UserInterviewsSearchCreateBody
+const UserInterviewsSearchSchema = () => {
+    const UserInterviewsSearchCreateBody = orvalSchemas.UserInterviewsSearchCreateBody()
+    return UserInterviewsSearchCreateBody
+}
 
-const userInterviewsSearch = (): ToolBase<typeof UserInterviewsSearchSchema, Schemas.UserInterviewSearchResult[]> => ({
+const userInterviewsSearch = (): ToolBase<
+    ReturnType<typeof UserInterviewsSearchSchema>,
+    Schemas.UserInterviewSearchResult[]
+> => ({
     name: 'user-interviews-search',
-    schema: UserInterviewsSearchSchema,
-    handler: async (context: Context, params: z.infer<typeof UserInterviewsSearchSchema>) => {
+    schema: UserInterviewsSearchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof UserInterviewsSearchSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {

@@ -56,12 +56,14 @@ import { expressionModalLogic } from 'scenes/data-warehouse/expressionModalLogic
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { DatabaseSerializedFieldType, externalDataSources } from '~/queries/schema/schema-general'
+import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { endpointModelUrl } from 'products/data_modeling/frontend/endpointModelName'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
+import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { TableCertificationIcon } from '../../TableCertificationBadge'
@@ -368,16 +370,7 @@ export const QueryDatabase = ({
         router.actions.push(url)
     }
 
-    const getEndpointUrl = (item: TreeDataItem): string => {
-        const endpointName = item.record?.table?.name ?? item.name
-        const versionMatch = endpointName.match(/^(.+)_v(\d+)$/)
-
-        if (versionMatch) {
-            return urls.endpoint(versionMatch[1], parseInt(versionMatch[2], 10))
-        }
-
-        return urls.endpoint(item.name)
-    }
+    const getEndpointUrl = (item: TreeDataItem): string => endpointModelUrl(item.record?.table?.name ?? item.name)
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
@@ -1004,27 +997,6 @@ export const QueryDatabase = ({
                                     </ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
-                            {addJoinSourceTableName ? (
-                                <DropdownMenuItem
-                                    asChild
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        if (addJoinAccessDisabledReason) {
-                                            return
-                                        }
-                                        openNewExpressionModal(addJoinSourceTableName)
-                                    }}
-                                >
-                                    <ButtonPrimitive
-                                        menuItem
-                                        disabledReasons={
-                                            addJoinAccessDisabledReason ? { [addJoinAccessDisabledReason]: true } : {}
-                                        }
-                                    >
-                                        Add expression
-                                    </ButtonPrimitive>
-                                </DropdownMenuItem>
-                            ) : null}
                             {item.record.type === 'view' ? (
                                 <DropdownMenuItem
                                     asChild
@@ -1153,7 +1125,7 @@ export const QueryDatabase = ({
                 // External source folders get an actions menu: edit the source and add a new one of this type
                 if (
                     item.record?.type === 'source-folder' &&
-                    externalDataSources.includes(item.record?.sourceType as (typeof externalDataSources)[number])
+                    Object.values(ExternalDataSourceTypeEnumApi).includes(item.record?.sourceType)
                 ) {
                     const sourceType = item.record?.sourceType
                     const sources: { id: string; label: string }[] = item.record?.sources ?? []

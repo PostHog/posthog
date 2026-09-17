@@ -21,6 +21,7 @@ function AccessStepStory({
         plan={plan}
         onChange={setPlan}
         savedVariableKeys={savedVariableKeys}
+        error={null}
       />
     </div>
   );

@@ -16,6 +16,8 @@ For a new dashboard feature, record these decisions before you select implementa
 
 Do not use a feature flag as a substitute for a permission check.
 
+For persisted list state, store only the state the list can apply. Do not store transient navigation or popover state.
+
 ## Lifecycle matrix
 
 For persisted feature state, mark each operation as `preserve`, `copy`, `reset`, `omit`, or `not applicable`.
@@ -47,6 +49,8 @@ If the feature needs a gate, define:
 5. The gate-removal condition and owner.
 
 Check both the backend and frontend gate. The backend must reject a mutation that the frontend hides.
+
+If the rollout is organization-scoped, evaluate the flag without a user identity. Do not let user-specific targeting split the organization.
 
 ## Acceptance criteria and test layers
 

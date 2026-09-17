@@ -18,6 +18,24 @@ pub const CAPTURE_V1_PATH: &str = "/i/v1/analytics/events";
 /// Trailing-slash variant registered so both URL forms resolve to the same handler.
 pub(super) const CAPTURE_V1_PATH_TRAILING: &str = "/i/v1/analytics/events/";
 
+/// Primary route path for the v1 endpoint on the AI lane. Served only by
+/// `CaptureMode::Ai`; `crate::router` owns the mode gating and
+/// [`super::router::ai_routes`] the rationale.
+pub const CAPTURE_V1_AI_PATH: &str = "/i/v1/ai/events";
+
+/// Trailing-slash variant registered so both URL forms resolve to the same handler.
+pub(super) const CAPTURE_V1_AI_PATH_TRAILING: &str = "/i/v1/ai/events/";
+
+/// Every path the v1 batch handler serves. `pin_static_path` resolves a
+/// request's `MatchedPath` against this list to the `&'static str` label the
+/// request's metrics and warnings carry.
+pub(super) const CAPTURE_V1_PATHS: &[&str] = &[
+    CAPTURE_V1_PATH,
+    CAPTURE_V1_PATH_TRAILING,
+    CAPTURE_V1_AI_PATH,
+    CAPTURE_V1_AI_PATH_TRAILING,
+];
+
 // ---------------------------------------------------------------------------
 // Metrics keys
 // ---------------------------------------------------------------------------
@@ -51,6 +69,10 @@ pub(super) const DETAIL_EVENT_RESTRICTION_DROP: &str = "event_restriction_drop";
 /// Detail tag for batches dropped by an Import-mode deployment because they
 /// were not flagged `historical_migration: true`.
 pub(super) const DETAIL_NON_HISTORICAL_DROP: &str = "non_historical_import_drop";
+
+/// Detail tag for events dropped by an AI-mode deployment because they are not
+/// on the AI lane.
+pub(super) const DETAIL_NON_AI_EVENT: &str = "non_ai_event";
 
 /// Detail tag for events dropped due to uncoercible options fields.
 pub(super) const DETAIL_INVALID_OPTIONS: &str = "invalid_options";

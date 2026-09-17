@@ -19,9 +19,12 @@ from clickhouse_driver import Client as SyncClient
 from opentelemetry import trace
 from prometheus_client import Counter
 
-from posthog.api_queries_quota import increment_api_queries_bytes
+from posthog.hogql import query_stats
+
+from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER, QueryCost, debit, record_request_query_cost
 from posthog.clickhouse.client.connection import (
     ClickHouseUser,
+    QuerySummary,
     Workload,
     get_client_from_pool,
     get_default_clickhouse_workload_type,
@@ -41,6 +44,7 @@ from posthog.clickhouse.query_tagging import (
 )
 from posthog.dataclasses import frozen
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
+from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
 from posthog.utils import generate_short_id, patchable
 
@@ -213,6 +217,70 @@ def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
     if _KILL_SWITCH_SEVERITY[team_level] > _KILL_SWITCH_SEVERITY[level]:
         return team_level
     return level
+
+
+def _meter_chargeable_query(team_id: str, query_info: Any) -> None:
+    # Runs after the pooled connection is released, and must never raise: a metering failure
+    # is an error counter, not a failed query.
+    try:
+        bytes_read = int(query_info.progress.bytes or 0)
+        remaining = debit(team_id, bytes_read)
+        record_request_query_cost(QueryCost(bytes_read=bytes_read, remaining_bytes=remaining))
+    except Exception as e:
+        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="meter").inc()
+        capture_exception(e)
+
+
+def _chargeable_query_info(client: Any, query_info_before: Any) -> Optional[Any]:
+    """The query info to meter for the query that just ran on `client`, or None.
+
+    The driver only creates a new query info once the connection is established, so the identity
+    check keeps a pooled client's previous query from being re-metered when connecting fails.
+    The driver also clears `last_query` when it disconnects after a server-side error, so a query
+    the server killed is not metered.
+    """
+    query_info = getattr(client, "last_query", None)
+    if query_info is None or query_info is query_info_before or not query_info.progress:
+        return None
+    return query_info
+
+
+def _query_stats_summary(client: Any, query_info_before: Any) -> Optional[QuerySummary]:
+    """What the query that just ran on `client` read, or None when nothing was recorded.
+
+    A stopped query's record is taken from the stash, because the reconnect after the error cleared
+    it. A record unchanged since before the call belongs to an earlier query on the same pooled client.
+    """
+    if not hasattr(client, "last_query"):
+        return getattr(client, "last_query_summary", None)
+    query_info = client.last_query
+    if query_info is None:
+        take_stashed = getattr(client, "take_last_query_before_reset", None)
+        query_info = take_stashed() if take_stashed is not None else None
+    if query_info is None or query_info is query_info_before or not query_info.progress:
+        return None
+    progress = query_info.progress
+    return QuerySummary(
+        rows=int(progress.rows or 0),
+        elapsed_ns=int(progress.elapsed_ns or 0),
+    )
+
+
+def _record_query_stats(client: Any, query_info_before: Any, execute_start_time: float) -> None:
+    """Add what this query read to the request's totals.
+
+    Also runs after a failure, since a stopped query has still read rows. Never raises: the totals
+    are advisory.
+    """
+    try:
+        summary = _query_stats_summary(client, query_info_before)
+        if summary is None:
+            return
+        # elapsed_ns is 0 on old protocol revisions; fall back to the client-side round trip.
+        duration_ms = summary.elapsed_ns / 1e6 if summary.elapsed_ns else (perf_counter() - execute_start_time) * 1000
+        query_stats.record(rows_read=summary.rows, duration_ms=duration_ms)
+    except Exception:
+        logger.warning("query_stats_record_failed", exc_info=True)
 
 
 def kill_switch_overrides(team_id: Optional[int], ch_user: ClickHouseUser = ClickHouseUser.DEFAULT) -> dict[str, int]:
@@ -507,6 +575,7 @@ def sync_execute(
         else:
             settings["use_hedged_requests"] = "1" if get_hedged_app_queries_enabled() else "0"
     start_time = perf_counter()
+    chargeable_query_info: Optional[Any] = None
 
     try:
         QUERY_STARTED_COUNTER.labels(
@@ -519,6 +588,9 @@ def sync_execute(
             sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client,
         ):
             query_info_before = getattr(client, "last_query", None)
+            # Taken after the concurrency slot and the pool checkout, so the fallback does not count
+            # the queue wait.
+            execute_start_time = perf_counter()
             try:
                 result = client.execute(
                     prepared_sql,
@@ -530,18 +602,11 @@ def sync_execute(
                 )
             finally:
                 # A query killed mid-scan (timeout, memory limit) has already cost the read, so
-                # meter the progress the server reported before it died. The driver only resets
-                # `last_query` once the connection is established; the identity check keeps a
-                # pooled client's previous query from being re-metered when connecting fails.
-                query_info = getattr(client, "last_query", None)
-                if (
-                    tags.chargeable
-                    and tags.org_id
-                    and query_info is not None
-                    and query_info is not query_info_before
-                    and query_info.progress
-                ):
-                    increment_api_queries_bytes(str(tags.org_id), query_info.progress.bytes)
+                # keep the progress the server reported before it died. The Redis write happens
+                # in the outer finally, once the connection is back in the pool.
+                if tags.chargeable and tags.team_id:
+                    chargeable_query_info = _chargeable_query_info(client, query_info_before)
+                _record_query_stats(client, query_info_before, execute_start_time)
             if (
                 "INSERT INTO" in prepared_sql
                 and hasattr(client, "last_query")
@@ -557,9 +622,15 @@ def sync_execute(
             chargeable=str(tags.chargeable or "0"),
         ).inc()
         err = wrap_clickhouse_query_error(e)
+        # The wrapper returns the same object for anything that is not a ServerException. Raising
+        # that with `from e` makes the exception its own __cause__.
+        if err is e:
+            raise
         raise err from e
     finally:
         execution_time = perf_counter() - start_time
+        if chargeable_query_info is not None:
+            _meter_chargeable_query(str(tags.team_id), chargeable_query_info)
 
         QUERY_FINISHED_COUNTER.labels(
             team_id=str(team_id or ""),

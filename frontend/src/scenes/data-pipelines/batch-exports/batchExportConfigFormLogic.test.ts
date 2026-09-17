@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
-import { BatchExportConfiguration } from '~/types'
+import { BatchExportConfiguration, BatchExportServiceSnowflake } from '~/types'
 
 import {
     BatchExportConfigFormLogicProps,
@@ -135,42 +135,43 @@ const POSTGRES_BATCH_EXPORT = fixture('fixture-postgres', 'Postgres Export', {
     },
 })
 
-const SNOWFLAKE_PASSWORD_BATCH_EXPORT = fixture('fixture-snowflake-password', 'Snowflake Password Export', {
+const SNOWFLAKE_BATCH_EXPORT = fixture('fixture-snowflake', 'Snowflake Export', {
     type: 'Snowflake',
+    integration: 51,
     config: {
-        account: 'sf-account',
         database: 'sf-db',
         warehouse: 'sf-wh',
-        user: 'sf-user',
-        authentication_type: 'password',
-        password: 'sf-pass',
-        private_key: null,
-        private_key_passphrase: null,
         schema: 'public',
         table_name: 'events',
-        role: null,
+        role: 'sf-role',
         exclude_events: [],
         include_events: [],
     },
 })
 
-const SNOWFLAKE_KEYPAIR_BATCH_EXPORT = fixture('fixture-snowflake-keypair', 'Snowflake Keypair Export', {
+// A migrated export: credentials moved to the integration, but the account and authentication
+// values they came with are still in the stored config. The stale keys are deliberate.
+const SNOWFLAKE_STALE_CONFIG = {
+    database: 'sf-db',
+    warehouse: 'sf-wh',
+    schema: 'public',
+    table_name: 'events',
+    role: null,
+    exclude_events: [],
+    include_events: [],
+    account: 'sf-account',
+    user: 'sf-user',
+    authentication_type: 'password',
+    password: 'sf-pass',
+    private_key: null,
+    private_key_passphrase: null,
+    // `satisfies` keeps the real fields checked; the index signature admits the stale keys.
+} satisfies BatchExportServiceSnowflake['config'] & Record<string, unknown>
+
+const SNOWFLAKE_STALE_BATCH_EXPORT = fixture('fixture-snowflake-stale', 'Snowflake Stale Export', {
     type: 'Snowflake',
-    config: {
-        account: 'sf-account',
-        database: 'sf-db',
-        warehouse: 'sf-wh',
-        user: 'sf-user',
-        authentication_type: 'keypair',
-        password: null,
-        private_key: 'priv-key',
-        private_key_passphrase: 'priv-pass',
-        schema: 'public',
-        table_name: 'events',
-        role: null,
-        exclude_events: [],
-        include_events: [],
-    },
+    integration: 51,
+    config: SNOWFLAKE_STALE_CONFIG,
 })
 
 // Note: `authorization_mode` is intentionally absent from these Redshift fixtures' config —
@@ -188,6 +189,23 @@ const REDSHIFT_INSERT_BATCH_EXPORT = fixture('fixture-redshift-insert', 'Redshif
         properties_data_type: 'SUPER' as any,
         mode: 'INSERT',
         copy_inputs: null,
+        exclude_events: [],
+        include_events: [],
+    } as any,
+})
+
+// Redshift exports created before the COPY option existed store no `mode` at all.
+const REDSHIFT_NO_MODE_BATCH_EXPORT = fixture('fixture-redshift-no-mode', 'Redshift Legacy Export', {
+    type: 'Redshift',
+    config: {
+        user: 'rs-user',
+        password: 'rs-pass',
+        host: 'rs-host',
+        port: 5439,
+        database: 'rs-db',
+        schema: 'public',
+        table_name: 'events',
+        properties_data_type: 'SUPER' as any,
         exclude_events: [],
         include_events: [],
     } as any,
@@ -292,6 +310,69 @@ const AZUREBLOB_BATCH_EXPORT = fixture('fixture-azureblob', 'Azure Blob Export',
     },
 })
 
+// Only a plain Redshift connection stores its own host. AWS ones mint temporary credentials for a
+// cluster endpoint the export has to carry itself, so `host` is required alongside them.
+const AWS_REDSHIFT_INTEGRATION = {
+    id: 21,
+    kind: 'aws-redshift',
+    display_name: 'prod-redshift (AWS role)',
+    config: { name: 'prod-redshift', aws_role_arn: 'arn:aws:iam::123456789012:role/rs', user: 'awsuser' },
+    created_at: '2024-01-01T00:00:00Z',
+}
+
+const PLAIN_REDSHIFT_INTEGRATION = {
+    id: 22,
+    kind: 'aws-redshift',
+    display_name: 'posthog@rs-host',
+    config: { host: 'rs-host', port: 5439, user: 'posthog', ssl_mode: 'require' },
+    created_at: '2024-01-01T00:00:00Z',
+}
+
+const S3_STAGING_INTEGRATION = {
+    id: 31,
+    kind: 'aws-s3',
+    display_name: 'staging-bucket-creds',
+    config: { name: 'staging-bucket-creds', aws_account_id: '123456789012' },
+    created_at: '2024-01-01T00:00:00Z',
+}
+
+const S3_READER_INTEGRATION = {
+    id: 32,
+    kind: 'aws-s3',
+    display_name: 'redshift-reader',
+    config: { name: 'redshift-reader', aws_role_arn: 'arn:aws:iam::123456789012:role/reader' },
+    created_at: '2024-01-01T00:00:00Z',
+}
+
+// Integration-backed COPY: both staging and read-back credentials are integration ids, and they
+// differ, so this covers the number branch of copy_inputs on the way in and out.
+const REDSHIFT_COPY_INTEGRATIONS_BATCH_EXPORT = fixture(
+    'fixture-redshift-copy-integrations',
+    'Redshift COPY Integrations Export',
+    {
+        type: 'Redshift',
+        integration: AWS_REDSHIFT_INTEGRATION.id,
+        config: {
+            host: 'rs-host',
+            port: 5439,
+            database: 'rs-db',
+            schema: 'public',
+            table_name: 'events',
+            properties_data_type: 'super',
+            mode: 'COPY',
+            copy_inputs: {
+                s3_bucket: 'rs-staging',
+                s3_key_prefix: 'rs/copy/',
+                region_name: 'us-east-1',
+                bucket_credentials: S3_STAGING_INTEGRATION.id,
+                authorization: S3_READER_INTEGRATION.id,
+            },
+            exclude_events: [],
+            include_events: [],
+        } as any,
+    }
+)
+
 // Single map keyed by id; used to register GET + PATCH mocks dynamically below.
 const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
     AWS_S3_BATCH_EXPORT,
@@ -300,11 +381,13 @@ const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
     BIGQUERY_BATCH_EXPORT,
     BIGQUERY_STALE_BATCH_EXPORT,
     POSTGRES_BATCH_EXPORT,
-    SNOWFLAKE_PASSWORD_BATCH_EXPORT,
-    SNOWFLAKE_KEYPAIR_BATCH_EXPORT,
+    SNOWFLAKE_BATCH_EXPORT,
+    SNOWFLAKE_STALE_BATCH_EXPORT,
     REDSHIFT_INSERT_BATCH_EXPORT,
+    REDSHIFT_NO_MODE_BATCH_EXPORT,
     REDSHIFT_COPY_IAM_BATCH_EXPORT,
     REDSHIFT_COPY_CREDENTIALS_BATCH_EXPORT,
+    REDSHIFT_COPY_INTEGRATIONS_BATCH_EXPORT,
     HTTP_BATCH_EXPORT,
     DATABRICKS_BATCH_EXPORT,
     AZUREBLOB_BATCH_EXPORT,
@@ -361,6 +444,15 @@ describe('batchExportConfigFormLogic', () => {
             get: {
                 ...getMocks,
                 '/api/environments/:team_id/batch_exports/test': { steps: [] },
+                '/api/projects/:team_id/integrations/': {
+                    count: 4,
+                    results: [
+                        AWS_REDSHIFT_INTEGRATION,
+                        PLAIN_REDSHIFT_INTEGRATION,
+                        S3_STAGING_INTEGRATION,
+                        S3_READER_INTEGRATION,
+                    ],
+                },
             },
             post: {
                 '/api/environments/:team_id/batch_exports/': async ({ request }) => {
@@ -432,8 +524,19 @@ describe('batchExportConfigFormLogic', () => {
                 fields: ['integration_id', 'database', 'schema', 'table_name'],
             },
             {
+                // New Redshift exports authenticate via an integration, and default to COPY, which
+                // stages files through an S3 connection. `host` only joins once a connection is
+                // picked, since a plain one carries its own.
                 service: 'Redshift' as const,
-                fields: ['user', 'password', 'host', 'port', 'database', 'schema', 'table_name'],
+                fields: [
+                    'integration_id',
+                    'database',
+                    'schema',
+                    'table_name',
+                    'redshift_s3_bucket',
+                    'redshift_s3_bucket_region_name',
+                    'redshift_s3_integration_id',
+                ],
             },
             {
                 // New Snowflake exports authenticate via an integration, not inline credentials.
@@ -616,8 +719,7 @@ describe('batchExportConfigFormLogic', () => {
 
             logic.actions.setConfigurationValues({
                 ...logic.values.configuration,
-                user: 'rs-user',
-                password: 'rs-pass',
+                integration_id: AWS_REDSHIFT_INTEGRATION.id,
                 host: 'rs-host',
                 port: 5439,
                 database: 'rs-db',
@@ -627,7 +729,7 @@ describe('batchExportConfigFormLogic', () => {
                 redshift_s3_bucket: 'INVALID-BUCKET',
                 redshift_s3_key_prefix: 'rs/',
                 redshift_s3_bucket_region_name: 'us-east-1',
-                redshift_iam_role: 'arn:aws:iam::123:role/rs',
+                redshift_s3_integration_id: S3_STAGING_INTEGRATION.id,
                 interval: 'hour',
                 name: 'Test Export',
                 model: 'events',
@@ -637,6 +739,35 @@ describe('batchExportConfigFormLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.configurationErrors.redshift_s3_bucket).toBe(expected)
+        })
+    })
+
+    describe('Redshift host requirement follows the picked connection', () => {
+        // A plain Redshift connection stores its own host, an AWS one does not. Getting this wrong
+        // either blocks plain-connection users from saving, or lets AWS-connection exports save
+        // without the cluster endpoint they need at run time.
+        it.each([
+            { name: 'AWS connection', integration: AWS_REDSHIFT_INTEGRATION, expected: 'This field is required' },
+            { name: 'plain connection', integration: PLAIN_REDSHIFT_INTEGRATION, expected: undefined },
+        ])('$name → host error: $expected', async ({ integration, expected }) => {
+            await initLogic({ service: 'Redshift', id: null })
+
+            logic.actions.setConfigurationValues({
+                ...logic.values.configuration,
+                integration_id: integration.id,
+                mode: 'INSERT',
+                database: 'rs-db',
+                schema: 'public',
+                table_name: 'events',
+                interval: 'hour',
+                name: 'Test Export',
+                model: 'events',
+            })
+
+            logic.actions.submitConfiguration()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.configurationErrors.host).toBe(expected)
         })
     })
 
@@ -676,6 +807,27 @@ describe('batchExportConfigFormLogic', () => {
                     include_events: [],
                 },
             })
+        })
+    })
+
+    describe('Redshift export with no stored mode', () => {
+        // Exports predating the COPY option store no `mode`. Without a default the Command select
+        // renders blank, so the user has to guess which value reproduces what the export already
+        // does. INSERT is that value, and saving writes it back.
+        it('defaults to INSERT and persists it on save', async () => {
+            await initLogic({ service: null, id: REDSHIFT_NO_MODE_BATCH_EXPORT.id })
+
+            expect(logic.values.configuration.mode).toBe('INSERT')
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            })
+                .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+                .toFinishAllListeners()
+
+            const body = patchBodiesById[REDSHIFT_NO_MODE_BATCH_EXPORT.id]
+            expect(body.destination.config.mode).toBe('INSERT')
+            expect(body.destination.config.copy_inputs).toBeNull()
         })
     })
 
@@ -760,8 +912,8 @@ describe('batchExportConfigFormLogic', () => {
                 expected: {
                     destination: 'Redshift',
                     mode: 'COPY',
-                    authorization_mode: 'IAMRole',
-                    properties_data_type: 'SUPER',
+                    authorization_mode: 'SameConnection',
+                    properties_data_type: 'super',
                     paused: true,
                     model: 'events',
                 },
@@ -894,11 +1046,12 @@ describe('batchExportConfigFormLogic', () => {
                 },
             },
             {
-                name: 'Redshift (default COPY + IAM)',
+                // Default COPY: one S3 connection stages the files and Redshift reads them back
+                // through the same one, so both copy_inputs credentials carry that id.
+                name: 'Redshift (default COPY, same S3 connection)',
                 service: 'Redshift' as const,
                 requiredValues: {
-                    user: 'rs-user',
-                    password: 'rs-pass',
+                    integration_id: AWS_REDSHIFT_INTEGRATION.id,
                     host: 'rs-host',
                     port: 5439,
                     database: 'rs-db',
@@ -907,24 +1060,131 @@ describe('batchExportConfigFormLogic', () => {
                     redshift_s3_bucket: 'rs-staging',
                     redshift_s3_key_prefix: 'rs/copy/',
                     redshift_s3_bucket_region_name: 'us-east-1',
-                    redshift_iam_role: 'arn:aws:iam::123:role/rs',
+                    redshift_s3_integration_id: S3_STAGING_INTEGRATION.id,
                 },
                 expectedDestination: {
                     type: 'Redshift',
+                    integration: AWS_REDSHIFT_INTEGRATION.id,
                     config: {
-                        user: 'rs-user',
-                        password: 'rs-pass',
                         host: 'rs-host',
                         port: 5439,
                         database: 'rs-db',
                         schema: 'public',
                         table_name: 'events',
-                        properties_data_type: 'SUPER',
+                        properties_data_type: 'super',
                         mode: 'COPY',
                         copy_inputs: {
                             s3_bucket: 'rs-staging',
                             s3_key_prefix: 'rs/copy/',
                             region_name: 'us-east-1',
+                            bucket_credentials: S3_STAGING_INTEGRATION.id,
+                            authorization: S3_STAGING_INTEGRATION.id,
+                        },
+                    },
+                },
+            },
+            {
+                // A blank S3 key prefix is valid: the backend defaults a missing prefix to the
+                // bucket root. The form must not require it, and must omit it from the payload when
+                // unset so the backend applies that default.
+                name: 'Redshift (COPY, blank S3 key prefix stages at bucket root)',
+                service: 'Redshift' as const,
+                requiredValues: {
+                    integration_id: AWS_REDSHIFT_INTEGRATION.id,
+                    host: 'rs-host',
+                    database: 'rs-db',
+                    schema: 'public',
+                    table_name: 'events',
+                    redshift_s3_bucket: 'rs-staging',
+                    redshift_s3_bucket_region_name: 'us-east-1',
+                    redshift_s3_integration_id: S3_STAGING_INTEGRATION.id,
+                },
+                expectedDestination: {
+                    type: 'Redshift',
+                    integration: AWS_REDSHIFT_INTEGRATION.id,
+                    config: {
+                        host: 'rs-host',
+                        database: 'rs-db',
+                        schema: 'public',
+                        table_name: 'events',
+                        properties_data_type: 'super',
+                        mode: 'COPY',
+                        copy_inputs: {
+                            s3_bucket: 'rs-staging',
+                            region_name: 'us-east-1',
+                            bucket_credentials: S3_STAGING_INTEGRATION.id,
+                            authorization: S3_STAGING_INTEGRATION.id,
+                        },
+                    },
+                },
+            },
+            {
+                name: 'Redshift (COPY, different S3 connection for Redshift)',
+                service: 'Redshift' as const,
+                requiredValues: {
+                    integration_id: AWS_REDSHIFT_INTEGRATION.id,
+                    host: 'rs-host',
+                    database: 'rs-db',
+                    schema: 'public',
+                    table_name: 'events',
+                    redshift_s3_bucket: 'rs-staging',
+                    redshift_s3_key_prefix: 'rs/copy/',
+                    redshift_s3_bucket_region_name: 'us-east-1',
+                    redshift_s3_integration_id: S3_STAGING_INTEGRATION.id,
+                    authorization_mode: 'DifferentConnection',
+                    redshift_authorization_integration_id: S3_READER_INTEGRATION.id,
+                },
+                expectedDestination: {
+                    type: 'Redshift',
+                    integration: AWS_REDSHIFT_INTEGRATION.id,
+                    config: {
+                        host: 'rs-host',
+                        database: 'rs-db',
+                        schema: 'public',
+                        table_name: 'events',
+                        properties_data_type: 'super',
+                        mode: 'COPY',
+                        copy_inputs: {
+                            s3_bucket: 'rs-staging',
+                            s3_key_prefix: 'rs/copy/',
+                            region_name: 'us-east-1',
+                            bucket_credentials: S3_STAGING_INTEGRATION.id,
+                            authorization: S3_READER_INTEGRATION.id,
+                        },
+                    },
+                },
+            },
+            {
+                name: 'Redshift (COPY, cluster IAM role)',
+                service: 'Redshift' as const,
+                requiredValues: {
+                    integration_id: AWS_REDSHIFT_INTEGRATION.id,
+                    host: 'rs-host',
+                    database: 'rs-db',
+                    schema: 'public',
+                    table_name: 'events',
+                    redshift_s3_bucket: 'rs-staging',
+                    redshift_s3_key_prefix: 'rs/copy/',
+                    redshift_s3_bucket_region_name: 'us-east-1',
+                    redshift_s3_integration_id: S3_STAGING_INTEGRATION.id,
+                    authorization_mode: 'IAMRole',
+                    redshift_iam_role: 'arn:aws:iam::123:role/rs',
+                },
+                expectedDestination: {
+                    type: 'Redshift',
+                    integration: AWS_REDSHIFT_INTEGRATION.id,
+                    config: {
+                        host: 'rs-host',
+                        database: 'rs-db',
+                        schema: 'public',
+                        table_name: 'events',
+                        properties_data_type: 'super',
+                        mode: 'COPY',
+                        copy_inputs: {
+                            s3_bucket: 'rs-staging',
+                            s3_key_prefix: 'rs/copy/',
+                            region_name: 'us-east-1',
+                            bucket_credentials: S3_STAGING_INTEGRATION.id,
                             authorization: 'arn:aws:iam::123:role/rs',
                         },
                     },
@@ -1035,11 +1295,11 @@ describe('batchExportConfigFormLogic', () => {
             { name: 'S3Compatible', fixture: S3_COMPATIBLE_BATCH_EXPORT },
             { name: 'BigQuery', fixture: BIGQUERY_BATCH_EXPORT },
             { name: 'Postgres', fixture: POSTGRES_BATCH_EXPORT },
-            { name: 'Snowflake (password)', fixture: SNOWFLAKE_PASSWORD_BATCH_EXPORT },
-            { name: 'Snowflake (keypair)', fixture: SNOWFLAKE_KEYPAIR_BATCH_EXPORT },
+            { name: 'Snowflake', fixture: SNOWFLAKE_BATCH_EXPORT },
             { name: 'Redshift (INSERT)', fixture: REDSHIFT_INSERT_BATCH_EXPORT },
             { name: 'Redshift (COPY + IAM)', fixture: REDSHIFT_COPY_IAM_BATCH_EXPORT },
             { name: 'Redshift (COPY + Credentials)', fixture: REDSHIFT_COPY_CREDENTIALS_BATCH_EXPORT },
+            { name: 'Redshift (COPY + integrations)', fixture: REDSHIFT_COPY_INTEGRATIONS_BATCH_EXPORT },
             { name: 'HTTP', fixture: HTTP_BATCH_EXPORT },
             { name: 'Databricks', fixture: DATABRICKS_BATCH_EXPORT },
             { name: 'AzureBlob', fixture: AZUREBLOB_BATCH_EXPORT },
@@ -1060,11 +1320,44 @@ describe('batchExportConfigFormLogic', () => {
     })
 
     describe('strips stale/legacy config fields not in the destination allowlist', () => {
-        // Pre-Integration BigQuery configs can still hold json_config_file + credential fields.
+        // Pre-Integration configs can still hold credential fields that now live on the integration.
         // Editing such an export must not re-send them, or the backend rejects the PATCH with
         // "Configuration has unknown field/s".
-        it('drops pre-Integration BigQuery fields from the PATCH payload', async () => {
-            await initLogic({ service: null, id: BIGQUERY_STALE_BATCH_EXPORT.id })
+        it.each([
+            {
+                name: 'BigQuery drops json_config_file and inline credentials',
+                fixture: BIGQUERY_STALE_BATCH_EXPORT,
+                expectedDestination: {
+                    type: 'BigQuery',
+                    integration: 7,
+                    config: {
+                        dataset_id: 'test_dataset',
+                        table_id: 'events',
+                        use_json_type: false,
+                        exclude_events: [],
+                        include_events: [],
+                    },
+                },
+            },
+            {
+                name: 'Snowflake drops the account and credentials left behind by the migration',
+                fixture: SNOWFLAKE_STALE_BATCH_EXPORT,
+                expectedDestination: {
+                    type: 'Snowflake',
+                    integration: 51,
+                    config: {
+                        database: 'sf-db',
+                        warehouse: 'sf-wh',
+                        schema: 'public',
+                        table_name: 'events',
+                        role: null,
+                        exclude_events: [],
+                        include_events: [],
+                    },
+                },
+            },
+        ])('$name', async ({ fixture, expectedDestination }) => {
+            await initLogic({ service: null, id: fixture.id })
 
             await expectLogic(logic, () => {
                 logic.actions.submitConfiguration()
@@ -1072,15 +1365,9 @@ describe('batchExportConfigFormLogic', () => {
                 .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
                 .toFinishAllListeners()
 
-            const body = patchBodiesById[BIGQUERY_STALE_BATCH_EXPORT.id]
+            const body = patchBodiesById[fixture.id]
             expect(body).not.toBeUndefined()
-            expect(body.destination.config).toEqual({
-                dataset_id: 'test_dataset',
-                table_id: 'events',
-                use_json_type: false,
-                exclude_events: [],
-                include_events: [],
-            })
+            expect(body.destination).toEqual(expectedDestination)
         })
     })
 })

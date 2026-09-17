@@ -39,6 +39,9 @@
         {% if js_posthog_identity_distinct_id %}
             window.JS_POSTHOG_IDENTITY_DISTINCT_ID = "{{ js_posthog_identity_distinct_id|escapejs }}";
             window.JS_POSTHOG_IDENTITY_HASH = "{{ js_posthog_identity_hash|escapejs }}";
+            {% if js_posthog_identity_claims %}
+                window.JS_POSTHOG_IDENTITY_CLAIMS = JSON.parse("{{ js_posthog_identity_claims|escapejs }}");
+            {% endif %}
         {% endif %}
     </script>
 {% endif %}

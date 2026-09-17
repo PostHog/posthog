@@ -396,6 +396,14 @@ impl MinifiedSourceFile {
         None
     }
 
+    /// Whether the snippet injected for `chunk_id` carries a release id.
+    ///
+    /// The two snippet variants have different lengths, so the choice shifts every generated
+    /// column the sourcemap records for the injected chunk.
+    pub fn has_release_snippet(&self, chunk_id: &str) -> bool {
+        find_release_snippet(&self.inner.content, chunk_id).is_some()
+    }
+
     pub fn remove_chunk_id(&mut self, chunk_id: String) -> Result<SourceMap> {
         let (new_source_content, source_adjustment) = {
             // Update source content with chunk ID

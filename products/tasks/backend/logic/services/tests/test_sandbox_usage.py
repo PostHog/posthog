@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -264,9 +264,9 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         run = self._run(state={"await_user_message": True})
         open_sandbox_session(run_id=run.id, sandbox_id="sb-msgs", config=_config())
 
-        with freeze_time("2026-01-02T10:00:00Z"):
+        with time_machine.travel("2026-01-02T10:00:00Z", tick=False):
             record_task_run_user_activity(run.id, self.team.id)
-        with freeze_time("2026-01-02T11:00:00Z"):
+        with time_machine.travel("2026-01-02T11:00:00Z", tick=False):
             record_task_run_user_activity(run.id, self.team.id)
 
         session = SandboxSession.objects.unscoped().get(sandbox_id="sb-msgs")
@@ -522,7 +522,7 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
             ttl_seconds=6 * 60 * 60,
         )
 
-        with freeze_time("2026-01-05T00:00:00Z"):
+        with time_machine.travel("2026-01-05T00:00:00Z", tick=False):
             usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
 
         # Cleanup never ran; the sandbox died at created_at + 6h regardless.
@@ -585,7 +585,7 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
             sandbox_backend=sandbox_backend,
         )
 
-        with freeze_time("2026-01-05T00:00:00Z"):
+        with time_machine.travel("2026-01-05T00:00:00Z", tick=False):
             usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
 
         if expected_seconds is None:
@@ -600,7 +600,7 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
             ended_at=None,
         )
 
-        with freeze_time("2026-01-02T03:00:00Z"):
+        with time_machine.travel("2026-01-02T03:00:00Z", tick=False):
             usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
 
         assert usage.seconds == [(self.team.id, 2 * 3600)]

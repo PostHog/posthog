@@ -18,7 +18,13 @@ from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_hogql_global_settings
+from posthog.hogql.constants import (
+    MAX_SELECT_RETURNED_ROWS,
+    HogQLGlobalSettings,
+    LimitContext,
+    get_default_hogql_global_settings,
+)
+from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import prepare_and_print_ast
@@ -51,12 +57,7 @@ from posthog.schema_migrations.upgrade import upgrade
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.dependencies import get_cohort_dependents
-from products.cohorts.backend.models.sql import (
-    GET_COHORT_SIZE_SQL,
-    GET_COHORTS_BY_PERSON_UUID,
-    GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
-    RECALCULATE_COHORT_BY_ID,
-)
+from products.cohorts.backend.models.sql import GET_COHORT_SIZE_SQL, RECALCULATE_COHORT_BY_ID
 
 if TYPE_CHECKING:
     from posthog.personhog_client import ReadConsistency
@@ -73,6 +74,7 @@ class CohortErrorCode(StrEnum):
     INTERRUPTED = "interrupted"
     TIMEOUT = "timeout"
     MEMORY_LIMIT = "memory_limit"
+    DATA_LIMIT = "data_limit"
     QUERY_SIZE = "query_size"
     VALIDATION_ERROR = "validation_error"
     INVALID_REGEX = "invalid_regex"
@@ -91,6 +93,7 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.INTERRUPTED: "Calculation was interrupted. It will automatically retry.",
     CohortErrorCode.TIMEOUT: "Cohort calculation was terminated for taking too long.",
     CohortErrorCode.MEMORY_LIMIT: "Cohort calculation was terminated for using too much memory.",
+    CohortErrorCode.DATA_LIMIT: "Cohort calculation was terminated for reading too much data. Narrow the matching criteria, for example to a shorter date range.",
     CohortErrorCode.QUERY_SIZE: "The matching criteria produced a query that was too large.",
     CohortErrorCode.INVALID_REGEX: "This cohort contains an invalid regular expression. Please check your regex syntax in the matching criteria.",
     CohortErrorCode.NO_PROPERTIES: "This cohort has no matching criteria defined. Please add at least one.",
@@ -101,9 +104,24 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
 }
 
 
-def get_friendly_error_message(error_code: str | None) -> str | None:
+# Each of these codes ends in an instruction a static cohort cannot follow. CAPACITY and
+# INTERRUPTED promise a retry that only the dynamic recalculation scheduler makes good on: the
+# periodic queue excludes static cohorts, and the stuck-cohort sweeper only matches one still
+# marked is_calculating. FLAG_CHANGED asks for the calculation to be run again, but a static
+# cohort is populated once from the source it was created with. A cohort that nothing will re-run
+# needs the same reason without the instruction.
+NO_RETRY_ERROR_CODE_MESSAGES: dict[str, str] = {
+    CohortErrorCode.CAPACITY: "The system was busy when this cohort was scheduled to calculate.",
+    CohortErrorCode.INTERRUPTED: "Calculation was interrupted before it finished.",
+    CohortErrorCode.FLAG_CHANGED: "The feature flag changed while this cohort was being populated. Create a new cohort from the flag to snapshot it again.",
+}
+
+
+def get_friendly_error_message(error_code: str | None, *, will_retry: bool = True) -> str | None:
     if error_code is None:
         return None
+    if not will_retry and error_code in NO_RETRY_ERROR_CODE_MESSAGES:
+        return NO_RETRY_ERROR_CODE_MESSAGES[error_code]
     return ERROR_CODE_MESSAGES.get(error_code, ERROR_CODE_MESSAGES[CohortErrorCode.UNKNOWN])
 
 
@@ -112,6 +130,7 @@ def get_friendly_error_message(error_code: str | None) -> str | None:
 _CLICKHOUSE_ERROR_MAPPING: dict[str, CohortErrorCode] = {
     "cannot_compile_regexp": CohortErrorCode.INVALID_REGEX,
     "memory_limit_exceeded": CohortErrorCode.MEMORY_LIMIT,
+    "too_many_bytes": CohortErrorCode.DATA_LIMIT,
     "timeout_exceeded": CohortErrorCode.TIMEOUT,
     "no_common_type": CohortErrorCode.INCOMPATIBLE_TYPES,
 }
@@ -319,7 +338,7 @@ def validate_actors_query_for_cohort(query_dict: dict[str, Any]) -> None:
     if not isinstance(insight, dict) or insight.get("kind") != "TrendsQuery":
         return
 
-    from posthog.hogql_queries.insights.trends.display import (  # noqa: PLC0415 — keeps posthog.schema off the startup path
+    from products.product_analytics.backend.facade.queries import (  # noqa: PLC0415 — keeps posthog.schema off the startup path
         TrendsDisplay,
     )
 
@@ -906,11 +925,30 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
         return cohort.properties
 
 
-def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
+def _get_cohort_ids_by_person_uuid(uuid: str, team: Team, database: Database) -> list[int]:
+    # Deferred: posthog.hogql.query reaches posthog.models.property.util, which imports this module.
+    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+
     tag_queries(product=ProductKey.COHORTS, name="get_cohort_ids_by_person_uuid", feature=Feature.COHORT)
-    res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
+    res = execute_hogql_query(
+        """
+        SELECT cohort_id, argMax(version, version) AS latest_version
+        FROM raw_cohort_people
+        WHERE person_id = {person_id}
+        GROUP BY cohort_id
+        HAVING argMax(sign, version) > 0
+        LIMIT {limit}
+        """,
+        placeholders={
+            "person_id": ast.Constant(value=uuid),
+            "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
+        },
+        team=team,
+        query_type="get_cohort_ids_by_person_uuid",
+        context=HogQLContext(team_id=team.pk, database=database),
+    ).results
     cohort_ids_from_cohortperson = [row[0] for row in res]
-    cohorts = Cohort.objects.filter(deleted=False, team_id=team_id, pk__in=cohort_ids_from_cohortperson)
+    cohorts = Cohort.objects.filter(deleted=False, team_id=team.pk, pk__in=cohort_ids_from_cohortperson)
     values_list_result = cohorts.values_list("id", "version")
     id_latest_version_map = dict(values_list_result)
     cohort_ids = []
@@ -926,16 +964,32 @@ def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
     return cohort_ids
 
 
-def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
+def _get_static_cohort_ids_by_person_uuid(uuid: str, team: Team, database: Database) -> list[int]:
+    # Deferred: posthog.hogql.query reaches posthog.models.property.util, which imports this module.
+    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+
     tag_queries(product=ProductKey.COHORTS, name="get_static_cohort_ids_by_person_uuid", feature=Feature.COHORT)
-    res = sync_execute(GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
+    res = execute_hogql_query(
+        "SELECT DISTINCT cohort_id FROM static_cohort_people WHERE person_id = {person_id} LIMIT {limit}",
+        placeholders={
+            "person_id": ast.Constant(value=uuid),
+            "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
+        },
+        team=team,
+        query_type="get_static_cohort_ids_by_person_uuid",
+        context=HogQLContext(team_id=team.pk, database=database),
+    ).results
     return [row[0] for row in res]
 
 
-def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
-    with tags_context(team_id=team_id):
-        cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team_id)
-        static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team_id)
+def get_all_cohort_ids_by_person_uuid(uuid: str, team: Team) -> list[int]:
+    with tags_context(team_id=team.pk):
+        # Both lookups run per request, so build the team's HogQL database once and share it.
+        # Each execute_hogql_query call would otherwise build its own, and the build cost
+        # scales with the team's warehouse size.
+        database = Database.create_for(team=team)
+        cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team, database)
+        static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team, database)
     return [*cohort_ids, *static_cohort_ids]
 
 
@@ -1140,7 +1194,7 @@ def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team):
     insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team.id)
 
 
-def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
+def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int) -> None:
     from posthog.helpers.batch_iterators import CursorBatchIterator
 
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
@@ -1169,7 +1223,11 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
     batch_iterator = CursorBatchIterator(
         fetch_batch, CH_PAGE_SIZE, initial_cursor="00000000-0000-0000-0000-000000000000"
     )
-    cohort._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=False, team_id=team_id)
+    # raise_on_error hands a partial sync to the caller instead of reporting success, which is
+    # what lets the population tasks retry it.
+    cohort._insert_users_list_with_batching(
+        batch_iterator, insert_in_clickhouse=False, team_id=team_id, raise_on_error=True
+    )
 
 
 # ── Cohort membership operations (Postgres / personhog) ───────────────

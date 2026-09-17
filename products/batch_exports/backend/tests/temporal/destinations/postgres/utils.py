@@ -146,7 +146,6 @@ async def assert_clickhouse_records_in_postgres(
         model_name=model_name,
         team_id=team_id,
         full_range=(data_interval_start, data_interval_end),
-        done_ranges=[],
         fields=fields,
         filters=filters,
         destination_default_fields=postgres_default_fields(),

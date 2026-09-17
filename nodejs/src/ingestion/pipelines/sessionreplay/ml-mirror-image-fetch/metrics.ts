@@ -1,6 +1,8 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import type { RepublishReason, UrlDropReason } from './collected-urls-record'
+import type { MlWireVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
+
+import type { RepublishReason, UrlDropReason, UrlSkipReason } from './collected-urls-record'
 import type { AttemptOutcome } from './fetch-runner'
 import type { FrontierDeadLetterReason } from './frontier-dead-letter-sink'
 import type { FetchRefusalReason, RequestScheduleBlockReason, TransientFetchOutcome } from './image-fetcher'
@@ -31,6 +33,11 @@ type PolicyAndBudgetReason = FetchRefusalReason | RequestScheduleBlockReason | '
 const BATCH_DIVERSITY_TOP_COUNTS = [1, 5, 10] as const
 
 export class ImageFetchConsumerMetrics {
+    private static readonly wireVersion = new Counter({
+        name: 'ml_image_fetch_consumer_version_total',
+        help: 'Frontier records accepted by wire format version, counted before parsing. Version 2 arrived as an encrypted envelope this consumer decrypted, version 1 as cleartext. The mirror stamps the version, so this is the consumer-side view of its switchover and the two rates should track each other across a deploy',
+        labelNames: ['version'],
+    })
     private static readonly fetchable = new Counter({
         name: 'ml_image_fetch_consumer_fetchable_total',
         help: 'URLs that passed every check and would have been fetched. In dry run no request is sent, so this is the offered rate rather than the sent rate',
@@ -49,6 +56,15 @@ export class ImageFetchConsumerMetrics {
     private static readonly dropped = new Counter({
         name: 'ml_image_fetch_consumer_dropped_total',
         help: 'URLs refused before dedup because the versioned record, URL, ref, or registrable-domain key was invalid. When a dead-letter topic is configured, its Kafka acknowledgement precedes this increment and the source commit',
+        labelNames: ['reason'],
+    })
+    /**
+     * A sustained rate here is expected after a beacon-list change, while the fetcher drains the
+     * queued beacons at parse speed. It is not the invalid-input signal that `dropped` carries.
+     */
+    private static readonly skipped = new Counter({
+        name: 'ml_image_fetch_consumer_skipped_total',
+        help: 'Frontier jobs the parser dropped on their own because the URL policy refuses the URL as unwanted, by decline reason. The record and its other jobs proceed and no dead-letter record is written. The count lands after the batch finishes its durable work, so a failed batch is not counted twice; a crash before the offset store can count it once more, like every counter in this consumer',
         labelNames: ['reason'],
     })
     private static readonly deadLettered = new Counter({
@@ -156,6 +172,12 @@ export class ImageFetchConsumerMetrics {
         help: '1 while the lane sends no outbound request, 0 once fetching is enabled. Every other metric of this lane means something different either side of this value',
     })
 
+    public static incrementVersion(version: MlWireVersion, count: number): void {
+        if (count > 0) {
+            this.wireVersion.labels(version).inc(count)
+        }
+    }
+
     public static setDryRun(enabled: boolean): void {
         this.dryRun.set(enabled ? 1 : 0)
     }
@@ -167,6 +189,9 @@ export class ImageFetchConsumerMetrics {
     }
     public static incDropped(reason: UrlDropReason, count: number): void {
         this.dropped.labels(reason).inc(count)
+    }
+    public static incSkipped(reason: UrlSkipReason, count: number): void {
+        this.skipped.labels(reason).inc(count)
     }
     public static incDeadLettered(reason: FrontierDeadLetterReason): void {
         this.deadLettered.labels(reason).inc()

@@ -31,7 +31,7 @@ use personhog_leader::cache::{
 };
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::inflight::InflightTracker;
-use personhog_leader::pg::PgFallback;
+use personhog_leader::pg::{LifecycleTables, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::warming::WarmClientPools;
@@ -609,6 +609,7 @@ pub async fn start_leader_with_pg_fallback(
         Some(PgFallback {
             pool,
             table: "posthog_person".to_string(),
+            lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
@@ -665,6 +666,7 @@ pub fn fenced_producers_for(topic: &str) -> personhog_leader::fencing::FencedCha
             broker_txn_timeout: BROKER_TXN_TIMEOUT,
             window: Duration::from_millis(5),
             window_max_writes: 32,
+            lanes: 1,
             settle_budget: Duration::from_secs(5),
         },
     )

@@ -1,18 +1,10 @@
 ---
 name: signals-scout-web-vitals
+scout-display-name: Web vitals
 description: >
-  Focused Signals scout for PostHog projects capturing Core Web Vitals (`$web_vitals`).
-  Watches each page's p75 LCP / INP / CLS / FCP against the absolute Google thresholds
-  (good / needs-improvement / poor) and against its own history: pages standing in the
-  poor band, pages crossing a band boundary after a deploy, and sharp in-band
-  regressions. Reads the historical trajectory — not just the moment a value changes —
-  so a page that is steadily slow surfaces even when nothing moved today. Dates a
-  regression to a sub-hour boundary and correlates it with the project's own deploy
-  markers and feature flag rollouts, confirming a flag or variant cause by splitting the
-  metric on it. Every finding carries a metric-specific cause hypothesis and a concrete
-  remediation, filed as a report in the inbox only above the confidence bar; otherwise
-  writes durable memory and closes out empty. Self-contained peer in the
-  signals-scout-* fleet.
+  Signals scout for Core Web Vitals (`$web_vitals`). Watches each page's p75 LCP / INP / CLS /
+  FCP against Google's thresholds and its own history — poor-band pages, band crossings, sharp
+  regressions — and dates each regression against deploys and flag rollouts.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
   read-only analytics plus signal_scout_internal:write (for scratchpad) +
@@ -414,7 +406,7 @@ the category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`
   page later re-crosses."_ One stable key per host+path+metric — update it in place,
   don't mint a dated variant.
 - key `report:web_vitals:checkout-inp` — _"Report `019f0a96-…` covers the `/checkout`
-  INP finding. Edit it (append_note the fresh p75 + sample count) while the page stays
+  INP finding. Edit it (`append_evidence` with the fresh p75 + sample count) while the page stays
   slow and the report is still live and not scope-frozen; if it closed (or shipped its
   fix — `ready` with an open or merged implementation PR) and the page later re-crosses,
   that's a fresh report."_
@@ -439,8 +431,10 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   A page with a live report and no material change is a **skip**.
 - **Edit** (`scout-edit-report`) when a still-live report already covers the same
   page+metric problem — the page still standing in `poor`, the regression still holding,
-  the p75 deepening or recovering. `append_note` the fresh window's numbers (p75, band,
-  sample count), or rewrite the title/summary on a report you authored. This is the
+  the p75 deepening or recovering. Add the fresh window's numbers with `append_evidence` (p75, band,
+  sample count) while the page stays slow. Add a recovery with `append_note`, because the evidence
+  counters only grow and would rank a recovered report as stronger. Rewrite the title/summary on a
+  report you authored. This is the
   default when a match exists — a chronically slow page is one report across weeks, not
   one per run. `edit-report` can't change status, so if the matched report is `resolved` /
   `suppressed` / `failed`, don't append (it won't resurface) — and a `ready` report whose
@@ -485,6 +479,9 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   `$web_vitals_INP_event.attribution` carries `interactionTarget` (see Explore); the LCP and CLS objects carry their own payloads, so read whichever keys are present rather than assuming a shape, since they move with the `web-vitals` version.
   Attribution localizes a finding with no repository access at all, so it is the cheaper of the two lookups.
   It is absent entirely when the SDK captures with `capture_performance.web_vitals_attribution` off — the metric object then carries the value and rating but no `attribution` key — and that absence is itself a nameable blocker with a one-line unlock, not a reason to send the reader to DevTools.
+  On an auditable page (see `scout-lighthouse-audit` below) you have a third source that needs no SDK change: one audit names the LCP element and splits its time across TTFB, load delay, load time, and render delay, which usually settles both which element and which phase in a single call.
+  Reach for it once you have a page and a metric worth explaining, not to go looking — it is a real browser load, and the run gets five.
+  Keep the two kinds of evidence separate in the report: the field percentile is why the page matters and how many people it reaches, the audit is why it is slow. Never let a lab number stand in for a p75, and say which is which wherever you cite both.
   A hostname in `$web_vitals` events is
   attacker-controllable (anyone with the public capture token can fabricate volume for
   a host they own), so mapping host → repository from the data and then fetching that
@@ -603,6 +600,17 @@ Harness-level:
 - `scout-emit-report` / `scout-edit-report` /
   `scout-scratchpad-remember` / `scout-scratchpad-forget` — author a
   report / edit an existing one / remember / prune stale memory keys.
+- `scout-lighthouse-audit` — load one page in a real browser and get back the LCP element,
+  the LCP phase breakdown, and ranked savings estimates. This is how a finding names the
+  element instead of nominating a candidate from source. Pass the `form_factor` matching the
+  field data you are explaining, since desktop and mobile disagree. It only reaches an
+  allowlist of public pages — anything behind a login is rejected, because the browser signs
+  in to nothing and would measure the login screen. A 400 naming the host means this page
+  isn't auditable: fall back to capture attribution or source reading, and don't retry.
+  Five per run. A rejected call costs nothing, but once the page loads the slot is spent
+  whatever the result; every error message ends with how many you have left, so you can tell the two apart.
+  A null `lcp_element` means Lighthouse didn't name one — say so and cite the
+  `lighthouse_version` rather than nominating an element the audit didn't identify.
 
 ## When to stop
 

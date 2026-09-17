@@ -14,6 +14,7 @@ stay kind-agnostic.
 
 import abc
 import dataclasses
+from datetime import datetime
 from functools import cached_property
 from typing import TYPE_CHECKING, ClassVar, Optional
 
@@ -32,7 +33,7 @@ from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.query_tagging import Product
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models.team import Team
 from posthog.schema_migrations.upgrade import upgrade
 
@@ -339,8 +340,8 @@ class EndpointQueryStrategy(abc.ABC):
         """
 
     @abc.abstractmethod
-    def can_serve_variables_from_materialized(self, requested: set[str]) -> bool:
-        """Whether all requested variables can be answered by the materialized table."""
+    def materialized_variable_names(self) -> set[str]:
+        """Variables the materialized table can filter on; empty when it can answer none."""
 
     def materialized_filters_override_satisfies_required(self, data: EndpointRunRequest) -> bool:
         """Whether ``data.filters_override`` actually supplies the required materialized filter.
@@ -373,7 +374,9 @@ class EndpointQueryStrategy(abc.ABC):
         """
 
     @abc.abstractmethod
-    def transform_materialized_response(self, response_data: dict, saved_query: "DataWarehouseSavedQuery") -> None:
+    def transform_materialized_response(
+        self, response_data: dict, saved_query: "DataWarehouseSavedQuery", materialized_at: datetime | None
+    ) -> None:
         """Re-shape a materialized read into the inline response format."""
 
     @abc.abstractmethod
@@ -423,13 +426,10 @@ class HogQLEndpointStrategy(EndpointQueryStrategy):
         return {v.get("code_name") for v in variables.values() if v.get("code_name")} if variables else set()
 
     def required_materialized_variables(self) -> set[str]:
-        return {v.code_name for v in self.materialized_variables}
+        return self.materialized_variable_names()
 
-    def can_serve_variables_from_materialized(self, requested: set[str]) -> bool:
-        materialized_codes = {v.code_name for v in self.materialized_variables}
-        if not materialized_codes:
-            return False
-        return requested.issubset(materialized_codes)
+    def materialized_variable_names(self) -> set[str]:
+        return {v.code_name for v in self.materialized_variables}
 
     def _parse_original_query(self) -> tuple[list | None, int | None, bool]:
         """Parse the original HogQL query and extract SELECT columns, LIMIT, and GROUP BY presence.
@@ -511,7 +511,9 @@ class HogQLEndpointStrategy(EndpointQueryStrategy):
 
         return select_query, original_limit
 
-    def transform_materialized_response(self, response_data: dict, saved_query: "DataWarehouseSavedQuery") -> None:
+    def transform_materialized_response(
+        self, response_data: dict, saved_query: "DataWarehouseSavedQuery", materialized_at: datetime | None
+    ) -> None:
         """HogQL materialized rows are flat and returned as-is — no re-shaping needed."""
         return None
 
@@ -628,11 +630,8 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
             return all_breakdowns - optional
         return set()
 
-    def can_serve_variables_from_materialized(self, requested: set[str]) -> bool:
-        allowed_props = set(get_breakdown_properties(self._breakdown_filter))
-        if not allowed_props:
-            return False
-        return requested.issubset(allowed_props)
+    def materialized_variable_names(self) -> set[str]:
+        return set(get_breakdown_properties(self._breakdown_filter))
 
     def materialized_filters_override_satisfies_required(self, data: EndpointRunRequest) -> bool:
         # apply_materialized_filters applies only the first property's value as a single positionless
@@ -691,7 +690,9 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
                         add_where_condition(select_query, condition)
         return None
 
-    def transform_materialized_response(self, response_data: dict, saved_query: "DataWarehouseSavedQuery") -> None:
+    def transform_materialized_response(
+        self, response_data: dict, saved_query: "DataWarehouseSavedQuery", materialized_at: datetime | None
+    ) -> None:
         """Re-shape flat materialized rows into the inline insight response format.
 
         Raises MaterializedSeriesMismatchError on series drift (query edited after
@@ -703,7 +704,7 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
             response_data,
             self.query,
             self.team,
-            now=saved_query.last_run_at,
+            now=materialized_at,
         )
 
     def clean_response_sentinels(self, response_data: dict) -> None:

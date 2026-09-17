@@ -19,7 +19,6 @@ from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import Throttle
 from llm_gateway.request_context import request_context_var
 from llm_gateway.services.desktop_access_resolver import DesktopAccessDecision
-from llm_gateway.services.plan_resolver import PlanInfo
 from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
 
@@ -57,8 +56,6 @@ def create_test_app(
         app.state.redis = None
         app.state.throttle_runner = ThrottleRunner(throttles=throttles if throttles is not None else default_throttles)
         app.state.http_client = MagicMock()
-        app.state.plan_resolver = AsyncMock()
-        app.state.plan_resolver.get_plan = AsyncMock(return_value=PlanInfo(plan_key=None, seat_created_at=None))
         app.state.billing_period_resolver = AsyncMock()
         app.state.billing_period_resolver.get_period = AsyncMock(return_value=None)
         app.state.desktop_access_resolver = AsyncMock()

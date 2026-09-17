@@ -89,6 +89,47 @@ tools:
             the connect page, take the newest credential_id for the source type and call 'data-warehouse-source-setup'
             with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as
             soon as setup consumes them — and expire after 24 hours if never used.
+    external-data-destinations-create:
+        operation: external_data_destinations_create
+        enabled: false
+    external-data-destinations-destroy:
+        operation: external_data_destinations_destroy
+        enabled: false
+    external-data-destinations-list:
+        operation: external_data_destinations_list
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List warehouse destinations
+        description: >
+            List the places this project's warehouse sources can write synced rows to. The PostHog warehouse is one of
+            them, and it is where a source writes when nothing else is configured.
+        feature_flag: warehouse-multi-destination
+    external-data-destinations-partial-update:
+        operation: external_data_destinations_partial_update
+        enabled: false
+    external-data-destinations-retrieve:
+        operation: external_data_destinations_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get a warehouse destination
+        description: >
+            Read one warehouse destination, including the target database or schema it writes to. Credentials live on
+            the linked integration and are never returned here.
+        feature_flag: warehouse-multi-destination
+    external-data-destinations-update:
+        operation: external_data_destinations_update
+        enabled: false
     external-data-schemas-cancel:
         operation: external_data_schemas_cancel_create
         enabled: true
@@ -115,6 +156,23 @@ tools:
         description: >
             Delete the synced table data from PostHog but keep the schema entry. The schema remains visible in the
             source and can be re-synced. Use this to clear stale or corrupt data before triggering a fresh sync.
+    external-data-schemas-destinations-partial-update:
+        operation: external_data_schemas_destinations_partial_update
+        enabled: false
+    external-data-schemas-destinations-retrieve:
+        operation: external_data_schemas_destinations_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a table's destinations
+        description: >
+            Read one table's destination override. `inherits_from_source` tells you whether the table follows its
+            source; `effective_destination_ids` is where it actually syncs once inheritance is resolved.
+        feature_flag: warehouse-multi-destination
     external-data-schemas-destroy:
         operation: external_data_schemas_destroy
         enabled: false
@@ -150,7 +208,11 @@ tools:
             an external source. Returns the schema name, sync status, sync frequency, incremental field configuration,
             last_synced_at, and latest error. Use this to see which tables are actively syncing and their health. To
             check one table's freshness, pass `search` with the table/schema name to narrow to that schema. Column
-            definitions are omitted here — use external-data-schemas-retrieve for a single schema's columns.
+            definitions are omitted here — use external-data-schemas-retrieve for a single schema's columns. When a
+            table stopped syncing, check `incremental_sync_blocked`: it names why the last run could not merge on the
+            table's primary key, and the table is disabled until that is resolved. A retry with nothing changed fails
+            the same way; a later run that succeeds, or fails for another reason, clears it. That field's description
+            lists the resolutions, which are applied with 'external-data-schemas-partial-update'.
         response:
             exclude:
                 - table.columns
@@ -175,7 +237,12 @@ tools:
             retroactively. Before changing incremental_field or sync_type, call
             'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually
             supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To
-            run a sync immediately after reconfiguring, use 'external-data-schemas-reload'."
+            run a sync immediately after reconfiguring, use 'external-data-schemas-reload'. This is also how a table
+            reported by `incremental_sync_blocked` is resolved: send primary_key_columns, or a different sync_type, or
+            should_sync=true to retry a table fixed at the source. For `duplicate_primary_key`, a different key is
+            refused once data has synced, because rows already merged under the old key would repeat; delete the synced
+            data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That
+            field reports the last run's failure, so it clears once a run succeeds rather than when the update lands."
     external-data-schemas-reload:
         operation: external_data_schemas_reload_create
         enabled: true
@@ -215,13 +282,30 @@ tools:
         title: Get data warehouse table schema
         description: >
             Get a single table schema by ID. Returns full details including sync status, sync frequency, incremental
-            field, latest error, and the associated source and table metadata.
+            field, primary key columns, latest error, `incremental_sync_blocked`, and the associated source and table
+            metadata. Read `incremental_sync_blocked` before diagnosing a table that stopped syncing: it names why the
+            last run could not merge on the primary key, and its description lists the resolutions.
     external-data-schemas-update:
         operation: external_data_schemas_update
         enabled: false
-    external-data-sources-bulk-update-schemas-partial-update:
+    external-data-sources-bulk-update-schemas:
         operation: external_data_sources_bulk_update_schemas_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update many table schemas in one request
+        description: >
+            Apply sync configuration to several of a source's table schemas at once: enable or disable syncing
+            (should_sync), sync_type, sync frequency and UTC time of day, incremental field, and primary key columns.
+            Each entry needs the schema id plus the fields to change. Prefer this over looping
+            'external-data-schemas-partial-update' when reconfiguring more than a couple of tables of the same source,
+            such as moving every table that cannot sync incrementally onto full_refresh. Every entry is validated before
+            anything is written, and a schema that fails is reported by name while the rest of the batch is saved.
+            Changes take effect on the next sync, not retroactively.
     external-data-sources-cdc-status-retrieve:
         operation: external_data_sources_cdc_status_retrieve
         enabled: false
@@ -340,6 +424,23 @@ tools:
             are preserved — only the webhook is removed. After deletion, schemas can be switched to a polling sync_type
             (incremental/full_refresh) via external-data-schemas-partial-update, or a new webhook can be created with
             create-webhook.
+    external-data-sources-destinations-partial-update:
+        operation: external_data_sources_destinations_partial_update
+        enabled: false
+    external-data-sources-destinations-retrieve:
+        operation: external_data_sources_destinations_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a source's destinations
+        description: >
+            Read the destinations every table on this source syncs to. An empty list means the source writes to the
+            PostHog warehouse only, which is the default for any source nobody configured destinations for.
+        feature_flag: warehouse-multi-destination
     external-data-sources-destroy:
         operation: external_data_sources_destroy
         enabled: true
@@ -366,8 +467,8 @@ tools:
     external-data-sources-enable-cdc-create:
         operation: external_data_sources_enable_cdc_create
         enabled: false
-    external-data-sources-jobs:
-        operation: external_data_sources_jobs_retrieve
+    external-data-sources-jobs-list:
+        operation: external_data_sources_jobs_list
         enabled: false
     external-data-sources-list:
         operation: external_data_sources_list

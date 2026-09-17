@@ -9398,6 +9398,15 @@
             "type": "array"
         },
         "stats_config": {},
+        "tags": {
+            "description": "Organizational tags for this experiment (up to 100, 255 characters each).",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        },
         "update_feature_flag_params": {
             "description": "When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.",
             "type": "boolean"

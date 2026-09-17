@@ -29,8 +29,9 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccountAssignmentFilter } from 'lib/components/AccountAssignmentFilter/AccountAssignmentFilter'
+import type { AssignmentStatus } from 'lib/components/AccountAssignmentFilter/accountAssignmentFilterTypes'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
-import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -57,10 +58,12 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
 import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
+import { createAccountAssignmentFilterUpdate, parseAccountAssignmentFilter } from './accountAssignmentFilter'
 import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
+import { TriggerVolumeEstimate } from './components/TriggerVolumeEstimate'
 
 type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 type EventTriggerConfig = {
@@ -83,9 +86,9 @@ type TriggerOptionItem = {
 }
 
 function getTriggerDisplayType(type: string, config: any): string {
-    if (type !== 'event') {
-        return type
-    }
+    // Several tiles can share one config type (`event`, `internal-event`), so the tile is whichever
+    // one claims this config, not the type itself. Types owned by a single tile fall through to the
+    // type, which is that tile's value.
     const match = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(config))
     return match ? match.value : type
 }
@@ -349,6 +352,9 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
             {registeredMatch?.ConfigComponent ? (
                 <>
                     <registeredMatch.ConfigComponent node={node} />
+                    {featureFlags[FEATURE_FLAGS.WORKFLOWS_TRIGGER_VOLUME_ESTIMATE] ? (
+                        <TriggerVolumeEstimate action={node.data} />
+                    ) : null}
                     {registeredMatch.frequencyOptions ? (
                         <>
                             <LemonDivider />
@@ -394,6 +400,7 @@ function StepTriggerConfigurationEvents({
 }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const validationResult = actionValidationErrorsById[action.id]
     const filterTestAccounts = config.filters?.filter_test_accounts ?? false
 
@@ -427,6 +434,10 @@ function StepTriggerConfigurationEvents({
                     })
                 }
             />
+
+            {featureFlags[FEATURE_FLAGS.WORKFLOWS_TRIGGER_VOLUME_ESTIMATE] ? (
+                <TriggerVolumeEstimate action={action} />
+            ) : null}
 
             <LemonDivider />
             <FrequencySection />
@@ -602,7 +613,11 @@ function StepTriggerBatchAccountFilters({
         partialSetWorkflowActionConfig(actionId, { filters: { ...filters, ...update } })
     }
 
-    const assignedToUserIds = filters.assigned_to_user_ids ?? []
+    const { status: assignmentStatus, assignedToUserIds } = parseAccountAssignmentFilter(filters)
+
+    const setAssignmentFilter = (status: AssignmentStatus, userIds: number[]): void => {
+        setFilters(createAccountAssignmentFilterUpdate(status, userIds))
+    }
 
     return (
         <div className="flex flex-col gap-2">
@@ -622,33 +637,18 @@ function StepTriggerBatchAccountFilters({
                     placeholder="Filter by tags"
                     data-attr="workflows-batch-account-tags-filter"
                 />
-                <LemonDropdown
-                    closeOnClickInside={false}
-                    overlay={
-                        <div className="p-2 min-w-64 flex flex-col gap-2">
-                            <LemonCheckbox
-                                checked={!!filters.all_roles_unassigned}
-                                onChange={(all_roles_unassigned) => setFilters({ all_roles_unassigned })}
-                                label="Unassigned only"
-                                data-attr="workflows-batch-account-unassigned-filter"
-                            />
-                            <LemonDivider className="my-0" />
-                            <MemberSelectMultiple
-                                idKey="id"
-                                value={assignedToUserIds}
-                                onChange={(users) => setFilters({ assigned_to_user_ids: users.map((user) => user.id) })}
-                            />
-                        </div>
-                    }
-                >
-                    <LemonButton type="secondary" size="small" data-attr="workflows-batch-account-assigned-filter">
-                        {filters.all_roles_unassigned
-                            ? 'Unassigned'
-                            : assignedToUserIds.length === 0
-                              ? 'Assigned to anyone'
-                              : `Assigned to ${assignedToUserIds.length} ${assignedToUserIds.length === 1 ? 'person' : 'people'}`}
-                    </LemonButton>
-                </LemonDropdown>
+                <AccountAssignmentFilter
+                    assignedToUserIds={assignedToUserIds}
+                    status={assignmentStatus}
+                    onAssignedToUserIdsChange={(userIds) => setAssignmentFilter('assigned', userIds)}
+                    onStatusChange={(status) => setAssignmentFilter(status, assignedToUserIds)}
+                    dataAttrs={{
+                        trigger: 'workflows-batch-account-assigned-filter',
+                        unassigned: 'workflows-batch-account-unassigned-filter',
+                        assigned: 'workflows-batch-account-assigned-status-filter',
+                        all: 'workflows-batch-account-all-assignment-filter',
+                    }}
+                />
             </div>
             {customPropertyTaxonomicOptions.length > 0 && (
                 <PropertyFilters

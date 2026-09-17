@@ -1,4 +1,5 @@
 import { KeaPlugin, resetContext } from 'kea'
+import { disposablesPlugin } from 'kea-disposables'
 import { formsPlugin } from 'kea-forms'
 import { loadersPlugin } from 'kea-loaders'
 import { localStoragePlugin } from 'kea-localstorage'
@@ -8,7 +9,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
+import { isAccessDeniedError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -17,8 +18,6 @@ import {
     stripTrailingSlash,
 } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
-
-import { disposablesPlugin } from '~/kea-disposables'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -38,6 +37,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'resolveFingerprint', // Retried while the error finishes ingesting; the fingerprint scene surfaces its own state
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
     'loadWaitlistResponsesCount', // Soft-fails to a dash on the features list when survey access is missing
+    'loadFeatureFlagStatus', // The flag page just hides its stale banner when the verdict can't be loaded
     'loadExistingSubscription', // Background eligibility check for the dashboard subscribe nudge
     'loadFreeTierSubscriptionCount', // Background free-tier limit check for the dashboard subscribe nudge
     'sendNudgeNotification', // Background delivery request for the dashboard subscribe nudge
@@ -53,9 +53,21 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadInstallRequests', // Polled in the background on Settings → Integrations; the banner just stays hidden
     'loadPrChecks', // Polled in the Inbox report detail; the CI checks section renders its own error state
     'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
+    'loadCiStatuses', // Decorative CI glyphs polled by the Inbox list; a failure just leaves the pill without one
     'loadMonitoringSnapshot', // The managed warehouse Monitoring tab renders its own retry state
     'loadMonitoringSeries', // The managed warehouse Monitoring tab renders its own partial/error state
     'loadInstrumentationChecklist', // AI observability hides its checklist entirely rather than accusing a project on data it could not read
+    'loadFullEmail', // Its failure listener shows a retry toast and closes the modal
+    'draftScannerFromGoal', // replayScannerLogic's failure listener toasts and routes back to the goal questions
+    'loadRunDiff', // The Wizard run drawer renders its own diff error banner with a retry
+    'loadRunArtifacts', // The Wizard run drawer renders its own artifact error banner with a retry
+    'loadRuns', // The Wizard runs table shows a persistent stale-data banner; a poll failure must not toast every 10s
+    'loadRunDetails', // The Wizard run drawer shows a stale-state banner with a retry
+    'cancelRunRequest', // wizardRunDetailsLogic shows its own cancel-failure toast
+    'loadReplayComments', // The replay Comments tab renders its own retry state
+    'loadCoreMemory', // The PostHog AI memory setting renders its own load error banner with a retry
+    'updateCoreMemory', // maxSettingsLogic's updateCoreMemoryFailure listener shows its own save-failure toast
+    'loadSessionEventDeltas', // The experiment watch shelf renders the refusal, or the failure with a retry
 ]
 
 /*
@@ -65,6 +77,15 @@ Unlike ERROR_FILTER_ALLOW_LIST, this only suppresses access-denied errors;
 other failures on these actions still toast.
 */
 const ACCESS_DENIED_SELF_HANDLED = new Set(['saveFeatureFlag'])
+
+/*
+Load actions whose own UI renders the missing resource, so a 404 from them is a state the app
+expects rather than a defect worth filing. `shouldReportApiFailure` keeps a plain 404 reportable on
+purpose, so each caller that degrades has to name itself here, next to the toast allow list above.
+*/
+const NOT_FOUND_SELF_HANDLED = new Set([
+    'loadRecordingMeta', // The player renders RecordingNotFound off sessionRecordingMetaLogic's isNotFound
+])
 
 /*
 Write actions whose own logic toasts the duplicate-key 400 (code `unique` on attr `key`), so the
@@ -199,7 +220,9 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (shouldReportApiFailure(error)) {
+                const isSelfHandledNotFound =
+                    NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
+                if (shouldReportApiFailure(error) && !isSelfHandledNotFound) {
                     posthog.captureException(error)
                 }
             },

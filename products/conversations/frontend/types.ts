@@ -2,7 +2,7 @@ import type { AccessControlLevel } from '~/types'
 
 import { MAX_ASSIGNEE_FILTER_ENTRIES } from './components/Assignee'
 import type { AssigneeFilterEntry, TicketAssignee } from './components/Assignee'
-import type { TicketViewFiltersApi } from './generated/api.schemas'
+import type { AiTriageResultEnumApi, TicketViewFiltersApi } from './generated/api.schemas'
 
 export type { AssigneeFilterEntry }
 
@@ -51,20 +51,15 @@ export function normalizeAssigneeFilter(value: unknown): AssigneeFilterEntry[] {
 
 export type TicketTagsMatch = 'any' | 'all'
 
-export type AITriageStatus = 'in_progress' | 'done'
-export type AITriageResult =
-    | 'persisted'
-    | 'escalated_with_best'
-    | 'escalated_no_reply'
-    | 'skipped_unactionable'
-    | 'blocked_unsafe'
-    | 'blocked_unsafe_reply'
+export type AITriageStatus = 'in_progress' | 'done' | 'awaiting_clarification'
+export type AITriageFilterValue = AiTriageResultEnumApi
+export type AITriageResult = Exclude<AiTriageResultEnumApi, 'in_progress'>
 
 export interface AITriage {
     schema_version?: number
     status?: AITriageStatus
     result?: AITriageResult
-    ticket_type?: 'how_to' | 'diagnostic' | 'account_billing' | 'unactionable'
+    ticket_type?: 'how_to' | 'diagnostic' | 'account_billing' | 'bug' | 'unactionable'
     needs_diagnostics?: boolean
     diagnostics_allowed?: boolean
     confidence?: number
@@ -75,23 +70,24 @@ export interface AITriage {
     run_id?: string
     ai_trace_id?: string
     missing?: string[]
+    verdict?: 'answerable' | 'blocked_on_customer' | 'blocked_on_knowledge' | 'out_of_scope'
+    blocker?: 'none' | 'customer_info' | 'knowledge' | 'contradiction'
+    unknowns?: string[]
+    clarifying_questions?: string[]
+    investigation_summary?: string
+    draft_confidence?: number
+    validator_confidence?: number
+    coverage?: number
+    grounded?: boolean
+    clarification_rounds?: number
+    cost?: {
+        sandbox_seconds?: number
+        llm_calls?: number
+    }
+    human_outcome?: 'used' | 'edited' | 'ignored'
 }
 
 export type AiReplyFeedbackRating = 'good' | 'bad'
-
-export type GapSuggestionStatus = 'pending' | 'accepted' | 'dismissed'
-
-export interface KnowledgeGapSuggestion {
-    id: string
-    ticket_id: string
-    topic: string
-    normalized_topic: string
-    ticket_type: string
-    outcome: string
-    status: GapSuggestionStatus
-    resolved_source_id: string | null
-    created_at: string
-}
 
 /**
  * Canonical saved-view filter shape, generated from the backend's TicketViewFiltersSerializer.
@@ -230,6 +226,7 @@ export interface ChatMessage {
     /** Imported from an external tool (e.g. Zendesk). Such content is untrusted, so its Markdown
      * is rendered with external image auto-loading disabled. */
     fromZendesk?: boolean
+    hasFullEmailContent?: boolean
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [
@@ -291,16 +288,24 @@ export const slaOptions: { value: TicketSlaState | 'all'; label: string }[] = [
 
 export const aiTriageResultLabel: Record<AITriageResult, string> = {
     persisted: 'Resolved',
+    suggested: 'Suggested reply',
+    escalated_with_findings: 'Escalated with notes',
     escalated_with_best: 'Escalated with draft',
     escalated_no_reply: 'Escalated, no draft',
     skipped_unactionable: 'Skipped',
     blocked_unsafe: 'Blocked unsafe ticket',
     blocked_unsafe_reply: 'Blocked unsafe reply',
+    clarified: 'Asked a question',
+    suggested_clarification: 'Suggested a question',
+}
+
+export const aiTriageStatusLabel: Record<AITriageStatus, string> = {
+    in_progress: 'In progress',
+    done: 'Done',
+    awaiting_clarification: 'Waiting for the customer',
 }
 
 export const aiTriageProcessingLabel = 'Processing'
-
-export type AITriageFilterValue = AITriageResult | 'in_progress'
 
 export const aiTriageFilterOptions: { key: AITriageFilterValue; label: string }[] = [
     { key: 'in_progress', label: aiTriageProcessingLabel },
@@ -309,19 +314,21 @@ export const aiTriageFilterOptions: { key: AITriageFilterValue; label: string }[
 
 export type AITriageTagType = 'success' | 'warning' | 'danger' | 'default'
 
+const AI_TRIAGE_RESULT_TAG_TYPE: Record<AITriageResult, AITriageTagType> = {
+    persisted: 'success',
+    suggested: 'warning',
+    escalated_with_findings: 'warning',
+    escalated_with_best: 'warning',
+    escalated_no_reply: 'warning',
+    skipped_unactionable: 'default',
+    blocked_unsafe: 'danger',
+    blocked_unsafe_reply: 'danger',
+    clarified: 'warning',
+    suggested_clarification: 'warning',
+}
+
 export function aiTriageResultTagType(result: AITriageResult): AITriageTagType {
-    switch (result) {
-        case 'persisted':
-            return 'success'
-        case 'escalated_with_best':
-        case 'escalated_no_reply':
-            return 'warning'
-        case 'blocked_unsafe':
-        case 'blocked_unsafe_reply':
-            return 'danger'
-        case 'skipped_unactionable':
-            return 'default'
-    }
+    return AI_TRIAGE_RESULT_TAG_TYPE[result]
 }
 
 export const aiTriageTicketTypeLabel: Record<string, string> = {

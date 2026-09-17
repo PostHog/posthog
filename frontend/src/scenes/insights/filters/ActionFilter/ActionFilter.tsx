@@ -34,7 +34,8 @@ import {
 
 import { teamLogic } from '../../../teamLogic'
 import { ActionFilterGroup } from './ActionFilterGroup/ActionFilterGroup'
-import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
+import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from './ActionFilterRow/types'
 import { LocalFilter, entityFilterLogic, toFilters } from './entityFilterLogic'
 
 export interface ActionFilterProps {
@@ -108,6 +109,7 @@ export interface ActionFilterProps {
     addFilterDocLink?: string
     /** Properties to exclude from the properties filter */
     excludedProperties?: TaxonomicPopoverProps['excludedProperties']
+    includeHiddenEvents?: TaxonomicPopoverProps['includeHiddenEvents']
     /** Allow adding non-captured events */
     allowNonCapturedEvents?: boolean
     hogQLGlobals?: Record<string, any>
@@ -151,6 +153,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         filtersLeftPadding,
         addFilterDocLink,
         excludedProperties,
+        includeHiddenEvents,
         allowNonCapturedEvents,
         hogQLGlobals,
         definitionPopoverRenderer,
@@ -223,6 +226,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         filtersLeftPadding,
         addFilterDocLink,
         excludedProperties,
+        includeHiddenEvents,
         allowNonCapturedEvents,
         hogQLGlobals,
         operatorAllowlist,
@@ -289,6 +293,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                         actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
                                         dataWarehousePopoverFields={dataWarehousePopoverFields}
                                         excludedProperties={excludedProperties}
+                                        includeHiddenEvents={includeHiddenEvents}
                                         insightType={filters.insight}
                                         definitionPopoverRenderer={definitionPopoverRenderer}
                                     />

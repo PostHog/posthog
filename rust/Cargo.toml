@@ -7,6 +7,7 @@ members = [
   "capture",
   "capture-load-gen",
   "capture-logs",
+  "capture-apm-metrics",
   "cohort-core",
   "cohort-event-shuffler",
   "cohort-seeder",
@@ -19,8 +20,10 @@ members = [
   "common/cookieless",
   "common/database",
   "common/dns",
+  "common/grpc",
   "common/health",
   "common/kafka",
+  "common/kafka-consumer",
   "common/liveness",
   "common/lifecycle",
   "common/limiters",
@@ -36,6 +39,7 @@ members = [
   "common/types",
   "common/compression",
   "common/hypercache",
+  "common/sqlx-macros",
   "feature-flags",
   "flags-consumer",
   "hypercache-server",
@@ -227,6 +231,9 @@ tracing-opentelemetry = "0.23.0"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 url = "2.5.0"
 uuid = { version = "1.23.0", features = ["v4", "v5", "v7", "serde"] }
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
 zstd = "0.13"
 neon = "1"
 quick_cache = "0.6.21"
@@ -238,7 +245,7 @@ aws-smithy-runtime-api = { version = "1.11.5", features = ["client"] }
 aws-smithy-http-client = { version = "1.1.11", features = ["rustls-aws-lc"] }
 mockall = "0.13.0"
 moka = { version = "0.12.15", features = ["sync", "future"] }
-posthog-rs = { version = "0.25.4", features = ["async-client", "capture-v1"] }
+posthog-rs = { version = "0.25.5", features = ["async-client", "capture-v1"] }
 redis = { version = "0.32.7", features = [
   "tokio-comp",
   "cluster",

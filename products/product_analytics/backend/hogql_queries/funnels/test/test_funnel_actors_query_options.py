@@ -18,8 +18,8 @@ from posthog.schema import (
     InsightActorsQueryOptions,
 )
 
-from posthog.hogql_queries.insights.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
-from posthog.hogql_queries.insights.utils.breakdowns import (
+from posthog.hogql_queries.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
+from posthog.hogql_queries.utils.breakdowns import (
     ALL_USERS_COHORT_ID,
     BREAKDOWN_BASELINE_DISPLAY,
     BREAKDOWN_BASELINE_STRING_LABEL,

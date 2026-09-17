@@ -25,6 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AccessControlLevel, HogFunctionTemplateType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
+import { hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
@@ -50,13 +51,16 @@ import {
     type HogFlowSchedule,
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
+import { prepareWorkflowDuplicate } from './workflowDuplication'
 import { workflowSceneLogic } from './workflowSceneLogic'
 import { workflowsLogic } from './workflowsLogic'
+import { parseWorkflowTriggerPrefill } from './workflowTriggerPrefill'
 
 export interface WorkflowLogicProps {
     id?: string
     templateId?: string
     editTemplateId?: string
+    triggerPrefill?: string
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -113,14 +117,9 @@ export const NEW_WORKFLOW: HogFlow = {
 export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'random_cohort_branch'])
 
 // Trigger types whose runs have no person attached: a synced warehouse row, a materialized view
-// row, and a Slack poster are all things no PostHog person is attached to. Keep in sync with the
-// backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
-export const ROW_SCOPED_TRIGGER_TYPES = new Set([
-    'data-warehouse-table',
-    'data-warehouse-view',
-    'slack-message',
-    'github-event',
-])
+// row, and an internal event are all things no PostHog person is attached to. Keep in sync with
+// the backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
+export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'internal-event'])
 
 function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
     if (templating === 'liquid' && typeof value === 'string') {
@@ -218,6 +217,10 @@ export interface workflowLogicValues {
     discardDisabledReason: string | undefined
     draftActionPending: 'discard' | 'publish' | null
     edgesByActionId: Record<string, HogFlowEdge[]>
+    emailSendingPauseRequiresSupport: boolean
+    emailSendingPaused: boolean
+    emailSendingPausedByStaff: boolean
+    emailSendingPausedReason: string
     externallyEdited: boolean
     hasStagedDraft: boolean
     hasUnsavedChanges: boolean
@@ -243,6 +246,7 @@ export interface workflowLogicValues {
         | false
         | null
     publishDisabledReason: string | undefined
+    resumeEmailSendingPending: boolean
     saveAttemptedActionIds: string[] | null
     saveBaseUpdatedAt: string | null
     scheduleConfigSources: {
@@ -291,6 +295,9 @@ export interface workflowLogicActions {
     }
     confirmPublishDraft: (confirmToken: string) => {
         confirmToken: string
+    }
+    confirmResumeEmailSending: () => {
+        value: true
     }
     discardChanges: () => {
         value: true
@@ -525,10 +532,12 @@ export interface workflowLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
                                                         | 'task_model'
                                                         | 'task_repository'
+                                                        | 'task_skills'
                                                 }[]
                                               | undefined
                                           name: string
@@ -760,6 +769,7 @@ export interface workflowLogicActions {
                                       filters: {
                                           all_roles_unassigned?: boolean | undefined
                                           assigned_to_user_ids?: number[] | undefined
+                                          assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                           audience_type?: 'accounts' | 'persons' | undefined
                                           properties: any[]
                                           tag_names?: string[] | undefined
@@ -777,15 +787,11 @@ export interface workflowLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          events: any[]
                                           properties?: any[] | undefined
+                                          source: 'internal-events'
                                       }
-                                      type: 'github-event'
-                                  }
-                                | {
-                                      filters: {
-                                          properties?: any[] | undefined
-                                      }
-                                      type: 'slack-message'
+                                      type: 'internal-event'
                                   }
                                 | {
                                       filters: {
@@ -1039,6 +1045,7 @@ export interface workflowLogicActions {
                             filters: {
                                 all_roles_unassigned?: boolean | undefined
                                 assigned_to_user_ids?: number[] | undefined
+                                assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                 audience_type?: 'accounts' | 'persons' | undefined
                                 properties: any[]
                                 tag_names?: string[] | undefined
@@ -1056,15 +1063,11 @@ export interface workflowLogicActions {
                         }
                       | {
                             filters: {
+                                events: any[]
                                 properties?: any[] | undefined
+                                source: 'internal-events'
                             }
-                            type: 'github-event'
-                        }
-                      | {
-                            filters: {
-                                properties?: any[] | undefined
-                            }
-                            type: 'slack-message'
+                            type: 'internal-event'
                         }
                       | {
                             filters: {
@@ -1176,10 +1179,12 @@ export interface workflowLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
                                 | 'task_model'
                                 | 'task_repository'
+                                | 'task_skills'
                         }[]
                       | null
                       | undefined
@@ -1384,10 +1389,12 @@ export interface workflowLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
                                                         | 'task_model'
                                                         | 'task_repository'
+                                                        | 'task_skills'
                                                 }[]
                                               | undefined
                                           name: string
@@ -1619,6 +1626,7 @@ export interface workflowLogicActions {
                                       filters: {
                                           all_roles_unassigned?: boolean | undefined
                                           assigned_to_user_ids?: number[] | undefined
+                                          assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                           audience_type?: 'accounts' | 'persons' | undefined
                                           properties: any[]
                                           tag_names?: string[] | undefined
@@ -1636,15 +1644,11 @@ export interface workflowLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          events: any[]
                                           properties?: any[] | undefined
+                                          source: 'internal-events'
                                       }
-                                      type: 'github-event'
-                                  }
-                                | {
-                                      filters: {
-                                          properties?: any[] | undefined
-                                      }
-                                      type: 'slack-message'
+                                      type: 'internal-event'
                                   }
                                 | {
                                       filters: {
@@ -1898,6 +1902,7 @@ export interface workflowLogicActions {
                             filters: {
                                 all_roles_unassigned?: boolean | undefined
                                 assigned_to_user_ids?: number[] | undefined
+                                assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                 audience_type?: 'accounts' | 'persons' | undefined
                                 properties: any[]
                                 tag_names?: string[] | undefined
@@ -1915,15 +1920,11 @@ export interface workflowLogicActions {
                         }
                       | {
                             filters: {
+                                events: any[]
                                 properties?: any[] | undefined
+                                source: 'internal-events'
                             }
-                            type: 'github-event'
-                        }
-                      | {
-                            filters: {
-                                properties?: any[] | undefined
-                            }
-                            type: 'slack-message'
+                            type: 'internal-event'
                         }
                       | {
                             filters: {
@@ -2035,10 +2036,12 @@ export interface workflowLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
                                 | 'task_model'
                                 | 'task_repository'
+                                | 'task_skills'
                         }[]
                       | null
                       | undefined
@@ -2085,6 +2088,7 @@ export interface workflowLogicActions {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined
@@ -2102,15 +2106,11 @@ export interface workflowLogicActions {
               }
             | {
                   filters: {
+                      events: any[]
                       properties?: any[] | undefined
+                      source: 'internal-events'
                   }
-                  type: 'github-event'
-              }
-            | {
-                  filters: {
-                      properties?: any[] | undefined
-                  }
-                  type: 'slack-message'
+                  type: 'internal-event'
               }
             | {
                   condition: {
@@ -2220,10 +2220,12 @@ export interface workflowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string
@@ -2364,6 +2366,9 @@ export interface workflowLogicActions {
     resetWorkflow: (values?: HogFlow) => {
         values?: HogFlow
     }
+    resumeEmailSending: () => {
+        value: true
+    }
     saveWorkflow: (updates: HogFlow) => HogFlow
     saveWorkflowFailure: (
         error: string,
@@ -2393,6 +2398,9 @@ export interface workflowLogicActions {
     }
     setExternallyEdited: (externallyEdited: boolean) => {
         externallyEdited: boolean
+    }
+    setResumeEmailSendingPending: (pending: boolean) => {
+        pending: boolean
     }
     setSaveBaseUpdatedAt: (updatedAt: string | null) => {
         updatedAt: string | null
@@ -2466,6 +2474,7 @@ export interface workflowLogicActions {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined
@@ -2483,15 +2492,11 @@ export interface workflowLogicActions {
               }
             | {
                   filters: {
+                      events: any[]
                       properties?: any[] | undefined
+                      source: 'internal-events'
                   }
-                  type: 'github-event'
-              }
-            | {
-                  filters: {
-                      properties?: any[] | undefined
-                  }
-                  type: 'slack-message'
+                  type: 'internal-event'
               }
             | {
                   condition: {
@@ -2601,10 +2606,12 @@ export interface workflowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
                                           | 'task_model'
                                           | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string
@@ -2794,6 +2801,7 @@ export interface workflowLogicActions {
         filters: {
             all_roles_unassigned?: boolean | undefined
             assigned_to_user_ids?: number[] | undefined
+            assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
             audience_type?: 'accounts' | 'persons' | undefined
             properties: any[]
             tag_names?: string[] | undefined
@@ -2863,6 +2871,7 @@ export interface workflowLogicMeta {
                                 filters: {
                                     all_roles_unassigned?: boolean | undefined
                                     assigned_to_user_ids?: number[] | undefined
+                                    assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                     audience_type?: 'accounts' | 'persons' | undefined
                                     properties: any[]
                                     tag_names?: string[] | undefined
@@ -2880,15 +2889,11 @@ export interface workflowLogicMeta {
                             }
                           | {
                                 filters: {
+                                    events: any[]
                                     properties?: any[] | undefined
+                                    source: 'internal-events'
                                 }
-                                type: 'github-event'
-                            }
-                          | {
-                                filters: {
-                                    properties?: any[] | undefined
-                                }
-                                type: 'slack-message'
+                                type: 'internal-event'
                             }
                           | {
                                 filters: {
@@ -2989,6 +2994,10 @@ export interface workflowLogicMeta {
             hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
         ) => HogFlow
         hasStagedDraft: (originalWorkflow: HogFlow | null) => boolean
+        emailSendingPaused: (originalWorkflow: HogFlow | null) => boolean
+        emailSendingPausedReason: (originalWorkflow: HogFlow | null) => string
+        emailSendingPausedByStaff: (originalWorkflow: HogFlow | null) => boolean
+        emailSendingPauseRequiresSupport: (originalWorkflow: HogFlow | null) => boolean
         showDraftActions: (originalWorkflow: HogFlow | null) => boolean
         publishDisabledReason: (
             hasStagedDraft: boolean,
@@ -3014,7 +3023,8 @@ export const workflowLogic = kea<workflowLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic', key]),
     props({ id: 'new' } as WorkflowLogicProps),
     key(
-        (props) => `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}`
+        (props) =>
+            `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}`
     ),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
@@ -3068,6 +3078,9 @@ export const workflowLogic = kea<workflowLogicType>([
         setDraftActionPending: (pending: 'publish' | 'discard' | null) => ({ pending }),
         setDeferredResourceEdited: (event: ResourceEditedEvent | null) => ({ event }),
         replayDeferredResourceEdited: true,
+        resumeEmailSending: true,
+        confirmResumeEmailSending: true,
+        setResumeEmailSendingPending: (pending: boolean) => ({ pending }),
     }),
     loaders(({ props, values, actions, cache }) => ({
         originalWorkflow: [
@@ -3099,6 +3112,16 @@ export const workflowLogic = kea<workflowLogicType>([
                             delete (newWorkflow as any).created_by
 
                             return newWorkflow
+                        }
+                        const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
+                        if (triggerConfig) {
+                            const prefilled: HogFlow = {
+                                ...NEW_WORKFLOW,
+                                actions: NEW_WORKFLOW.actions.map((action) =>
+                                    action.type === 'trigger' ? { ...action, config: triggerConfig } : action
+                                ),
+                            }
+                            return prefilled
                         }
                         return { ...NEW_WORKFLOW }
                     }
@@ -3190,12 +3213,23 @@ export const workflowLogic = kea<workflowLogicType>([
                         const liveBase = latest?.updated_at
                         // Draft writes race against other draft writes, not the live row, so the staleness
                         // baseline follows the routing: the draft's own stamp once one is staged.
-                        const loadedBase = stagingDraft ? (latest?.draft_updated_at ?? liveBase) : liveBase
+                        const includesStagedDraft =
+                            !stagingDraft && !isStatusTransition && latest?.status !== 'active' && !!latest?.draft
+                        const newestBase =
+                            latest?.draft_updated_at && liveBase && dayjs(latest.draft_updated_at).isAfter(liveBase)
+                                ? latest.draft_updated_at
+                                : liveBase
+                        const loadedBase = stagingDraft
+                            ? (latest?.draft_updated_at ?? liveBase)
+                            : includesStagedDraft
+                              ? newestBase
+                              : liveBase
 
                         try {
                             const result = await api.hogFlows.updateHogFlow(props.id, {
                                 ...payload,
                                 ...(stagingDraft ? { stage_draft: true } : {}),
+                                ...(includesStagedDraft ? { includes_staged_draft: true } : {}),
                                 // A staged save's metadata still writes live; fence that write with the
                                 // live stamp so it can't overwrite a concurrent metadata edit the
                                 // draft-stamp baseline wouldn't catch.
@@ -3442,6 +3476,12 @@ export const workflowLogic = kea<workflowLogicType>([
             null as 'publish' | 'discard' | null,
             {
                 setDraftActionPending: (_, { pending }) => pending,
+            },
+        ],
+        resumeEmailSendingPending: [
+            false,
+            {
+                setResumeEmailSendingPending: (_, { pending }) => pending,
             },
         ],
         // A resource_edited event parked while our own save/reload was in flight. Replayed once the
@@ -3768,6 +3808,28 @@ export const workflowLogic = kea<workflowLogicType>([
             (originalWorkflow: HogFlow | null): boolean => !!originalWorkflow?.draft,
         ],
 
+        // Read off the saved row, never the editor form: a pause is server state and the form is
+        // whatever the author has typed since.
+        emailSendingPaused: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean => !!originalWorkflow?.email_sending_paused_at,
+        ],
+        emailSendingPausedReason: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): string => originalWorkflow?.email_sending_paused_reason ?? '',
+        ],
+        // "staff" means only PostHog staff can lift the pause, so the banner hides the resume button.
+        emailSendingPausedByStaff: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean => originalWorkflow?.email_sending_paused_by === 'staff',
+        ],
+        // Covers staff pauses and repeat pauses (re-tripped soon after a resume): no resume button.
+        emailSendingPauseRequiresSupport: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean =>
+                originalWorkflow?.email_sending_pause_requires_support === true,
+        ],
+
         // A staged draft outlives the edits made after it, so the draft actions stay mounted while
         // the form is dirty. Gating them on a clean form made them appear and disappear on every
         // auto-save cycle.
@@ -3938,6 +4000,42 @@ export const workflowLogic = kea<workflowLogicType>([
                 actions.loadWorkflow()
             } finally {
                 actions.setDraftActionPending(null)
+            }
+        },
+        resumeEmailSending: () => {
+            if (!props.id || props.id === 'new' || values.resumeEmailSendingPending) {
+                return
+            }
+            LemonDialog.open({
+                title: 'Resume email sending?',
+                description:
+                    'Send again from this workflow. If it keeps drawing spam complaints or hitting addresses that do not exist, sending pauses again on its own within a couple of hours.',
+                primaryButton: {
+                    children: 'Resume sending',
+                    onClick: () => actions.confirmResumeEmailSending(),
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                },
+            })
+        },
+        confirmResumeEmailSending: async () => {
+            // Also guards the dialog's close-animation window, where a fast double-click on the
+            // confirm button dispatches twice.
+            if (!props.id || props.id === 'new' || values.resumeEmailSendingPending) {
+                return
+            }
+            actions.setResumeEmailSendingPending(true)
+            try {
+                await hogFlowsResumeEmailSending(String(values.currentProjectId), props.id)
+                lemonToast.success('Email sending resumed')
+            } catch {
+                lemonToast.error('Could not resume email sending. Please try again.')
+            } finally {
+                actions.setResumeEmailSendingPending(false)
+                // Reload either way: on success to clear the banner, on failure because another
+                // editor may have resumed it already.
+                actions.loadWorkflow()
             }
         },
         discardDraft: () => {
@@ -4259,17 +4357,7 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!workflow) {
                 return
             }
-            const newWorkflow = {
-                ...workflow,
-                name: `${workflow.name} (copy)`,
-                status: 'draft' as const,
-            }
-            delete (newWorkflow as any).id
-            delete (newWorkflow as any).team_id
-            delete (newWorkflow as any).created_at
-            delete (newWorkflow as any).updated_at
-
-            const createdWorkflow = await api.hogFlows.createHogFlow(newWorkflow)
+            const createdWorkflow = await api.hogFlows.createHogFlow(prepareWorkflowDuplicate(workflow))
             lemonToast.success('Workflow duplicated')
             router.actions.push(urls.workflow(createdWorkflow.id, 'workflow'))
         },

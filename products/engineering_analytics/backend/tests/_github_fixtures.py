@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from posthog.test.base import BaseTest
+from posthog.test.base import PostHogTestCase
 
 import pandas as pd
 
@@ -34,7 +34,7 @@ GITHUB_SOURCE_PREFIX = "myprefix"
 
 
 @contextmanager
-def seeding_object_storage(test: BaseTest) -> Iterator[None]:
+def seeding_object_storage(test: PostHogTestCase) -> Iterator[None]:
     # Skipping locally keeps the suite usable without the dev stack; skipping in CI would drop every
     # warehouse-backed assertion behind a green job, so there it raises.
     try:
@@ -71,6 +71,23 @@ def create_trunk_source(
         prefix=prefix,
         job_inputs={},
     )
+
+
+def _quarantined_row(*, file: str, name: str, classname: str, parent: str) -> dict[str, Any]:
+    return {
+        "file": file,
+        "name": name,
+        "labels": "[]",
+        "parent": parent,
+        "status": "FLAKY",
+        "variant": "",
+        "classname": classname,
+        "codeowners": "[]",
+        "test_case_id": f"case-{name}",
+        "quarantined_at": "2026-01-10T10:00:00.000Z",
+        "quarantine_setting": "AUTO_QUARANTINE",
+        "status_last_updated_at": "2026-01-10T10:00:00.000Z",
+    }
 
 
 def _trunk_queue_row(
@@ -265,7 +282,45 @@ def _run_row(
     }
 
 
-def create_github_warehouse_table(test: BaseTest, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> str:
+def _deployment_row(
+    deployment_id: int, sha: str, environment: str, created_at: str, *, production: bool, transient: bool = False
+) -> dict:
+    return {
+        "id": deployment_id,
+        "sha": sha,
+        "ref": "master",
+        "task": "deploy",
+        "environment": environment,
+        "original_environment": environment,
+        "description": "",
+        "creator": "{}",
+        "payload": "{}",
+        "production_environment": production,
+        "transient_environment": transient,
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+
+
+def _status_row(status_id: int, deployment_id: int, state: str, environment: str, created_at: str) -> dict:
+    return {
+        "id": status_id,
+        "deployment_id": deployment_id,
+        "state": state,
+        "creator": "{}",
+        "description": "",
+        "environment": environment,
+        "target_url": "",
+        "log_url": "",
+        "environment_url": "",
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+
+
+def create_github_warehouse_table(
+    test: PostHogTestCase, base_name: str, columns: dict, rows: list[dict[str, Any]]
+) -> str:
     # Returns the real table name (prefixed), which the builder is then told to read,
     # proving build_query honors the resolved name instead of a hardcoded one.
     df = pd.DataFrame(rows, columns=list(columns.keys()))

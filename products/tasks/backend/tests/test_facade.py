@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.db import close_old_connections
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone as django_timezone
@@ -45,7 +46,6 @@ FACADE_MODULES = [
     "products.tasks.backend.facade.streams",
     "products.tasks.backend.facade.temporal",
     "products.tasks.backend.facade.max_tools",
-    "products.tasks.backend.facade.webhooks",
 ]
 
 
@@ -93,6 +93,7 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
             mode: str = "background",
             extra_state: dict | None = None,
             branch: str | None = None,
+            acting_user_id: int | None = None,
         ) -> TaskRun:
             create_reached.set()
             if not handoff_finished.wait(timeout=10):
@@ -103,6 +104,7 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
                 mode=mode,
                 extra_state=extra_state,
                 branch=branch,
+                acting_user_id=acting_user_id,
             )
 
         def bootstrap() -> None:
@@ -263,7 +265,7 @@ class TestFacadeReadsAndMappers(TestCase):
         # task.description. But it embeds the triggering event wholesale (for a Slack
         # trigger, a private channel's content) and workflow tasks are team-readable,
         # so human readers must not receive it.
-        task = self._make_task()
+        task = self._make_task(origin_product=Task.OriginProduct.WORKFLOW)
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
@@ -271,7 +273,10 @@ class TestFacadeReadsAndMappers(TestCase):
             state={
                 "initial_prompt_override": "framed prompt",
                 "end_run_when_done": True,
+                "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
+                "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
                 "sandbox_jwt_kid": "secret",
+                "task_summary": "Private workflow context",
             },
         )
 
@@ -283,7 +288,11 @@ class TestFacadeReadsAndMappers(TestCase):
         # The finish-tool gate reads this key at agent boot; a filter that drops it makes
         # every unbound workflow run idle out instead of ending itself.
         assert detail.state.get("end_run_when_done") == (True if include_agent_state else None)
+        # The agent writes these into its skill roots at boot; dropped, it installs none.
+        assert ("store_skills" in detail.state) is include_agent_state
+        assert ("systemPrompt" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
+        assert detail.task_summary == ("Private workflow context" if include_agent_state else None)
 
     def test_get_task_run_maps_all_fields(self):
         task = self._make_task()
@@ -481,7 +490,7 @@ class TestFacadeReadsAndMappers(TestCase):
             state={"ai_stage": "context-layer-dream"},
         )
         terminal_task = self._make_task(internal=True)
-        TaskRun.objects.create(
+        terminal = TaskRun.objects.create(
             task=terminal_task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
@@ -521,6 +530,17 @@ class TestFacadeReadsAndMappers(TestCase):
 
         assert result is not None
         self.assertEqual(result.id, active.id)
+        latest = facade.get_latest_internal_task_run_for_organization(
+            self.organization.id, ai_stage="context-layer-dream"
+        )
+        assert latest is not None
+        self.assertEqual(latest.id, terminal.id)
+        TaskRun.objects.filter(id=active.id).update(created_at=terminal.created_at + timedelta(seconds=1))
+        latest_terminal = facade.get_latest_internal_task_run_for_organization(
+            self.organization.id, ai_stage="context-layer-dream", terminal_only=True
+        )
+        assert latest_terminal is not None
+        self.assertEqual(latest_terminal.id, terminal.id)
 
     def test_count_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
         integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
@@ -589,8 +609,9 @@ class TestFacadeReadsAndMappers(TestCase):
         for task in tasks:
             TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
 
-        # A single query with the latest-run-id subquery — no per-task run lookup, no N+1.
-        with self.assertNumQueries(1):
+        # One task query with the latest-run-id subquery plus one narrow team prefetch, so no
+        # per-task run lookup and no N+1.
+        with self.assertNumQueries(2):
             dtos = facade.get_conversation_task_dtos([t.id for t in tasks], self.team.id, self.user.id)
             for task in tasks:
                 self.assertIsNotNone(dtos[task.id].latest_run_id)
@@ -704,7 +725,7 @@ class TestFacadeReadsAndMappers(TestCase):
             },
         )
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -723,6 +744,27 @@ class TestFacadeReadsAndMappers(TestCase):
             self.assertNotIn("snapshot_kind", new_run.state)
             self.assertNotIn("snapshot_mount_path", new_run.state)
 
+    def test_run_task_pi_resume_carries_the_prior_summary(self):
+        task = self._make_task(runtime=Task.Runtime.PI)
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"task_summary": "Reviewing the API"},
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        self.assertEqual(new_run.state.get("prior_run_summary"), "Reviewing the API")
+
     def test_run_task_resume_exposes_pending_prompt_to_agent(self):
         task = self._make_task()
         previous_run = TaskRun.objects.create(
@@ -731,7 +773,7 @@ class TestFacadeReadsAndMappers(TestCase):
             status=TaskRun.Status.COMPLETED,
         )
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -775,7 +817,7 @@ class TestFacadeReadsAndMappers(TestCase):
             state={"custom_image_id": str(image.id)},
         )
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -805,7 +847,7 @@ class TestFacadeReadsAndMappers(TestCase):
             state={"self_driving_head_branch": "posthog-self-driving/fix-abc123"},
         )
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -816,6 +858,33 @@ class TestFacadeReadsAndMappers(TestCase):
         assert result is not None and result.error is None
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
+
+    def test_run_task_resume_of_a_pipeline_task_stays_unstamped(self):
+        # The predecessor's stage is deliberately not carried forward: a stage makes the run
+        # read as pipeline-started and drops it out of the interactive duration ceiling.
+        from products.signals.backend.models import SignalReport
+
+        # The report link is present so only `internal` can withhold the stamp here.
+        report = SignalReport.objects.create(team=self.team)
+        task = self._make_task(origin_product=Task.OriginProduct.SIGNAL_REPORT, signal_report=report, internal=True)
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"ai_stage": "implementation"},
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        self.assertNotIn("ai_stage", new_run.state)
 
     @parameterized.expand(
         [
@@ -836,7 +905,7 @@ class TestFacadeReadsAndMappers(TestCase):
         SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"autostart_base_branches": overrides})
         task = self._make_task(repository="Acme/Web", origin_product=Task.OriginProduct.SIGNAL_REPORT)
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -857,7 +926,7 @@ class TestFacadeReadsAndMappers(TestCase):
         )
         task = self._make_task(repository="Acme/Web", origin_product=Task.OriginProduct.USER_CREATED)
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -1366,10 +1435,20 @@ class TestSignalTaskRunUserMessage(TestCase):
         with patch("products.tasks.backend.temporal.client.signal_task_followup_message"):
             return facade.signal_task_run_user_message(run.id, run.task_id, self.team.id, **{**defaults, **kwargs})
 
-    def test_records_the_message_so_a_reload_can_show_it_before_the_agent_takes_it(self):
+    @parameterized.expand([(None,), (True,), (False,)])
+    def test_records_the_message_so_a_reload_can_show_it_before_the_agent_takes_it(self, subscription_owner):
         run = self._run()
+        if subscription_owner is not None:
+            run.state = {"claude_model_access": "own-subscription", "claude_subscription_user_id": self.user.id}
+            run.save(update_fields=["state"])
+        if subscription_owner is False:
+            with self.assertRaises(facade.PermissionDenied):
+                self._signal(run, actor_user_id=self.user.id + 1)
+            run.refresh_from_db()
+            self.assertNotIn("pending_followup_messages", run.state)
+            return
 
-        self.assertTrue(self._signal(run))
+        self.assertTrue(self._signal(run, actor_user_id=self.user.id))
 
         run.refresh_from_db()
         recorded = run.state["pending_followup_messages"]
@@ -1911,3 +1990,138 @@ class TestOrganizationHasContext(TestCase):
 
         self.assertFalse(facade.organization_has_context(self.organization.id))
         self.assertTrue(facade.organization_has_context(other_org.id))
+
+
+class TestSelfDrivingFreeTrialFacadeGates(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Trial Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Trial Team")
+        cls.user = User.objects.create(email="trial-facade@test.com", distinct_id="trial-facade-distinct")
+
+    def _on_trial(self):
+        return patch("products.signals.backend.free_trial.self_driving_free_trial_enabled", return_value=True)
+
+    def _report(self):
+        SignalReport = apps.get_model("signals", "SignalReport")
+        return SignalReport.objects.create(team=self.team, status="ready", title="t", summary="s")
+
+    @parameterized.expand([(None,), ("implementation",)])
+    def test_create_task_refuses_create_pr_from_report_on_trial(self, relationship):
+        # A trial org gets reports, not pull requests: the manual Create PR path is refused with
+        # the trial code, so a client can show the trial message, and the held-back PR is counted.
+        from products.signals.backend.free_trial import FreeTrialPullRequestRefused
+
+        report = self._report()
+        with (
+            self._on_trial(),
+            patch("products.signals.backend.free_trial.capture_signal_report_free_trial_paused") as capture_mock,
+            self.assertRaises(FreeTrialPullRequestRefused) as raised,
+        ):
+            facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "title": "Implementation: t",
+                    "description": "d",
+                    "origin_product": Task.OriginProduct.SIGNAL_REPORT,
+                    "signal_report": report,
+                    "signal_report_task_relationship": relationship,
+                },
+            )
+        self.assertEqual(raised.exception.get_codes(), "self_driving_free_trial")
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+        self.assertEqual(capture_mock.call_args.kwargs, {"report_id": str(report.id), "stage": "manual_create"})
+
+    def test_create_task_allows_discussion_from_report_on_trial(self):
+        # Discuss answers questions about a report and stays open on a trial; only Create PR is held back.
+        report = self._report()
+        with self._on_trial():
+            dto = facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "title": "Discuss: t",
+                    "description": "d",
+                    "origin_product": Task.OriginProduct.SIGNAL_REPORT,
+                    "signal_report": report,
+                    "signal_report_task_relationship": "discussion",
+                },
+            )
+        self.assertTrue(Task.objects.filter(id=dto.id).exists())
+
+    @parameterized.expand([("implementation", True), ("discussion", False)])
+    def test_run_task_refuses_an_existing_report_implementation_on_trial(self, relationship, expect_refusal):
+        # The create-time gate cannot see a task that already existed when sales turned the flag
+        # on. Starting or retrying that task opens the pull request the trial promises to withhold,
+        # and bills the trial org for it. A discussion opens none, so it keeps running.
+        from products.signals.backend.free_trial import FreeTrialPullRequestRefused
+        from products.signals.backend.task_run_artefacts import record_report_task
+
+        report = self._report()
+        task = Task.objects.create(
+            team=self.team,
+            title="Implementation: t",
+            description="d",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report_id=report.id,
+            created_by=self.user,
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship=relationship
+        )
+
+        with (
+            self._on_trial(),
+            patch("products.signals.backend.free_trial.capture_signal_report_free_trial_paused") as capture_mock,
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None),
+        ):
+            if expect_refusal:
+                with self.assertRaises(FreeTrialPullRequestRefused) as raised:
+                    facade.run_task(task.id, self.team.id, self.user.id, validated_data={"mode": "background"})
+                self.assertEqual(raised.exception.get_codes(), "self_driving_free_trial")
+                self.assertEqual(capture_mock.call_args.kwargs, {"report_id": str(report.id), "stage": "task_run"})
+            else:
+                result = facade.run_task(task.id, self.team.id, self.user.id, validated_data={"mode": "background"})
+                assert result is not None and result.error is None
+        self.assertEqual(task.runs.exists(), not expect_refusal)
+
+    def test_create_and_run_task_refuses_pr_session_on_trial(self):
+        # The facade backstop behind every PR-opening self-driving caller, with its own stage.
+        from products.signals.backend.free_trial import FreeTrialPullRequestRefused
+
+        with (
+            self._on_trial(),
+            patch("products.signals.backend.free_trial.capture_signal_report_free_trial_paused") as capture_mock,
+            self.assertRaises(FreeTrialPullRequestRefused),
+        ):
+            facade.create_and_run_task(
+                team=self.team,
+                title="Implementation: t",
+                description="d",
+                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                user_id=self.user.id,
+                repository="posthog/posthog",
+            )
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+        self.assertEqual(capture_mock.call_args.kwargs["stage"], "task_create")
+
+    def test_create_and_run_task_takes_a_pre_resolved_free_trial_verdict(self):
+        # Auto-start resolves the flag before it takes the report row lock, so the create-time gate
+        # must use the verdict it is given instead of making its own flag request under the lock.
+        with self._on_trial() as flag_mock:
+            dto = facade.create_and_run_task(
+                team=self.team,
+                title="Implementation: t",
+                description="d",
+                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                user_id=self.user.id,
+                free_trial_enabled=False,
+                start_workflow=False,
+            )
+        flag_mock.assert_not_called()
+        self.assertTrue(Task.objects.filter(id=dto.task_id).exists())

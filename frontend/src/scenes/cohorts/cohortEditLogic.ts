@@ -42,7 +42,6 @@ import {
     isCohortCriteriaGroup,
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
-import { personsLogic } from 'scenes/persons/personsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -67,6 +66,7 @@ import {
 
 import { cohortsUsedInRetrieve } from 'products/cohorts/frontend/generated/api'
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
+import { personsLogic } from 'products/persons/frontend/logics/personsLogic'
 
 import type { UserBasicType } from '../../types'
 
@@ -130,6 +130,7 @@ export interface cohortEditLogicValues {
     showCohortErrors: boolean
     staticCohortMode: StaticCohortMode
     usedIn: CohortUsedInResponseApi | null
+    usedInExpanded: boolean
     usedInLoading: boolean
 }
 
@@ -383,6 +384,9 @@ export interface cohortEditLogicActions {
     setStaticCohortMode: (mode: StaticCohortMode) => {
         mode: StaticCohortMode
     }
+    setUsedInExpanded: (expanded: boolean) => {
+        expanded: boolean
+    }
     submitCohort: () => {
         value: boolean
     }
@@ -538,6 +542,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         refreshPersonsData: true,
         setStaticCohortMode: (mode: StaticCohortMode) => ({ mode }),
         setActiveTab: (tab: CohortEditTab) => ({ tab }),
+        setUsedInExpanded: (expanded: boolean) => ({ expanded }),
     }),
 
     reducers(({ props }) => ({
@@ -742,6 +747,12 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             'overview' as CohortEditTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        usedInExpanded: [
+            false,
+            {
+                setUsedInExpanded: (_, { expanded }) => expanded,
             },
         ],
     })),
@@ -1149,6 +1160,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 const calculationFields = {
                     is_calculating: cohort.is_calculating,
                     errors_calculating: cohort.errors_calculating,
+                    last_error_message: cohort.last_error_message,
                     last_calculation: cohort.last_calculation,
                     count: cohort.count,
                     last_import_total_count: cohort.last_import_total_count,

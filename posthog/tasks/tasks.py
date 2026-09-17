@@ -24,7 +24,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_conc
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
@@ -421,6 +421,7 @@ def _process_query_task_failure(
         # Important: Only retry for things that might be okay on the next try
         ClickHouseAtCapacity,
         ConcurrencyLimitExceeded,
+        QueryRanConcurrently,
     ),
     on_failure=_process_query_task_failure,
     retry_backoff=1,
@@ -750,15 +751,22 @@ def clickhouse_mutation_count() -> None:
 
 @shared_task(ignore_result=True)
 def clickhouse_clear_removed_data() -> None:
+    from posthog.models.async_deletion.celery_fallback import CELERY_SWEEP_MAX_COHORTS, celery_sweeps_enabled
     from posthog.models.async_deletion.delete_cohorts import sweep_cohort_deletions
 
-    sweep_cohort_deletions()
+    # Also guarded at registration; this covers a stale beat schedule or a hand-run task.
+    if not celery_sweeps_enabled():
+        return
+    sweep_cohort_deletions(max_cohorts=CELERY_SWEEP_MAX_COHORTS)
 
 
 @shared_task(ignore_result=True)
 def clear_clickhouse_deleted_person() -> None:
+    from posthog.models.async_deletion.celery_fallback import celery_sweeps_enabled
     from posthog.models.async_deletion.delete_person import remove_deleted_person_data
 
+    if not celery_sweeps_enabled():
+        return
     remove_deleted_person_data()
 
 

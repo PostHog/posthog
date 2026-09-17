@@ -4,10 +4,12 @@ Each head is a cohort (which reports are scoreable examples), a binary label, an
 label is "the outcome happened within `horizon_days` of the scoring moment", evaluated from the
 cumulative label columns the dataset dag snapshots. Cohort and label are vectorized over a frame
 of `inbox_report_labels` columns, so the same definitions read the snapshot at scoring time (label
-must still be 0) and the snapshot `horizon_days` later (the label).
+must still be 0) and the snapshot `horizon_days` later (the label). The report's birth day is the
+exception: it has no earlier scoring moment, so an outcome already visible there is a future
+positive for that moment rather than an outcome of an earlier one, and the label may already be 1.
 
-Mirrors the workspace `heads.py` (random-dev-internal, `inbox-ranking/`) for the four heads with
-enough positives to ship; the other ten stay workspace-only until they are readable.
+Mirrors the workspace `heads.py` (random-dev-internal, `inbox-ranking/`) for the seven heads with
+enough positives to ship; the other seven stay workspace-only until they are readable.
 """
 
 from collections.abc import Callable
@@ -53,6 +55,18 @@ def pr_created(frame: pd.DataFrame) -> pd.Series:
     return _count(frame, "pr_created_count") > 0
 
 
+def pr_merged(frame: pd.DataFrame) -> pd.Series:
+    return _count(frame, "pr_merged_count") > 0
+
+
+def discussed(frame: pd.DataFrame) -> pd.Series:
+    return _count(frame, "discuss_count") > 0
+
+
+def refunded(frame: pd.DataFrame) -> pd.Series:
+    return _count(frame, "refund_count") > 0
+
+
 @frozen
 class Head:
     name: str
@@ -61,6 +75,10 @@ class Head:
     horizon_days: int
     # Below this many positives in the holdout the head's AUC is noise; the promotion gate ignores it.
     min_holdout_positives: int
+    # Cumulative count columns the label reads. A scoring pair whose snapshot is missing one of these
+    # cannot tell "outcome not yet observed" from "column absent", so the example builder skips it.
+    # Empty when the label tolerates a missing column on its own (dismiss_wrong falls back to a reason).
+    label_columns: tuple[str, ...] = ()
     # The label comes from the status-change stream, whose tenant provenance the dataset dag
     # cross-checks; rows that fail that check are unusable for this head.
     status_labels: bool = False
@@ -77,12 +95,50 @@ HEADS: tuple[Head, ...] = (
         name="dismiss_wrong",
         cohort=impressed,
         label=dismissed_as_wrong,
-        horizon_days=7,
+        horizon_days=14,
         min_holdout_positives=30,
         status_labels=True,
     ),
     # Which reports get a PR at all? Cohort is every report the sweep would score.
     Head(name="pr_created", cohort=everyone, label=pr_created, horizon_days=7, min_holdout_positives=30),
+    # Which reports end up with a merged PR? The cohort is everyone, so the label carries the whole
+    # report-to-merge path rather than conditioning on a PR that does not exist yet at birth.
+    Head(
+        name="pr_merged",
+        cohort=everyone,
+        label=pr_merged,
+        horizon_days=14,
+        min_holdout_positives=30,
+        label_columns=("pr_merged_count",),
+    ),
+    # Of the reports users saw, which drew a discuss? Overlaps the action head, which is fine - each
+    # head trains independently.
+    Head(
+        name="discuss",
+        cohort=impressed,
+        label=discussed,
+        horizon_days=7,
+        min_holdout_positives=30,
+        label_columns=("discuss_count",),
+    ),
+    # Which reports led to a refund? Cohort is everyone, not pr_created: a minority of refunded reports
+    # carry no pr_created event, since the refund stream is minted server-side on its own event.
+    # refund_count entered the labels schema after the epoch, so pre-existing partitions lack it; the
+    # label_columns guard keeps its cumulative count from leaking stale refunds as future positives.
+    Head(
+        name="refund",
+        cohort=everyone,
+        label=refunded,
+        horizon_days=14,
+        min_holdout_positives=20,
+        label_columns=("refund_count",),
+    ),
 )
 
 HEADS_BY_NAME: dict[str, Head] = {head.name: head for head in HEADS}
+# Heads that share a horizon are labeled from the same later snapshot, so a reader that walks the
+# horizons touches each snapshot once instead of once per head.
+HEADS_BY_HORIZON: dict[int, tuple[Head, ...]] = {
+    horizon: tuple(head for head in HEADS if head.horizon_days == horizon)
+    for horizon in sorted({head.horizon_days for head in HEADS})
+}

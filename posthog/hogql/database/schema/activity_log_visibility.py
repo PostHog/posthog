@@ -19,8 +19,13 @@ from posthog.hogql.parser import parse_expr
 CANVASES_TABLE = "system.canvases"
 _LOOP_ROWS_HIDDEN = "NOT (scope = 'Loop')"
 _CANVAS_ROWS_HIDDEN = "NOT (scope = 'Canvas')"
+# `toString` on the canvas id is load-bearing. `item_id` is a String holding the id of whatever object
+# the row is about, and most of those are numeric (`11510926` for an insight), while a canvas id is a
+# real UUID once the federated read types it. ClickHouse coerces the left side of an IN to the set's
+# type, and it does that for every row rather than only the Canvas ones, so an unconverted set makes
+# any read of this table die on the first numeric id: "Cannot parse uuid 11510926".
 _CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES = (
-    f"NOT (scope = 'Canvas' AND item_id NOT IN (SELECT id FROM {CANVASES_TABLE}))"
+    f"NOT (scope = 'Canvas' AND item_id NOT IN (SELECT toString(id) FROM {CANVASES_TABLE}))"
 )
 
 # Bumped whenever the compilation shape changes in a way the hashed inputs below cannot see, e.g. a rule

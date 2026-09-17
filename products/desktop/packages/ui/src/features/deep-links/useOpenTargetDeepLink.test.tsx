@@ -22,6 +22,14 @@ const onOpenTarget = vi.hoisted(() =>
 const routerOpenTask = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const navigateToChannelDashboard = vi.hoisted(() => vi.fn());
 const markAsViewed = vi.hoisted(() => vi.fn());
+const focusOrOpenBrowserTab = vi.hoisted(() =>
+  vi.fn().mockResolvedValue("opened"),
+);
+
+vi.mock("@posthog/ui/features/browser-tabs/imperativeTabNavigation", () => ({
+  focusOrOpenBrowserTab,
+}));
+vi.mock("@posthog/di/react", () => ({ useService: () => ({ openTask }) }));
 
 vi.mock("@posthog/host-router/react", () => ({
   useHostTRPCClient: () => ({
@@ -39,7 +47,6 @@ vi.mock("@posthog/ui/router/useOpenTask", () => ({ openTask: routerOpenTask }));
 vi.mock("@posthog/ui/features/sidebar/useTaskViewed", () => ({
   useTaskViewed: () => ({ markAsViewed }),
 }));
-vi.mock("@posthog/di/react", () => ({ useService: () => ({ openTask }) }));
 vi.mock("@posthog/ui/shell/logger", () => ({
   logger: { scope: () => ({ info: vi.fn(), error: vi.fn(), warn: vi.fn() }) },
 }));
@@ -70,30 +77,43 @@ describe("useOpenTargetDeepLink", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getPendingOpenTarget.mockResolvedValue(null);
+    focusOrOpenBrowserTab.mockResolvedValue(true);
   });
 
   it("routes a warm-start task target through the open-task saga", async () => {
     renderHook(() => useOpenTargetDeepLink(), { wrapper });
     onOpenTarget.mock.calls[0]?.[1]?.onData?.(taskTarget);
     await waitFor(() => expect(openTask).toHaveBeenCalledWith("t1", undefined));
-    expect(routerOpenTask).toHaveBeenCalledWith({ id: "t1" }, undefined);
+    expect(routerOpenTask).toHaveBeenCalledWith({ id: "t1" }, { newTab: true });
   });
 
-  it("routes a warm-start canvas target to its dashboard", () => {
+  it("routes a warm-start canvas target to its own tab", async () => {
     renderHook(() => useOpenTargetDeepLink(), { wrapper });
     onOpenTarget.mock.calls[0]?.[1]?.onData?.(canvasTarget);
-    expect(navigateToChannelDashboard).toHaveBeenCalledWith("chan-1", "dash-1");
+    await waitFor(() =>
+      expect(focusOrOpenBrowserTab).toHaveBeenCalledWith(expect.anything(), {
+        href: "/spaces/chan-1/dashboards/dash-1",
+        dashboardId: "dash-1",
+      }),
+    );
   });
 
-  it("drains a pending target queued before the listener was live", async () => {
-    getPendingOpenTarget.mockResolvedValue(canvasTarget);
+  it("falls back to in-tab navigation when browser tabs are unavailable", async () => {
+    focusOrOpenBrowserTab.mockResolvedValue(false);
     renderHook(() => useOpenTargetDeepLink(), { wrapper });
+    onOpenTarget.mock.calls[0]?.[1]?.onData?.(canvasTarget);
     await waitFor(() =>
       expect(navigateToChannelDashboard).toHaveBeenCalledWith(
         "chan-1",
         "dash-1",
       ),
     );
+  });
+
+  it("drains a pending target queued before the listener was live", async () => {
+    getPendingOpenTarget.mockResolvedValue(canvasTarget);
+    renderHook(() => useOpenTargetDeepLink(), { wrapper });
+    await waitFor(() => expect(focusOrOpenBrowserTab).toHaveBeenCalled());
   });
 
   it("subscribes once to warm-start open-target events", () => {

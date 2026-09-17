@@ -77,35 +77,11 @@ class TestTieredHogflowBatchTriggerLimit(BaseTest):
         with override_settings(HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS={self.team.id}):
             assert get_hogflow_batch_trigger_limit(self.team.id) == 50000
 
-    @override_settings(
-        WORKFLOWS_EMAIL_TIER_MODE="enforce",
-        WORKFLOWS_EMAIL_TIER_ENFORCE_TEAMS_CREATED_AFTER="2099-01-01",
-    )
-    def test_team_created_before_the_cutoff_keeps_the_flat_limit(self) -> None:
-        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 0})
-        assert get_hogflow_batch_trigger_limit(self.team.id) == 5000
-
-    @override_settings(
-        WORKFLOWS_EMAIL_TIER_MODE="enforce",
-        WORKFLOWS_EMAIL_TIER_ENFORCE_TEAMS_CREATED_AFTER="not-a-date",
-    )
-    def test_unparseable_cutoff_does_not_enforce_globally(self) -> None:
-        # A typo in the cutoff must fail open. It cannot silently widen enforcement to every team,
-        # so an unparseable value leaves the team on the flat ceiling instead of the tier-0 cap.
-        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 0})
-        assert get_hogflow_batch_trigger_limit(self.team.id) == 5000
-
-    @override_settings(
-        WORKFLOWS_EMAIL_TIER_MODE="enforce",
-        WORKFLOWS_EMAIL_TIER_ENFORCE_TEAMS_CREATED_AFTER="2020-01-01",
-    )
+    @override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce")
     def test_a_database_error_during_resolution_fails_open(self) -> None:
-        # The creation-date lookup runs outside the first config query, so the fail-open guard must
-        # cover the whole resolution: a database blip on the send path returns the flat limit
-        # instead of raising.
-        TeamWorkflowsConfig.objects.filter(team=self.team).delete()
+        # A database blip on the send path returns the flat limit instead of raising.
         with patch(
-            "products.workflows.backend.utils.email_sending_tiers.Team.objects.filter",
+            "products.workflows.backend.utils.email_sending_tiers.TeamWorkflowsConfig.objects.filter",
             side_effect=Exception("db down"),
         ):
             assert get_hogflow_batch_trigger_limit(self.team.id) == 5000

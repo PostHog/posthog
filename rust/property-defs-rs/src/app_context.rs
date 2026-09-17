@@ -12,6 +12,10 @@ pub struct AppContext {
     // this points to the original (shared) CLOUD DB instance in prod deployments
     pub pool: PgPool,
 
+    // Reader pool for the read-before-write filter; None when the feature is off.
+    // No writer guard: these connections only ever read.
+    pub read_pool: Option<PgPool>,
+
     pub query_manager: Manager,
     pub skip_reads: bool,
 
@@ -22,10 +26,27 @@ impl AppContext {
     pub async fn new(config: &Config, qmgr: Manager) -> Result<Self, sqlx::Error> {
         let pool = build_write_pool(config).await?;
 
+        let read_pool = if config.read_before_write_enabled {
+            let read_url = if config.database_read_url.is_empty() {
+                &config.database_url
+            } else {
+                &config.database_read_url
+            };
+            Some(
+                PgPoolOptions::new()
+                    .max_connections(config.max_pg_connections)
+                    .max_lifetime(jittered_max_lifetime(config.pg_max_lifetime_secs))
+                    .connect_lazy(read_url)?,
+            )
+        } else {
+            None
+        };
+
         let group_type_resolver = GroupTypeResolver::new(config);
 
         Ok(Self {
             pool,
+            read_pool,
             query_manager: qmgr,
             skip_reads: config.skip_reads,
             group_type_resolver,

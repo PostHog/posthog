@@ -5,13 +5,16 @@ import type { Context, ToolBase } from '@/tools/types'
 
 import { directDependents, findCellTag, parseCellTags, removeCellTag } from './cellTags'
 import { applyMarkdownEdit, fetchMarkdownNotebook } from './markdownDoc'
+import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
 
-export const NotebooksDeleteCellSchema = z
+const DeleteCellInputSchema = z
     .object({
-        notebook_id: z.string().describe('The notebook short_id (the public id in the URL, e.g. `aBcD1234`).'),
+        notebook_id: z.string().describe(NOTEBOOK_SHORT_ID_DESCRIPTION),
         node_id: z.string().describe('The cell to delete, as returned by notebooks-add-cell.'),
     })
     .strict()
+
+export const NotebooksDeleteCellSchema = z.preprocess(notebookIdAliases('notebook_id'), DeleteCellInputSchema)
 
 export interface DeleteCellResult {
     deleted: true

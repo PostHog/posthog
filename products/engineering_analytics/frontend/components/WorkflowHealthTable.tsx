@@ -14,6 +14,7 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { rowNavigationProps } from '../lib/rowNavigation'
+import { isGatingWorkflow, orderWorkflowHealthRows } from '../lib/runHealth'
 import { withScope } from '../lib/scope'
 import { WorkflowHealthRow, workflowFailureSeries } from '../scenes/engineeringAnalyticsLogic'
 import { BillableBadge } from './BillableBadge'
@@ -75,8 +76,8 @@ export interface WorkflowHealthTableProps {
     loading?: boolean
     /** Threaded into the Workflow-name link so it preserves the active source. */
     sourceId?: string | null
-    /** Column sort override. Default (null) keeps the rows' failing-first-then-name order — the one
-     *  convention shared with the PR page; pass a column to sort by it instead. */
+    /** Column sort override. Default (null) keeps the rows' merge-queue-first, then busiest, then
+     *  by-name order; pass a column to sort by it instead. */
     defaultSorting?: { columnKey: string; order: 1 | -1 } | null
     /** Show the billable cost column (needs per-workflow cost on the rows). */
     showCost?: boolean
@@ -108,24 +109,24 @@ export function WorkflowHealthTable({
     compact = false,
 }: WorkflowHealthTableProps): JSX.Element {
     const { searchParams } = useValues(router)
-    // Each row opens the workflow's runs page, carrying the active window/branch scope + source so the
-    // drill-down doesn't silently widen to all branches.
+    // Each row opens the workflow's runs page, carrying the active window, run scope, and source so the
+    // drill-down reports the same group of runs.
     const rowUrl = (row: WorkflowHealthRow): string =>
         withScope(
             urls.engineeringAnalyticsWorkflowRuns(row.repoOwner, row.repoName, row.workflowName),
             searchParams,
             sourceId
         )
-    // Failing workflows first — the order a reviewer triages in — then everything else alphabetically by
-    // name. The one convention shared with the PR page; a passed defaultSorting still overrides on click.
-    const orderedRows = [...rows].sort(
-        (a, b) =>
-            Number(b.latestRunFailed === true) - Number(a.latestRunFailed === true) ||
-            a.workflowName.localeCompare(b.workflowName)
-    )
+    // Workflows the merge queue runs come first, because they gate every merge. Failing workflows stay
+    // findable through the Status tag and its sorter, so they need no pass of their own.
+    const orderedRows = orderWorkflowHealthRows(rows)
+    // Computed once for the whole table: without a gating row there is nothing to rank against, so a repo
+    // with no merge queue mutes nothing.
+    const hasGatingRow = orderedRows.some(isGatingWorkflow)
     const columns: LemonTableColumns<WorkflowHealthRow> = [
         {
             title: 'Workflow',
+            tooltip: 'Workflows that run in the merge queue come first. Other workflows are muted.',
             key: 'workflowName',
             sorter: (a, b) => a.workflowName.localeCompare(b.workflowName),
             render: (_, row) => (
@@ -299,8 +300,14 @@ export function WorkflowHealthTable({
             columns={displayColumns}
             dataSource={orderedRows}
             rowKey={(row) => `${row.repoOwner}/${row.repoName}:${row.workflowName}`}
-            // De-emphasize workflows with nothing settled — no pass/fail signal to read.
-            rowClassName={(row) => cn('cursor-pointer', row.successRate === null && 'opacity-60')}
+            // De-emphasize a workflow with nothing settled (no pass/fail signal to read) and, once the repo
+            // has gating workflows, every workflow that does not gate a merge.
+            rowClassName={(row) =>
+                cn(
+                    'cursor-pointer',
+                    (row.successRate === null || (hasGatingRow && !isGatingWorkflow(row))) && 'opacity-60'
+                )
+            }
             onRow={(row) => rowNavigationProps(rowUrl(row))}
             loading={loading}
             useURLForSorting={false}

@@ -4,6 +4,7 @@ import {
   buildsImage,
   type EnvironmentSetupPlan,
   planTools,
+  type SetupStepKey,
   setupSteps,
   setupStepsComplete,
   stepError,
@@ -56,10 +57,16 @@ export function EnvironmentSetupForm({
   embedded = false,
 }: EnvironmentSetupFormProps) {
   const [step, setStep] = useState(0);
+  const [attempted, setAttempted] = useState<ReadonlySet<SetupStepKey>>(
+    () => new Set(),
+  );
   const steps = setupSteps(plan);
   const complete = setupStepsComplete(plan);
   const current = Math.min(step, steps.length - 1);
   const currentKey = steps[current].key;
+  const stepMessage = attempted.has(currentKey)
+    ? stepError(plan, currentKey)
+    : null;
   const isLastStep = current === steps.length - 1;
   const building = buildsImage(plan);
   const needsBuilder =
@@ -126,16 +133,26 @@ export function EnvironmentSetupForm({
               plan={plan}
               environments={environments}
               onChange={onChange}
+              error={stepMessage}
             />
           )}
           {currentKey === "access" && (
-            <AccessStep plan={plan} onChange={onChange} />
+            <AccessStep plan={plan} onChange={onChange} error={stepMessage} />
           )}
           {currentKey === "image" && plan.scope === "image" && (
-            <ImageDetailsStep plan={plan} onChange={onChange} />
+            <ImageDetailsStep
+              plan={plan}
+              onChange={onChange}
+              error={stepMessage}
+            />
           )}
           {currentKey === "image" && plan.scope === "environment" && (
-            <BaseImageStep plan={plan} images={images} onChange={onChange} />
+            <BaseImageStep
+              plan={plan}
+              images={images}
+              onChange={onChange}
+              error={stepMessage}
+            />
           )}
           {currentKey === "tools" && (
             <ToolsStep plan={plan} onChange={onChange} />
@@ -184,8 +201,13 @@ export function EnvironmentSetupForm({
             <Button
               variant="primary"
               size="sm"
-              disabled={complete[current] !== true}
-              onClick={() => setStep(current + 1)}
+              onClick={() => {
+                if (complete[current] === true) {
+                  setStep(current + 1);
+                  return;
+                }
+                setAttempted((prev) => new Set(prev).add(currentKey));
+              }}
             >
               Next
             </Button>

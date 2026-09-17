@@ -2,7 +2,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -10,8 +10,10 @@ from django.apps import apps
 from django.utils import timezone
 
 from parameterized import parameterized
+from redis.exceptions import RedisError
 from rest_framework import status
 
+from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -34,7 +36,10 @@ from products.conversations.backend.models import (
     EmailThreadParticipantKind,
 )
 from products.conversations.backend.models.ticket import Ticket
-from products.customer_analytics.backend.logic import relationships as relationships_logic
+from products.customer_analytics.backend.logic import (
+    ownership,
+    relationships as relationships_logic,
+)
 from products.customer_analytics.backend.models import (
     Account,
     AccountRelationship,
@@ -49,12 +54,18 @@ from products.customer_analytics.backend.models import (
     MeetingParticipant,
     TargetType,
 )
-from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
+from products.customer_analytics.backend.test.factories import (
+    create_account,
+    create_custom_property_definition,
+    enroll_account,
+)
+from products.notebooks.backend.facade.content import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.workflows.backend.models import HogFlow
 
 
 class TestCustomerProfileConfigViewSet(APIBaseTest):
@@ -549,6 +560,138 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(data["external_id"], "ext-1")
         self.assertEqual(data["properties"]["stripe_customer_id"], "cus_123")
         self.assertEqual(data["ignored_at"], ignored_at.isoformat().replace("+00:00", "Z"))
+
+    @parameterized.expand([(" source-account ",), (" ",), ("symbols / %2F ? # + 漢字",)])
+    def test_retrieve_by_external_id_returns_the_uuid_retrieve_response(self, external_id: str) -> None:
+        account = self._create_account(external_id=external_id)
+        self.client.patch(f"{self.endpoint_base}{account.id}/", {"tags": ["example-tag"]}, format="json")
+        self.client.post(f"{self.endpoint_base}{account.id}/notebooks/", {"title": "Example note"}, format="json")
+
+        uuid_response = self.client.get(f"{self.endpoint_base}{account.id}/")
+        external_id_response = self.client.get(
+            f"{self.endpoint_base}by_external_id/", data={"external_id": account.external_id}
+        )
+
+        self.assertEqual(status.HTTP_200_OK, uuid_response.status_code, uuid_response.json())
+        self.assertEqual(status.HTTP_200_OK, external_id_response.status_code, external_id_response.json())
+        self.assertEqual(external_id_response.json(), uuid_response.json())
+        self.assertEqual(external_id_response.json()["tags"], ["example-tag"])
+        self.assertEqual(len(external_id_response.json()["notebooks"]), 1)
+
+    @parameterized.expand([(True,), (False,)])
+    def test_retrieve_by_external_id_does_not_fall_back_to_uuid(self, has_external_match: bool) -> None:
+        uuid_account = self._create_account(name="UUID account")
+        external_id_account = (
+            self._create_account(name="External ID account", external_id=str(uuid_account.id))
+            if has_external_match
+            else None
+        )
+
+        response = self.client.get(f"{self.endpoint_base}by_external_id/", data={"external_id": str(uuid_account.id)})
+
+        if external_id_account:
+            self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+            self.assertEqual(response.json()["id"], str(external_id_account.id))
+        else:
+            self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code, response.content)
+
+    @parameterized.expand([(True,), (False,)])
+    def test_retrieve_by_external_id_scopes_identical_external_ids_to_the_project(self, has_local_match: bool) -> None:
+        account = self._create_account(external_id="shared-external-id") if has_local_match else None
+        other_team = Team.objects.create(organization=self.organization)
+        Account.objects.for_team(other_team.id).create(
+            team=other_team, name="Other account", external_id="shared-external-id"
+        )
+
+        response = self.client.get(f"{self.endpoint_base}by_external_id/", data={"external_id": "shared-external-id"})
+
+        if account:
+            self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+            self.assertEqual(response.json()["id"], str(account.id))
+        else:
+            self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code, response.content)
+
+    def test_retrieve_by_external_id_accepts_an_account_read_api_key(self) -> None:
+        account = self._create_account(external_id="read-key-account")
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="account read",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=["account:read"],
+            scoped_teams=[],
+            scoped_organizations=[],
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"{self.endpoint_base}by_external_id/",
+            data={"external_id": account.external_id},
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.content)
+        self.assertEqual(response.json()["id"], str(account.id))
+
+    def test_retrieve_by_external_id_rejects_a_missing_query_parameter(self) -> None:
+        response = self.client.get(f"{self.endpoint_base}by_external_id/")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.content)
+
+    def test_retrieve_by_external_id_returns_404_when_not_found(self) -> None:
+        response = self.client.get(f"{self.endpoint_base}by_external_id/", data={"external_id": "missing-account"})
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code, response.content)
+
+    def test_presence_returns_other_viewers_once_and_excludes_the_caller(self) -> None:
+        account = self._create_account()
+        teammate = User.objects.create_and_join(self.organization, "presence@posthog.com", "testtest")
+        teammate.first_name = "Alex"
+        teammate.last_name = "Rivera"
+        teammate.save(update_fields=["first_name", "last_name"])
+        presence_url = f"{self.endpoint_base}{account.id}/presence/"
+
+        self.client.force_login(teammate)
+        self.assertEqual(self.client.post(presence_url, format="json").json(), [])
+        self.assertEqual(self.client.post(presence_url, format="json").json(), [])
+
+        self.client.force_login(self.user)
+        response = self.client.post(presence_url, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json(), [{"user_id": teammate.id, "display_name": "Alex Rivera"}])
+
+    @patch("products.customer_analytics.backend.logic.account_presence.time")
+    def test_presence_removes_expired_viewers(self, mock_time: MagicMock) -> None:
+        account = self._create_account()
+        teammate = User.objects.create_and_join(self.organization, "presence@posthog.com", "testtest")
+        presence_url = f"{self.endpoint_base}{account.id}/presence/"
+        mock_time.time.side_effect = [100.0, 191.0]
+
+        self.client.force_login(teammate)
+        self.assertEqual(self.client.post(presence_url, format="json").json(), [])
+
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.post(presence_url, format="json").json(), [])
+
+    def test_presence_does_not_leak_accounts_from_other_teams(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        other_account = Account.objects.unscoped().create(team=other_team, name="Other")
+
+        response = self.client.post(f"{self.endpoint_base}{other_account.id}/presence/", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch(
+        "products.customer_analytics.backend.logic.account_presence.get_client", side_effect=RedisError("unavailable")
+    )
+    def test_presence_redis_failure_returns_an_empty_roster(self, _get_client: MagicMock) -> None:
+        account = self._create_account()
+
+        response = self.client.post(f"{self.endpoint_base}{account.id}/presence/", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json(), [])
 
     def test_retrieve_hides_retired_role_keys_in_stored_rows(self):
         # Rows not yet cleaned by backfill_account_relationships must not leak role keys:
@@ -1125,9 +1268,9 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(short_ids, {by_title.short_id, by_content.short_id})
 
     def test_list_orders_by_created_at(self):
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             older = self._link_internal_notebook(title="Older", content={})
-        with freeze_time("2024-01-02"):
+        with time_machine.travel("2024-01-02", tick=False):
             newer = self._link_internal_notebook(title="Newer", content={})
 
         default_order = [n["short_id"] for n in self.client.get(self.endpoint_base).json()["results"]]
@@ -1244,48 +1387,67 @@ class TestAccountNotebookViewSet(APIBaseTest):
         # nosemgrep: idor-lookup-without-team (test assertion)
         notebook = Notebook.objects.get(short_id=response.json()["short_id"])
         self.assertEqual(notebook.text_content, "# Heading\n\nSome **bold** text.")
-        self.assertIsInstance(notebook.content, dict)
-        self.assertEqual(notebook.content["type"], "doc")
-        first_node = notebook.content["content"][0]
-        self.assertEqual(first_node["type"], "heading")
-        self.assertEqual(first_node["attrs"]["level"], 1)
-        self.assertEqual(first_node["content"][0]["text"], "Heading")
+        self.assertEqual(notebook.content, build_markdown_notebook_content("# Heading\n\nSome **bold** text."))
 
-    def test_create_preserves_caller_supplied_content(self):
-        explicit_content = {
-            "type": "doc",
-            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "from caller"}]}],
-        }
-        response = self.client.post(
-            self.endpoint_base,
-            {"title": "Provided", "content": explicit_content, "text_content": "# ignored"},
-            format="json",
-        )
-
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
-        # nosemgrep: idor-lookup-without-team (test assertion)
-        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
-        self.assertEqual(notebook.content, explicit_content)
-
-    def test_create_with_neither_field_leaves_content_null(self):
-        response = self.client.post(self.endpoint_base, {"title": "Empty"}, format="json")
-
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
-        # nosemgrep: idor-lookup-without-team (test assertion)
-        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
-        self.assertIsNone(notebook.content)
-
-    def test_create_with_empty_text_content_does_not_synthesize_content(self):
-        response = self.client.post(
-            self.endpoint_base,
-            {"title": "Empty body", "text_content": ""},
-            format="json",
-        )
+    @parameterized.expand(
+        [
+            (
+                "rich_text_content",
+                {
+                    "title": "Provided",
+                    "content": {
+                        "type": "doc",
+                        "content": [{"type": "paragraph", "content": [{"type": "text", "text": "from caller"}]}],
+                    },
+                    "text_content": "# ignored",
+                },
+                "from caller",
+            ),
+            ("empty_rich_text_doc", {"title": "Empty doc", "content": {"type": "doc", "content": []}}, ""),
+            ("neither_field", {"title": "Empty"}, ""),
+            ("empty_text_content", {"title": "Empty body", "text_content": ""}, ""),
+            (
+                "markdown_content_with_stale_text",
+                {
+                    "title": "Markdown",
+                    "content": build_markdown_notebook_content("# Current"),
+                    "text_content": "stale search text",
+                },
+                "# Current",
+            ),
+        ]
+    )
+    def test_create_stores_a_markdown_notebook(self, _name: str, payload: dict, expected_markdown: str) -> None:
+        response = self.client.post(self.endpoint_base, payload, format="json")
 
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
         # nosemgrep: idor-lookup-without-team (test assertion)
         notebook = Notebook.objects.get(short_id=response.json()["short_id"])
-        self.assertIsNone(notebook.content)
+        self.assertEqual(notebook.content, build_markdown_notebook_content(expected_markdown))
+        self.assertEqual(notebook.text_content, expected_markdown)
+
+    @parameterized.expand(
+        [
+            (
+                "rich_text_that_cannot_convert",
+                {
+                    "type": "doc",
+                    "content": [{"type": "paragraph", "content": [{"type": "text", "text": "x", "marks": 1}]}],
+                },
+            ),
+            (
+                "markdown_over_the_cell_limit",
+                build_markdown_notebook_content(
+                    "\n\n".join(f'<SQLV2 nodeId="s{i}" code="select 1" />' for i in range(51))
+                ),
+            ),
+        ]
+    )
+    def test_create_rejects_invalid_content(self, _name: str, content: dict) -> None:
+        response = self.client.post(self.endpoint_base, {"title": "Invalid", "content": content}, format="json")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertEqual(response.json()["attr"], "content")
 
     def test_create_with_empty_dict_content_falls_back_to_markdown(self):
         response = self.client.post(
@@ -1297,23 +1459,7 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
         # nosemgrep: idor-lookup-without-team (test assertion)
         notebook = Notebook.objects.get(short_id=response.json()["short_id"])
-        self.assertEqual(notebook.content["type"], "doc")
-        first_node = notebook.content["content"][0]
-        self.assertEqual(first_node["type"], "paragraph")
-        self.assertEqual(first_node["content"][0]["text"], "Just a sentence.")
-
-    def test_create_with_empty_valid_prosemirror_doc_respects_caller(self):
-        empty_doc = {"type": "doc", "content": []}
-        response = self.client.post(
-            self.endpoint_base,
-            {"title": "Empty doc", "content": empty_doc, "text_content": "ignored"},
-            format="json",
-        )
-
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
-        # nosemgrep: idor-lookup-without-team (test assertion)
-        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
-        self.assertEqual(notebook.content, empty_doc)
+        self.assertEqual(notebook.content, build_markdown_notebook_content("Just a sentence."))
 
     def test_notebook_detail_includes_parent_resource_for_linked_account(self):
         notebook = Notebook.objects.create(
@@ -1380,7 +1526,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
 
         self.journeys_url = f"/api/environments/{self.team.id}/customer_journeys/"
 
-        self.account = Account.objects.unscoped().create(team=self.team, name="ACL Account")
+        self.account = Account.objects.unscoped().create(team=self.team, name="ACL Account", external_id="acl-account")
         self.accounts_url = f"/api/environments/{self.team.id}/accounts/"
 
     def _set_access_level(self, user: User, resource: str = "customer_analytics", access_level: str = "viewer") -> None:
@@ -1568,11 +1714,12 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         response = self.client.post(self.accounts_url, {"name": "Inherited Account"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_customer_analytics_none_blocks_account_list(self):
+    @parameterized.expand([("",), ("by_external_id/?external_id=acl-account",)])
+    def test_customer_analytics_none_blocks_account_reads(self, suffix: str) -> None:
         self._set_access_level(self.no_access_user, resource="customer_analytics", access_level="none")
         self.client.force_login(self.no_access_user)
 
-        response = self.client.get(self.accounts_url)
+        response = self.client.get(f"{self.accounts_url}{suffix}")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     # -- Account notebooks inherit object-level access from the parent account --
@@ -1597,6 +1744,40 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
 
         create_response = self.client.post(url, {"title": "x"}, format="json")
         self.assertEqual(create_response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_account_presence_404_when_object_access_denied(self) -> None:
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(
+                user=self.viewer_user, organization=self.organization
+            ),
+        )
+        self._set_access_level(self.viewer_user, resource="account", access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.post(f"{self.accounts_url}{self.account.id}/presence/", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_account_by_external_id_404_when_object_access_denied(self) -> None:
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(
+                user=self.viewer_user, organization=self.organization
+            ),
+        )
+        self._set_access_level(self.viewer_user, resource="account", access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"{self.accounts_url}by_external_id/?external_id={self.account.external_id}")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class TestCustomPropertyDefinitionViewSet(APIBaseTest):
@@ -1857,6 +2038,34 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
             organization_member=membership,
         )
 
+    def _create_workflow_reference(self, *, name: str) -> HogFlow:
+        return HogFlow.objects.create(
+            team=self.team,
+            name=name,
+            status="active",
+            actions=[
+                {
+                    "type": "function",
+                    "config": {
+                        "template_id": "template-posthog-update-account-property",
+                        "inputs": {"properties": {"value": {str(self.definition.id): "enterprise"}}},
+                    },
+                }
+            ],
+        )
+
+    def _token(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="custom property definitions",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+            scoped_teams=[],
+            scoped_organizations=[],
+        )
+        return value
+
     def test_viewer_can_list(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
@@ -1867,6 +2076,73 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
         response = self.client.get(f"{self.endpoint_base}{self.definition.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_workflow_presence_is_exposed_when_object_access_hides_references(self):
+        denied = self._create_workflow_reference(name="Update plan")
+        self._set_access_level(self.editor_user, resource="account", access_level="editor")
+        self._set_access_level(self.editor_user, resource="hog_flow", access_level="viewer")
+        self._set_access_level(
+            self.editor_user,
+            resource="hog_flow",
+            resource_id=str(denied.id),
+            access_level="none",
+        )
+        self.client.force_login(self.editor_user)
+
+        list_response = self.client.get(self.endpoint_base)
+        retrieve_response = self.client.get(f"{self.endpoint_base}{self.definition.id}/")
+        update_response = self.client.patch(
+            f"{self.endpoint_base}{self.definition.id}/", {"description": "Customer plan"}, format="json"
+        )
+
+        for response in (list_response, retrieve_response, update_response):
+            definition = response.json()["results"][0] if response is list_response else response.json()
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            self.assertTrue(definition["has_workflow_reference"])
+            self.assertEqual(definition["references"], [])
+
+    def test_personal_api_key_without_workflow_scope_cannot_read_references(self):
+        self._create_workflow_reference(name="Update plan")
+        token = self._token(["account:read"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        list_response = self.client.get(self.endpoint_base)
+        retrieve_response = self.client.get(f"{self.endpoint_base}{self.definition.id}/")
+
+        for response in (list_response, retrieve_response):
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            definition = response.json()["results"][0] if response is list_response else response.json()
+            self.assertTrue(definition["has_workflow_reference"])
+            self.assertEqual(definition["references"], [])
+
+    def test_object_level_workflow_denial_filters_only_the_denied_reference(self):
+        visible = self._create_workflow_reference(name="Visible workflow")
+        denied = self._create_workflow_reference(name="Denied workflow")
+        self._set_access_level(self.editor_user, resource="account", access_level="editor")
+        self._set_access_level(self.editor_user, resource="hog_flow", access_level="viewer")
+        self._set_access_level(
+            self.editor_user,
+            resource="hog_flow",
+            resource_id=str(denied.id),
+            access_level="none",
+        )
+        self.client.force_login(self.editor_user)
+
+        list_response = self.client.get(self.endpoint_base)
+        retrieve_response = self.client.get(f"{self.endpoint_base}{self.definition.id}/")
+        update_response = self.client.patch(
+            f"{self.endpoint_base}{self.definition.id}/", {"description": "Customer plan"}, format="json"
+        )
+
+        for response in (list_response, retrieve_response, update_response):
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            definition = response.json()["results"][0] if response is list_response else response.json()
+            self.assertTrue(definition["has_workflow_reference"])
+            self.assertEqual(
+                definition["references"],
+                [{"id": str(visible.id), "name": visible.name, "status": "active", "type": "workflow"}],
+            )
 
     def test_viewer_cannot_create(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -1940,6 +2216,27 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
             endpoint or self.endpoint, {"definition": str(definition_id), "value": value}, format="json"
         )
 
+    @parameterized.expand([("text", "enterprise"), ("number", 42)])
+    def test_clear_value_preserves_history(self, property_type: str, value: str | int) -> None:
+        definition = self.text_def if property_type == "text" else self.number_def
+        created = self._set(definition.id, value).json()
+        self._set(
+            self.number_def.id if property_type == "text" else self.text_def.id,
+            7 if property_type == "text" else "other",
+        )
+
+        response = self._set(definition.id, None)
+
+        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
+        self.assertTrue(CustomPropertyValue.objects.for_team(self.team.id).get(id=created["id"]).is_deleted)
+        active = self.client.get(self.endpoint).json()
+        self.assertEqual(1, len(active))
+        self.assertNotEqual(str(definition.id), active[0]["definition_id"])
+        self.assertEqual(status.HTTP_204_NO_CONTENT, self._set(definition.id, None).status_code)
+
+    def test_clear_unknown_definition_is_rejected(self) -> None:
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, self._set(uuid4(), None).status_code)
+
     def test_create_value_success(self):
         response = self._set(self.text_def.id, "enterprise")
 
@@ -1986,12 +2283,13 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
         values = {v["definition_id"]: v["value"] for v in response.json()}
         self.assertEqual({str(self.text_def.id): "enterprise", str(self.number_def.id): 42}, values)
 
-    def test_account_from_another_team_returns_404(self):
+    @parameterized.expand([("write", "x"), ("clear", None)])
+    def test_account_from_another_team_returns_404(self, _name: str, value: str | None) -> None:
         other_team = Team.objects.create(organization=self.organization)
         other_account = create_account(team_id=other_team.id)
         endpoint = f"/api/projects/{self.team.id}/accounts/{other_account.id}/custom_property_values/"
 
-        response = self._set(self.text_def.id, "x", endpoint=endpoint)
+        response = self._set(self.text_def.id, value, endpoint=endpoint)
 
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
@@ -2011,7 +2309,30 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
 
         self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
 
-    def test_source_backed_definition_rejects_manual_write(self):
+    @parameterized.expand([("write", "2026-01-01T00:00:00Z"), ("clear", None)])
+    def test_canonical_definition_rejects_manual_write(self, _name: str, value: str | None) -> None:
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Last Slack message at", display_type=DisplayType.DATETIME
+        )
+        recorded_at = timezone.now()
+        current = CustomPropertyValue.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            account=self.account,
+            definition=definition,
+            value_datetime=recorded_at,
+        )
+
+        response = self._set(definition.id, value)
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertEqual("definition", response.json()["attr"])
+        current.refresh_from_db()
+        self.assertFalse(current.is_deleted)
+        self.assertEqual(recorded_at, current.value_datetime)
+        self.assertEqual(1, len(self.client.get(self.endpoint).json()))
+
+    @parameterized.expand([("write", "manual"), ("clear", None)])
+    def test_source_backed_definition_rejects_manual_write(self, _name: str, value: str | None) -> None:
         saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
         view = saved_query_model.objects.create(team=self.team, name="v", columns={"k": {}, "c": {}})
         CustomPropertySource.objects.unscoped().create(
@@ -2022,7 +2343,7 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
             key_column="k",
         )
 
-        response = self._set(self.text_def.id, "manual")
+        response = self._set(self.text_def.id, value)
 
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
         self.assertEqual("definition", response.json()["attr"])
@@ -2529,9 +2850,9 @@ class TestAccountNotesViewSet(APIBaseTest):
         self.assertEqual(titles, ["Mine"])
 
     def test_list_orders_by_last_modified_desc_and_paginates(self):
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             older = self._link_note(title="Older")
-        with freeze_time("2024-01-02"):
+        with time_machine.travel("2024-01-02", tick=False):
             newer = self._link_note(title="Newer")
 
         first_page = self.client.get(f"{self.endpoint_base}?limit=1").json()
@@ -2638,7 +2959,11 @@ class TestAccountRelationshipDefinitionViewSet(APIBaseTest):
         # nosemgrep: idor-lookup-without-team (test setup)
         definition = AccountRelationshipDefinition.objects.unscoped().get(id=definition_id)
         relationships_logic.assign(
-            team_id=self.team.id, account=account, definition=definition, user=self.user, created_by=self.user
+            team_id=self.team.id,
+            account=account,
+            definition=definition,
+            user=self.user,
+            actor=relationships_logic.Actor.human(self.user),
         )
 
         response = self.client.delete(f"{self.endpoint_base}{definition_id}/")
@@ -2678,18 +3003,29 @@ class TestAccountRelationshipViewSet(APIBaseTest):
             team_id=self.team.id, name=name, created_by=self.user
         )
 
+    def _assign(self, definition, user=None) -> AccountRelationship:
+        return relationships_logic.assign(
+            team_id=self.team.id,
+            account=self.account,
+            definition=definition,
+            user=user or self.user,
+            actor=relationships_logic.Actor.human(self.user),
+        )
+
+    def _end(self, relationship: AccountRelationship) -> None:
+        relationships_logic.end_relationship(
+            team_id=self.team.id,
+            account_id=self.account.id,
+            relationship_id=str(relationship.id),
+            actor=relationships_logic.Actor.human(),
+        )
+
     def test_lists_active_relationships_by_default(self):
         csm = self._create_relationship_definition("CSM")
         fde = self._create_relationship_definition("FDE")
-        active = relationships_logic.assign(
-            team_id=self.team.id, account=self.account, definition=csm, user=self.user, created_by=self.user
-        )
-        ended = relationships_logic.assign(
-            team_id=self.team.id, account=self.account, definition=fde, user=self.user, created_by=self.user
-        )
-        relationships_logic.end_relationship(
-            team_id=self.team.id, account_id=self.account.id, relationship_id=str(ended.id)
-        )
+        active = self._assign(csm)
+        ended = self._assign(fde)
+        self._end(ended)
 
         response = self.client.get(self.endpoint)
 
@@ -2704,12 +3040,8 @@ class TestAccountRelationshipViewSet(APIBaseTest):
     def test_include_history_returns_full_timeline(self):
         definition = self._create_relationship_definition()
         successor = User.objects.create_and_join(self.organization, "successor@posthog.com", "testtest")
-        relationships_logic.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
-        )
-        relationships_logic.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=successor, created_by=self.user
-        )
+        self._assign(definition)
+        self._assign(definition, successor)
 
         response = self.client.get(f"{self.endpoint}?include_history=true")
 
@@ -2743,6 +3075,30 @@ class TestAccountRelationshipViewSet(APIBaseTest):
         self.assertIsNotNone(ended.json()["ended_at"])
         self.assertEqual([], self.client.get(self.endpoint).json())
 
+    @parameterized.expand([("agent", True, status.HTTP_409_CONFLICT), ("person", False, status.HTTP_201_CREATED)])
+    def test_only_a_person_can_change_a_managed_role_with_a_personal_key(self, _name, via_agent, expected):
+        definition = self._create_relationship_definition("Account executive")
+        ownership.set_controlled(self.team.id, definition.id, True)
+        enroll_account(self.account, definition)
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="agent",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=["account:write"],
+            scoped_teams=[],
+            scoped_organizations=[],
+        )
+        user_agent = f"cursor/1.0 {MCP_USER_AGENT_MARKER}" if via_agent else "curl/8.0"
+
+        response = self.client.post(
+            self.endpoint,
+            {"definition": str(definition.id), "user": self.user.id},
+            headers={"authorization": f"Bearer {value}", "user-agent": user_agent},
+        )
+
+        self.assertEqual(expected, response.status_code, response.json())
+
     def test_assign_with_unknown_definition_returns_400(self):
         response = self.client.post(
             self.endpoint, {"definition": "00000000-0000-0000-0000-000000000000", "user": self.user.id}
@@ -2766,12 +3122,8 @@ class TestAccountRelationshipViewSet(APIBaseTest):
 
     def test_end_already_ended_relationship_returns_404(self):
         definition = self._create_relationship_definition()
-        rel = relationships_logic.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
-        )
-        relationships_logic.end_relationship(
-            team_id=self.team.id, account_id=self.account.id, relationship_id=str(rel.id)
-        )
+        rel = self._assign(definition)
+        self._end(rel)
 
         response = self.client.post(f"{self.endpoint}{rel.id}/end/")
 
@@ -2783,24 +3135,23 @@ class TestAccountRelationshipViewSet(APIBaseTest):
             level=OrganizationMembership.Level.ADMIN
         )
         definition = self._create_relationship_definition()
-        relationship = relationships_logic.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
-        )
+        relationship = self._assign(definition)
         if ended:
-            relationships_logic.end_relationship(
-                team_id=self.team.id, account_id=self.account.id, relationship_id=str(relationship.id)
-            )
+            self._end(relationship)
 
         response = self.client.delete(f"{self.endpoint}{relationship.id}/")
 
         self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
+        self.assertTrue(
+            ActivityLog.objects.filter(
+                team_id=self.team.id, activity="relationship_deleted", detail__context__source="human"
+            ).exists()
+        )
         self.assertFalse(AccountRelationship.objects.for_team(self.team.id).filter(id=relationship.id).exists())
 
     def test_non_admin_cannot_hard_delete_relationship(self):
         definition = self._create_relationship_definition()
-        relationship = relationships_logic.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
-        )
+        relationship = self._assign(definition)
         member = User.objects.create_and_join(self.organization, "relationship-member@posthog.com", "testtest")
         self.client.force_login(member)
 
@@ -2816,9 +3167,7 @@ class TestAccountRelationshipViewSet(APIBaseTest):
         ]
         self.organization.save()
         definition = self._create_relationship_definition()
-        relationship = relationships_logic.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
-        )
+        relationship = self._assign(definition)
         account_viewer = User.objects.create_and_join(
             self.organization, "account-viewer-relationship-editor@example.com", "testtest"
         )
@@ -3129,6 +3478,18 @@ class TestCalendarSyncViewSet(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
+    def _create_syncable_integration(self, *, team: Team | None = None) -> Integration:
+        return Integration.objects.create(
+            team=team or self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id="syncable-google-account",
+            created_by=self.user,
+            config={
+                "email": self.user.email,
+                "scope": "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.readonly",
+            },
+        )
+
     def test_sync_now_starts_the_workflow_for_a_team_owned_integration(self):
         self._become_admin()
         integration = Integration.objects.create(team=self.team, kind="google-calendar", integration_id="sub-1")
@@ -3143,6 +3504,70 @@ class TestCalendarSyncViewSet(APIBaseTest):
         self.assertEqual(response.json(), {"status": "started"})
         workflow_kwargs = mock_connect.return_value.start_workflow.call_args.kwargs
         self.assertEqual(workflow_kwargs["id"], f"google-calendar-sync-{integration.id}")
+
+    @time_machine.travel("2026-04-10T12:00:00Z", tick=False)
+    def test_backfill_starts_both_sources_for_an_inclusive_date_range(self) -> None:
+        self._become_admin()
+        integration = self._create_syncable_integration()
+
+        with patch("posthog.temporal.common.client.sync_connect") as mock_connect:
+            mock_connect.return_value.start_workflow.return_value = _immediate_future()
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/calendar_sync/backfill/",
+                {"integration_id": integration.id, "start_date": "2026-01-11", "end_date": "2026-04-10"},
+            )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json(), {"status": "started"})
+        workflow_input = mock_connect.return_value.start_workflow.call_args.args[1]
+        self.assertEqual(workflow_input.start_at, "2026-01-11T00:00:00+00:00")
+        self.assertEqual(workflow_input.end_at, "2026-04-11T00:00:00+00:00")
+        self.assertEqual(
+            mock_connect.return_value.start_workflow.call_args.kwargs["id"],
+            f"google-calendar-sync-{integration.id}",
+        )
+
+    def test_backfill_rejects_the_connection_creator_without_admin_access(self) -> None:
+        integration = self._create_syncable_integration()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/calendar_sync/backfill/",
+            {"integration_id": integration.id, "start_date": "2026-01-01", "end_date": "2026-01-31"},
+        )
+
+        self.assertEqual(status.HTTP_403_FORBIDDEN, response.status_code)
+
+    @parameterized.expand(
+        [
+            ("too_old", "2025-04-09", "2026-04-10"),
+            ("future", "2026-04-10", "2026-04-11"),
+            ("reversed", "2026-04-10", "2026-04-09"),
+        ]
+    )
+    @time_machine.travel("2026-04-10T12:00:00Z", tick=False)
+    def test_backfill_rejects_dates_outside_the_allowed_range(self, _name: str, start_date: str, end_date: str) -> None:
+        self._become_admin()
+        integration = self._create_syncable_integration()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/calendar_sync/backfill/",
+            {"integration_id": integration.id, "start_date": start_date, "end_date": end_date},
+        )
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+
+    def test_backfill_rejects_an_account_without_gmail_permission(self) -> None:
+        self._become_admin()
+        integration = self._create_syncable_integration()
+        integration.config["scope"] = "https://www.googleapis.com/auth/calendar.readonly"
+        integration.save(update_fields=["config"])
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/calendar_sync/backfill/",
+            {"integration_id": integration.id, "start_date": "2026-01-01", "end_date": "2026-01-31"},
+        )
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
 
     def test_sync_now_allows_the_connection_creator(self) -> None:
         integration = Integration.objects.create(
@@ -3184,6 +3609,16 @@ class TestCalendarSyncViewSet(APIBaseTest):
             integration_id="sub-stale",
             config={"calendar_sync_started_at": (now - timedelta(hours=2)).isoformat()},
         )
+        retrying = Integration.objects.create(
+            team=self.team,
+            kind="google-calendar",
+            integration_id="sub-retrying",
+            config={
+                "calendar_sync_started_at": (now - timedelta(hours=2)).isoformat(),
+                "calendar_last_synced_at": (now - timedelta(hours=1)).isoformat(),
+                "calendar_sync_retry_at": (now + timedelta(minutes=45)).isoformat(),
+            },
+        )
 
         response = self.client.get(f"/api/environments/{self.team.id}/calendar_sync/")
 
@@ -3193,15 +3628,28 @@ class TestCalendarSyncViewSet(APIBaseTest):
         self.assertIsNotNone(by_id[synced.id]["last_synced_at"])
         self.assertTrue(by_id[syncing.id]["is_syncing"])
         self.assertFalse(by_id[stale.id]["is_syncing"])
+        self.assertTrue(by_id[retrying.id]["is_syncing"])
 
-    def test_sync_now_404s_for_another_teams_integration(self):
+    @parameterized.expand(
+        [
+            ("sync_now", {"integration_id": "placeholder"}),
+            (
+                "backfill",
+                {"integration_id": "placeholder", "start_date": "2026-01-01", "end_date": "2026-01-31"},
+            ),
+        ]
+    )
+    def test_sync_actions_404_for_another_teams_integration(self, action: str, payload: dict[str, str]) -> None:
         self._become_admin()
         other_team = Team.objects.create(organization=self.organization, name="other")
-        integration = Integration.objects.create(team=other_team, kind="google-calendar", integration_id="sub-2")
+        integration = self._create_syncable_integration(team=other_team)
+        payload["integration_id"] = str(integration.id)
+
         response = self.client.post(
-            f"/api/environments/{self.team.id}/calendar_sync/sync_now/",
-            {"integration_id": integration.id},
+            f"/api/environments/{self.team.id}/calendar_sync/{action}/",
+            payload,
         )
+
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
     @parameterized.expand(

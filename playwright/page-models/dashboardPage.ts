@@ -12,7 +12,6 @@ export class DashboardPage {
     readonly insightCards: Locator
     readonly textCards: Locator
     readonly dateFilter: Locator
-    readonly overridesBanner: Locator
     readonly variableButtons: Locator
 
     constructor(page: Page) {
@@ -23,7 +22,6 @@ export class DashboardPage {
         this.insightCards = page.locator('.InsightCard')
         this.textCards = page.getByTestId('text-card')
         this.dateFilter = page.getByTestId('date-filter')
-        this.overridesBanner = page.getByText('You are viewing this dashboard with filter overrides.')
         this.variableButtons = page.locator('.DataVizVariable_Button')
     }
 
@@ -92,8 +90,6 @@ export class DashboardPage {
         const addTextTileButton = this.page.getByTestId('dashboard-add-text-tile')
         await expect(addTextTileButton).toBeVisible()
         await addTextTileButton.click()
-
-        await expect(this.page).toHaveURL(/\/dashboard\/\d+\/text-tiles\/new(?:\?.*)?$/, { timeout: 5000 })
 
         // Text card edit UI uses DialogPrimitive, not LemonModal (see TextCardModal.tsx).
         const modal = this.page.getByTestId('text-card-modal')

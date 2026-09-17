@@ -1,8 +1,9 @@
 import { Cloud } from "@phosphor-icons/react";
 import { toRelativePath } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useWorkspaceTRPC } from "@posthog/workspace-client/trpc";
-import { Box, Button, Flex, Spinner, Text } from "@radix-ui/themes";
+import { Box, Button, Flex, Text } from "@radix-ui/themes";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PanelMessage } from "../../../primitives/PanelMessage";
 import {
@@ -150,7 +151,7 @@ function CloudFileTreePanel({ taskId, task }: FileTreePanelProps) {
     return (
       <PanelMessage detail="Files are in the cloud sandbox">
         <Flex align="center" gap="2">
-          <Spinner size="1" />
+          <Spinner size="sm" />
           <Text className="text-sm">Running in cloud...</Text>
         </Flex>
       </PanelMessage>

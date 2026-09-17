@@ -38,6 +38,13 @@ The fourth channel does not read source at all. A relation field that crosses a 
 without `related_name="+"` adds a reverse accessor to the target class — no import, no name-level
 use, only the model registry can see it. reverse_accessors.py walks the graph; each edge is counted
 as the disallowed kind `reverse-accessor(<name>)`.
+
+The fifth channel reads the other end of the boundary: what a facade signature promises. An import
+linter sees the same edge whether a facade imports a model module to build contracts or to return
+the model, so publicness has to come from the shape of the API and not from the location of the
+file. isolation.py reads the signatures; each finding lands as one of the disallowed kinds
+`facade-returns`, `facade-accepts(<parameter>)` and `facade-logic`. The rule is
+products/architecture.md § Facades: The Public Interface.
 """
 
 from __future__ import annotations
@@ -49,13 +56,19 @@ import textwrap
 import warnings
 import functools
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .ast_helpers import ast_parse_safe, get_model_names, lazy_reexport_map
-from .isolation import COMPUTED_WIRING_LOCATIONS, MODEL_CROSSINGS, facade_model_crossings
-from .paths import PRODUCTS_DIR, REPO_ROOT
+from .ast_helpers import ast_parse_safe, get_model_names, lazy_reexport_map, lazy_reexport_prefixes
+from .isolation import (
+    COMPUTED_WIRING_LOCATIONS,
+    MODEL_CROSSINGS,
+    FacadeShapeFinding,
+    facade_model_crossings,
+    facade_shape_findings,
+)
+from .paths import PRODUCTS_DIR, REPO_ROOT, backend_product_dirs
 from .reverse_accessors import reverse_accessor_edge_lines
 
 # Where Python that can consume a product model lives. Everything else at the repo root is
@@ -142,7 +155,9 @@ class CrossingUse:
     """One kind of use of one crossing class in one consumer module, with how often it appears.
 
     `reverse-accessor(...)` rows overload `consumer_module` with the relation declaration
-    (`app.Model.field`) — a path into the model graph, not an importable module."""
+    (`app.Model.field`) — a path into the model graph, not an importable module. A `facade-returns`
+    or `facade-accepts` row overloads it with the facade symbol that carries the type
+    (`...facade.api.read`)."""
 
     crossing: str  # CrossingClass.label
     consumer_module: str  # dotted, e.g. "products.product_analytics.backend.presentation.insight"
@@ -371,7 +386,7 @@ def _candidates(kind_hint: _KindHint | None = None) -> list[_Candidate]:
             package = dotted if path.name == "__init__.py" else dotted.rsplit(".", 1)[0]
             is_test = _is_test_module(path)
             mentions_kind = kind_hint is not None and is_test and kind_hint.matches(source)
-            mentions_dispatch = is_test and any(call in source for call in _DISPATCH_CALL_BYTES)
+            mentions_dispatch = any(call in source for call in _DISPATCH_CALL_BYTES)
             found.append(
                 _Candidate(
                     path,
@@ -803,6 +818,15 @@ def _wiring_location_exports(product: str, location: str) -> dict[_Export, str]:
     return exports
 
 
+def names_defined_in(product: str, location: str) -> frozenset[str]:
+    """The names a wiring location, or a subtree of one, defines and hands out.
+
+    A product may watch one subtree of a computed wiring location rather than the whole of it, and
+    that is only sound while every `drives(...)` line names something inside the watched subtree.
+    This is how such a check reads the subtree."""
+    return frozenset(export.name for export in _wiring_location_exports(product, location))
+
+
 def _top_level_names(tree: ast.Module) -> list[str]:
     """Every public name a module defines at top level: classes, functions, and assigned constants."""
     names: list[str] = []
@@ -849,14 +873,7 @@ def _lazy_reexports(tree: ast.Module, product: str, exists: Callable[[str], bool
     Lazy maps store their values relative to some package: absolute, relative to the product's
     backend package, or relative to a module-level prefix constant (`_B = "products....hogql_queries."`).
     The first candidate that names a real module wins."""
-    prefixes = [
-        node.value.value
-        for node in tree.body
-        if isinstance(node, ast.Assign)
-        and isinstance(node.value, ast.Constant)
-        and isinstance(node.value.value, str)
-        and node.value.value.endswith(".")
-    ]
+    prefixes = lazy_reexport_prefixes(tree)
     resolved: dict[str, str] = {}
     for name, value in lazy_reexport_map(tree).items():
         candidates = [value, *(prefix + value for prefix in prefixes), f"products.{product}.backend.{value}"]
@@ -989,6 +1006,42 @@ def _enclosing(node: ast.AST, parents: dict[int, ast.AST]) -> tuple[_Function | 
     return function, None
 
 
+# What `unittest.mock` binds a replacement to. `patch("a.b.run")` and `patch.object(b, "run")` both
+# name `run`; the leaf is all the scan needs, because it follows calls by name too.
+_PATCH_CALLS: frozenset[str] = frozenset({"patch", "object"})
+
+
+def _patched_names(scope: ast.AST, skip: frozenset[int] = frozenset()) -> set[str]:
+    """The names `scope` replaces with a mock, decorator and context manager alike.
+
+    A test that patches the seam a helper would have reached does not execute a query through it,
+    however faithfully the call chain reads. Without this the scan counts the mock.
+
+    `skip` prunes subtrees whose patches do not reach the code being judged."""
+    patched: set[str] = set()
+    pending: list[ast.AST] = [scope]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, ast.Call) and _callee_name(node) in _PATCH_CALLS:
+            for argument in node.args:
+                if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                    patched.add(argument.value.rsplit(".", 1)[-1])
+        pending.extend(child for child in ast.iter_child_nodes(node) if id(child) not in skip)
+    return patched
+
+
+def _sibling_tests(scope: ast.AST, function: _Function) -> frozenset[int]:
+    """The other test functions of `scope`, whose patches apply to themselves alone.
+
+    A `setUp` patcher and a class decorator reach every method, so those stay readable. A patch
+    inside a sibling test does not, and reading it would suppress a call this test really makes."""
+    return frozenset(
+        id(node)
+        for node in ast.iter_child_nodes(scope)
+        if isinstance(node, _Function) and node is not function and node.name.startswith("test")
+    )
+
+
 def _executes_directly(scope: ast.AST, dispatchers: frozenset[str]) -> bool:
     return any(
         isinstance(node, ast.Call) and (_callee_name(node) in dispatchers or _is_test_client_call(node))
@@ -1003,18 +1056,30 @@ class _Executions:
     helper calls are followed by name to a fixpoint, no real call graph needed. Helpers resolve
     inside the function's own class first (including bases defined in the same module), then
     among the module's top-level functions, so two unrelated classes with a method of the same
-    name never answer for each other."""
+    name never answer for each other.
+
+    A helper the module imports is followed too, when a `_CallGraph` is supplied; without one the
+    walk stops at the module edge and a test that runs its query through an imported helper reads
+    as building only."""
 
     def _executes_directly(self, function: _Function) -> bool:
         if id(function) not in self._direct:
             self._direct[id(function)] = _executes_directly(function, self._dispatchers)
         return self._direct[id(function)]
 
-    def __init__(self, tree: ast.Module, dispatchers: frozenset[str]) -> None:
+    def __init__(
+        self,
+        tree: ast.Module,
+        dispatchers: frozenset[str],
+        calls: _CallGraph | None = None,
+        module: str = "",
+    ) -> None:
         self._dispatchers = dispatchers
         self._direct: dict[int, bool] = {}
         self._module_helpers = {node.name: node for node in tree.body if isinstance(node, _Function)}
         self._classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
+        self._calls = calls
+        self._module = module
 
     def _class_helpers(self, class_def: ast.ClassDef) -> dict[str, list[_Function]]:
         """The methods a class can call on `self`: its own, then those of base classes defined in
@@ -1050,6 +1115,7 @@ class _Executions:
                 helpers.setdefault(name, []).extend(nodes)
         seen: set[int] = set()
         pending = [function]
+        outward: set[str] = set()
         while pending:
             current = pending.pop()
             if id(current) in seen:
@@ -1059,11 +1125,151 @@ class _Executions:
                 return True
             called = {_callee_name(node) for node in ast.walk(current) if isinstance(node, ast.Call)}
             for name in called:
-                pending.extend(helpers.get(name, []))
+                resolved = helpers.get(name)
+                if resolved:
+                    pending.extend(resolved)
+                elif name is not None:
+                    outward.add(name)
+        if self._calls is None:
+            return False
+        patched = frozenset(_patched_names(function) | _patched_names(scope, _sibling_tests(scope, function)))
+        return any(self._calls.executes(self._module, name, patched) for name in sorted(outward - patched))
+
+
+# How far a call chain is followed out of the module that starts it. The chains this exists for are
+# short — a test helper, the function it delegates to, the extractor that runs the query — and an
+# unbounded walk would parse most of the repo for every test module that names a kind.
+_MAX_CALL_DEPTH = 8
+
+
+@dataclass(frozen=True)
+class _ModuleDefs:
+    """The callables one module defines, indexed the three ways a call site can name them."""
+
+    functions: Mapping[str, tuple[_Function, ...]]  # top-level, by name
+    methods: Mapping[str, tuple[_Function, ...]]  # every method of every class, by bare name
+    methods_of: Mapping[str, Mapping[str, tuple[_Function, ...]]]  # class -> method -> definitions
+
+
+def _module_defs(tree: ast.Module) -> _ModuleDefs:
+    functions: dict[str, list[_Function]] = defaultdict(list)
+    methods: dict[str, list[_Function]] = defaultdict(list)
+    methods_of: dict[str, dict[str, tuple[_Function, ...]]] = {}
+    for node in tree.body:
+        if isinstance(node, _Function):
+            functions[node.name].append(node)
+        elif isinstance(node, ast.ClassDef):
+            own: dict[str, list[_Function]] = defaultdict(list)
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, _Function):
+                    own[child.name].append(child)
+                    methods[child.name].append(child)
+            methods_of[node.name] = {name: tuple(defs) for name, defs in own.items()}
+    return _ModuleDefs(
+        {name: tuple(defs) for name, defs in functions.items()},
+        {name: tuple(defs) for name, defs in methods.items()},
+        methods_of,
+    )
+
+
+class _CallGraph:
+    """Whether a call that leaves its module reaches a query execution.
+
+    The scan already reads every module's imports, so no real call graph is needed: an import edge
+    names the module a helper came from, and that module's own edges carry the next hop.
+
+    A method call is followed only inside the module that defines the class. Across a module edge
+    the receiver has no type here, and matching on the bare method name instead answers for every
+    unrelated object with a method of that name — measured, that reported query executions in a
+    prompt-formatting suite that runs nothing."""
+
+    def __init__(self, candidates: Iterable[_Candidate]) -> None:
+        self._paths = {candidate.dotted: candidate.path for candidate in candidates}
+        self._imports = {candidate.dotted: candidate.imports for candidate in candidates}
+        self._defs_cache: dict[str, _ModuleDefs | None] = {}
+        self._memo: dict[tuple[str, str, frozenset[str], bool], bool] = {}
+
+    def _defs(self, module: str) -> _ModuleDefs | None:
+        if module not in self._defs_cache:
+            self._defs_cache[module] = self._parse(module)
+        return self._defs_cache[module]
+
+    def _parse(self, module: str) -> _ModuleDefs | None:
+        path = self._paths.get(module)
+        if path is None:
+            return None
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                return _module_defs(ast.parse(path.read_bytes()))
+        except (OSError, SyntaxError, ValueError):
+            return None
+
+    def _imported(self, module: str) -> tuple[_ImportEdge, ...]:
+        table = self._imports.get(module)
+        return table.edges if table is not None else ()
+
+    def _targets(self, module: str, name: str, local: bool) -> list[tuple[str, _Function]]:
+        """Every (module, function) a call to `name` inside `module` can reach.
+
+        `local` is off for the module that starts the walk, whose own functions and methods the
+        caller has already resolved under stricter rules than this."""
+        found: list[tuple[str, _Function]] = []
+        defs = self._defs(module)
+        if local and defs is not None:
+            found += [(module, fn) for fn in defs.functions.get(name, ())]
+            found += [(module, fn) for fn in defs.methods.get(name, ())]
+        for edge in self._imported(module):
+            if edge.bound != name:
+                continue
+            target = self._defs(edge.module)
+            if target is not None:
+                found += [(edge.module, fn) for fn in target.functions.get(edge.exported, ())]
+        return found
+
+    def executes(
+        self,
+        module: str,
+        name: str,
+        patched: frozenset[str] = frozenset(),
+        depth: int = 0,
+        local: bool = False,
+    ) -> bool:
+        """Whether a call to `name` inside `module` reaches a query execution.
+
+        `patched` carries the names the calling test replaced with a mock, all the way down: the
+        seam is usually mocked several hops from the test, and a chain that ends at one runs
+        nothing."""
+        if name in patched or depth >= _MAX_CALL_DEPTH or module not in self._paths:
+            return False
+        # `local` belongs in the key: it widens the search to the module's own definitions, so the
+        # two modes can answer differently for one name.
+        key = (module, name, patched, local)
+        if key in self._memo:
+            return self._memo[key]
+        # A recursive chain answers "no" while it is still being walked, so a cycle terminates.
+        self._memo[key] = False
+        for target_module, function in self._targets(module, name, local):
+            if _executes_directly(function, DISPATCH_CALLS - patched):
+                self._memo[key] = True
+                return True
+            called = {_callee_name(node) for node in ast.walk(function) if isinstance(node, ast.Call)}
+            if any(
+                self.executes(target_module, call, patched, depth + 1, local=True)
+                for call in sorted(filter(None, called))
+            ):
+                self._memo[key] = True
+                return True
         return False
 
 
-def kind_drives(tree: ast.Module, kinds: _QueryKinds, names: _KindNames | None = None) -> Counter[_KindDrive]:
+def kind_drives(
+    tree: ast.Module,
+    kinds: _QueryKinds,
+    names: _KindNames | None = None,
+    calls: _CallGraph | None = None,
+    module: str = "",
+) -> Counter[_KindDrive]:
     """Drive -> mentions, for every kind this module both builds and executes.
 
     Building alone is not a drive: a test that checks a schema or a formatter constructs the query
@@ -1076,7 +1282,7 @@ def kind_drives(tree: ast.Module, kinds: _QueryKinds, names: _KindNames | None =
     if not mentions:
         return Counter()
     parents = _parent_map(tree)
-    executions = _Executions(tree, names.dispatchers)
+    executions = _Executions(tree, names.dispatchers, calls, module)
     scope_executes: dict[int, bool] = {}
     found: Counter[_KindDrive] = Counter()
     for node, kind in mentions:
@@ -1141,7 +1347,13 @@ def _query_position_dicts(tree: ast.Module, dispatchers: frozenset[str]) -> Iter
                     yield value
 
 
-def unresolved_kind_drives(tree: ast.Module, kinds: _QueryKinds, names: _KindNames | None = None) -> int:
+def unresolved_kind_drives(
+    tree: ast.Module,
+    kinds: _QueryKinds,
+    names: _KindNames | None = None,
+    calls: _CallGraph | None = None,
+    module: str = "",
+) -> int:
     """How many times this module runs a query whose kind the scan cannot resolve.
 
     A drive line needs a kind, so a kind the scan cannot read produces no line at all. That silence
@@ -1166,7 +1378,7 @@ def unresolved_kind_drives(tree: ast.Module, kinds: _QueryKinds, names: _KindNam
     if not pending:
         return 0
     parents = _parent_map(tree)
-    executions = _Executions(tree, names.dispatchers)
+    executions = _Executions(tree, names.dispatchers, calls, module)
     resolved = {id(_enclosing(node, parents)[0]) for node, _ in _kind_mentions(tree, kinds, names)}
     scope_executes: dict[int, bool] = {}
     found = 0
@@ -1204,13 +1416,32 @@ def driven_wiring_locations(product: str, path: Path | None = None) -> frozenset
     """The computed wiring locations of `product` that a test outside the product drives.
 
     Read from the crossings baseline. The baseline is the evidence the lint reads: the repo-invariant
-    test keeps it equal to a fresh scan, so a location with no line here has no outside driver."""
+    test keeps it equal to a fresh scan, so a location with no line here has no outside driver. The
+    kind has to be read too, because a `facade-logic` line is keyed by a location as well."""
     prefix = f"{product}:"
-    return frozenset(
-        line.split(" ", 1)[0].removeprefix(prefix)
-        for line in _baseline_lines(path or BASELINE_PATH)
-        if line.startswith(prefix)
-    )
+    locations: set[str] = set()
+    for line in _baseline_lines(path or BASELINE_PATH):
+        if not line.startswith(prefix):
+            continue
+        crossing, _, kind, _ = line.split(" ")
+        if kind.startswith("drives("):
+            locations.add(crossing.removeprefix(prefix))
+    return frozenset(locations)
+
+
+def recorded_facade_shape_rows(product: str, path: Path | None = None) -> frozenset[str]:
+    """The `facade-*` baseline lines standing for one product's facade.
+
+    Read from the baseline for the same reason as the wiring locations above: the repo-invariant
+    test keeps the file equal to a fresh scan."""
+    prefix = f"products.{product}.backend.facade."
+    rows: set[str] = set()
+    for line in _baseline_lines(path or BASELINE_PATH):
+        if " facade-" not in line:
+            continue
+        if line.split(" ")[1].startswith(prefix):
+            rows.add(line)
+    return frozenset(rows)
 
 
 @functools.lru_cache(maxsize=4)
@@ -1313,6 +1544,7 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
         False: {export.name for export, label in seeds.items() if ":" not in label},
     }
     candidates = _candidates(_KindHint.for_kinds(kinds) if kinds else None)
+    calls = _CallGraph(candidates)
     origins = _grow_origins(candidates, seeds)
     origin_modules = {export.module for export in origins}
     query_products = {location.product for location in locations if location.location == QUERY_WIRING_LOCATION}
@@ -1364,13 +1596,13 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
         if is_test and (candidate.mentions_query_kind or candidate.mentions_dispatcher):
             kind_names = _kind_names(candidate.imports, kinds)
             # An unreadable kind names no product, so it counts against every location it could reach.
-            unresolved = unresolved_kind_drives(tree, kinds, kind_names)
+            unresolved = unresolved_kind_drives(tree, kinds, kind_names, calls, candidate.dotted)
             for product in query_products if unresolved else ():
                 if candidate.path.is_relative_to(PRODUCTS_DIR / product):
                     continue
                 label = wiring_location_label(product, QUERY_WIRING_LOCATION)
                 counts[(label, candidate.dotted, UNRESOLVED_KIND_DRIVE)] += unresolved
-            for drive, count in kind_drives(tree, kinds, kind_names).items():
+            for drive, count in kind_drives(tree, kinds, kind_names, calls, candidate.dotted).items():
                 if drive.product in query_products and not candidate.path.is_relative_to(PRODUCTS_DIR / drive.product):
                     counts[
                         (
@@ -1414,9 +1646,48 @@ def reverse_accessor_uses(products: Iterable[str] | None = None) -> list[Crossin
     return uses
 
 
+# ---------------------------------------------------------------------------
+# Facade shapes — the fifth channel, read from the facade signatures
+# ---------------------------------------------------------------------------
+
+
+def facade_shape_use(finding: FacadeShapeFinding) -> CrossingUse:
+    """One facade shape finding as a baseline row.
+
+    The crossing slot names what crosses: the qualified type for a signature row, and the facade
+    module for a `logic` row, which is keyed by a location the way `drives(...)` is. The consumer
+    slot holds the facade symbol that carries the type, or the module itself for a `logic` row whose
+    count is the number of bodies left in it. The parameter of an `accepts` row rides in the kind,
+    the way the other detail-carrying kinds do.
+    """
+    if finding.kind == "logic":
+        crossing = wiring_location_label(finding.product, f"backend/facade/{finding.facade_module}")
+        consumer = finding.dotted_module
+    else:
+        crossing = f"{finding.source}.{finding.type_name}"
+        consumer = f"{finding.dotted_module}.{finding.symbol}"
+    kind = f"facade-{finding.kind}({finding.parameter})" if finding.parameter else f"facade-{finding.kind}"
+    return CrossingUse(crossing, consumer, kind, finding.count)
+
+
+def facade_shape_uses(products: Iterable[str] | None = None) -> list[CrossingUse]:
+    """What every product facade puts on its boundary, as CrossingUse rows.
+
+    A finding belongs to the facade that carries it, so a product filter selects the facades to
+    read — the same one-sided scoping the reverse accessors use.
+    """
+    wanted = set(products) if products is not None else None
+    return [
+        facade_shape_use(finding)
+        for product_dir in backend_product_dirs()
+        if wanted is None or product_dir.name in wanted
+        for finding in facade_shape_findings(product_dir / "backend", product_dir.name)
+    ]
+
+
 def all_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUse]:
-    """Every channel: the three AST scans plus the model-graph reverse accessors."""
-    return scan_crossing_uses(products) + reverse_accessor_uses(products)
+    """Every channel: the three AST scans, the model-graph reverse accessors, and the facade shapes."""
+    return scan_crossing_uses(products) + reverse_accessor_uses(products) + facade_shape_uses(products)
 
 
 # ---------------------------------------------------------------------------
@@ -1479,12 +1750,30 @@ def render_report(uses: list[CrossingUse], class_labels: Iterable[str] = ()) -> 
 
 BASELINE_PATH = REPO_ROOT / "products" / "model_crossing_uses_baseline.txt"
 
-BASELINE_HEADER = """\
+REGENERATE_COMMAND = "bin/hogli product:crossings --all --write-baseline"
+
+NEW_LINE_INSTRUCTION = (
+    "A '+' line is a new disallowed use of a product model class, and counts may only go down. "
+    "Change the caller: move the query, serializer or write into the model's own product and call "
+    "a facade function instead. A 'get_model' line is an apps.get_model reference from outside the "
+    "owning product; it is a coupling the import linters cannot see, and it belongs behind a facade "
+    "function too. A 'reverse-accessor(...)' line is a boundary-crossing relation field without "
+    'related_name="+" (a query:<name> row means an explicit related_query_name keeps filter() '
+    "traversal alive); seal it, remove the explicit query name, and give callers a facade read "
+    "function. A 'drives(...)' line is a test outside the product that executes one of its query "
+    "runners; move that test into the product. A 'facade-...' line is a facade that puts a Django, a "
+    "DRF or an ORM type on its own boundary, or a capability submodule that holds bodies; the "
+    "lint prints the move that clears each kind. A coupling that "
+    "must stand is a doctrine amendment: hand-edit the line in, and record why in "
+    "products/architecture.md § Wiring couplings. Regenerating the baseline cannot add a line."
+)
+
+BASELINE_HEADER = f"""\
 # Disallowed uses of product model classes in consumer code.
 # One line per (product.Class, consumer module, kind, count); see products/architecture.md
 # § Wiring couplings for which shapes are allowed.
 #
-# Four channels land here. Name-level uses of a watched-models crossing class, in any kind the
+# Five channels land here. Name-level uses of a watched-models crossing class, in any kind the
 # doctrine does not call instance-free. The kind `get_model`: an `apps.get_model` reference
 # from outside the owning product, which covers every product model, not only the allowance ones.
 # Test modules and migrations are out of scope on both: a migration reaches a model through the
@@ -1500,23 +1789,113 @@ BASELINE_HEADER = """\
 # related_name="+", remove any explicit related_query_name (a query:<name> row means one keeps
 # filter() traversal alive), and delete the line in the same change; a caller that needs reverse
 # access gets a facade read function. See products/architecture.md § Cross-product foreign keys.
+# And the `facade-*` kinds, read from the facade signatures rather than from a caller: what the
+# boundary itself promises. `facade-returns` and `facade-accepts(<parameter>)` mean a public facade
+# callable puts a Django, a DRF or an ORM type on its signature; `facade-logic` means a capability
+# submodule holds bodies rather than re-exports, and its count is how many are left. The first
+# column says what crosses — `<product>.<Class>`, `<library>.<Type>`, or the facade module for a
+# `facade-logic` line — and the consumer column holds the symbol or the module that carries it.
+# The rule is products/architecture.md § Facades: The Public Interface.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
-# A new line needs a doctrine amendment, not a baseline edit.
 #
-# Regenerate: bin/hogli product:crossings --all --write-baseline
+# Regenerate after a removal: {REGENERATE_COMMAND}
+# That command refuses to write when the scan holds a line this file does not, or a count that
+# went up. A coupling that
+# must stand is a hand-edited line here, together with the amendment in products/architecture.md
+# § Wiring couplings that permits it, because a reviewer can see both.
 """
 
 
+def scanned_baseline_lines(uses: Iterable[CrossingUse]) -> list[str]:
+    return sorted(use.as_baseline_line() for use in disallowed_uses(uses))
+
+
 def render_baseline(uses: Iterable[CrossingUse]) -> str:
-    lines = sorted(use.as_baseline_line() for use in disallowed_uses(uses))
-    return BASELINE_HEADER + "\n".join(lines) + "\n"
+    return BASELINE_HEADER + "\n".join(scanned_baseline_lines(uses)) + "\n"
 
 
 def read_baseline(path: Path = BASELINE_PATH) -> list[str]:
     return [line for line in path.read_text().splitlines() if line.strip() and not line.startswith("#")]
 
 
+def _counts_by_identity(lines: Iterable[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for line in lines:
+        identity, count = line.rsplit(" ", 1)
+        counts[identity] = int(count)
+    return counts
+
+
+@dataclass(frozen=True)
+class BaselineDrift:
+    """The difference between the file and a scan, split by direction.
+
+    A line is (crossing, consumer, kind, count), and only the count is allowed to move down.
+    So `grown` holds a scanned line whose identity the file does not hold, or whose count went
+    up; `shrunk` holds a recorded line whose identity the scan no longer holds, or whose count
+    went down. Comparing whole lines would call a count drop growth and refuse it."""
+
+    grown: list[str]
+    shrunk: list[str]
+
+
+def baseline_drift(recorded: Iterable[str], scanned: Iterable[str]) -> BaselineDrift:
+    recorded_counts = _counts_by_identity(recorded)
+    scanned_counts = _counts_by_identity(scanned)
+    grown = [
+        f"{identity} {count}"
+        for identity, count in sorted(scanned_counts.items())
+        if count > recorded_counts.get(identity, 0)
+    ]
+    shrunk = [
+        f"{identity} {count}"
+        for identity, count in sorted(recorded_counts.items())
+        if count > scanned_counts.get(identity, 0)
+    ]
+    return BaselineDrift(grown=grown, shrunk=shrunk)
+
+
+def baseline_drift_message(added: Sequence[str], removed: Sequence[str]) -> str:
+    """The ratchet failure text, split by direction.
+
+    The two directions are not symmetric. A removal is recorded by a regenerate, an addition is
+    not, so the regenerate command stays out of the text while an addition stands. A reader who is
+    handed that command answers a new coupling by absorbing it, which is how the file grew."""
+    parts = [f"{BASELINE_PATH.name} no longer matches the repo."]
+    if added:
+        parts.append(NEW_LINE_INSTRUCTION)
+        parts.extend(f"  + {line}" for line in added)
+    if removed:
+        parts.append("A '-' line means a use went away. Good, but the file must record that too.")
+        parts.extend(f"  - {line}" for line in removed)
+    if removed and added:
+        parts.append(f"Run {REGENERATE_COMMAND} once the '+' lines are gone.")
+    elif removed:
+        parts.append(f"Run: {REGENERATE_COMMAND}")
+    return "\n".join(parts)
+
+
+class BaselineWouldGrow(Exception):
+    """A regenerate that would record a coupling the baseline does not hold yet."""
+
+    def __init__(self, path: Path, added: Sequence[str]) -> None:
+        self.added = list(added)
+        lines = "\n".join(f"  + {line}" for line in added)
+        super().__init__(f"{path.name} would gain lines, so nothing was written.\n{NEW_LINE_INSTRUCTION}\n{lines}")
+
+
 def write_baseline(uses: Iterable[CrossingUse], path: Path = BASELINE_PATH) -> None:
-    path.write_text(render_baseline(uses))
+    """Record the scan, but only while every difference against the file is a removal.
+
+    A regenerate that absorbs a new line hides the coupling from the review of the change that
+    caused it. A deliberate coupling therefore goes in by hand, next to the doctrine note that
+    permits it. There is no flag to skip this: a hand-edited line is what a reviewer reads, and a
+    flag would be pasted from one change into the next."""
+    scanned = list(uses)
+    if path.exists():
+        drift = baseline_drift(read_baseline(path), scanned_baseline_lines(scanned))
+        if drift.grown:
+            raise BaselineWouldGrow(path, drift.grown)
+    path.write_text(render_baseline(scanned))
     _baseline_lines.cache_clear()

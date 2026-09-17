@@ -192,7 +192,7 @@ class TestCommunitySkillSync(APIBaseTest):
             # deletes the existing files first, so a live skill would lose its whole bundle.
             ("falsy_non_list_files", {"files": {}}),
             # Blank passes the type and length checks but leaves a nameless catalog card, and a
-            # blank description is refused by marketplace.packaging.validate_for_export.
+            # blank description is refused by compute_spec_problems.
             ("blank_name", {"name": "   "}),
             ("blank_description", {"description": ""}),
             # Case-only collisions break a case-insensitive filesystem, and the marketplace
@@ -221,6 +221,9 @@ class TestCommunitySkillSync(APIBaseTest):
             # Shape checks: a slug DRF can't route, or a mistyped metadata/tags/allowed_tools that
             # would 500 the list/detail render or fracture allowed-tools on export.
             ("non_routable_slug", {"slug": "triage.v2"}),
+            # Installs under its slug, so a slug PostHog bundles would land a catalog skill under a
+            # bundled name.
+            ("bundled_skill_slug", {"slug": "signals-scout-logs"}),
             ("scalar_metadata", {"metadata": 5}),
             ("non_list_tags", {"tags": 5}),
             ("whitespace_allowed_tool", {"allowed_tools": ["Bash Write"]}),

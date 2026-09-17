@@ -35,6 +35,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Element, Person, PropertyDefinition, User
@@ -476,7 +477,12 @@ class EventViewSet(
             execution_mode = execution_mode_from_refresh(refresh)
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not refresh:
                 execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-            result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(self.request))
+            # Convert here rather than in the runner, so QueryRunner.run() sees the original
+            # ClickHouse error and can classify it and record it in the failure cache. Matches persons/values.
+            try:
+                result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(self.request))
+            except ExposedCHQueryError as e:
+                raise serializers.ValidationError(str(e), e.code_name)
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
             is_refreshing = (
                 isinstance(result, CachedPropertyValuesQueryResponse)

@@ -11,6 +11,7 @@ from django.test import TestCase, override_settings
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models import Organization, Team, User
 from posthog.redis import TEST_clear_clients
@@ -38,6 +39,10 @@ from products.tasks.backend.logic.stream.redis_stream import (
 )
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
+
+from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE
+
+SKIP_COUNTER_SAMPLE = "posthog_tasks_task_run_stream_write_skipped_total"
 
 
 class TestTaskRunEventIngest(TestCase):
@@ -417,6 +422,41 @@ class TestTaskRunEventIngest(TestCase):
         notify_turn_completed.assert_called_once()
         self.assertEqual(notify_turn_completed.call_args.args[0].id, self.task_run.id)
 
+    @parameterized.expand(
+        [
+            ("acp", {"type": "notification", "notification": {"method": "_posthog/turn_complete"}}),
+            ("pi", {"type": "pi_event", "event": {"type": "turn_completed"}}),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_turn_complete_ingest_signals_the_workflow_for_a_background_run(self, _name: str, event: dict) -> None:
+        token = self._create_token()
+
+        with patch.object(TaskRun, "signal_agent_turn_completed") as signal_turn_completed:
+            status, _ = self._call_ingest(token, [{"seq": 1, "event": event}])
+
+        self.assertEqual(status, 200)
+        signal_turn_completed.assert_called_once()
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_pi_turn_completed_with_a_runtime_error_fails_the_run_instead_of_completing_it(self) -> None:
+        token = self._create_token()
+
+        with (
+            patch.object(TaskRun, "signal_agent_turn_completed") as signal_turn_completed,
+            patch(
+                "products.tasks.backend.logic.stream.event_ingest.signal_workflow_completion"
+            ) as signal_workflow_completion,
+        ):
+            status, _ = self._call_ingest(
+                token,
+                [{"seq": 1, "event": {"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "error"}}}],
+            )
+
+        self.assertEqual(status, 200)
+        signal_turn_completed.assert_not_called()
+        signal_workflow_completion.assert_called_once_with(str(self.task_run.id), "failed", PI_RUNTIME_ERROR_MESSAGE)
+
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_workflow_heartbeat_does_not_block_event_loop(self) -> None:
         token = self._create_token()
@@ -500,6 +540,31 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(body["duplicate"], 1)
         self.assertEqual(body["last_accepted_seq"], 2)
         self.assertEqual(self._read_notification_methods(), ["first", "second"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_presence_gated_ingest_accepts_events_without_mirroring_them(self) -> None:
+        self.task_run.state = {**(self.task_run.state or {}), "stream_presence_gated": True}
+        self.task_run.save(update_fields=["state", "updated_at"])
+        token = self._create_token()
+        skip_labels = {"path": "ingest", "origin_product": Task.OriginProduct.USER_CREATED.value}
+        skips_before = REGISTRY.get_sample_value(SKIP_COUNTER_SAMPLE, skip_labels) or 0.0
+
+        with patch.object(TaskRun, "heartbeat_workflow"):
+            status, body = self._call_ingest(
+                token,
+                [
+                    {"seq": 1, "event": {"type": "notification", "notification": {"method": "first"}}},
+                    {"seq": 2, "event": {"type": "notification", "notification": {"method": "second"}}},
+                ],
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], 2)
+        self.assertEqual(body["duplicate"], 0)
+        self.assertEqual(body["last_accepted_seq"], 2)
+        self.assertEqual(self._read_stream_events(), [])
+        skips_after = REGISTRY.get_sample_value(SKIP_COUNTER_SAMPLE, skip_labels) or 0.0
+        self.assertEqual(skips_after - skips_before, 2.0)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_duplicate_terminal_sequence_does_not_complete_without_completion_line(self) -> None:

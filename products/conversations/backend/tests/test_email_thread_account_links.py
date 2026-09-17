@@ -5,6 +5,9 @@ from posthog.test.base import BaseTest
 from django.utils import timezone
 
 from posthog.models.comment import Comment
+from posthog.models.integration import Integration
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.conversations.backend.facade.api import (
     list_account_email_thread_messages,
@@ -77,6 +80,7 @@ class TestEmailThreadAccountLinks(BaseTest):
         matching_threads = list_email_threads_for_account_matching(self.team.id)
         assert len(matching_threads) == 1
         assert matching_threads[0].participant_emails == ["customer@example.com"]
+        assert matching_threads[0].gmail_owner_id is None
 
         replace_email_thread_account_links(
             self.team.id,
@@ -148,7 +152,7 @@ class TestEmailThreadAccountLinks(BaseTest):
                 EmailThreadAccountLinkInput(
                     account_id="account-2",
                     account_external_id="renamed-group-2",
-                    match_source="person_group",
+                    match_source="organization_member",
                 )
             ],
         )
@@ -156,5 +160,97 @@ class TestEmailThreadAccountLinks(BaseTest):
         assert not EmailThreadAccountLink.objects.for_team(self.team.id).filter(account_id="account-1").exists()
         remaining = EmailThreadAccountLink.objects.for_team(self.team.id).get()
         assert remaining.account_external_id == "renamed-group-2"
-        assert remaining.match_source == "person_group"
+        assert remaining.match_source == "organization_member"
         assert list_account_email_thread_messages(self.team.id, "account-1", str(self.thread.id)) is None
+
+    def test_resolves_one_gmail_owner_across_integrations(self) -> None:
+        first_integration = Integration.objects.create(
+            team=self.team,
+            kind="google-calendar",
+            integration_id="first-gmail-owner",
+            created_by=self.user,
+        )
+        second_integration = Integration.objects.create(
+            team=self.team,
+            kind="google-calendar",
+            integration_id="second-gmail-owner",
+            created_by=self.user,
+        )
+        self.message.source_type = "gmail"
+        self.message.source_id = f"{first_integration.id}:gmail-message-1"
+        self.message.save(update_fields=["source_type", "source_id"])
+        second_comment = Comment.objects.create(
+            team=self.team,
+            scope=EMAIL_THREAD_COMMENT_SCOPE,
+            item_id=str(self.thread.id),
+            content="Second message",
+        )
+        second_message = EmailThreadMessage.objects.for_team(self.team.id).create(
+            team=self.team,
+            thread=self.thread,
+            comment=second_comment,
+            message_id="<second-account-thread@example.com>",
+            sent_at=self.message.sent_at + timedelta(minutes=1),
+            sender_email="customer@example.com",
+            to_recipients=[],
+            cc_recipients=[],
+            direction=EmailThreadMessageDirection.INBOUND,
+            source_type="gmail",
+            source_id=f"{second_integration.id}:gmail-message-2",
+        )
+
+        [matching_thread] = list_email_threads_for_account_matching(self.team.id)
+
+        assert matching_thread.gmail_owner_id == self.user.id
+
+        other_owner = User.objects.create(email="other-owner@posthog.com")
+        other_integration = Integration.objects.create(
+            team=self.team,
+            kind="google-calendar",
+            integration_id="other-gmail-owner",
+            created_by=other_owner,
+        )
+        second_message.source_id = f"{other_integration.id}:gmail-message-2"
+        second_message.save(update_fields=["source_id"])
+
+        [matching_thread] = list_email_threads_for_account_matching(self.team.id)
+
+        assert matching_thread.gmail_owner_id is None
+
+    def test_rejects_invalid_or_unowned_gmail_sources(self) -> None:
+        unowned_integration = Integration.objects.create(
+            team=self.team,
+            kind="google-calendar",
+            integration_id="unowned-gmail",
+            created_by=None,
+        )
+        other_team = Team.objects.create(organization=self.organization)
+        other_team_integration = Integration.objects.create(
+            team=other_team,
+            kind="google-calendar",
+            integration_id="other-team-gmail",
+            created_by=self.user,
+        )
+        other_kind_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="not-gmail",
+            created_by=self.user,
+        )
+        self.message.source_type = "gmail"
+        self.message.save(update_fields=["source_type"])
+
+        for source_id in (
+            "malformed",
+            "999999999:gmail-message",
+            f"{unowned_integration.id}:gmail-message",
+            f"{other_team_integration.id}:gmail-message",
+            f"{other_kind_integration.id}:gmail-message",
+        ):
+            with self.subTest(source_id=source_id):
+                self.message.source_id = source_id
+                self.message.save(update_fields=["source_id"])
+
+                [matching_thread] = list_email_threads_for_account_matching(self.team.id)
+
+                assert matching_thread.gmail_owner_id is None

@@ -13,6 +13,7 @@ from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResu
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -72,7 +73,7 @@ class _CancelWatchdog:
 
 class TrinoAdapter:
     engine = "trino"
-    dialect: HogQLDialect | None = None
+    dialect: HogQLDialect | None = "trino"
 
     def validate_source_config(self, source: ExternalDataSource, team: Team) -> tuple[TrinoSource, TrinoSourceConfig]:
         from products.warehouse_sources.backend.facade.source_management import (
@@ -113,6 +114,11 @@ class TrinoAdapter:
         span.set_attribute("team_id", request.team.pk)
         span.set_attribute("query_type", request.query_type)
         span.set_attribute("source_id", str(request.source.id))
+        sql, values = (
+            convert_pyformat_placeholders(request.sql, request.values)
+            if request.values is not None
+            else (request.sql, [])
+        )
 
         try:
             with request.timings.measure("trino_execute"), observe_direct_query("trino"):
@@ -120,14 +126,24 @@ class TrinoAdapter:
                     cursor = connection.cursor()
                     with _CancelWatchdog(cursor, timeout_seconds) as watchdog:
                         try:
-                            cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- direct SQL is intentionally user-authored and SELECT-gated
-                                request.sql
-                            )
+                            if values:
+                                cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- values are passed as parameters; the trino client escapes them, this code never concatenates them
+                                    sql, values
+                                )
+                            else:
+                                cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- raw SQL is intentionally user-authored and SELECT-gated
+                                    sql
+                                )
                             results = cursor.fetchmany(DIRECT_TRINO_MAX_ROWS + 1)
                         except Exception as error:
                             if watchdog.fired:
                                 raise ExposedHogQLError(DIRECT_TRINO_TIMEOUT_ERROR) from error
                             raise
+                        # The parameterized path runs a capability probe and a PREPARE before the
+                        # main query exists, where cancel() is a no-op. Refuse results that arrive
+                        # past the deadline so the timeout holds through that window.
+                        if watchdog.fired:
+                            raise ExposedHogQLError(DIRECT_TRINO_TIMEOUT_ERROR)
                     description = cursor.description or []
         except Exception as error:
             span.set_attribute("error_type", error.__class__.__name__)

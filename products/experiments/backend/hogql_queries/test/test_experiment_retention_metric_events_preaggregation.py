@@ -284,8 +284,13 @@ class TestExperimentRetentionMetricEventsPreaggregation(ExperimentQueryRunnerBas
 
         assert first_result.ready is True
         assert second_result.ready is True
-        assert first_result.job_ids == second_result.job_ids
-        assert mock_sync_execute.call_count == len(first_result.job_ids)
+        # The stable hash shares the complete day-aligned jobs across as_of values;
+        # only the final partial day, claimed up to each as_of, is rebuilt.
+        first_jobs = set(first_result.job_ids)
+        second_jobs = set(second_result.job_ids)
+        assert len(second_jobs) == len(first_jobs)
+        assert len(first_jobs & second_jobs) == len(first_jobs) - 1
+        assert mock_sync_execute.call_count == len(first_jobs) + 1
 
     @patch("products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute")
     def test_retention_metric_events_precomputation_hash_tracks_retention_window(self, mock_sync_execute):
@@ -340,19 +345,4 @@ class TestExperimentRetentionMetricEventsPreaggregation(ExperimentQueryRunnerBas
 
         runner = self._build_runner(experiment, metric)
 
-        with patch.object(ExperimentQueryRunner, "_retention_metric_events_precomputation_enabled", return_value=True):
-            assert runner._metric_events_precompute_applicable() is applicable
-
-    def test_retention_metric_events_precompute_disabled_without_flag(self):
-        feature_flag = self.create_feature_flag(key="retention-metric-events-kill-switch")
-        experiment = self.create_experiment(
-            feature_flag=feature_flag,
-            start_date=datetime(2024, 1, 1),
-            end_date=datetime(2024, 1, 10),
-        )
-
-        runner = self._build_runner(experiment, _retention_metric())
-
-        # Fail-safe kill switch: with the flag absent/unevaluable, an otherwise
-        # eligible retention metric must stay on the direct-scan path.
-        assert runner._metric_events_precompute_applicable() is False
+        assert runner._metric_events_precompute_applicable() is applicable

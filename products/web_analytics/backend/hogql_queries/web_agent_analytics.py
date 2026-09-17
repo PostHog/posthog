@@ -15,7 +15,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models.filters.mixins.utils import cached_property
 
 from products.web_analytics.backend.hogql_queries.agent_analytics_definitions import (
