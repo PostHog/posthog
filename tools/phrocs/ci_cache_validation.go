@@ -1,5 +1,5 @@
 package main
 
 func init() {
-	_ = 1
+	_ = 2
 }
