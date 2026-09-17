@@ -586,6 +586,45 @@ export interface ReplayObservationLabelApi {
     feedback?: string
 }
 
+/**
+ * * `thumbnail` - Thumbnail
+ * * `clip` - Clip
+ */
+export type ReplayObservationMediaKindEnumApi =
+    (typeof ReplayObservationMediaKindEnumApi)[keyof typeof ReplayObservationMediaKindEnumApi]
+
+export const ReplayObservationMediaKindEnumApi = {
+    Thumbnail: 'thumbnail',
+    Clip: 'clip',
+} as const
+
+/**
+ * One thumbnail or clip illustrating an observation.
+ */
+export interface ReplayObservationMediaApi {
+    /** Id of this media entry. */
+    readonly id: string
+    /** `thumbnail` for the single frame that illustrates the observation, `clip` for a short video.
+     *
+     * * `thumbnail` - Thumbnail
+     * * `clip` - Clip */
+    readonly kind: ReplayObservationMediaKindEnumApi
+    /** Export asset holding the bytes; fetch it from the export content endpoint. */
+    readonly asset_id: number
+    /**
+     * One sentence saying what the clip shows. Null for thumbnails.
+     * @nullable
+     */
+    readonly description: string | null
+    /** Where this media starts in the analysis video, in milliseconds. */
+    readonly video_start_ms: number
+    /**
+     * Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.
+     * @nullable
+     */
+    readonly video_end_ms: number | null
+}
+
 export interface ReplayObservationApi {
     readonly id: string
     /** The scanner that produced this observation. */
@@ -651,6 +690,8 @@ export interface ReplayObservationApi {
     readonly label: ReplayObservationLabelApi | null
     /** Whether the calling user has opened this observation. */
     readonly viewed: boolean
+    /** Thumbnails and clips illustrating this observation, in order. Empty until the media render finishes. */
+    readonly media: readonly ReplayObservationMediaApi[]
     /** @nullable */
     started_at?: string | null
     /** @nullable */

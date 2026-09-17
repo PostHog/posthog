@@ -57,6 +57,7 @@ from products.replay_vision.backend.models.replay_observation import (
     jsonb_typeof,
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
+from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, ScannerType
 from products.replay_vision.backend.scanner_access import (
@@ -186,6 +187,35 @@ class ReplayObservationLabelSerializer(serializers.Serializer):
     )
 
 
+class ReplayObservationMediaSerializer(serializers.Serializer):
+    """One thumbnail or clip illustrating an observation."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Id of this media entry.")
+    kind = serializers.ChoiceField(
+        choices=ReplayObservationMedia.Kind.choices,
+        read_only=True,
+        help_text="`thumbnail` for the single frame that illustrates the observation, `clip` for a short video.",
+    )
+    asset_id = serializers.IntegerField(
+        read_only=True,
+        help_text="Export asset holding the bytes; fetch it from the export content endpoint.",
+    )
+    description = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="One sentence saying what the clip shows. Null for thumbnails.",
+    )
+    video_start_ms = serializers.IntegerField(
+        read_only=True,
+        help_text="Where this media starts in the analysis video, in milliseconds.",
+    )
+    video_end_ms = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.",
+    )
+
+
 class ReplayObservationSerializer(serializers.ModelSerializer):
     scanner_id = serializers.UUIDField(read_only=True, help_text="The scanner that produced this observation.")
     scanner_origin = serializers.ChoiceField(
@@ -300,6 +330,26 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
 
     viewed = serializers.BooleanField(read_only=True, help_text="Whether the calling user has opened this observation.")
 
+    media = serializers.SerializerMethodField(
+        help_text="Thumbnails and clips illustrating this observation, in order. Empty until the media render finishes.",
+    )
+
+    @extend_schema_field(ReplayObservationMediaSerializer(many=True))
+    def get_media(self, obj: ReplayObservation) -> list[dict]:
+        return [
+            {
+                "id": media.id,
+                "kind": media.kind,
+                "asset_id": media.asset_id,
+                "description": media.description,
+                "video_start_ms": media.video_start_ms,
+                "video_end_ms": media.video_end_ms,
+            }
+            for media in obj.media.all()
+            # No content location means the render has not landed yet, so there is nothing to fetch.
+            if media.asset.content_location
+        ]
+
     class Meta:
         model = ReplayObservation
         fields = [
@@ -321,6 +371,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "next_observation_id",
             "label",
             "viewed",
+            "media",
             "started_at",
             "completed_at",
             "created_at",

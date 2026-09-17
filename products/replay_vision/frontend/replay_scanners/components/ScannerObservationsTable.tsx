@@ -17,6 +17,7 @@ import { FilterPill } from '../../components/FilterPill'
 import { NumericRangeFilterPill } from '../../components/NumericRangeFilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import { ObservationRetryButton } from '../../components/ObservationRetryButton'
+import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { observationDetailUrl } from '../../observations/replayObservationLogic'
 import { shortBackfillId } from '../../utils/backfills'
@@ -135,6 +136,16 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
     const scoreScale = scanner?.scanner_type === 'scorer' ? scanner.scanner_config.scale : undefined
 
     const columns: LemonTableColumns<ReplayObservationApi> = [
+        {
+            title: '',
+            key: 'thumbnail',
+            width: 96,
+            render: (_, obs) => (
+                <Link to={observationDetailUrl(obs.id, observationDetailLinkParams)}>
+                    <ObservationThumbnail observation={obs} className="w-20" />
+                </Link>
+            ),
+        },
         {
             title: 'Session',
             key: 'session',
