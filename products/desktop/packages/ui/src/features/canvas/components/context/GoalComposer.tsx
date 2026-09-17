@@ -35,6 +35,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { SqlEditor } from "./SqlEditor";
 
 interface GoalComposerProps {
   /** The goal being edited, or null for a new one. */
@@ -476,30 +477,41 @@ function MeasureReview({
             ? `First cell of the first row. The query returned ${rows} rows.`
             : "Current value";
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border bg-background">
-      <textarea
-        value={sql}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={() => sql.trim() && onRun(sql)}
-        spellCheck={false}
-        rows={Math.min(8, Math.max(2, sql.split("\n").length))}
-        aria-label="HogQL measure"
-        className="w-full resize-none bg-transparent px-3 pt-2.5 font-mono text-foreground text-xs leading-relaxed outline-none"
+    <div className="flex flex-col overflow-hidden rounded-md border border-border bg-background">
+      <SqlEditor
+        initialValue={sql}
+        onChange={onChange}
+        onRun={(next) => next.trim() && onRun(next)}
+        className="h-44"
       />
       <div className="flex items-center justify-between gap-3 border-border border-t px-3 py-1.5">
-        <Text size="xxs" variant="muted">
+        <Text size="xs" variant="muted" className="min-w-0 truncate">
           {label}
         </Text>
-        <span className="font-semibold text-foreground text-sm tabular-nums">
-          {running ? (
-            <Spinner size="xs" aria-hidden="true" />
-          ) : error ? (
-            <WarningCircleIcon size={14} className="text-warning-foreground" />
-          ) : value === null ? (
-            "–"
-          ) : (
-            formatNumber(value)
-          )}
+        <span className="flex shrink-0 items-center gap-3">
+          <Button
+            variant="link-muted"
+            size="xs"
+            disabled={running || !sql.trim()}
+            onClick={() => onRun(sql)}
+          >
+            Run
+            <Kbd className="ml-1">⌘↵</Kbd>
+          </Button>
+          <span className="font-semibold text-foreground text-sm tabular-nums">
+            {running ? (
+              <Spinner size="xs" aria-hidden="true" />
+            ) : error ? (
+              <WarningCircleIcon
+                size={14}
+                className="text-warning-foreground"
+              />
+            ) : value === null ? (
+              "–"
+            ) : (
+              formatNumber(value)
+            )}
+          </span>
         </span>
       </div>
     </div>
