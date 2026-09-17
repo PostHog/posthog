@@ -24,7 +24,6 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'annotation',
             'export',
             'sharing_configuration',
-            'engineering_analytics',
         ],
     },
     {
@@ -95,6 +94,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'tagger',
             'ai_observability_clusters',
             'mcp_analytics',
+            'llm_gateway',
         ],
     },
     {
@@ -174,6 +174,14 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
         ],
     },
     {
+        label: 'Developer experience',
+        objects: [
+            'engineering_analytics',
+            'stamphog',
+            'visual_review',
+        ],
+    },
+    {
         label: 'Internal tools',
         objects: [
             'batch_import_support',
@@ -181,7 +189,6 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'context_layer_internal',
             'interactive_run',
             'internal_run',
-            'llm_gateway',
             'loop_context_internal',
             'mcp_builtin_agent',
             'query_performance',
@@ -189,8 +196,6 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'signal_scout_report',
             'signal_scratchpad_internal',
             'slack_run',
-            'stamphog',
-            'visual_review',
             'wizard_session',
         ],
     },

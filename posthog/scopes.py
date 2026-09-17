@@ -218,13 +218,18 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # `is_staff`. Distinct from the public `batch_import` object on purpose: that one is
         # OAuth-advertised, and a customer-grantable scope must never name a staff surface.
         "batch_import_support",
+        # Developer-experience tools for PostHog staff. Their MCP tools are behind feature flags,
+        # but the consent screen lists the union of every tool's scopes, so without this the
+        # scopes show to every customer. Staff reach the tools with a personal API key.
+        "stamphog",
+        "visual_review",
     }
 )
 
 # The product areas that the scope pickers use to group objects, in display order. Each
 # object in `API_SCOPE_OBJECTS` is in exactly one group, so a picker does not have to handle
-# an object that has no group. Internal, hidden and privileged objects are all in the last
-# group, "Internal tools". Tests in test_scopes.py check both rules.
+# an object that has no group. Internal and hidden objects are all in the last two groups,
+# "Developer experience" and "Internal tools". Tests in test_scopes.py check both rules.
 API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
     (
         "Product analytics",
@@ -241,7 +246,6 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "annotation",
             "export",
             "sharing_configuration",
-            "engineering_analytics",
         ),
     ),
     (
@@ -312,6 +316,7 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "tagger",
             "ai_observability_clusters",
             "mcp_analytics",
+            "llm_gateway",
         ),
     ),
     (
@@ -390,6 +395,7 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "file_system_shortcut",
         ),
     ),
+    ("Developer experience", ("engineering_analytics", "stamphog", "visual_review")),
     (
         "Internal tools",
         (
@@ -398,7 +404,6 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "context_layer_internal",
             "interactive_run",
             "internal_run",
-            "llm_gateway",
             "loop_context_internal",
             "mcp_builtin_agent",
             "query_performance",
@@ -406,8 +411,6 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "signal_scout_report",
             "signal_scratchpad_internal",
             "slack_run",
-            "stamphog",
-            "visual_review",
             "wizard_session",
         ),
     ),
