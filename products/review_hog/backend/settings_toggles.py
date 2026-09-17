@@ -26,7 +26,8 @@ ToggleField = Literal["review_inbox_prs", "stamphog_review_inbox_prs", "resolve_
 
 
 def toggle_default(field: ToggleField) -> bool:
-    return bool(ReviewUserSettings._meta.get_field(field).get_default())
+    # An unsaved instance carries the model defaults, the same way `ReviewUserSettings.load` does.
+    return bool(getattr(ReviewUserSettings(), field))
 
 
 class UsersNotInOrganization(ValueError):

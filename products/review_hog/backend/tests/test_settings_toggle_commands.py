@@ -8,10 +8,12 @@ from parameterized import parameterized
 from posthog.models import Organization, User
 
 from products.review_hog.backend.models import ReviewUserSettings
-from products.review_hog.backend.settings_toggles import toggle_default
+from products.review_hog.backend.settings_toggles import ToggleField, toggle_default
 
-REVIEWHOG, STAMPHOG, RESOLVE = "review_inbox_prs", "stamphog_review_inbox_prs", "resolve_comments"
-OTHER_FIELD = {REVIEWHOG: STAMPHOG, STAMPHOG: REVIEWHOG, RESOLVE: REVIEWHOG}
+REVIEWHOG: ToggleField = "review_inbox_prs"
+STAMPHOG: ToggleField = "stamphog_review_inbox_prs"
+RESOLVE: ToggleField = "resolve_comments"
+OTHER_FIELD: dict[ToggleField, ToggleField] = {REVIEWHOG: STAMPHOG, STAMPHOG: REVIEWHOG, RESOLVE: REVIEWHOG}
 COMMANDS = [
     ("enable_inbox_reviews", REVIEWHOG, True),
     ("disable_inbox_reviews", REVIEWHOG, False),
@@ -34,7 +36,7 @@ class TestSettingsToggleCommands(BaseTest):
 
     @parameterized.expand(COMMANDS)
     def test_whole_team_sets_only_its_toggle_for_active_org_members(
-        self, command: str, field: str, enabled: bool
+        self, command: str, field: ToggleField, enabled: bool
     ) -> None:
         member_without_row = self._member("no-row@example.com")
         member_opposite = self._member(
