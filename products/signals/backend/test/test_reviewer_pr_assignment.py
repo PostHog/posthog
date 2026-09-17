@@ -33,6 +33,7 @@ from products.signals.backend.task_run_artefacts import record_implementation_ta
 from products.tasks.backend.models import Task, TaskRun
 
 PR_URL = "https://github.com/PostHog/posthog/pull/123"
+_NOT_UNASSIGNED = {"success": True, "unassigned": False}
 
 
 @pytest.fixture(autouse=True)
@@ -591,16 +592,20 @@ class TestDirectlyResponsibleIndividual:
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
-        ("opted_in", "add_fails_in_transit", "events", "expected_calls"),
+        ("opted_in", "existing_assignees", "add_result", "events", "expected_calls"),
         [
-            (("alice",), False, {"success": True, "unassigned": False}, [["alice"], ["dave"]]),
-            (("bob",), False, {"success": True, "unassigned": False}, [["bob"]]),
-            (("alice",), True, {"success": True, "unassigned": False}, [["alice"]]),
-            ((), False, {"success": True, "unassigned": True}, []),
-            ((), False, {"success": False, "error": "Failed to list issue events"}, []),
+            (("alice",), [], None, _NOT_UNASSIGNED, [["alice"], ["dave"]]),
+            (("alice",), ["alice"], None, _NOT_UNASSIGNED, [["alice"], ["dave"]]),
+            (("alice",), [], {"success": True, "assignees": ["alice", "someone"]}, _NOT_UNASSIGNED, [["alice"]]),
+            (("bob",), [], None, _NOT_UNASSIGNED, [["bob"]]),
+            (("alice",), [], {"success": False, "error": "Network error"}, _NOT_UNASSIGNED, [["alice"]]),
+            ((), [], None, {"success": True, "unassigned": True}, []),
+            ((), [], None, {"success": False, "error": "Failed to list issue events"}, []),
         ],
         ids=[
             "opted_in_reviewer_outside_the_owning_team_gets_a_dri_beside_them",
+            "an_earlier_opted_in_assignment_is_not_a_hand_assignment",
+            "a_hand_assignment_during_the_call_counts",
             "opted_in_reviewer_in_the_owning_team_is_the_owner",
             "unknown_assignment_outcome_adds_nobody_else",
             "a_hand_unassigned_pull_request_stays_unassigned",
@@ -612,19 +617,20 @@ class TestDirectlyResponsibleIndividual:
         org_and_team,
         ownership,
         opted_in: tuple[str, ...],
-        add_fails_in_transit: bool,
+        existing_assignees: list[str],
+        add_result: dict | None,
         events: dict,
         expected_calls: list[list[str]],
     ):
         org, team = org_and_team
         report, _ = self._setup(org, team, ["alice", "bob"], opted_in=opted_in)
         ownership.return_value = PathOwnership(team_by_path={"posthog/api/a.py": "team-x"}, registry={}, resolved=True)
-        github = self._github(existing_assignees=[], assignable=None)
+        github = self._github(existing_assignees=existing_assignees, assignable=None)
         self._team_x(github)
         github.was_ever_unassigned.return_value = events
-        if add_fails_in_transit:
+        if add_result is not None:
             github.add_pull_request_assignees.side_effect = None
-            github.add_pull_request_assignees.return_value = {"success": False, "error": "Network error"}
+            github.add_pull_request_assignees.return_value = add_result
 
         with patch(
             "products.signals.backend.pr_owning_team.random.shuffle",

@@ -991,15 +991,18 @@ class TestGitHubIntegrationModel(BaseTest):
             ("unassigned_on_a_later_page", True, "unassigned", {"success": True, "unassigned": True}),
             ("never_unassigned", True, "labeled", {"success": True, "unassigned": False}),
             ("a_page_failed", False, "labeled", {"success": False}),
+            ("a_page_is_not_a_list", True, None, {"success": False}),
         ]
     )
-    def test_was_ever_unassigned_reads_every_page(self, _name: str, complete: bool, last_event: str, expected: dict):
+    def test_was_ever_unassigned_reads_every_page(
+        self, _name: str, complete: bool, last_event: str | None, expected: dict
+    ):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
         first = MagicMock(status_code=200)
         first.json.return_value = [{"event": "assigned"}]
         second = MagicMock(status_code=200 if complete else 502, text="Bad gateway")
-        second.json.return_value = [{"event": last_event}]
+        second.json.return_value = [{"event": last_event}] if last_event else {"message": "Moved"}
         with patch.object(
             github, "_installation_authenticated_get_pages", return_value=([first, second], complete)
         ) as mock_pages:

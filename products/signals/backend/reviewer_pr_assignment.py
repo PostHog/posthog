@@ -370,14 +370,18 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
     pr = _assignable_pull_request(github, team_id=team_id, report_id=report_id, parsed=parsed)
     if pr is None:
         return []
-    hand_assigned = bool(pr.get("assignees"))
 
     assigned = (
         _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=logins) if logins else []
     )
     if assigned is None:
         return []
-    if not dri_enabled or hand_assigned:
+    # An assignee who is not an opted-in reviewer came from a person or from an earlier DRI pick, so
+    # the pull request already has its owner. GitHub returns the full assignee list after the call,
+    # which also shows a person who assigned somebody while the call ran.
+    opted_in = {login.lower() for login in logins}
+    owned_elsewhere = any(login.lower() not in opted_in for login in (*(pr.get("assignees") or []), *assigned))
+    if not dri_enabled or owned_elsewhere:
         return assigned
 
     claimant = claimant_login(team_id=team_id, report_id=report_id)

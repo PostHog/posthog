@@ -1409,7 +1409,9 @@ class GitHubIntegrationBase:
                 events = response.json()
             except Exception:
                 return {"success": False, "error": "Failed to parse issue events JSON"}
-            if any(isinstance(event, dict) and event.get("event") == "unassigned" for event in events or []):
+            if not isinstance(events, list):
+                return {"success": False, "error": "Issue events JSON is not a list"}
+            if any(isinstance(event, dict) and event.get("event") == "unassigned" for event in events):
                 return {"success": True, "unassigned": True}
         return {"success": True, "unassigned": False}
 
