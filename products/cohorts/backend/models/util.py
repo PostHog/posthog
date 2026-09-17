@@ -25,6 +25,7 @@ from posthog.hogql.constants import (
     get_default_hogql_global_settings,
 )
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import prepare_and_print_ast
@@ -80,6 +81,7 @@ class CohortErrorCode(StrEnum):
     INVALID_REGEX = "invalid_regex"
     INCOMPATIBLE_TYPES = "incompatible_types"
     NO_PROPERTIES = "no_properties"
+    INVALID_FILTER = "invalid_filter"
     FLAG_CHANGED = "flag_changed"
     UNKNOWN = "unknown"
 
@@ -87,6 +89,12 @@ class CohortErrorCode(StrEnum):
 UNEXPECTED_ERROR_MESSAGE = (
     "An error occurred while calculating this cohort. Please review your matching criteria or contact support."
 )
+
+
+def _invalid_filter_message(detail: str | None = None) -> str:
+    reason = f" ({detail})" if detail else ""
+    return f"One of this cohort's matching criteria is not valid{reason}. Edit the cohort's filters, then save to calculate it again."
+
 
 ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.CAPACITY: "The system was busy when this cohort was scheduled to calculate. It will automatically retry.",
@@ -97,6 +105,7 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.QUERY_SIZE: "The matching criteria produced a query that was too large.",
     CohortErrorCode.INVALID_REGEX: "This cohort contains an invalid regular expression. Please check your regex syntax in the matching criteria.",
     CohortErrorCode.NO_PROPERTIES: "This cohort has no matching criteria defined. Please add at least one.",
+    CohortErrorCode.INVALID_FILTER: _invalid_filter_message(),
     CohortErrorCode.VALIDATION_ERROR: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.INCOMPATIBLE_TYPES: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.FLAG_CHANGED: "The feature flag changed while this cohort was being calculated. Please run the calculation again.",
@@ -117,11 +126,17 @@ NO_RETRY_ERROR_CODE_MESSAGES: dict[str, str] = {
 }
 
 
-def get_friendly_error_message(error_code: str | None, *, will_retry: bool = True) -> str | None:
+def get_friendly_error_message(
+    error_code: str | None, *, will_retry: bool = True, detail: str | None = None
+) -> str | None:
+    """`detail` names what broke, for the codes whose message can say. Only pass text that is safe
+    to show, such as an ExposedHogQLError message; raw exception text quotes SQL and hostnames."""
     if error_code is None:
         return None
     if not will_retry and error_code in NO_RETRY_ERROR_CODE_MESSAGES:
         return NO_RETRY_ERROR_CODE_MESSAGES[error_code]
+    if error_code == CohortErrorCode.INVALID_FILTER and detail:
+        return _invalid_filter_message(detail)
     return ERROR_CODE_MESSAGES.get(error_code, ERROR_CODE_MESSAGES[CohortErrorCode.UNKNOWN])
 
 
@@ -151,6 +166,10 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
             return CohortErrorCode.QUERY_SIZE
         case PydanticValidationError() | ValidationError():
             return CohortErrorCode.VALIDATION_ERROR
+        # Exposed HogQL errors are user-safe by design: the saved filters do not compile, and only
+        # editing them fixes it.
+        case ExposedHogQLError():
+            return CohortErrorCode.INVALID_FILTER
 
     code_name = getattr(e, "code_name", "").lower()
     if code_name in _CLICKHOUSE_ERROR_MAPPING:
@@ -727,8 +746,14 @@ def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, tea
 
     except Exception as e:
         history.finished_at = timezone.now()
-        history.error = str(e)
         history.error_code = parse_error_code(e)
+        # An exposed HogQL error names the filter that could not compile and is safe to show, so
+        # the stored message carries it. Every other error keeps the raw text it always had.
+        history.error = (
+            get_friendly_error_message(history.error_code, detail=str(e))
+            if isinstance(e, ExposedHogQLError)
+            else str(e)
+        )
         # The recalculation may have died because Postgres dropped the connection; record the
         # failure resiliently so it reconnects instead of re-raising "connection is closed" and
         # masking the real error e.
