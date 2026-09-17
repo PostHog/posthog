@@ -9,12 +9,23 @@ import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePrevi
 export interface ConceptWaitlistCTAProps {
     feature: EnrichedEarlyAccessFeature
     size?: 'small' | 'medium'
-    /** Runs after a sign-up the backend will accept, for callers that record their own product intent. */
+    /** Frozen once shipped: autocapture dashboards and Playwright select on it. */
+    dataAttr?: string
+    /**
+     * Fires when the user signs up, for callers that record their own product intent. Skipped
+     * during an impersonated session, where the sign-up itself is refused. Not awaited: a
+     * later failure will not undo it.
+     */
     onSignUp?: () => void
 }
 
 /** Waitlist sign-up for a concept ("Coming soon") early access feature. */
-export function ConceptWaitlistCTA({ feature, size = 'small', onSignUp }: ConceptWaitlistCTAProps): JSX.Element {
+export function ConceptWaitlistCTA({
+    feature,
+    size = 'small',
+    dataAttr,
+    onSignUp,
+}: ConceptWaitlistCTAProps): JSX.Element {
     const { waitlistSurveysEnabled, conceptSurveySubmissions } = useValues(featurePreviewsLogic)
     const { submitConceptSurvey, updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
     const [email, setEmail] = useState('')
@@ -25,7 +36,7 @@ export function ConceptWaitlistCTA({ feature, size = 'small', onSignUp }: Concep
     // (recorded as a survey response) instead of the one-click, login-tied enrollment.
     const hasWaitlistSurvey = waitlistSurveysEnabled && !!feature.payload?.survey_id
 
-    const signUp = (): void => {
+    const notifySignUp = (): void => {
         // submitConceptSurvey and the enrollment listener both refuse impersonated sessions, so
         // skip the callback too: a rejected sign-up must not record a false adoption signal.
         if (!window.IMPERSONATED_SESSION) {
@@ -42,11 +53,12 @@ export function ConceptWaitlistCTA({ feature, size = 'small', onSignUp }: Concep
                 }
                 onClick={() => {
                     updateEarlyAccessFeatureEnrollment(flagKey, true, feature.stage)
-                    signUp()
+                    notifySignUp()
                 }}
                 size={size}
                 sideIcon={enabled ? <IconCheck /> : <IconBell />}
                 className="w-fit"
+                data-attr={dataAttr}
             >
                 {enabled ? 'Registered' : 'Get notified'}
             </LemonButton>
@@ -72,7 +84,7 @@ export function ConceptWaitlistCTA({ feature, size = 'small', onSignUp }: Concep
                 e.preventDefault()
                 if (email) {
                     submitConceptSurvey(flagKey, email)
-                    signUp()
+                    notifySignUp()
                 }
             }}
         >
@@ -81,7 +93,8 @@ export function ConceptWaitlistCTA({ feature, size = 'small', onSignUp }: Concep
                 value={email}
                 onChange={setEmail}
                 placeholder="email@yourcompany.com"
-                aria-label="Email address"
+                // Several concept features can render this form on one page; name whose it is.
+                aria-label={`Email address to join the ${feature.name} waitlist`}
                 autoComplete="email"
                 size={size}
             />
@@ -90,6 +103,8 @@ export function ConceptWaitlistCTA({ feature, size = 'small', onSignUp }: Concep
                 size={size}
                 htmlType="submit"
                 disabledReason={!email ? 'Enter your email' : undefined}
+                aria-label={`Get notified when ${feature.name} is ready`}
+                data-attr={dataAttr}
             >
                 Get notified
             </LemonButton>

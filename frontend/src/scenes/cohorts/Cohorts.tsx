@@ -38,8 +38,8 @@ import {
 } from '~/types'
 
 import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
-import { RealtimeCohortsWaitlistBanner } from 'products/cohorts/frontend/RealtimeCohortsWaitlistBanner'
 import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
+import { RealtimeCohortsWaitlistBanner } from 'products/cohorts/frontend/realtime/RealtimeCohortsWaitlistBanner'
 
 export const scene: SceneExport = {
     component: Cohorts,
