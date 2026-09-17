@@ -129,7 +129,7 @@ function BatchRunInvocations({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlow
                     filters={Array.isArray(job.filters?.properties) ? job.filters.properties : []}
                 />
             </div>
-            <BatchRunLog jobId={job.id} />
+            <BatchRunLog jobId={job.id} createdAt={job.created_at} />
             <div className="flex flex-col gap-2">
                 <HogInvocations
                     id={hogFlowId}
