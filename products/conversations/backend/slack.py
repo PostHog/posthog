@@ -1629,8 +1629,6 @@ def _is_internal_channel(client: WebClient, channel: str) -> bool:
     link. The card carries metadata only and the link itself was already posted by a member,
     so the incremental exposure is status and timings rather than a ticket.
     """
-    if not channel:
-        return False
     try:
         response = client.conversations_info(channel=channel)
     except Exception:

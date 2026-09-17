@@ -19,6 +19,7 @@ from products.conversations.backend.cache import is_nudge_suppressed
 from products.conversations.backend.models import TeamConversationsSlackConfig, Ticket
 from products.conversations.backend.models.constants import Channel, ChannelDetail
 from products.conversations.backend.slack import (
+    MAX_UNFURLS_PER_MESSAGE,
     TICKET_CONFIRM_ACTION_DISMISS,
     TICKET_CONFIRM_ACTION_OPEN,
     TICKET_VIEW_ACTION,
@@ -35,7 +36,7 @@ from products.conversations.backend.slack import (
     ticket_deep_link,
     ticket_number_from_url,
 )
-from products.conversations.backend.tasks.slack import process_supporthog_interactivity
+from products.conversations.backend.tasks.slack import process_supporthog_event, process_supporthog_interactivity
 from products.customer_analytics.backend.facade import api as customer_analytics
 from products.customer_analytics.backend.facade.testing import create_account
 
@@ -1513,9 +1514,21 @@ class TestTicketLinkUnfurl(BaseTest):
             **extra,
         }
 
-    def _run(self, event: dict, *, channel_info: dict = INTERNAL_CHANNEL, sharer: dict | None = None) -> MagicMock:
+    def _run(
+        self,
+        event: dict,
+        *,
+        channel_info: dict = INTERNAL_CHANNEL,
+        sharer: dict | None = None,
+        channel_error: Exception | None = None,
+        unfurl_error: Exception | None = None,
+    ) -> MagicMock:
         client = MagicMock()
         client.conversations_info.return_value = {"channel": channel_info}
+        if channel_error is not None:
+            client.conversations_info.side_effect = channel_error
+        if unfurl_error is not None:
+            client.chat_unfurl.side_effect = unfurl_error
         resolved = sharer if sharer is not None else {"email": self.user.email, "team_id": UNFURL_TEAM}
         with (
             patch(f"{MODULE}.get_slack_client", return_value=client),
@@ -1576,15 +1589,14 @@ class TestTicketLinkUnfurl(BaseTest):
 
     def test_unreadable_channel_fails_closed(self):
         # Cannot prove the channel is internal, and an unfurl cannot be taken back.
-        client = MagicMock()
-        client.conversations_info.side_effect = RuntimeError("not_in_channel")
-        with (
-            patch(f"{MODULE}.get_slack_client", return_value=client),
-            patch(f"{MODULE}.resolve_slack_user", return_value={"email": self.user.email, "team_id": UNFURL_TEAM}),
-        ):
-            handle_link_shared(self._event(), self.team, UNFURL_TEAM)
+        client = self._run(self._event(), channel_error=RuntimeError("not_in_channel"))
 
         client.chat_unfurl.assert_not_called()
+
+    def test_a_slack_failure_is_not_reported_as_a_success(self):
+        self._run(self._event(), unfurl_error=RuntimeError("slack down"))
+
+        self.mock_capture.assert_not_called()
 
     @parameterized.expand(
         [
@@ -1617,18 +1629,51 @@ class TestTicketLinkUnfurl(BaseTest):
 
         client.chat_unfurl.assert_not_called()
 
+    def _assert_no_slack_call(self, event: dict) -> None:
+        with patch(f"{MODULE}.get_slack_client") as mock_get_client:
+            handle_link_shared(event, self.team, UNFURL_TEAM)
+
+        mock_get_client.assert_not_called()
+
     def test_a_link_that_is_not_a_ticket_costs_no_slack_calls(self):
         # The app's whole host is registered for unfurling, so every pasted PostHog link lands
         # here. Looking the channel up first would spend an uncached, rate-limited
         # conversations_info call on every insight and dashboard link in the workspace.
-        with patch(f"{MODULE}.get_slack_client") as mock_get_client:
-            handle_link_shared(
-                self._event(urls=[f"{settings.SITE_URL}/project/{self.team.id}/insights/abc123"]),
-                self.team,
-                UNFURL_TEAM,
-            )
+        self._assert_no_slack_call(self._event(urls=[f"{settings.SITE_URL}/project/{self.team.id}/insights/abc123"]))
 
-        mock_get_client.assert_not_called()
+    def test_a_disabled_team_is_a_noop(self):
+        self.team.conversations_settings = {"slack_enabled": False}
+        self.team.save()
+
+        self._assert_no_slack_call(self._event())
+
+    def test_an_event_without_a_channel_is_ignored(self):
+        self._assert_no_slack_call(self._event() | {"channel": ""})
+
+    def test_at_most_five_cards_for_one_message(self):
+        tickets = [self.ticket, *(_create_slack_ticket(self.team) for _ in range(MAX_UNFURLS_PER_MESSAGE))]
+
+        client = self._run(self._event(urls=[ticket_deep_link(t, self.team) for t in tickets]))
+
+        assert len(client.chat_unfurl.call_args.kwargs["unfurls"]) == MAX_UNFURLS_PER_MESSAGE
+
+    def test_the_same_link_twice_gets_one_card(self):
+        client = self._run(self._event(urls=[self.url, self.url]))
+
+        assert list(client.chat_unfurl.call_args.kwargs["unfurls"]) == [self.url]
+
+    def test_a_link_shared_event_reaches_the_handler(self):
+        # The dispatch itself: a wrong event-type string would disable the whole feature with
+        # every other test in this class still passing.
+        config = get_or_create_team_extension(self.team, TeamConversationsSlackConfig)
+        config.slack_team_id = UNFURL_TEAM
+        config.slack_bot_token = "xoxb-test"
+        config.save(update_fields=["slack_team_id", "slack_bot_token"])
+
+        with patch(f"{TASKS_MODULE}.handle_link_shared") as mock_handler:
+            process_supporthog_event(self._event(), UNFURL_TEAM)
+
+        mock_handler.assert_called_once()
 
     def test_each_link_gets_the_card_for_its_own_ticket(self):
         other = _create_slack_ticket(self.team)
@@ -1666,6 +1711,10 @@ class TestTicketLinkUnfurl(BaseTest):
 
     def test_our_own_ticket_url_resolves(self):
         assert ticket_number_from_url(self.url, self.team) == self.ticket.ticket_number
+
+    def test_a_malformed_url_is_not_a_ticket(self):
+        # urlparse raises on an unterminated IPv6 host rather than returning something usable.
+        assert ticket_number_from_url("http://[", self.team) is None
 
     def test_an_absurdly_long_number_is_not_a_ticket(self):
         # int() raises above 4300 digits, and this runs ahead of the gates, so a crafted link
