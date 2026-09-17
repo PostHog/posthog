@@ -635,7 +635,7 @@ export interface sqlEditorLogicActions {
         value: true
     } // connectionSelectorLogic
     createDataWarehouseSavedQuerySuccess: (
-        dataWarehouseSavedQueries: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQuerySummary[],
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?:
             | (Partial<DataWarehouseSavedQuery> & {
                   folder_id?: string | null
@@ -643,24 +643,24 @@ export interface sqlEditorLogicActions {
               })
             | undefined
     ) => {
-        dataWarehouseSavedQueries: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQuerySummary[]
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: Partial<DataWarehouseSavedQuery> & {
             folder_id?: string | null
             types: string[][]
         }
     } // dataWarehouseViewsLogic
     deleteDataWarehouseSavedQuerySuccess: (
-        dataWarehouseSavedQueries: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQuerySummary[],
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?: string | undefined
     ) => {
-        dataWarehouseSavedQueries: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQuerySummary[]
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: string
     } // dataWarehouseViewsLogic
     loadDataWarehouseSavedQueriesSuccess: (
-        dataWarehouseSavedQueries: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQuerySummary[],
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?: any
     ) => {
-        dataWarehouseSavedQueries: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQuerySummary[]
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: any
     } // dataWarehouseViewsLogic
     loadDataWarehouseSavedQueryFolders: () => any // dataWarehouseViewsLogic
@@ -691,10 +691,10 @@ export interface sqlEditorLogicActions {
         errorObject?: any
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
-        dataWarehouseSavedQueries: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQuerySummary[],
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate | undefined
     ) => {
-        dataWarehouseSavedQueries: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQuerySummary[]
+        dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
     } // dataWarehouseViewsLogic
     loadDatabase: (

@@ -24,7 +24,11 @@ jest.mock('scenes/data-management/database/databaseTableListLogic', () => {
     return {
         databaseTableListLogic: kea([
             path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),
-            actions({ loadDatabase: true, setDatabaseLoadError: (error: string | null) => ({ error }) }),
+            actions({
+                loadDatabase: true,
+                ensureAllTableFields: true,
+                setDatabaseLoadError: (error: string | null) => ({ error }),
+            }),
             reducers({
                 views: [[]],
                 dataWarehouseTables: [[]],

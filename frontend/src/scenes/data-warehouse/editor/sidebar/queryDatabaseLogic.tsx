@@ -1949,14 +1949,14 @@ export interface queryDatabaseLogicActions {
     createDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?:
-            | (Partial<DataWarehouseSavedQuerySummary> & {
+            | (Partial<import('~/types').DataWarehouseSavedQuery> & {
                   folder_id?: string | null
                   types: string[][]
               })
             | undefined
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
-        payload?: Partial<DataWarehouseSavedQuerySummary> & {
+        payload?: Partial<import('~/types').DataWarehouseSavedQuery> & {
             folder_id?: string | null
             types: string[][]
         }
