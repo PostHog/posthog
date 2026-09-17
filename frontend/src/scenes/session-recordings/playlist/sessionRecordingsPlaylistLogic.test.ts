@@ -1914,8 +1914,9 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
 
         // Every control in the filter bar can move a caller's own filter: remove a metric filter,
-        // clear the duration floor, flip the test-account setting. Each one widens or narrows the
-        // list, so the count has to notice, or the reset that puts it back stays disabled.
+        // clear the duration floor, flip the test-account setting, clear the session ids with
+        // "Show all". Each one widens or narrows the list, so the count has to notice, or the reset
+        // that puts it back stays disabled.
         it.each<[string, Partial<RecordingUniversalFilters>]>([
             [
                 'a filter it scoped with',
@@ -1928,6 +1929,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             ],
             ['the duration floor', { duration: [] }],
             ['the test-account setting', { filter_test_accounts: false }],
+            ['the session ids', { session_ids: undefined }],
         ])('counts a change to %s, and a reset puts it back', async (_name, change) => {
             const callerFilters = {
                 date_from: '2024-03-01',
@@ -1944,6 +1946,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     ],
                 },
                 experiment_exposure: { experiment_id: 1 },
+                session_ids: ['a-session'],
             }
             const scopedProps = {
                 logicKey: 'caller_baseline_changed',

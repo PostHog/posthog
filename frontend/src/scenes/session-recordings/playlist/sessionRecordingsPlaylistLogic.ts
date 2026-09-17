@@ -2145,6 +2145,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 // A duration the state does not carry at all is legacy filter state, which the
                 // baseline stands in for. An empty one is a removal, which a reset undoes.
                 const durationChanged = !equal(filters.duration ?? baselineFilters.duration, baselineFilters.duration)
+                // "Show all" clears the session ids to undefined, which reads the same as an empty
+                // list, so both normalize before the comparison. Comparing the lists rather than
+                // only the viewer's counts a baseline the viewer cleared, which a reset puts back.
+                const sessionIdsChanged = !equal(filters.session_ids ?? [], baselineFilters.session_ids ?? [])
 
                 return (
                     changedGroupCount +
@@ -2155,7 +2159,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     // The test-account setting has its own control in the filter bar, and a reset
                     // returns it to the baseline, so a viewer who only flips it can still reset.
                     (!!filters.filter_test_accounts === !!baselineFilters.filter_test_accounts ? 0 : 1) +
-                    (filters.session_ids?.length && !equal(filters.session_ids, baselineFilters.session_ids) ? 1 : 0)
+                    (sessionIdsChanged ? 1 : 0)
                 )
             },
         ],
