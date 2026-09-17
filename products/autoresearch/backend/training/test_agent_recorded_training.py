@@ -317,7 +317,7 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
             )
             return {"promoted": False}
 
-        with patch("products.autoresearch.backend.facade.api.complete_training_run", side_effect=fail_first):
+        with patch("products.autoresearch.backend.training.promotion.complete_training_run", side_effect=fail_first):
             resp = self.client.post(f"{self.runs_url}/{run_id}/complete/", {}, format="json")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert "failed" in str(resp.json())

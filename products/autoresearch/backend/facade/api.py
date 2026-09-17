@@ -41,7 +41,6 @@ from ..models import (
     AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
-from ..training.promotion import PromotionError, complete_training_run
 from ..training.recipe_validation import RecipeValidationError, validate_recipe
 from .contracts import (
     AutoresearchConflict,
@@ -651,6 +650,10 @@ def complete_run(
     distillation: str = "",
 ) -> TrainingRun:
     """Finalize a run. Promotion is server-side, so an agent cannot set the champion."""
+    # Promotion imports the inference sandbox, and with it pandas and pyarrow; the router imports
+    # this facade on the first request, so the heavy chain loads only when a run completes.
+    from ..training.promotion import PromotionError, complete_training_run  # noqa: PLC0415
+
     training_run = _training_run_row(team_id, training_run_id, pipeline_id=pipeline_id, with_iterations=False)
     if training_run.status not in (
         AutoresearchTrainingRun.Status.RUNNING,

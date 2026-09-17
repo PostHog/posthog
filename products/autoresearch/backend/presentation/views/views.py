@@ -485,7 +485,10 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
                 description="The recorded iteration.",
             ),
             400: OpenApiResponse(
-                description="Recipe failed validation (e.g. disallowed model_class) or run not running."
+                description=(
+                    "Recipe failed validation (feature_sql does not read from {anchors}, model_class missing, "
+                    "a non-object model_params), the run is not running, or its iteration budget is used."
+                )
             ),
         },
         summary="Record a training iteration",
