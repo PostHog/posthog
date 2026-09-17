@@ -14,7 +14,7 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.experiments.backend.models.experiment import ExperimentHoldout
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.facade.api import update_flag
 from products.feature_flags.backend.facade.filters import set_holdout
 
 
@@ -120,9 +120,9 @@ class ExperimentHoldoutSerializer(UserAccessControlSerializerMixin, serializers.
             with transaction.atomic():
                 for experiment in instance.experiment_set.all():
                     flag = experiment.feature_flag
-                    existing_flag_serializer = FeatureFlagSerializer(
+                    update_flag(
                         flag,
-                        data={
+                        {
                             "filters": set_holdout(
                                 flag.filters,
                                 holdout_id=instance.id,
@@ -130,11 +130,11 @@ class ExperimentHoldoutSerializer(UserAccessControlSerializerMixin, serializers.
                                 exclusion_percentage=new_filters[0]["rollout_percentage"],
                             ),
                         },
-                        partial=True,
-                        context=self.context,
+                        team=self.context["get_team"](),
+                        user=self.context["request"].user,
+                        request=self.context["request"],
+                        serializer_context=self.context,
                     )
-                    existing_flag_serializer.is_valid(raise_exception=True)
-                    existing_flag_serializer.save()
                 return super().update(instance, validated_data)
 
         return super().update(instance, validated_data)
@@ -156,15 +156,12 @@ class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         with transaction.atomic():
             for experiment in instance.experiment_set.all():
                 flag = experiment.feature_flag
-                existing_flag_serializer = FeatureFlagSerializer(
+                update_flag(
                     flag,
-                    data={
-                        "filters": set_holdout(flag.filters, holdout_id=None, exclusion_percentage=None),
-                    },
-                    partial=True,
-                    context={"request": request, "team": self.team, "team_id": self.team_id},
+                    {"filters": set_holdout(flag.filters, holdout_id=None, exclusion_percentage=None)},
+                    team=self.team,
+                    user=request.user,
+                    request=request,
                 )
-                existing_flag_serializer.is_valid(raise_exception=True)
-                existing_flag_serializer.save()
 
             return super().destroy(request, *args, **kwargs)
