@@ -385,18 +385,25 @@ def gate_flag_errors_without_a_project(columns: Mapping[str, Any]) -> dict[str, 
 
 
 def _canonical_gate_columns(project_id: int, columns: Mapping[str, Any]) -> dict[str, Any]:
-    """The gate columns to store, with every reference that carries a flag id moved onto that
-    flag's current key.
+    """The gate columns to store, with every reference that carries a flag id resolved against
+    that flag as it stands now: moved onto its current key, or dropped if the flag is gone.
 
     A rename that commits while a settings edit is in flight leaves the client's payload naming
     the key the flag held when the settings page loaded. Storing that key would gate recording on
     a key no flag holds, which both SDKs read as "do not record". The stored id says which flag
     the client meant, so the key comes from the flag row instead.
 
-    A reference that carries no id has nothing to resolve and keeps the key the client sent. That
-    is the shape the replay settings UI writes for a trigger group, so a rename racing a trigger
-    group edit can still store the pre-rename key. `repair_replay_linked_flag_keys` does not read
-    trigger groups, so such a group stays stale.
+    A hard delete that commits in that same window leaves no key to move onto, and
+    `clear_replay_gates` has already taken the reference off the team by the time this write
+    commits. Dropping it here makes this write agree with that cleanup, rather than putting back
+    a reference to a flag that no longer exists.
+
+    Only a reference carrying an id is resolved. A key-only reference cannot tell a deleted flag
+    from a renamed one, and the replay settings UI writes exactly that shape for a trigger group,
+    so dropping one would destroy a working gate every time a flag is renamed. Such a reference
+    keeps the key the client sent, which leaves a rename racing a trigger group edit able to store
+    the pre-rename key. `repair_replay_linked_flag_keys` does not read trigger groups, so such a
+    group stays stale.
     """
     identified = [ref for ref in _gate_flag_refs(columns) if ref.flag_id is not None]
     if not identified:
@@ -408,24 +415,39 @@ def _canonical_gate_columns(project_id: int, columns: Mapping[str, Any]) -> dict
     linked_flag = canonical.get(LINKED_FLAG_COLUMN)
     if isinstance(linked_flag, dict):
         flag_id = stored_flag_id(linked_flag)
-        current_key = keys_by_id.get(flag_id) if flag_id is not None else None
-        if flag_id is not None and current_key is not None:
-            rewritten = rewritten_linked_flag(linked_flag, flag_id=flag_id, new_key=current_key)
-            if rewritten is not None:
-                canonical[LINKED_FLAG_COLUMN] = rewritten
+        if flag_id is not None:
+            current_key = keys_by_id.get(flag_id)
+            if current_key is None:
+                # Storing `None` gates recording on nothing, so recording widens rather than
+                # stops. That is what `clear_replay_gates` already stores for this column when
+                # the flag goes, and the two paths have to agree on one answer.
+                canonical[LINKED_FLAG_COLUMN] = None
+            else:
+                rewritten = rewritten_linked_flag(linked_flag, flag_id=flag_id, new_key=current_key)
+                if rewritten is not None:
+                    canonical[LINKED_FLAG_COLUMN] = rewritten
 
-    moving = {
-        ref.group_index: keys_by_id[ref.flag_id]
-        for ref in identified
-        if ref.column == TRIGGER_GROUPS_COLUMN
-        and ref.group_index is not None
-        and ref.flag_id is not None
-        and ref.flag_id in keys_by_id
-    }
-    if moving:
-        rewritten_groups = rewritten_trigger_groups(canonical.get(TRIGGER_GROUPS_COLUMN), moving)
-        if rewritten_groups is not None:
-            canonical[TRIGGER_GROUPS_COLUMN] = rewritten_groups
+    group_refs: list[tuple[int, int]] = []
+    for ref in identified:
+        if ref.column != TRIGGER_GROUPS_COLUMN or ref.group_index is None or ref.flag_id is None:
+            continue
+        group_refs.append((ref.group_index, ref.flag_id))
+
+    if group_refs:
+        stored_groups = canonical.get(TRIGGER_GROUPS_COLUMN)
+        moving = {index: keys_by_id[flag_id] for index, flag_id in group_refs if flag_id in keys_by_id}
+        if moving:
+            # Keys move before anything is dropped, because `rewritten_trigger_groups` replaces a
+            # group in place and both index sets are read off the payload the client sent.
+            stored_groups = rewritten_trigger_groups(stored_groups, moving) or stored_groups
+        dropped = {index for index, flag_id in group_refs if flag_id not in keys_by_id}
+        if dropped and isinstance(stored_groups, dict):
+            # The whole group goes, for the reason `clear_replay_gates` gives: a group that kept
+            # its other conditions after losing its flag would start matching the sessions the
+            # flag held back.
+            kept = [group for index, group in enumerate(stored_groups["groups"]) if index not in dropped]
+            stored_groups = {**stored_groups, "groups": kept} if kept else None
+        canonical[TRIGGER_GROUPS_COLUMN] = stored_groups
 
     return canonical
 
@@ -434,12 +456,17 @@ def lock_team_for_replay_gate_write(team: Team, columns: Mapping[str, Any]) -> d
     """Take the team's gate lock, then return the columns to store, resolved under it.
 
     Call this inside the transaction that saves the columns. `save_replay_gate_rewrites` takes
-    the same lock, so a relink and an API write of these columns run in one order or the other,
-    and whichever runs second reads the flag key at that point.
+    the same lock, so for a team the relink already selected, the relink and an API write of
+    these columns run in one order or the other, and whichever runs second reads the flag key at
+    that point.
 
-    A flag hard-deleted between validation and this lock leaves nothing to resolve, so the
-    client's value is stored as it came. That is the state a hard delete already leaves behind,
-    and `repair_replay_linked_flag_keys` reports it as flag_missing on its next run.
+    That ordering does not reach a team the relink never selected. `relink_teams` picks its
+    candidates with an unlocked read, which cannot see a gate this write has not yet committed,
+    so a team adding its first gate is absent from that list and its row lock mediates nothing.
+    A rename committing between `_canonical_gate_columns` reading the key and this transaction
+    committing therefore still stores the pre-rename key for that team. Closing that needs a lock
+    on the flag row as well, which `repair_replay_linked_flag_keys` makes unnecessary for the
+    linked flag column, since it rewrites that column by stored id.
     """
     # `no_key=True` for the reason `save_replay_gate_rewrites` gives: this write touches no key
     # column, so the lock must not block the `KEY SHARE` a foreign key check on this Team row
