@@ -81,7 +81,8 @@ export function getReferencedCohortIds(query: unknown): number[] {
 }
 
 export function isIndividualInsightPath(pathname: string): boolean {
-    return /^(?:\/project\/[^/]+)?\/insights\/[^/]+(?:\/edit)?\/?$/.test(pathname)
+    const match = pathname.match(/^(?:\/project\/[^/]+)?\/insights\/([^/]+)(?:\/[^/]+){0,2}\/?$/)
+    return !!match && match[1] !== 'quick-start'
 }
 
 export const COHORTS_PER_PAGE = 100

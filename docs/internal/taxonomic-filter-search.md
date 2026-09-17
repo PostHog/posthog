@@ -29,6 +29,7 @@ Tag-filtered requests retain ORM pagination after resolving matching event IDs. 
 ## Cohort names on individual insights
 
 Individual insight pages load cohort names by ID from the query's cohort property filters and cohort breakdowns.
+This includes edit, subscriptions, alerts, and sharing routes with optional item IDs; the separate `quick-start` scene keeps the full list load.
 These requests use the parent project ID, which can differ from the current environment ID.
 They reuse the shared cohort cache when the query changes, and resolve nested cohort references for definition popovers.
 An insight without cohort references does not load the cohort list.

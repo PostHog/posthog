@@ -147,18 +147,36 @@ describe('cohortsModel', () => {
             expect(list).not.toHaveBeenCalled()
         })
 
-        it.each(['/insights', '/feature_flags', '/cohorts', '/dashboard/1'])(
-            'loads the full list after navigating to %s',
-            async (pathname) => {
-                await expectLogic(logic, () => router.actions.push(pathname)).toFinishAllListeners()
-                expect(list).toHaveBeenCalledTimes(1)
-                expect(logic.values.cohortsById[2]?.name).toBe('Cohort two')
-                await expectLogic(logic, () =>
-                    router.actions.replace(pathname, { search: 'test' })
-                ).toFinishAllListeners()
-                expect(list).toHaveBeenCalledTimes(1)
-            }
-        )
+        it.each([
+            '/insights/abc123/edit',
+            '/project/997/insights/abc123/subscriptions',
+            '/project/997/insights/abc123/subscriptions/123',
+            '/insights/abc123/alerts',
+            '/insights/abc123/alerts/123/',
+            '/project/997/insights/abc123/sharing',
+            '/insights/new',
+        ])('keeps targeted loading when navigating to %s', async (pathname) => {
+            await expectLogic(logic, () => router.actions.push(pathname)).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.loadCohortsByIds({ ids: [3000] })).toFinishAllListeners()
+            expect(list).not.toHaveBeenCalled()
+            expect(requestedIds).toEqual([3000])
+            expect(logic.values.cohortsById[3000]?.name).toBe('Cohort 3000')
+        })
+
+        it.each([
+            '/insights',
+            '/insights/quick-start',
+            '/project/997/insights/quick-start/',
+            '/feature_flags',
+            '/cohorts',
+            '/dashboard/1',
+        ])('loads the full list after navigating to %s', async (pathname) => {
+            await expectLogic(logic, () => router.actions.push(pathname)).toFinishAllListeners()
+            expect(list).toHaveBeenCalledTimes(1)
+            expect(logic.values.cohortsById[2]?.name).toBe('Cohort two')
+            await expectLogic(logic, () => router.actions.replace(pathname, { search: 'test' })).toFinishAllListeners()
+            expect(list).toHaveBeenCalledTimes(1)
+        })
 
         it('reuses dashboard cohorts and fetches only references outside the loaded list', async () => {
             await expectLogic(logic, () => router.actions.push('/dashboard/1')).toFinishAllListeners()
