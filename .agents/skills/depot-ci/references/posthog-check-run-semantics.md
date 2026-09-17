@@ -60,7 +60,7 @@ Depot creates a job's check run when it resolves the job, not when it creates th
 
 ## Reruns
 
-Retrying a failed Depot job updates the existing check run: same check run id, new timestamps and conclusion. GitHub Actions instead creates a fresh check run per attempt and leaves the old one behind, which is why a superseded GitHub Actions run can show a stale red check beside a green one of the same name. Read the latest check run per name when you script against either engine.
+Retrying a failed Depot job creates a new check run with the same name and leaves the failed one behind (measured 2026-09-17 with `depot ci retry --failed` on run `jb7zh5rvnk`: the retried cell got check run `105270302262` while `105262890457` stayed `completed/failure`; only `filter=all` on the check-runs API lists both). GitHub Actions does the same per attempt, which is why a superseded run can show a stale red check beside a green one of the same name. Read the latest check run per name when you script against either engine: the API's default `filter=latest` already returns only the newest, and `max_by(.id)` does the same on a full listing.
 
 ## Depot CI CLI recipes
 
