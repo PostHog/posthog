@@ -34,6 +34,10 @@ from products.replay_vision.backend.temporal.activities.list_stale_scanner_estim
     list_stale_scanner_estimates_activity,
 )
 from products.replay_vision.backend.temporal.activities.meter_scanner_reads import meter_scanner_read_bytes_activity
+from products.replay_vision.backend.temporal.activities.observation_media import (
+    finalize_observation_thumbnail_activity,
+    prepare_observation_thumbnail_activity,
+)
 from products.replay_vision.backend.temporal.activities.observation_state import (
     mark_observation_failed_activity,
     mark_observation_ineligible_activity,
@@ -80,6 +84,8 @@ __all__ = [
     "emit_classifier_tags_activity",
     "emit_observation_event_activity",
     "emit_observation_signal_activity",
+    "finalize_observation_thumbnail_activity",
+    "prepare_observation_thumbnail_activity",
     "ensure_session_asset_activity",
     "fetch_session_events_activity",
     "fetch_session_network_activity",
