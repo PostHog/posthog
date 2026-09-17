@@ -473,9 +473,9 @@ export const OAuthAuthorize = (): JSX.Element => {
                                     )}
                                     {accessControlsApply && (
                                         <LemonBanner type="info" icon={<IconLock className="LemonBanner__icon" />}>
-                                            <strong>Access controls still apply.</strong> These permissions let{' '}
-                                            {appName} call PostHog on your behalf. Anything you can't view or edit in
-                                            PostHog stays off limits to {appName}, whatever it is granted here.
+                                            <strong className="block">Access controls still apply.</strong>
+                                            {appName} can only do what both your access level and these permissions
+                                            allow.
                                         </LemonBanner>
                                     )}
                                 </div>
