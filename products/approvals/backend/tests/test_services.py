@@ -57,11 +57,6 @@ class TestApproveRejectRaceCondition(BaseTest):
 
 @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
 class TestApplyOnEncryptedPayloadsFlag(APIBaseTest):
-    """The apply path builds a RequestContext instead of a real request.
-    `get_decrypted_flag_payloads_protected` reads `successful_authenticator` off it without a
-    default, so a flag with encrypted payloads made every apply raise an AttributeError while the
-    serializer rendered the saved flag. Approving such a change request could never succeed."""
-
     def test_approving_a_change_request_applies_the_flag(self, _mock_enabled):
         ApprovalPolicy.objects.create(
             organization=self.organization,
