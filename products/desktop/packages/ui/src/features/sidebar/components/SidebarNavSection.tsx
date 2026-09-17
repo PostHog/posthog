@@ -23,7 +23,10 @@ import {
   navigateToLoops,
   navigateToSpacesContext,
 } from "@posthog/ui/router/navigationBridge";
-import { useAppView } from "@posthog/ui/router/useAppView";
+import {
+  useAppView,
+  useReportSourceNavType,
+} from "@posthog/ui/router/useAppView";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { useCommandMenuStore } from "@posthog/ui/shell/commandMenuStore";
@@ -61,6 +64,9 @@ export function SidebarNavSection({
   commandCenterActiveCount: providedActiveCount,
 }: SidebarNavSectionProps = {}) {
   const view = useAppView();
+  // A report names the surface it was opened from; its row stays marked so the
+  // legacy sidebar answers "where am I" the way the rail does.
+  const reportSourceNavType = useReportSourceNavType();
   const openBrowserTab = useOpenBrowserTab();
   // Loops stays behind the loops flag. Also gates the per-channel Loops tab
   // (see ChannelTabs).
@@ -84,12 +90,21 @@ export function SidebarNavSection({
   const goNewTask = () => openTaskInput();
 
   // Active flags are pure functions of the current view — mirror what
-  // useSidebarData derives, without pulling in its task-loading.
+  // useSidebarData derives, without pulling in its task-loading. On a report
+  // they fall back to the row the report was opened from.
   const isHomeActive = view.type === "task-input";
-  const isActivityActive = view.type === "activity";
-  const isInboxActive = view.type === "inbox";
-  const isLoopsActive = view.type === "loops";
-  const isCommandCenterActive = view.type === "command-center";
+  const isActivityActive =
+    view.type === "activity" ||
+    (view.type === "report" && reportSourceNavType === "activity");
+  const isInboxActive =
+    view.type === "inbox" ||
+    (view.type === "report" && reportSourceNavType === "inbox");
+  const isLoopsActive =
+    view.type === "loops" ||
+    (view.type === "report" && reportSourceNavType === "loops");
+  const isCommandCenterActive =
+    view.type === "command-center" ||
+    (view.type === "report" && reportSourceNavType === "command-center");
   const isContextActive = view.type === "context";
 
   // Only subscribe to the task list when a parent hasn't already supplied the

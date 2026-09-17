@@ -4,6 +4,32 @@ The Rust feature flags service evaluates flags using a deterministic, hash-based
 
 ## Architecture overview
 
+Stored configuration dispatch reads `filters.version`; the row's `FeatureFlag.version` remains a concurrency counter.
+An absent discriminator or numeric 1 (including 1.0) selects v1; every other value, 2 included, is a format this service does not evaluate.
+The classification matches Python's `detect_config_format` (`products/feature_flags/backend/facade/config.py`).
+
+Cache and PostgreSQL ingress classify the original document before decoding v1 fields.
+Non-v1 objects stay opaque in the filters passthrough map so cache round trips retain them and the cache byte budget includes them.
+
+The evaluator classifies them once per request, next to `filtered_out_flag_ids`, rather than failing per flag inside `get_match`: an eligible non-v1 flag gets a `flag_data_parsing_error` response entry, is skipped by regex, cohort, dependency, and property preparation, and is pre-seeded false like any other skipped flag, so a dependent's `flag_evaluates_to: false` condition still resolves.
+Detailed responses mark them failed.
+The legacy `/flags` map and `/decide?v=3` retain false entries with `errorsWhileComputingFlags=true`; older `/decide` formats omit them.
+Healthy siblings still evaluate, and request eligibility remains unchanged.
+Malformed v1 documents retain the existing ingress error behavior.
+
+The internal batch evaluation endpoint rejects a non-v1 target with HTTP 400 and `unsupported_config_format` before it pages the team, so cohort generation treats the failure as permanent.
+The Rust cache builder fails a team's rebuild on an evaluable non-v1 document, the way Python does.
+The cache builder consumer labels flag data parsing failures `config_format` in metrics and dead-letter queue headers and sends them to that queue without retrying.
+Inactive and deleted non-v1 flags do not fail the team's rebuild.
+`/remote_config` stays outside this boundary: it reads `filters.payloads["true"]` raw, as Django's shadow-compared view does.
+This boundary does not make legacy definitions producers or older cache writers safe for persisted v2 rows.
+Those paths need independent exclusion and deployment-floor protection before such rows can exist.
+
+The production `v1_bucketing` functions accept prescribed hashes for contract tests.
+Rollout returns included at 100% before identifier resolution or hashing; other percentages use `hash <= percentage / 100.0`.
+Variant selection adds each `weight / 100.0` from left to right and uses `hash < cumulative`.
+V1 returns no variant beyond the final boundary, including at hash 1.
+
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                     evaluate_all_feature_flags                  │
@@ -237,18 +263,19 @@ Each flag has one or more condition groups (OR'd). Within each group, property f
 
 Defined in `rust/feature-flags/src/properties/property_matching.rs`. The service supports 23 operators:
 
-| Category     | Operators                                                                       | Behavior                                                                                                                                                                                                                                                                                     |
-| ------------ | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Existence    | `is_set`, `is_not_set`                                                          | Key presence check in property map                                                                                                                                                                                                                                                           |
-| Equality     | `exact`, `is_not`                                                               | Case-insensitive comparison. Arrays checked with contains. Boolean normalization for `"true"`/`"false"` strings.                                                                                                                                                                             |
-| String       | `icontains`, `not_icontains`                                                    | ASCII-case-insensitive substring match                                                                                                                                                                                                                                                       |
-| Regex        | `regex`, `not_regex`                                                            | `fancy_regex` with 10,000 step backtrack limit (ReDoS protection). Patterns are pre-compiled once per request via `prepare_regexes()`. Three-state dispatch in `match_property()`: pre-compiled fast path → `InvalidPattern` short-circuit to `Ok(false)` → fallback on-the-fly compilation. |
-| Numeric      | `gt`, `gte`, `lt`, `lte`                                                        | Parse both sides as `f64`                                                                                                                                                                                                                                                                    |
-| Semver       | `semver_gt`, `semver_gte`, `semver_lt`, `semver_lte`, `semver_eq`, `semver_neq` | Direct `Version` comparison                                                                                                                                                                                                                                                                  |
-| Semver range | `semver_tilde`, `semver_caret`, `semver_wildcard`                               | `VersionReq` parsing (`~1.2.3`, `^1.2.3`, `1.2.x`)                                                                                                                                                                                                                                           |
-| Date         | `is_date_exact`, `is_date_after`, `is_date_before`                              | Supports relative dates, ISO 8601, Unix timestamps                                                                                                                                                                                                                                           |
-| Cohort       | `in`, `not_in`                                                                  | Handled by cohort matching, not property matching                                                                                                                                                                                                                                            |
-| Flag         | `flag_evaluates_to`                                                             | Handled by flag dependency matching                                                                                                                                                                                                                                                          |
+| Category     | Operators                                                                       | Behavior                                                                                                                                                                                                                                                                                             |
+| ------------ | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Existence    | `is_set`, `is_not_set`                                                          | Key presence check in property map                                                                                                                                                                                                                                                                   |
+| Equality     | `exact`, `is_not`                                                               | Case-insensitive comparison. Arrays checked with contains. Boolean normalization for `"true"`/`"false"` strings.                                                                                                                                                                                     |
+| String       | `icontains`, `not_icontains`                                                    | ASCII-case-insensitive substring match                                                                                                                                                                                                                                                               |
+| Regex        | `regex`, `not_regex`                                                            | `fancy_regex` with 10,000 step backtrack limit (ReDoS protection). Patterns are pre-compiled once per request via `prepare_regexes()`. Three-state dispatch in `match_property()`: pre-compiled fast path → `InvalidPattern` short-circuit to `Ok(false)` → fallback on-the-fly compilation.         |
+| Numeric      | `gt`, `gte`, `lt`, `lte`                                                        | Parse both sides as `f64`                                                                                                                                                                                                                                                                            |
+| Range        | `between`, `not_between`                                                        | Inclusive on both ends, parsed as `f64`. A value that is missing, JSON null, or not a number is out of range (`between` false, `not_between` true), mirroring HogQL where it reads as NULL. NaN is a non-match for both. Malformed bounds are a `ValidationError` even when the property is missing. |
+| Semver       | `semver_gt`, `semver_gte`, `semver_lt`, `semver_lte`, `semver_eq`, `semver_neq` | Direct `Version` comparison                                                                                                                                                                                                                                                                          |
+| Semver range | `semver_tilde`, `semver_caret`, `semver_wildcard`                               | `VersionReq` parsing (`~1.2.3`, `^1.2.3`, `1.2.x`)                                                                                                                                                                                                                                                   |
+| Date         | `is_date_exact`, `is_date_after`, `is_date_before`                              | Supports relative dates, ISO 8601, Unix timestamps                                                                                                                                                                                                                                                   |
+| Cohort       | `in`, `not_in`                                                                  | Handled by cohort matching, not property matching                                                                                                                                                                                                                                                    |
+| Flag         | `flag_evaluates_to`                                                             | Handled by flag dependency matching                                                                                                                                                                                                                                                                  |
 
 ## Multivariate flags (variant selection)
 

@@ -137,6 +137,81 @@ fn end_to_end_contract() {
 }
 
 #[test]
+fn replay_index_metadata_tracks_snapshots_and_root_types() {
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    for (payload, expected) in [
+        (
+            json!({"@context":"https://schema.org", "@type":"Product", "offers":{"@type":"Offer", "price":10}}),
+            vec!["Product"],
+        ),
+        (
+            json!({"@context":"https://schema.org", "@graph":[{"@type":["WebPage", "Product"]}, {"@type":"WebPage"}]}),
+            vec!["WebPage", "Product"],
+        ),
+        (
+            json!([{"@context":"https://schema.org", "@type":"Article"}, {"@context":"https://schema.org", "@type":"Product"}]),
+            vec!["Article", "Product"],
+        ),
+    ] {
+        for reference in [json!(TS0 + 0.5), json!(-1), json!("invalid"), Value::Null] {
+            let inner = snapshot_message(json!([
+                {"type":2,"timestamp":TS0 + 0.5,"data":{"node":{"type":0,"id":1,"childNodes":[]},"initialOffset":{"left":0,"top":0}}},
+                {"type":5,"timestamp":TS0 + 0.5,"data":{"tag":"$json_ld","payload":payload,"fullSnapshotTimestamp":reference}},
+            ]));
+            assert_stream_matches_tree(&allow, &inner.to_string(), "replay index metadata");
+            let out = run(&allow, &payload_of(&inner)).unwrap();
+            assert_eq!(
+                out.meta.events[0].flags,
+                posthog_replay_anonymizer::snapshot::FLAG_FULL_SNAPSHOT
+            );
+            let metadata = out.meta.events[1].json_ld.as_ref().unwrap();
+            assert_eq!(metadata.root_types, expected);
+            assert_eq!(
+                metadata.full_snapshot_timestamp,
+                reference.as_f64().filter(|n| *n > 0.0)
+            );
+        }
+    }
+}
+
+#[test]
+fn json_ld_page_url_is_scrubbed_before_metadata_extraction() {
+    let allow = AllowLists::new(Vec::<String>::new(), ["products"]);
+    for (href, expected) in [
+        (
+            json!("https://user:secret@example.com/products/private-name?email=private#secret"),
+            Some("https://example.com/products/[redacted]"),
+        ),
+        (
+            json!("https://example.com/products"),
+            Some("https://example.com/products"),
+        ),
+        (json!({"secret": "private"}), None),
+        (json!(42), None),
+        (Value::Null, None),
+    ] {
+        let inner = snapshot_message(json!([
+            {"type":5,"timestamp":TS0,"data":{"tag":"$json_ld","href":href,"payload":{"@context":"https://schema.org","@type":"Product"}}}
+        ]));
+        assert_stream_matches_tree(&allow, &inner.to_string(), "JSON-LD page URL");
+        let out = run(&allow, &payload_of(&inner)).unwrap();
+        assert_eq!(out.meta.events[0].href.as_deref(), expected);
+        let lines = parse_lines(&out.lines);
+        assert_eq!(
+            lines[0][1]["data"].get("href").and_then(Value::as_str),
+            expected
+        );
+        if expected.is_none() {
+            assert!(lines[0][1]["data"].get("href").is_none());
+        }
+        assert_eq!(
+            out.meta.events[0].json_ld.as_ref().unwrap().root_types,
+            ["Product"]
+        );
+    }
+}
+
+#[test]
 fn failure_classification_matches_the_ts_parse_step() {
     let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
     let ok_items = r#"[{"type":3,"timestamp":1700000000000,"data":{"source":1}}]"#;
@@ -793,15 +868,12 @@ fn collect_payload() -> String {
 fn image_collection_replaces_images_with_refs_and_returns_the_bytes() {
     use base64::Engine;
     let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
-    let pseudo_team = "0123456789abcdef0123456789abcdef".to_string();
+    let team_id = "42".to_string();
     let content_key = "fedcba9876543210fedcba9876543210".to_string();
     let png = base64::engine::general_purpose::STANDARD
         .decode(COLLECT_PNG_B64)
         .unwrap();
-    let expected_ref = image_ref(
-        &pseudo_team,
-        &hash_image_bytes(content_key.as_bytes(), &png),
-    );
+    let expected_ref = image_ref(&team_id, &hash_image_bytes(content_key.as_bytes(), &png));
 
     // Both image policies: collection must take precedence over the parallel worker pool — a
     // collected image needs no blur, so it must come back as a ref, never a pool token.
@@ -816,7 +888,7 @@ fn image_collection_replaces_images_with_refs_and_returns_the_bytes() {
                     image_policy,
                 },
                 Some(ImageCollection {
-                    pseudo_team: pseudo_team.clone(),
+                    team_id: team_id.clone(),
                     content_key: content_key.clone(),
                 }),
             )
@@ -908,7 +980,7 @@ fn image_collection_svg_stays_on_the_inline_scrub_path() {
         &mut bytes,
         AnonymizeOpts::default(),
         Some(ImageCollection {
-            pseudo_team: "0123456789abcdef0123456789abcdef".to_string(),
+            team_id: "0123456789abcdef0123456789abcdef".to_string(),
             content_key: "fedcba9876543210fedcba9876543210".to_string(),
         }),
     )

@@ -15,6 +15,7 @@ describe("modelPricing", () => {
     ["claude-sonnet-5", "1×"],
     ["claude-opus-5", "2.5×"],
     ["gpt-5.5", "≈2.8×"],
+    ["gpt-5.4", "≈1.4×"],
     ["gpt-6-astra", "5×"],
     ["deepseek-v4", "≈0.05×"],
     ["zai-org/glm-5.3-flash", "≈0.06×"],
@@ -27,13 +28,13 @@ describe("modelPricing", () => {
     expect(modelListPrice("totally-unknown-model")).toBeNull();
   });
 
-  it("requires price data for every gateway model in the picker", () => {
-    expect(() =>
+  it("keeps an unpriced gateway model in the picker instead of throwing", () => {
+    expect(
       toModelPickerOption({
         value: "future-gateway-model",
         name: "Future gateway model",
       }),
-    ).toThrowError("Missing pricing for gateway model: future-gateway-model");
+    ).toMatchObject({ kind: "unpriced", name: "Future gateway model" });
 
     expect(
       toModelPickerOption({

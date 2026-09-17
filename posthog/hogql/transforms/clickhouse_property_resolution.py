@@ -32,7 +32,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
-from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
+from posthog.hogql.restricted_properties import mirrored_property_for_column, restricted_property_keys_for_table_type
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
     comparison_compatibility,
@@ -236,6 +236,11 @@ def resolve_property_group_source(
 # A `PropertyAccess`'s own type is just its value type (a nullable String), so everything this pass needs comes from the
 # node's structure instead: `node.expr` is the blob `Field` (its `.type` points at the table and column), and
 # `node.keys` is the key path (keys[0] is the property name; deeper keys index into the extracted value).
+
+
+def _is_json_verbatim(value: str) -> bool:
+    """True when JSON text stores the string unchanged: non-empty printable ASCII with no quote or backslash."""
+    return bool(value) and all(" " <= char <= "~" and char not in '"\\' for char in value)
 
 
 def _blob_field_type_of(node: ast.PropertyAccess) -> ast.FieldType | None:
@@ -615,6 +620,10 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
 # to keep every granule that could hold any of them.
 LOGS_BODY_IN_HINT_MAX_VALUES = 50
 
+# ClickHouse caps multiSearchAny at 255 values to search for, and going over fails the whole query. Past that we drop
+# the pre-check instead of splitting it up: hundreds of values match nearly every row, so it would prune nothing.
+PERSON_JSON_PREFILTER_MAX_NEEDLES = 255
+
 
 def _call(name: str, args: list[ast.Expr]) -> ast.Call:
     return ast.Call(name=name, args=args)
@@ -892,6 +901,31 @@ class ClickHousePropertyResolver(CloningVisitor):
             return substituted
         return super().visit_property_access(node)
 
+    def visit_field(self, node: ast.Field) -> ast.Expr:
+        if (
+            self.context.restricted_properties
+            and isinstance(node.type, ast.FieldType)
+            and (masked := self._masked_mirrored_column(node.type)) is not None
+        ):
+            return masked
+        return super().visit_field(node)
+
+    def _masked_mirrored_column(self, field_type: ast.FieldType) -> ast.Constant | None:
+        """The NULL constant a restricted mirror column reads as, or None if it is unrestricted.
+
+        Must match what `_substitute_value_read` builds for the source property, so the mirror column and
+        its source property become the same AST node and agree on nullability and comparison printing.
+        """
+        resolved_field = field_type.resolve_database_field(self.context)
+        if not isinstance(resolved_field, DatabaseField):
+            return None
+        source_property = mirrored_property_for_column(field_type.table_type, resolved_field.name, self.context)
+        if source_property is None:
+            return None
+        if source_property not in restricted_property_keys_for_table_type(field_type.table_type, self.context):
+            return None
+        return ast.Constant(value=None, type=ast.StringType(nullable=True))
+
     # --- comparison / call rewrites ---
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
@@ -1137,7 +1171,44 @@ class ClickHousePropertyResolver(CloningVisitor):
         # surviving PropertyAccess reads the scrubbed materialized column. An is-set check therefore treats both an empty
         # string and the literal text "null" as "not set", which over-matches a true "does this key exist in the blob"
         # test. Left this way deliberately — tightening it would change query results.
-        return super().visit_compare_operation(node)
+        prefilter = self._person_json_substring_prefilter(node)
+        compared = super().visit_compare_operation(node)
+        if prefilter is not None:
+            return _call("and", [prefilter, compared])
+        return compared
+
+    # --- unbacked person JSON: a substring pre-check ahead of the JSON parse ---
+
+    def _person_json_substring_prefilter(self, node: ast.CompareOperation) -> ast.Expr | None:
+        """`multiSearchAny(properties, [values])` to run before `properties.x = 'v'` / `IN (...)` on the raw person blob.
+
+        With no backing column the comparison parses JSON out of every person row's properties, which is CPU-bound on
+        large teams. A constant substring search over the same column is several times cheaper and rejects most rows
+        before the parse; the comparison still decides the row set. Only values that JSON text stores verbatim qualify,
+        because an escaped quote, backslash, or non-ASCII character would not match as a substring.
+        """
+        if self._index_hint_depth > 0 or node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In):
+            return None
+        access = self._lowered_property_operand(node.left)
+        if access is None or len(access.keys) != 1:
+            return None
+        field_type = _blob_field_type_of(access)
+        if field_type is None or field_type.name != "properties":
+            return None
+        table_type = _unwrap_to_table_type(field_type)
+        if table_type is None or table_type.table.to_printed_clickhouse(self.context) != "person":
+            return None
+        key = str(access.keys[0])
+        if key in restricted_property_keys_for_table_type(field_type.table_type, self.context):
+            return None
+        if resolve_materialized_property_source(field_type, key, self.context) is not None:
+            return None
+        values = self._extract_string_constants(node.right)
+        if not values or len(values) > PERSON_JSON_PREFILTER_MAX_NEEDLES:
+            return None
+        if not all(_is_json_verbatim(value) for value in values):
+            return None
+        return _call("multiSearchAny", [self.visit(access.expr), ast.Array(exprs=[_const(v) for v in values])])
 
     # --- logs body: keep a constant comparison eligible for the lower(body) ngram index ---
 

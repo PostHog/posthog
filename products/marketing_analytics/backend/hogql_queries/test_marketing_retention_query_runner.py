@@ -1,5 +1,5 @@
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from parameterized import parameterized
@@ -25,6 +25,7 @@ from posthog.test.persons import create_person
 from products.marketing_analytics.backend.hogql_queries.marketing_retention_query_runner import (
     MAX_BREAKDOWN_LIMIT,
     MAX_COHORTS,
+    MAX_SUMMARY_ACQUISITION_DAYS,
     MAX_TOTAL_INTERVALS,
     MarketingAnalyticsRetentionQueryRunner,
 )
@@ -54,17 +55,18 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         utm_campaign: str | None = None,
         referring_domain: str | None = "$direct",
         path: str = "/",
-    ) -> None:
+    ) -> str:
         # uuid7 seeds the session id so `$start_timestamp` lands on `started_at`, which is what the
         # acquisition window filters against. `$referring_domain` defaults to the `$direct` sentinel the
         # SDKs send when there is no referrer, without which `$channel_type` classifies as Unknown.
+        session_id = str(uuid7(started_at))
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id=distinct_id,
             timestamp=started_at,
             properties={
-                "$session_id": str(uuid7(started_at)),
+                "$session_id": session_id,
                 "$current_url": f"https://example.com{path}",
                 "$pathname": path,
                 **({"$referring_domain": referring_domain} if referring_domain is not None else {}),
@@ -72,6 +74,8 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
                 **({"utm_campaign": utm_campaign} if utm_campaign else {}),
             },
         )
+
+        return session_id
 
     def _query(
         self,
@@ -104,6 +108,97 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
     def _run(self, *args, **kwargs):
         flush_persons_and_events()
         return MarketingAnalyticsRetentionQueryRunner(query=self._query(*args, **kwargs), team=self.team).calculate()
+
+    @parameterized.expand([("unfolded", 20), ("folded", 1)])
+    @time_machine.travel("2023-03-15T12:00:00Z", tick=False)
+    def test_summary_counts_second_sessions_and_pools_return_times(self, _name: str, limit: int) -> None:
+        for person in ["fast", "slow", "never", "tail"]:
+            create_person(team=self.team, distinct_ids=[person])
+            session_id = self._session(person, WEEK_0, utm_source="other-source" if person == "tail" else "newsletter")
+            if person == "never":
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=person,
+                    timestamp="2023-01-04T12:05:00Z",
+                    properties={"$session_id": session_id},
+                )
+        self._session("fast", "2023-01-06T12:00:00Z", utm_source="different-source")
+        self._session("fast", "2023-01-07T12:00:00Z", utm_source="different-source")
+        self._session("slow", "2023-01-24T12:00:00Z")
+        self._session("tail", "2023-02-03T12:00:00Z")
+        self._session("never", "2023-02-04T12:00:00Z")
+        flush_persons_and_events()
+        query = self._query(date_from="2023-01-04", date_to="2023-01-04", breakdown_limit=limit)
+        query.summary = True
+        response = MarketingAnalyticsRetentionQueryRunner(query=query, team=self.team).calculate()
+        rows = {row.breakdownValue: row for row in response.summary or []}
+        row = rows["newsletter"]
+        self.assertEqual(
+            (row.acquired, row.eligible7d, row.returned7d, row.eligible30d, row.returned30d), (3, 3, 1, 3, 2)
+        )
+        self.assertEqual(row.returners, 2)
+        assert row.medianReturnDays is not None
+        self.assertAlmostEqual(row.medianReturnDays, 11)
+        tail = rows["other-source" if limit == 20 else BREAKDOWN_OTHER_STRING_LABEL]
+        self.assertEqual((tail.returned7d, tail.returned30d, tail.medianReturnDays), (0, 1, 30))
+        self.assertEqual(response.totalCohortSize, 4)
+
+    @time_machine.travel("2023-02-05T12:00:00Z", tick=False)
+    def test_summary_eligibility_and_previous_period(self) -> None:
+        for person, started, returned in [
+            ("mature", "2023-01-04T12:00:00Z", "2023-01-11T12:00:00Z"),
+            ("recent", "2023-02-04T12:00:00Z", "2023-02-05T10:00:00Z"),
+            ("previous", "2022-12-20T12:00:00Z", "2022-12-21T12:00:00Z"),
+        ]:
+            create_person(team=self.team, distinct_ids=[person])
+            self._session(person, started, utm_source="newsletter")
+            self._session(person, returned)
+        create_person(team=self.team, distinct_ids=["no-return"])
+        self._session("no-return", "2023-02-04T12:00:00Z", utm_source="new-source")
+        flush_persons_and_events()
+        query = self._query(date_from="2023-01-04", date_to="2023-02-04")
+        query.summary = True
+        query.comparePreviousPeriod = True
+        response = MarketingAnalyticsRetentionQueryRunner(query=query, team=self.team).calculate()
+        current = next(row for row in response.summary or [] if not row.previous)
+        previous = next(row for row in response.summary or [] if row.previous)
+        self.assertEqual(
+            (current.acquired, current.eligible7d, current.returned7d, current.eligible30d, current.returned30d),
+            (2, 1, 1, 1, 1),
+        )
+        self.assertEqual(current.returners, 2)
+        self.assertEqual((previous.acquired, previous.returned7d, previous.returned30d), (1, 1, 1))
+        no_return = next(row for row in response.summary or [] if row.breakdownValue == "new-source")
+        self.assertEqual((no_return.eligible7d, no_return.eligible30d, no_return.returners), (0, 0, 0))
+        self.assertIsNone(no_return.medianReturnDays)
+
+    @parameterized.expand(
+        [
+            ("relative_week", "-7d", "2023-02-19T12:00:00Z", "2023-02-20T12:00:00Z"),
+            ("calendar_month", "mStart", "2023-01-31T12:00:00Z", "2023-02-01T12:00:00Z"),
+        ]
+    )
+    @time_machine.travel("2023-03-06T12:00:00Z", tick=False)
+    def test_summary_previous_period_boundaries(self, _name: str, date_from: str, outside: str, inside: str) -> None:
+        for person, timestamp in [("outside", outside), ("inside", inside)]:
+            create_person(team=self.team, distinct_ids=[person])
+            self._session(person, timestamp, utm_source="newsletter")
+        flush_persons_and_events()
+        query = self._query(date_from=date_from)
+        query.dateRange = DateRange(date_from=date_from)
+        query.summary = True
+        query.comparePreviousPeriod = True
+        response = MarketingAnalyticsRetentionQueryRunner(query=query, team=self.team).calculate()
+        previous = [row for row in response.summary or [] if row.previous]
+        self.assertEqual([(row.breakdownValue, row.acquired) for row in previous], [("newsletter", 1)])
+
+    def test_summary_rejects_acquisition_periods_over_the_limit(self) -> None:
+        query = self._query(date_from="2023-01-01", date_to="2023-04-02")
+        query.summary = True
+
+        with pytest.raises(ValueError, match=f"up to {MAX_SUMMARY_ACQUISITION_DAYS} days"):
+            MarketingAnalyticsRetentionQueryRunner(query=query, team=self.team).calculate()
 
     @staticmethod
     def _rows_by_value(response) -> dict[str, list]:
@@ -265,7 +360,7 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
 
         self.assertTrue(response.results[0].values[0].complete)
 
-    @freeze_time("2023-01-11T10:00:00Z")
+    @time_machine.travel("2023-01-11T10:00:00Z", tick=False)
     def test_the_period_still_being_lived_through_is_incomplete(self):
         # On an open-ended range `date_to` is the end of today, which is in the future, so comparing
         # against it alone marks today complete and renders a partial day as a finished number.
@@ -404,12 +499,18 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
     def _printed_sql(self, **kwargs) -> str:
-        runner = MarketingAnalyticsRetentionQueryRunner(query=self._query(**kwargs), team=self.team)
+        summary = kwargs.pop("summary", False)
+        compare_previous_period = kwargs.pop("compare_previous_period", False)
+        query = self._query(**kwargs)
+        query.summary = summary
+        query.comparePreviousPeriod = compare_previous_period
+        runner = MarketingAnalyticsRetentionQueryRunner(query=query, team=self.team)
         context = runner._shared_hogql_context
         # execute_hogql_query flips this on the context it is handed; do the same to print the real query.
         context.enable_select_queries = True
         printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
-        return pretty_print_in_tests(printed[0] if isinstance(printed, tuple) else printed, self.team.pk)
+        pretty = pretty_print_in_tests(printed[0] if isinstance(printed, tuple) else printed, self.team.pk)
+        return "\n".join(line.rstrip() for line in pretty.splitlines()) if summary else pretty
 
     # `test_query_shape` snapshots the HogQL, which cannot show what the printer does with it. These
     # snapshot the ClickHouse the database actually runs, one case per query shape rather than one per
@@ -421,6 +522,7 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
             ("source", {"breakdown": MarketingAnalyticsAttributionBreakdown.SOURCE}),
             ("channel", {"breakdown": MarketingAnalyticsAttributionBreakdown.CHANNEL}),
             ("all_users", {"only_new_users": False}),
+            ("summary", {"summary": True, "compare_previous_period": True}),
         ]
     )
     @pytest.mark.usefixtures("unittest_snapshot")

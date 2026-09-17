@@ -34,8 +34,8 @@ import {
 
 export const METRICS_SQL_EDITOR_TAB_ID = 'metrics-sql-editor'
 
-export type MetricsSceneActiveTab = 'overview' | 'viewer' | 'sql' | 'fundamentals'
-const VALID_ACTIVE_TABS: MetricsSceneActiveTab[] = ['overview', 'viewer', 'sql', 'fundamentals']
+export type MetricsSceneActiveTab = 'overview' | 'explore' | 'viewer' | 'sql' | 'fundamentals'
+const VALID_ACTIVE_TABS: MetricsSceneActiveTab[] = ['overview', 'explore', 'viewer', 'sql', 'fundamentals']
 export const DEFAULT_ACTIVE_TAB: MetricsSceneActiveTab = 'overview'
 
 // kea-router pre-parses JSON-looking params, so anything a user types into the URL can reach

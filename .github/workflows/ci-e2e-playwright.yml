@@ -74,6 +74,29 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+    # Learning mode: nothing reads these outputs, so a recommendation cannot change what runs.
+    # Fork and Dependabot runs get no secret; the queue always runs everything anyway.
+    # The step fails open, because this telemetry must not turn a passing workflow red.
+    # Drafts skip E2E entirely, so a verdict recorded on one would have no run to check against.
+    dynamic-ci-filter:
+        name: Trunk Dynamic CI (Learning Mode)
+        if: >-
+            github.event_name == 'pull_request' &&
+            github.repository == 'PostHog/posthog' &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            github.actor != 'dependabot[bot]' &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
+            github.event.pull_request.draft != true
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        steps:
+            - name: Ask Trunk which jobs this diff needs
+              continue-on-error: true
+              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              with:
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
     changes:
         runs-on: ubuntu-latest
         # 7 not 5: the debounce step below sleeps up to 60s, so widen the budget to
@@ -590,11 +613,12 @@ jobs:
                   python-version: 3.13.13
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
+            # Direct install: Tests run the explicit PR head, which may predate the local action.
             - name: Install uv
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.12.13'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -1089,6 +1113,17 @@ jobs:
                   path: playwright/junit-results.xml
                   if-no-files-found: ignore
 
+            # Exports TRUNK_CODEOWNERS_PATH for the upload below, so Trunk attributes each test to
+            # the team that owns its file. The guard is for an unrebased branch: this job checks out
+            # the PR head ref, which may predate the script. Without it the uploader keeps reading
+            # .github/CODEOWNERS, as it did before.
+            - name: Build the Trunk ownership map
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
+              shell: bash
+              run: |
+                  script=.github/scripts/trunk-codeowners.sh
+                  if [ -x "$script" ]; then "$script" "$RUNNER_TEMP/trunk-codeowners" "playwright/junit-results.xml"; fi
+
             # Best-effort Trunk upload (continue-on-error); the "Fail on Playwright failure" step
             # below is the verdict, so a Trunk outage can't red a passing job. Internal PRs only
             # (needs the secret); cli-version pinned, not 'latest' (skips the release redirect).
@@ -1107,7 +1142,7 @@ jobs:
               with:
                   junit-paths: playwright/junit-results.xml
                   org-slug: posthog-inc
-                  cli-version: '0.13.7'
+                  cli-version: '0.15.4'
                   quarantine: true
                   previous-step-outcome: ${{ steps.playwright-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
@@ -1183,23 +1218,28 @@ jobs:
             needs.changes.outputs.shouldRun == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog')) }}
+        permissions:
+            contents: read
+            actions: read
         steps:
             - name: Get telemetry app token
               id: telemetry-app-token
               if: github.run_attempt == '1'
+              continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_TELEMETRY_APP_ID }}
                   private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
             - name: Capture running time to PostHog
               if: github.run_attempt == '1'
+              continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: 'posthog-ci-running-time'
                   capture-run-duration: true
                   capture-job-durations: true
-                  github-token: ${{ steps.telemetry-app-token.outputs.token }}
+                  github-token: ${{ steps.telemetry-app-token.outputs.token || github.token }}
                   status-job: 'Playwright tests pass'
                   runner: 'depot'
             - name: Capture running time to DevEx PostHog
@@ -1211,7 +1251,7 @@ jobs:
                   event: 'posthog-ci-running-time'
                   capture-run-duration: true
                   capture-job-durations: true
-                  github-token: ${{ steps.telemetry-app-token.outputs.token }}
+                  github-token: ${{ steps.telemetry-app-token.outputs.token || github.token }}
                   status-job: 'Playwright tests pass'
                   runner: 'depot'
 
@@ -1333,7 +1373,7 @@ jobs:
 
     # Collate test + VR completion status for the required check
     playwright_tests:
-        needs: [playwright, vr-complete]
+        needs: [changes, playwright, vr-complete]
         name: Playwright tests pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -1341,6 +1381,14 @@ jobs:
         steps:
             - name: Check outcome
               run: |
+                  # Change detection gates the playwright job. A failure there skips it, and this
+                  # gate reads a skip as a pass, so test its result directly. select-specs is not
+                  # tested here: the playwright job runs past a failed selector and takes the full
+                  # suite, so its failure costs runner time but never coverage.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                    exit 1
+                  fi
                   if [[ "${{ needs.playwright.result }}" != "success" && "${{ needs.playwright.result }}" != "skipped" ]]; then
                     echo "Playwright tests failed."
                     exit 1

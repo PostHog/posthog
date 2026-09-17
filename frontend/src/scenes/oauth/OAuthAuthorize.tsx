@@ -241,9 +241,11 @@ export const OAuthAuthorize = (): JSX.Element => {
     }
 
     return (
-        <div className="min-h-full overflow-y-auto">
-            <div className="max-w-2xl mx-auto py-8 px-4 sm:py-12 sm:px-6">
-                <div className="text-center mb-4 sm:mb-8">
+        <div className="flex flex-col h-full max-h-full overflow-hidden py-6 px-4 sm:px-6">
+            {/* Nothing in the column grows: the card hugs a short permission list, and only
+                stretches to the window height when the list is longer than that. */}
+            <div className="flex flex-col min-h-0 w-full max-w-2xl mx-auto">
+                <div className="shrink-0 text-center mb-4">
                     {oauthApplication.logo_uri && (
                         <div className="w-16 h-16 mx-auto mb-3 rounded-full border border-border bg-bg-light p-3 flex items-center justify-center">
                             <img
@@ -268,239 +270,261 @@ export const OAuthAuthorize = (): JSX.Element => {
                     <p className="text-muted mt-2 text-sm sm:text-base">{appName} is requesting access to your data.</p>
                 </div>
 
-                {isImpersonated && (
-                    <div className="flex items-center gap-2 p-3 mb-4 bg-danger-highlight border border-danger rounded text-sm">
-                        <IconWarning className="text-warning shrink-0" />
-                        <span>
-                            <strong>You are impersonating someone.</strong> Any OAuth tokens authorized in this session
-                            are short-lived and will be revoked when impersonation ends
-                            {isImpersonationReadOnly ? ', and write scopes will be downgraded to read-only' : ''}.
-                        </span>
-                    </div>
-                )}
+                <Form logic={oauthAuthorizeLogic} formKey="oauthAuthorization" className="flex flex-col min-h-0">
+                    <div className="flex flex-col min-h-0 bg-bg-light border border-border rounded shadow overflow-hidden">
+                        {/* Everything the person reads and adjusts scrolls in here. The action row
+                            below sits outside, so Authorize stays reachable however many
+                            permissions the application asks for. */}
+                        <div className="flex flex-col min-h-0 overflow-y-auto" data-attr="oauth-permissions-scroll">
+                            <div className="flex flex-col gap-4 sm:gap-6 p-4 sm:p-6">
+                                {isImpersonated && (
+                                    <div className="flex items-center gap-2 p-3 bg-danger-highlight border border-danger rounded text-sm">
+                                        <IconWarning className="text-warning shrink-0" />
+                                        <span>
+                                            <strong>You are impersonating someone.</strong> Any OAuth tokens authorized
+                                            in this session are short-lived and will be revoked when impersonation ends
+                                            {isImpersonationReadOnly
+                                                ? ', and write scopes will be downgraded to read-only'
+                                                : ''}
+                                            .
+                                        </span>
+                                    </div>
+                                )}
 
-                {!oauthApplication.is_verified && (
-                    <div className="flex items-center gap-2 p-3 mb-4 bg-warning-highlight border border-warning rounded text-sm">
-                        <IconWarning className="text-warning shrink-0" />
-                        <span>
-                            <strong>Unverified application.</strong> This application has not been verified by PostHog.
-                            Only continue if you recognize and trust this application.
-                        </span>
-                    </div>
-                )}
+                                {!oauthApplication.is_verified && (
+                                    <div className="flex items-center gap-2 p-3 bg-warning-highlight border border-warning rounded text-sm">
+                                        <IconWarning className="text-warning shrink-0" />
+                                        <span>
+                                            <strong>Unverified application.</strong> This application has not been
+                                            verified by PostHog. Only continue if you recognize and trust this
+                                            application.
+                                        </span>
+                                    </div>
+                                )}
 
-                {scopesWereDefaulted && isMcpResource && (
-                    <LemonBanner type="info" className="mb-4">
-                        <strong>No permissions requested.</strong> This application didn't request specific permissions.
-                        Showing all permissions the PostHog MCP server supports.
-                    </LemonBanner>
-                )}
+                                {scopesWereDefaulted && isMcpResource && (
+                                    <LemonBanner type="info">
+                                        <strong>No permissions requested.</strong> This application didn't request
+                                        specific permissions. Showing all permissions the PostHog MCP server supports.
+                                    </LemonBanner>
+                                )}
 
-                <Form logic={oauthAuthorizeLogic} formKey="oauthAuthorization">
-                    <div className="flex flex-col gap-4 sm:gap-6 bg-bg-light border border-border rounded p-4 sm:p-6 shadow">
-                        {requiredAccessLevel === 'team' ? (
-                            <>
-                                <div className="flex flex-col gap-2">
-                                    <LemonLabel>Organization</LemonLabel>
-                                    <LemonSelect
-                                        fullWidth
-                                        placeholder="Select organization"
-                                        options={orgOptions}
-                                        value={selectedOrganization}
-                                        onChange={(val) => {
-                                            if (val) {
-                                                setSelectedOrganization(val)
-                                            }
-                                        }}
-                                    />
-                                </div>
-
-                                <div className="flex flex-col gap-2">
-                                    <LemonLabel>Project</LemonLabel>
-                                    {showCreateProject ? (
-                                        <InlineCreateForm
-                                            label="New project name"
-                                            placeholder="e.g. My App"
-                                            loading={newProjectLoading}
-                                            onSubmit={createNewProject}
-                                            onCancel={() => setShowCreateProject(false)}
-                                        />
-                                    ) : (
-                                        <div className="flex items-center gap-2">
-                                            <div className="flex-1 min-w-0">
-                                                <LemonSelect
-                                                    fullWidth
-                                                    placeholder={
-                                                        selectedOrganization
-                                                            ? 'Select project'
-                                                            : 'Select an organization first'
+                                {requiredAccessLevel === 'team' ? (
+                                    <>
+                                        <div className="flex flex-col gap-2">
+                                            <LemonLabel>Organization</LemonLabel>
+                                            <LemonSelect
+                                                fullWidth
+                                                placeholder="Select organization"
+                                                options={orgOptions}
+                                                value={selectedOrganization}
+                                                onChange={(val) => {
+                                                    if (val) {
+                                                        setSelectedOrganization(val)
                                                     }
-                                                    options={projectOptions}
-                                                    value={oauthAuthorization.scoped_teams[0] ?? null}
-                                                    onChange={(val) => {
-                                                        if (val) {
-                                                            setOauthAuthorizationValue('scoped_teams', [val])
-                                                        }
-                                                    }}
-                                                    disabledReason={
-                                                        !selectedOrganization
-                                                            ? 'Select an organization first'
-                                                            : undefined
-                                                    }
-                                                />
-                                            </div>
-                                            <LemonButton
-                                                className="shrink-0"
-                                                type="secondary"
-                                                size="small"
-                                                icon={<IconPlus />}
-                                                disabledReason={
-                                                    !selectedOrganization
-                                                        ? 'Select an organization first'
-                                                        : (projectCreationForbiddenReason ?? undefined)
-                                                }
-                                                onClick={handleShowCreateProject}
+                                                }}
                                             />
                                         </div>
-                                    )}
-                                </div>
-                            </>
-                        ) : (
-                            <ScopeAccessSelector
-                                accessType={oauthAuthorization.access_type}
-                                organizations={allOrganizations}
-                                teams={filteredTeams ?? undefined}
-                                requiredAccessLevel={requiredAccessLevel}
-                                autoSelectFirst={true}
-                            />
-                        )}
 
-                        <div className="flex flex-col gap-3">
-                            <div className="flex items-center justify-between gap-2 flex-wrap">
-                                <div className="text-sm font-semibold uppercase text-muted">Permissions</div>
-                                {adjustableScopeRows.length > 1 && (
-                                    <div className="flex items-center gap-1">
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            onClick={() => setAllScopeAccess('write')}
-                                        >
-                                            Select all
-                                        </LemonButton>
-                                        {showReadOnlyBulkAction && (
+                                        <div className="flex flex-col gap-2">
+                                            <LemonLabel>Project</LemonLabel>
+                                            {showCreateProject ? (
+                                                <InlineCreateForm
+                                                    label="New project name"
+                                                    placeholder="e.g. My App"
+                                                    loading={newProjectLoading}
+                                                    onSubmit={createNewProject}
+                                                    onCancel={() => setShowCreateProject(false)}
+                                                />
+                                            ) : (
+                                                <div className="flex items-center gap-2">
+                                                    <div className="flex-1 min-w-0">
+                                                        <LemonSelect
+                                                            fullWidth
+                                                            placeholder={
+                                                                selectedOrganization
+                                                                    ? 'Select project'
+                                                                    : 'Select an organization first'
+                                                            }
+                                                            options={projectOptions}
+                                                            value={oauthAuthorization.scoped_teams[0] ?? null}
+                                                            onChange={(val) => {
+                                                                if (val) {
+                                                                    setOauthAuthorizationValue('scoped_teams', [val])
+                                                                }
+                                                            }}
+                                                            disabledReason={
+                                                                !selectedOrganization
+                                                                    ? 'Select an organization first'
+                                                                    : undefined
+                                                            }
+                                                        />
+                                                    </div>
+                                                    <LemonButton
+                                                        className="shrink-0"
+                                                        type="secondary"
+                                                        size="small"
+                                                        icon={<IconPlus />}
+                                                        disabledReason={
+                                                            !selectedOrganization
+                                                                ? 'Select an organization first'
+                                                                : (projectCreationForbiddenReason ?? undefined)
+                                                        }
+                                                        onClick={handleShowCreateProject}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <ScopeAccessSelector
+                                        accessType={oauthAuthorization.access_type}
+                                        organizations={allOrganizations}
+                                        teams={filteredTeams ?? undefined}
+                                        requiredAccessLevel={requiredAccessLevel}
+                                        autoSelectFirst={true}
+                                    />
+                                )}
+                            </div>
+
+                            <div className="flex flex-col">
+                                {/* Sticky and full-bleed, so the bulk actions stay in reach once the
+                                    first rows scroll away. z-10 clears the access selectors, whose
+                                    own parts sit at z-index 2. */}
+                                <div className="sticky top-0 z-10 flex items-center justify-between gap-2 flex-wrap px-4 sm:px-6 py-2 bg-bg-light border-y border-border">
+                                    <div className="text-sm font-semibold uppercase text-muted">Permissions</div>
+                                    {adjustableScopeRows.length > 1 && (
+                                        <div className="flex items-center gap-1 flex-wrap">
                                             <LemonButton
                                                 size="xsmall"
                                                 type="secondary"
-                                                onClick={() => setAllScopeAccess('read')}
+                                                onClick={() => setAllScopeAccess('write')}
                                             >
-                                                Read-only
+                                                Select all
                                             </LemonButton>
-                                        )}
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="secondary"
-                                            onClick={() => setAllScopeAccess('none')}
-                                        >
-                                            Deselect all
-                                        </LemonButton>
-                                    </div>
-                                )}
+                                            {showReadOnlyBulkAction && (
+                                                <LemonButton
+                                                    size="xsmall"
+                                                    type="secondary"
+                                                    onClick={() => setAllScopeAccess('read')}
+                                                >
+                                                    Read-only
+                                                </LemonButton>
+                                            )}
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="secondary"
+                                                onClick={() => setAllScopeAccess('none')}
+                                            >
+                                                Deselect all
+                                            </LemonButton>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex flex-col gap-3 px-4 sm:px-6 py-4">
+                                    {(identityScopeDescriptions.length > 0 || requiredScopeRows.length > 0) && (
+                                        <ul className="space-y-2">
+                                            {identityScopeDescriptions.map((description, idx) => (
+                                                <li key={idx} className="flex items-center space-x-2">
+                                                    <IconCheck color="var(--success)" className="shrink-0" />
+                                                    <span className="font-medium">{description}</span>
+                                                </li>
+                                            ))}
+                                            {requiredScopeRows.map((row) => (
+                                                <li key={row.key} className="flex items-center space-x-2">
+                                                    <IconCheck color="var(--success)" className="shrink-0" />
+                                                    <span className="font-medium">{row.description}</span>
+                                                    {!allScopesRequired && (
+                                                        <Tooltip title={`${appName} requires this permission`}>
+                                                            <LemonTag>Required</LemonTag>
+                                                        </Tooltip>
+                                                    )}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                    {adjustableScopeRows.length > 0 && (
+                                        <div className="flex flex-col">
+                                            {adjustableScopeRows.map((row) => (
+                                                <ScopeAccessRow
+                                                    key={row.key}
+                                                    label={row.label}
+                                                    info={row.info}
+                                                    muted={row.value === 'none'}
+                                                    value={row.value}
+                                                    onChange={(value) =>
+                                                        setScopeAccess(row.key, value as ScopeAccessLevel)
+                                                    }
+                                                    noneDisabledReason={
+                                                        row.minLevel !== 'none'
+                                                            ? `${appName} requires at least ${row.minLevel} access`
+                                                            : undefined
+                                                    }
+                                                    writeDisabledReason={
+                                                        row.maxLevel !== 'write'
+                                                            ? `Not requested by ${appName}`
+                                                            : undefined
+                                                    }
+                                                    warning={row.warning}
+                                                />
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                            <>
-                                {(identityScopeDescriptions.length > 0 || requiredScopeRows.length > 0) && (
-                                    <ul className="space-y-2">
-                                        {identityScopeDescriptions.map((description, idx) => (
-                                            <li key={idx} className="flex items-center space-x-2">
-                                                <IconCheck color="var(--success)" className="shrink-0" />
-                                                <span className="font-medium">{description}</span>
-                                            </li>
-                                        ))}
-                                        {requiredScopeRows.map((row) => (
-                                            <li key={row.key} className="flex items-center space-x-2">
-                                                <IconCheck color="var(--success)" className="shrink-0" />
-                                                <span className="font-medium">{row.description}</span>
-                                                {!allScopesRequired && (
-                                                    <Tooltip title={`${appName} requires this permission`}>
-                                                        <LemonTag>Required</LemonTag>
-                                                    </Tooltip>
-                                                )}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                                {adjustableScopeRows.length > 0 && (
-                                    <div className="flex flex-col">
-                                        {adjustableScopeRows.map((row) => (
-                                            <ScopeAccessRow
-                                                key={row.key}
-                                                label={row.label}
-                                                info={row.info}
-                                                muted={row.value === 'none'}
-                                                value={row.value}
-                                                onChange={(value) => setScopeAccess(row.key, value as ScopeAccessLevel)}
-                                                noneDisabledReason={
-                                                    row.minLevel !== 'none'
-                                                        ? `${appName} requires at least ${row.minLevel} access`
-                                                        : undefined
-                                                }
-                                                writeDisabledReason={
-                                                    row.maxLevel !== 'write' ? `Not requested by ${appName}` : undefined
-                                                }
-                                                warning={row.warning}
-                                            />
-                                        ))}
-                                    </div>
-                                )}
-                            </>
                         </div>
 
-                        {redirectDomain && (
-                            <div className="text-xs text-muted">
-                                <p>
-                                    Once you authorize, you will be redirected to <strong>{redirectDomain}</strong>
-                                </p>
-                                <p>
-                                    The developer of {appName}'s privacy policy and terms of service apply to this
-                                    application
-                                </p>
-                            </div>
-                        )}
+                        <div className="shrink-0 flex flex-col gap-3 px-4 sm:px-6 py-4 border-t border-border">
+                            {redirectDomain && (
+                                <div className="text-xs text-muted">
+                                    <p>
+                                        Once you authorize, you will be redirected to <strong>{redirectDomain}</strong>
+                                    </p>
+                                    <p>
+                                        The developer of {appName}'s privacy policy and terms of service apply to this
+                                        application
+                                    </p>
+                                </div>
+                            )}
 
-                        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-4">
-                            <LemonButton
-                                type="tertiary"
-                                status="alt"
-                                htmlType="button"
-                                loading={isCanceling}
-                                disabledReason={
-                                    isCanceling
-                                        ? 'Canceling...'
-                                        : isOauthAuthorizationSubmitting
-                                          ? 'Processing...'
-                                          : undefined
-                                }
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    cancel()
-                                }}
-                            >
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                htmlType="submit"
-                                loading={isOauthAuthorizationSubmitting}
-                                disabledReason={
-                                    isOauthAuthorizationSubmitting
-                                        ? 'Authorizing...'
-                                        : isCanceling
-                                          ? 'Processing...'
-                                          : undefined
-                                }
-                                onClick={() => submitOauthAuthorization()}
-                            >
-                                Authorize {appName}
-                            </LemonButton>
+                            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+                                <LemonButton
+                                    type="tertiary"
+                                    status="alt"
+                                    htmlType="button"
+                                    data-attr="oauth-authorize-cancel"
+                                    loading={isCanceling}
+                                    disabledReason={
+                                        isCanceling
+                                            ? 'Canceling...'
+                                            : isOauthAuthorizationSubmitting
+                                              ? 'Processing...'
+                                              : undefined
+                                    }
+                                    onClick={(e) => {
+                                        e.preventDefault()
+                                        cancel()
+                                    }}
+                                >
+                                    Cancel
+                                </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    htmlType="submit"
+                                    data-attr="oauth-authorize-submit"
+                                    loading={isOauthAuthorizationSubmitting}
+                                    disabledReason={
+                                        isOauthAuthorizationSubmitting
+                                            ? 'Authorizing...'
+                                            : isCanceling
+                                              ? 'Processing...'
+                                              : undefined
+                                    }
+                                    onClick={() => submitOauthAuthorization()}
+                                >
+                                    Authorize {appName}
+                                </LemonButton>
+                            </div>
                         </div>
                     </div>
                 </Form>

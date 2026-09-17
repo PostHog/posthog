@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     currentProjectId: 2,
   },
   createdTask: { id: "task-2", title: "Composed in a tile" },
+  spacesEnabled: true,
   store: {
     layout: "2x2",
     cells: [null, null, null, null] as (string | null)[],
@@ -100,6 +101,31 @@ vi.mock("../../autoresearch/autoresearchDraftStore", () => ({
     getState: () => ({ clearDraft: mocks.clearAutoresearchDraft }),
   },
 }));
+vi.mock("../../feature-flags/useBluebirdFlag", () => ({
+  useBluebirdFlag: () => mocks.spacesEnabled,
+}));
+vi.mock("../../canvas/hooks/useTaskChannels", () => ({
+  useTaskChannels: () => ({
+    channels: [
+      { id: "me", name: "me" },
+      { id: "space-2", name: "growth" },
+    ],
+    personalChannel: { id: "me", name: "me" },
+  }),
+}));
+vi.mock("../../canvas/components/SpaceSelect", () => ({
+  SpaceSelect: ({
+    value,
+    onChange,
+  }: {
+    value: string;
+    onChange: (id: string) => void;
+  }) => (
+    <button type="button" onClick={() => onChange("space-2")}>
+      Space {value}
+    </button>
+  ),
+}));
 vi.mock("../../settings/settingsStore", () => ({
   useSettingsStore: (selector: (state: unknown) => unknown) =>
     selector({ brainrotMode: false }),
@@ -109,17 +135,23 @@ vi.mock("../../task-detail/components/TaskInput", () => ({
     onTaskCreated,
     showNewTaskSuggestions,
     allowNoRepo,
+    channelId,
+    spaceSelector,
   }: {
     onTaskCreated?: (task: Task) => void;
     showNewTaskSuggestions?: boolean;
     allowNoRepo?: boolean;
+    channelId?: string;
+    spaceSelector?: (props: { disabled: boolean }) => ReactNode;
   }) => {
     mocks.taskCreatedCallback = onTaskCreated ?? null;
     return (
       <div
         data-allow-no-repo={allowNoRepo}
         data-suggestions={showNewTaskSuggestions}
+        data-channel-id={channelId}
       >
+        {spaceSelector?.({ disabled: false })}
         <button
           type="button"
           onClick={() => onTaskCreated?.(mocks.createdTask as Task)}
@@ -184,6 +216,7 @@ const cell = {
   canvasId: null,
   terminalId: null,
   terminalCwd: null,
+  hasUnseenCompletion: false,
 } satisfies CommandCenterCellData;
 
 const emptyCell = {
@@ -201,6 +234,7 @@ describe("CommandCenterPanel", () => {
     mocks.currentUserUuid = "user-1";
     mocks.taskCreatedCallback = null;
     mocks.store.composer = null;
+    mocks.spacesEnabled = true;
     mocks.store.finishCreating.mockReturnValue(true);
   });
 
@@ -212,6 +246,17 @@ describe("CommandCenterPanel", () => {
     expect(mocks.openTask).toHaveBeenCalledWith(task, {
       channelId: "channel-1",
     });
+  });
+
+  it("highlights a completed task until it is opened", () => {
+    render(
+      <CommandCenterPanel
+        cell={{ ...cell, hasUnseenCompletion: true }}
+        isActiveSession={false}
+      />,
+    );
+
+    expect(screen.getByText("Completed")).toBeVisible();
   });
 
   // Sending the user to the full-page composer instead abandons the grid they
@@ -270,6 +315,43 @@ describe("CommandCenterPanel", () => {
     );
   });
 
+  // The chip only helps if the pick reaches creation; without this the task
+  // silently lands in #me.
+  it("files a task composed in a tile into the space picked in the composer", () => {
+    mocks.store.composer = {
+      cellIndex: 2,
+      sessionId: "cc-cell-us:2:user-1-2",
+    };
+    render(<CommandCenterPanel cell={emptyCell} isActiveSession={false} />);
+    expect(screen.getByText("Send").parentElement).toHaveAttribute(
+      "data-channel-id",
+      "me",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Space me" }));
+
+    expect(screen.getByText("Send").parentElement).toHaveAttribute(
+      "data-channel-id",
+      "space-2",
+    );
+  });
+
+  // A project without spaces has nowhere to file a task, and the shared
+  // task-channels cache can hold spaces another surface loaded.
+  it("hides the space chip when spaces are off", () => {
+    mocks.spacesEnabled = false;
+    mocks.store.composer = {
+      cellIndex: 2,
+      sessionId: "cc-cell-us:2:user-1-2",
+    };
+    render(<CommandCenterPanel cell={emptyCell} isActiveSession={false} />);
+
+    expect(screen.queryByRole("button", { name: "Space me" })).toBeNull();
+    expect(screen.getByText("Send").parentElement).not.toHaveAttribute(
+      "data-channel-id",
+    );
+  });
+
   it("does not open a created task when the auth scope changed", () => {
     mocks.store.composer = {
       cellIndex: 2,
@@ -325,6 +407,7 @@ describe("CommandCenterPanel", () => {
       sessionId: "cc-cell-us:2:user-1-2",
     };
     render(<CommandCenterPanel cell={emptyCell} isActiveSession={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Space me" }));
 
     fireEvent.click(screen.getByTitle("Cancel"));
 
@@ -334,6 +417,11 @@ describe("CommandCenterPanel", () => {
     expect(mocks.setDraft).toHaveBeenCalledWith("cc-cell-us:2:user-1-2", null);
     expect(mocks.clearAutoresearchDraft).toHaveBeenCalledWith(
       "cc-cell-us:2:user-1-2",
+    );
+    // A space picked for the abandoned task must not carry into the next one.
+    expect(screen.getByText("Send").parentElement).toHaveAttribute(
+      "data-channel-id",
+      "me",
     );
   });
 });

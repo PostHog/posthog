@@ -124,6 +124,7 @@ class BatchExportDestination(UUIDTModel):
         help_text="The integration for this destination.",
         null=True,
         blank=True,
+        related_name="+",
     )
 
 
@@ -148,6 +149,7 @@ class BatchExportSource(TeamScopedRootMixin, UUIDTModel):
         on_delete=models.CASCADE,
         db_constraint=False,
         help_text="The team this belongs to.",
+        related_name="+",
     )
     hogql_query = models.TextField(
         null=True,
@@ -320,7 +322,9 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         SESSIONS = "sessions"
         HOGQL = "hogql"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.", related_name="+"
+    )
     name = models.TextField(help_text="A human-readable name for this BatchExport.")
     destination = models.ForeignKey(
         "BatchExportDestination",
@@ -623,7 +627,9 @@ class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
             models.Index(fields=["team", "key"], name="team_key_idx"),
         ]
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.", related_name="+"
+    )
     batch_export_run = models.ForeignKey(
         "BatchExportRun",
         on_delete=models.CASCADE,
@@ -684,7 +690,9 @@ class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
         SESSIONS = "sessions"
         HOGQL = "hogql"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.", related_name="+"
+    )
     destination = models.ForeignKey(
         "BatchExportDestination",
         on_delete=models.CASCADE,

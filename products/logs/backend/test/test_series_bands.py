@@ -63,15 +63,21 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            # (name, interval_minutes, window_days, banded_upper, quiet_upper)
+            # (name, interval_minutes, window_days, banded_upper, quiet_upper, drop_upper)
             # Hourly: floor of 2 per hour lifts the upper edge; 15 minutes gets a quarter of it.
             # The finer grain charts 5 days, because 7 days of 15 minute buckets is over the cap.
-            ("hourly", 60, 7, 57.0, 2.0),
-            ("quarter_hour", 15, 5, 55.5, 0.5),
+            ("hourly", 60, 7, 57.0, 2.0, 112.0),
+            ("quarter_hour", 15, 5, 55.5, 0.5, 110.5),
         ]
     )
     def test_observed_line_and_band_from_prior_weeks(
-        self, _name: str, interval_minutes: int, window_days: int, banded_upper: float, quiet_upper: float
+        self,
+        _name: str,
+        interval_minutes: int,
+        window_days: int,
+        banded_upper: float,
+        quiet_upper: float,
+        drop_upper: float,
     ):
         service = f"svc-banded-{interval_minutes}"
         window_start = WINDOW_END - dt.timedelta(days=window_days)
@@ -88,11 +94,18 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         rows.append((self.team.pk, slot, service, "ns", "prod", "error", 5))
         rows.append((self.team.pk, slot, service, "ns", "prod", "error", 5))
         rows.append((self.team.pk, slot + dt.timedelta(minutes=5), service, "ns", "prod", "error", 15))
+        # A slot with no weekly samples bands at [0, floor]; anything above the floor is a spike.
+        rows.append((self.team.pk, slot + dt.timedelta(hours=2), service, "ns", "prod", "error", 5))
+        # A slot whose every weekly sample is 100 bands well above zero, so a near-empty bucket is a drop.
+        for week in range(1, 6):
+            rows.append((self.team.pk, slot + dt.timedelta(hours=3, weeks=-week), service, "ns", "prod", "error", 100))
+        rows.append((self.team.pk, slot + dt.timedelta(hours=3), service, "ns", "prod", "error", 1))
         # Steady traffic in every other bucket keeps the series dense at the grain.
         bucket_count = window_days * 24 * 60 // interval_minutes
+        charted = (slot, slot + step, slot + dt.timedelta(hours=2), slot + dt.timedelta(hours=3))
         for i in range(bucket_count):
             bucket_time = window_start + i * step
-            if bucket_time not in (slot, slot + step):
+            if bucket_time not in charted:
                 rows.append((self.team.pk, bucket_time, service, "ns", "prod", "error", 10))
         # Excluded: future bucket, other service, other team.
         rows.append((self.team.pk, NOW + dt.timedelta(hours=2), service, "ns", "prod", "error", 999))
@@ -115,7 +128,7 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         assert series.band_ready_at is None
         assert series.interval_minutes == interval_minutes
         assert series.coarsened_reason is None
-        assert series.total_count == 25 + 10 * (bucket_count - 2)
+        assert series.total_count == 31 + 10 * (bucket_count - 4)
         assert [bucket.time for bucket in series.buckets] == [window_start + i * step for i in range(bucket_count)]
 
         by_time = {bucket.time: bucket for bucket in series.buckets}
@@ -125,11 +138,23 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         assert banded.observed == 25
         assert banded.lower == pytest.approx(9.0)
         assert banded.upper == pytest.approx(banded_upper)
+        assert banded.verdict is None
 
         quiet = by_time[slot + step]
         assert quiet.observed == 0
         assert quiet.lower == 0
         assert quiet.upper == quiet_upper
+        assert quiet.verdict is None
+
+        spike = by_time[slot + dt.timedelta(hours=2)]
+        assert (spike.observed, spike.lower, spike.upper) == (5, 0, quiet_upper)
+        assert spike.verdict == "above"
+
+        drop = by_time[slot + dt.timedelta(hours=3)]
+        assert drop.observed == 1
+        assert drop.lower == pytest.approx(90.0)
+        assert drop.upper == pytest.approx(drop_upper)
+        assert drop.verdict == "below"
 
     @parameterized.expand(
         [
@@ -263,7 +288,9 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         assert series.history_start == history_start
         assert series.baseline_weeks == baseline_weeks
         assert series.band_ready_at == history_start + dt.timedelta(weeks=2, days=7)
-        assert all(bucket.lower is None and bucket.upper is None for bucket in series.buckets)
+        assert all(
+            bucket.lower is None and bucket.upper is None and bucket.verdict is None for bucket in series.buckets
+        )
         assert series.total_count == 12
 
     def test_band_after_stray_row_comes_from_sustained_traffic(self):

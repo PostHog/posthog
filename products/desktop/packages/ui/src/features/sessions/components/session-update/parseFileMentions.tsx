@@ -1,4 +1,8 @@
 import { File, Folder, Warning } from "@phosphor-icons/react";
+import {
+  hasMentionTags,
+  SLASH_COMMAND_START,
+} from "@posthog/core/sessions/promptContent";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@posthog/quill";
 import { unescapeXmlAttr } from "@posthog/shared";
 import { Text } from "@radix-ui/themes";
@@ -14,9 +18,6 @@ import {
 
 const MENTION_TAG_REGEX =
   /<file\s+path="([^"]+)"\s*\/>|<(github_issue|github_pr)\s+number="([^"]+)"(?:\s+title="([^"]*)")?(?:\s+url="([^"]*)")?\s*\/>|<error_context\s+label="([^"]*)">[\s\S]*?<\/error_context>|<folder\s+path="([^"]+)"\s*\/>/g;
-const MENTION_TAG_TEST =
-  /<(?:file\s+path|folder\s+path|github_issue\s+number|github_pr\s+number|error_context\s+label)="[^"]+"/;
-const SLASH_COMMAND_START = /^\/([a-zA-Z][\w-]*)(?=\s|$)/;
 
 const inlineComponents: Components = {
   ...baseComponents,
@@ -41,10 +42,6 @@ const InlineMarkdown = memo(function InlineMarkdown({
     </ReactMarkdown>
   );
 });
-
-function hasMentionTags(content: string): boolean {
-  return MENTION_TAG_TEST.test(content) || SLASH_COMMAND_START.test(content);
-}
 
 export const hasFileMentions = hasMentionTags;
 

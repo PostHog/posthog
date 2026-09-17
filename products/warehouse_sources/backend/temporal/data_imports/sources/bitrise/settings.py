@@ -14,9 +14,11 @@ class BitriseEndpointConfig:
 
 
 # Bitrise's builds endpoint accepts a server-side `after` Unix-timestamp filter (builds run after
-# the given time), which gives an honest incremental sync on `triggered_at`. Artifacts inherit
-# that filter through their parent build fan-out, keyed on the injected `build_triggered_at`.
-# Apps and workflows are small listings with no server-side time filter, so they stay full refresh.
+# the given time), which gives an honest incremental sync on `triggered_at`. The pipelines endpoint
+# takes the same filter as an RFC3339 date. Artifacts inherit the builds filter through their parent
+# build fan-out, keyed on the injected `build_triggered_at`. Apps, workflows, branches,
+# organizations and organization members are small listings with no server-side time filter, so
+# they stay full refresh.
 BITRISE_ENDPOINTS: dict[str, BitriseEndpointConfig] = {
     "apps": BitriseEndpointConfig(
         name="apps",
@@ -55,6 +57,33 @@ BITRISE_ENDPOINTS: dict[str, BitriseEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
+    ),
+    "pipelines": BitriseEndpointConfig(
+        name="pipelines",
+        # Pipeline slugs share the build slug namespace, which Bitrise doesn't document as global.
+        primary_keys=["app_slug", "slug"],
+        partition_key="triggered_at",
+        incremental_fields=[
+            {
+                "label": "triggered_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "triggered_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "branches": BitriseEndpointConfig(
+        name="branches",
+        # The branches endpoint returns bare branch names, unique per app only.
+        primary_keys=["app_slug", "branch"],
+    ),
+    "organizations": BitriseEndpointConfig(
+        name="organizations",
+    ),
+    "organization_members": BitriseEndpointConfig(
+        name="organization_members",
+        # A member slug identifies the Bitrise account, which can belong to several organizations.
+        primary_keys=["org_slug", "slug"],
     ),
 }
 

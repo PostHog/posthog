@@ -10,13 +10,14 @@ import { SEVERITY_TAG_TYPES, checkDisplayName, checkTypeLabel } from './checksCo
 import { CheckStatusCell } from './CheckStatusCell'
 import { dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { DataQualityChecksLogicProps, dataQualityChecksLogic } from './dataQualityChecksLogic'
-import type { DataQualityCheckApi } from './generated/api.schemas'
+import type { DataQualityCheckApi, DataQualityOutputColumnApi } from './generated/api.schemas'
 
 interface ChecksTableProps extends DataQualityChecksLogicProps {
     columns: string[]
+    outputSchema: DataQualityOutputColumnApi[]
 }
 
-export function ChecksTable({ columns, ...props }: ChecksTableProps): JSX.Element {
+export function ChecksTable({ columns, outputSchema, ...props }: ChecksTableProps): JSX.Element {
     const logic = dataQualityChecksLogic(props)
     const { sortedChecks, checksLoading, pendingCheckActions, checkRunsByCheckId } = useValues(logic)
     const { deleteCheck, toggleCheckEnabled, runCheck, loadCheckRuns, openFailingRows } = useActions(logic)
@@ -47,6 +48,7 @@ export function ChecksTable({ columns, ...props }: ChecksTableProps): JSX.Elemen
                     <div className="flex flex-col gap-2 py-2">
                         {check.description && <p className="mb-0 text-secondary">{check.description}</p>}
                         <CheckRunsTable
+                            subjectType={props.subjectType}
                             runs={checkRunsByCheckId[check.id] ?? []}
                             loading={pendingCheckActions.loadingRuns[check.id]}
                         />
@@ -126,7 +128,7 @@ export function ChecksTable({ columns, ...props }: ChecksTableProps): JSX.Elemen
                                         ? 'This check is already starting'
                                         : undefined,
                                 },
-                                { label: 'Edit', onClick: () => openEditor(check, props, columns) },
+                                { label: 'Edit', onClick: () => openEditor(check, props, columns, outputSchema) },
                                 {
                                     label: 'Open failing rows in SQL editor',
                                     tooltip: "The query behind this check's latest run",

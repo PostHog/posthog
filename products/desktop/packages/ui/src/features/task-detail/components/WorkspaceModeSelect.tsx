@@ -1,5 +1,6 @@
 import {
   ArrowsSplit,
+  CaretDown,
   Cloud,
   Cube,
   Laptop,
@@ -65,25 +66,22 @@ const LOCAL_MODES: {
   icon: React.ReactNode;
 }[] = [
   {
-    mode: "worktree",
-    label: "Worktree",
-    description: "Create a copy of your local project to work in parallel",
-    icon: <ArrowsSplit size={14} weight="regular" className="rotate-270" />,
-  },
-  {
     mode: "local",
     label: "Local",
-    description: "Edits your repo directly on current branch",
+    description: "Edits your current checkout on the selected branch",
     icon: <Laptop size={14} weight="regular" />,
+  },
+  {
+    mode: "worktree",
+    label: "Worktree",
+    description: "Uses an isolated copy so you can run tasks in parallel",
+    icon: <ArrowsSplit size={14} weight="regular" className="rotate-270" />,
   },
 ];
 
 const CLOUD_ICON = <Cloud size={14} weight="regular" />;
 
 const IMAGE_ICON = <Cube size={14} weight="regular" />;
-
-const ICON_BUTTON_CLASS =
-  "flex cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0.5 text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground";
 
 export function WorkspaceModeSelect({
   value,
@@ -189,7 +187,7 @@ export function WorkspaceModeSelect({
     if (value === "cloud") {
       return ["Cloud", selectedTargetName].filter(Boolean).join(" · ");
     }
-    return LOCAL_MODES.find((m) => m.mode === value)?.label ?? "Worktree";
+    return LOCAL_MODES.find((m) => m.mode === value)?.label ?? "Local";
   }, [value, selectedTargetName]);
 
   const triggerIcon = useMemo(() => {
@@ -207,13 +205,18 @@ export function WorkspaceModeSelect({
             <Button
               type="button"
               ref={triggerRef}
-              variant="default"
+              variant="outline"
               size="sm"
               disabled={disabled}
               aria-label="Workspace mode"
             >
               <span className="text-muted-foreground">{triggerIcon}</span>
               {triggerLabel}
+              <CaretDown
+                size={10}
+                weight="bold"
+                className="text-muted-foreground"
+              />
             </Button>
           }
         />
@@ -242,13 +245,20 @@ export function WorkspaceModeSelect({
                 key={item.mode}
                 onClick={() => onChange(item.mode)}
                 render={
-                  <ItemMenuItem size="xs" className="w-full" render={<div />}>
+                  <ItemMenuItem
+                    size="xs"
+                    className={cn(
+                      "w-full",
+                      item.mode === "local" && "bg-warning/5",
+                    )}
+                    render={<div />}
+                  >
                     <ItemMedia variant="icon" className="mt-2 ml-2">
                       <span>{item.icon}</span>
                     </ItemMedia>
                     <ItemContent variant="menuItem">
                       <ItemTitle>{item.label}</ItemTitle>
-                      <ItemDescription className="whitespace-nowrap leading-none">
+                      <ItemDescription className="leading-none">
                         {item.description}
                       </ItemDescription>
                     </ItemContent>
@@ -269,13 +279,13 @@ export function WorkspaceModeSelect({
                   <ItemContent variant="menuItem">
                     <ItemTitle>Cloud</ItemTitle>
                     <ItemDescription className="whitespace-nowrap leading-none">
-                      Run in a cloud sandbox
+                      Runs on PostHog servers. Your local files do not change.
                     </ItemDescription>
                   </ItemContent>
                   {githubSetupRequired && (
                     <ItemActions className="mr-1.5 ml-auto self-center">
                       <span className="whitespace-nowrap text-[11px] text-warning-foreground">
-                        Connect GitHub
+                        Requires GitHub
                       </span>
                     </ItemActions>
                   )}
@@ -290,19 +300,15 @@ export function WorkspaceModeSelect({
               <div className="flex items-center justify-between px-2 py-1">
                 <MenuLabel className="p-0">Cloud environments</MenuLabel>
                 <div className="flex items-center gap-1.5">
-                  {githubSetupRequired && (
-                    <span className="whitespace-nowrap text-[11px] text-warning-foreground">
-                      GitHub setup required
-                    </span>
-                  )}
-                  <button
+                  <Button
                     type="button"
+                    size="icon-xs"
+                    variant="default"
                     onClick={handleAddEnvironment}
                     aria-label="Add cloud environment"
-                    className={ICON_BUTTON_CLASS}
                   >
                     <Plus size={12} />
-                  </button>
+                  </Button>
                 </div>
               </div>
 
@@ -312,6 +318,7 @@ export function WorkspaceModeSelect({
                     key={option.key}
                     option={option}
                     isFavorite={favoriteKey === option.key}
+                    githubSetupRequired={githubSetupRequired}
                     onSelect={selectTarget}
                     onToggleFavorite={toggleFavorite}
                   />
@@ -329,6 +336,7 @@ export function WorkspaceModeSelect({
                         key={option.key}
                         option={option}
                         isFavorite={favoriteKey === option.key}
+                        githubSetupRequired={githubSetupRequired}
                         onSelect={selectTarget}
                         onToggleFavorite={toggleFavorite}
                       />
@@ -355,11 +363,13 @@ export function WorkspaceModeSelect({
 function CloudTargetItem({
   option,
   isFavorite,
+  githubSetupRequired,
   onSelect,
   onToggleFavorite,
 }: {
   option: CloudTargetOption;
   isFavorite: boolean;
+  githubSetupRequired: boolean;
   onSelect: (target: CloudTarget) => void;
   onToggleFavorite: (target: CloudTarget) => void;
 }) {
@@ -374,13 +384,20 @@ function CloudTargetItem({
           </ItemMedia>
           <ItemContent variant="menuItem">
             <ItemTitle>{option.name}</ItemTitle>
-            <ItemDescription className="whitespace-nowrap leading-none">
+            <ItemDescription className="leading-none">
               {option.description}
             </ItemDescription>
           </ItemContent>
           <ItemActions className="mr-1.5 ml-auto self-center">
-            <button
+            {githubSetupRequired && (
+              <span className="whitespace-nowrap text-[11px] text-warning-foreground">
+                Requires GitHub
+              </span>
+            )}
+            <Button
               type="button"
+              size="icon-xs"
+              variant="default"
               tabIndex={-1}
               aria-label={
                 isFavorite
@@ -398,14 +415,13 @@ function CloudTargetItem({
                 onToggleFavorite(option.target);
               }}
               className={cn(
-                "flex cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0.5 transition-colors hover:text-foreground",
                 isFavorite
                   ? "text-foreground"
                   : "text-muted-foreground opacity-0 group-hover/dropdown-menu-item:opacity-100",
               )}
             >
               <Star size={12} weight={isFavorite ? "fill" : "regular"} />
-            </button>
+            </Button>
           </ItemActions>
         </ItemMenuItem>
       }

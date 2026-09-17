@@ -164,12 +164,22 @@ describe('QuestionInput', () => {
         })
     })
 
-    it('shows a sending state and blocks interaction while a reply is in flight', () => {
+    it('preserves custom answers and disables hidden shortcuts during delivery', () => {
+        const request = makeRequest([goalQuestion])
+        const { rerender } = render(<QuestionInput streamKey="conv-1" request={request} />)
+        fireEvent.click(screen.getByText("Explain what you'd like instead."))
+        fireEvent.change(screen.getByPlaceholderText('Type your answer...'), { target: { value: 'Cut churn' } })
+        fireEvent.click(screen.getByText('Submit'))
         ;(useValues as jest.Mock).mockReturnValue({ respondingToPermission: true })
-        render(<QuestionInput streamKey="conv-1" request={makeRequest([goalQuestion])} />)
-
-        expect(screen.getByText('Sending response…')).toBeInTheDocument()
-        expect(screen.queryByText('Revenue')).not.toBeInTheDocument()
-        expect(respondToPermission).not.toHaveBeenCalled()
+        rerender(<QuestionInput streamKey="conv-1" request={request} />)
+        fireEvent.keyDown(document.body, { key: 'Escape' })
+        fireEvent.keyDown(document.body, { key: '1' })
+        expect(respondToPermission).toHaveBeenCalledTimes(1)
+        ;(useValues as jest.Mock).mockReturnValue({ respondingToPermission: false })
+        rerender(<QuestionInput streamKey="conv-1" request={request} />)
+        expect(screen.getByPlaceholderText('Type your answer...')).toHaveValue('Cut churn')
+        fireEvent.click(screen.getByText('Submit'))
+        expect(respondToPermission).toHaveBeenCalledTimes(2)
+        expect(respondToPermission.mock.calls[1]).toEqual(respondToPermission.mock.calls[0])
     })
 })

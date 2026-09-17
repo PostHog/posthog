@@ -17,6 +17,7 @@ import { hashImageWithDimensions } from './hasher.js'
 import { log, reportRunOutcome } from './outcome.js'
 import { scanDirectory } from './scanner.js'
 import { readBaselineHashes, readSnapshotsFile } from './snapshots.js'
+import { buildStoryIndex, type StoryIndexMap } from './storyIndex.js'
 
 program.name('vr').description('Visual Review CLI for snapshot testing').version('0.0.1')
 
@@ -113,7 +114,19 @@ run.command('upload')
     .option('--team <id>', 'Team ID (overrides snapshots.yml config)')
     .option('--token <value>', 'Personal API token')
     .option('--cookie <value>', 'Session cookie')
+    .option(
+        '--storybook-index <path>',
+        "Storybook index.json of the build these snapshots came from. Sends the story-to-file map Visual Review uses to find each snapshot's owning team."
+    )
+    .option(
+        '--storybook-root <dir>',
+        'Directory Storybook ran in, relative to the repository root. Required with --storybook-index.'
+    )
     .action(async (options: RunUploadOptions) => {
+        if (options.storybookIndex && !options.storybookRoot) {
+            console.error('Error: --storybook-root is required with --storybook-index')
+            process.exit(2)
+        }
         if (!baselineExists(options.baseline)) {
             process.exit(0)
         }
@@ -200,6 +213,8 @@ interface RunUploadOptions {
     team?: string
     token?: string
     cookie?: string
+    storybookIndex?: string
+    storybookRoot?: string
 }
 
 interface RunCompleteOptions {
@@ -332,6 +347,26 @@ async function runCreate(options: RunCreateOptions): Promise<string> {
     return result.run_id
 }
 
+// The map only attributes snapshots to teams, so a map that cannot be read or sent must not fail the
+// upload of the snapshots themselves.
+function readStoryIndex(
+    indexPath: string | undefined,
+    storybookRoot: string | undefined,
+    runId: string
+): StoryIndexMap | undefined {
+    if (!indexPath || !storybookRoot) {
+        return undefined
+    }
+    try {
+        const map = buildStoryIndex(readFileSync(indexPath, 'utf-8'), storybookRoot)
+        log(`[run:${runId}] Story index: ${map.storyCount} stories, ${map.hash.slice(0, 12)}`)
+        return map
+    } catch (error) {
+        log(`[run:${runId}] Could not read the Storybook index, sending snapshots without it: ${error}`)
+        return undefined
+    }
+}
+
 async function runUpload(options: RunUploadOptions): Promise<void> {
     const { client } = makeClient(options)
     const runId = options.runId
@@ -362,6 +397,7 @@ async function runUpload(options: RunUploadOptions): Promise<void> {
 
     log(`[run:${runId}] Sending ${snapshots.length} snapshots to backend`)
 
+    const storyIndex = readStoryIndex(options.storybookIndex, options.storybookRoot, runId)
     const addResult = await client.addSnapshots(runId, {
         snapshots: snapshots.map((s) => ({
             identifier: s.identifier,
@@ -369,7 +405,17 @@ async function runUpload(options: RunUploadOptions): Promise<void> {
             width: s.width,
             height: s.height,
         })),
+        storyIndexHash: storyIndex?.hash,
     })
+
+    if (storyIndex && addResult.story_index_upload) {
+        try {
+            await client.uploadToS3(addResult.story_index_upload, storyIndex.content, 'application/json')
+            log(`[run:${runId}] Uploaded story index ${storyIndex.hash.slice(0, 12)}`)
+        } catch (error) {
+            log(`[run:${runId}] Story index upload failed: ${error}`)
+        }
+    }
 
     log(`[run:${runId}] Registered ${addResult.added} snapshot(s), ${addResult.uploads.length} upload(s) needed`)
 

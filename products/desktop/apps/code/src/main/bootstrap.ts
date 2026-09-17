@@ -37,8 +37,24 @@ if (shouldRefuseInternalChildBoot(app.isPackaged, process.env)) {
 const isDev = !app.isPackaged;
 
 // Set app name for single-instance lock, crashReporter, etc
-const appName = isDev ? "posthog-code-dev" : "posthog-code";
-app.setName(isDev ? "PostHog (Development)" : "PostHog");
+// A test build shares a machine with a release build. Separate names keep their
+// sessions, settings, and databases apart, so a custom target that only a test
+// build can edit never reaches a release build.
+const isTestChannel =
+  (import.meta as unknown as { env?: Record<string, string | undefined> }).env
+    ?.VITE_POSTHOG_BUILD_CHANNEL === "test";
+const appName = isDev
+  ? "posthog-code-dev"
+  : isTestChannel
+    ? "posthog-code-test"
+    : "posthog-code";
+app.setName(
+  isDev
+    ? "PostHog (Development)"
+    : isTestChannel
+      ? "PostHog (Test build)"
+      : "PostHog",
+);
 
 // Set userData path for @posthog/code
 const appDataPath = app.getPath("appData");
@@ -62,7 +78,9 @@ process.env.POSTHOG_CODE_VERSION = app.getVersion();
 const chromiumLogDir = path.join(
   os.homedir(),
   ".posthog-code",
-  isDev ? "logs-dev" : "logs",
+  // A test build can run beside a release build, so its logs need their own
+  // directory or the two writers would rotate the same file.
+  isDev ? "logs-dev" : isTestChannel ? "logs-test" : "logs",
 );
 mkdirSync(chromiumLogDir, { recursive: true });
 const chromiumLogPath = path.join(chromiumLogDir, "chromium.log");

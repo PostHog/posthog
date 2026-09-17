@@ -54,6 +54,17 @@ def is_retryable_agent_rpc_error(error: str) -> bool:
     return bool(CONTENT_BLOCK_ERROR.search(error)) or TURN_ENDED_WITHOUT_RESPONSE_ERROR in error
 
 
+def is_agent_session_not_ready(status_code: int, data: object) -> bool:
+    return status_code == 400 and isinstance(data, dict) and data.get("error") == NO_ACTIVE_SESSION_ERROR
+
+
+def permission_response_succeeded(data: object) -> bool:
+    if not isinstance(data, dict) or data.get("jsonrpc") != "2.0" or "error" in data:
+        return False
+    result = data.get("result")
+    return isinstance(result, dict) and result.get("resolved") is True
+
+
 def user_facing_agent_error(error: str | None) -> str:
     if error and CONTENT_BLOCK_ERROR.search(error):
         return CONTENT_BLOCK_USER_ERROR

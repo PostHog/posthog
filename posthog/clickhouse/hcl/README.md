@@ -106,7 +106,7 @@ posthog-cloud-infra composes its cloud envs (dev, prod-us, prod-eu) from base la
 Editing a vendored layer therefore changes compositions in another repo.
 Two consequences:
 
-- The **Cloud compose gate** job (in `ci-clickhouse-hcl-schema.yml`) dispatches to posthog-cloud-infra and composes the cloud envs against your PR head; it fails when a change breaks composition there (a patch that no longer resolves, a redeclaration, a validation error).
+- The **Cloud compose gate** job (in `ci-clickhouse-hcl-schema.yml`) dispatches to posthog-cloud-infra and composes the cloud envs against your PR's merge commit, which is what the PR lands as; it fails when a change breaks composition there (a patch that no longer resolves, a redeclaration, a validation error).
 - A change that composes cleanly may still legitimately _shift_ cloud goldens (say, a new column on `_event_base`) — that regen happens in cloud-infra's next `base-ref` bump PR, not here, and is expected.
 
 The events family is the canonical example: `roles/shared/event_base.hcl` declares `_event_base` once, `roles/data/shared/` declares the `sharded_events` and `events` extenders, `roles/sessions/shared/` the sessions replica of the proxy; cloud env deltas (mat\_ columns, env specs) live as patches in cloud-infra's `overrides/`.

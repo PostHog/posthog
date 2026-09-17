@@ -2,10 +2,12 @@ from products.signals.backend.temporal.agentic.report import run_agentic_report_
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     SignalsScoutCoordinatorWorkflow,
     fetch_enabled_signals_scout_runs_activity,
+    run_due_signal_report_checks_activity,
     stamp_dispatched_signals_scout_runs_activity,
 )
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutWorkflow,
+    resume_signals_scout_workflow_step,
     run_signals_scout_activity,
 )
 from products.signals.backend.temporal.agentic.scout_suggestions import (
@@ -46,6 +48,7 @@ from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Wo
 from products.signals.backend.temporal.inbox_notification import (
     SignalReportInboxNotificationWorkflow,
     get_inbox_notification_state_activity,
+    send_report_github_comments_activity,
     send_report_inbox_notifications_activity,
 )
 from products.signals.backend.temporal.reingestion import (
@@ -107,11 +110,13 @@ WORKFLOWS = [
 ACTIVITIES = [
     dispatch_inbox_slack_notifications_activity,
     get_inbox_notification_state_activity,
+    send_report_github_comments_activity,
     send_report_inbox_notifications_activity,
     emit_backfill_signal_activity,
     fetch_error_tracking_issues_activity,
     fetch_enabled_signals_scout_runs_activity,
     stamp_dispatched_signals_scout_runs_activity,
+    run_due_signal_report_checks_activity,
     assign_and_emit_signal_activity,
     capture_signal_dropped_activity,
     check_signals_quota_limited_activity,
@@ -150,6 +155,7 @@ ACTIVITIES = [
     run_signal_semantic_search_activity,
     run_signals_scout_activity,
     plan_scout_suggestion_runs_activity,
+    resume_signals_scout_workflow_step,
     run_scout_suggestions_activity,
     stamp_requested_scout_suggestions_activity,
     report_safety_judge_activity,

@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
@@ -95,18 +96,19 @@ describe('QuestionInput', () => {
     })
 
     it('reopens the popover after Escape dismisses it and a fresh slash is typed', async () => {
+        const user = userEvent.setup()
         const input = screen.getByRole('textbox') as HTMLTextAreaElement
 
-        fireEvent.change(input, { target: { value: '/' } })
+        await user.type(input, '/')
         await waitFor(() => expect(slashCommandItem()).toBeInTheDocument())
 
-        fireEvent.keyDown(document, { key: 'Escape' })
+        await user.keyboard('{Escape}')
         await waitFor(() => expect(slashCommandItem()).not.toBeInTheDocument())
 
-        fireEvent.change(input, { target: { value: '' } })
+        await user.clear(input)
         await waitFor(() => expect(input.value).toBe(''))
 
-        fireEvent.change(input, { target: { value: '/' } })
+        await user.type(input, '/')
         await waitFor(() => expect(slashCommandItem()).toBeInTheDocument())
     })
 
@@ -134,17 +136,23 @@ describe('QuestionInput', () => {
             expect(screen.queryByText(/\/ 40,000$/)).not.toBeInTheDocument()
         })
 
-        it('sends the whole suggestion when the send lands mid-animation', async () => {
-            const askMaxSpy = jest.spyOn(threadLogicInstance.actions, 'askMax')
-            const suggestion = 'What is the retention in the last two weeks?'
+        it('sends the whole suggestion when the send lands mid-animation', () => {
+            jest.useFakeTimers()
+            try {
+                const askMaxSpy = jest.spyOn(threadLogicInstance.actions, 'askMax')
+                const suggestion = 'What is the retention in the last two weeks?'
 
-            maxLogicInstance.actions.runSuggestion({ content: suggestion })
-            // The typewriter has only written the first character, so the composer shows a prefix.
-            await waitFor(() => expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('W'))
+                act(() => {
+                    maxLogicInstance.actions.runSuggestion({ content: suggestion })
+                })
+                expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('W')
 
-            fireEvent.click(sendButton() as HTMLElement)
+                fireEvent.click(sendButton() as HTMLElement)
 
-            expect(askMaxSpy).toHaveBeenCalledWith(suggestion)
+                expect(askMaxSpy).toHaveBeenCalledWith(suggestion)
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 

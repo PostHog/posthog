@@ -4,8 +4,10 @@ import { Fragment } from 'react'
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { logsGroupByLogic } from 'products/logs/frontend/components/LogsGroupBy/logsGroupByLogic'
@@ -13,6 +15,7 @@ import { logsPatternsLogic } from 'products/logs/frontend/components/LogsPattern
 
 import { MAX_GROUP_BY_DIMENSIONS, logsViewerConfigLogic } from './config/logsViewerConfigLogic'
 import { resolveGroupBySource } from './groupBySource'
+import { LogsImpactStrip } from './LogsImpactStrip'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
 
 export interface LogsDisplayBarProps {
@@ -82,10 +85,15 @@ export const LogsDisplayBar = ({
                 ) : inGroupByMode ? (
                     <GroupsCountIndicator id={id} />
                 ) : (
-                    totalLogsCount !== undefined &&
-                    totalLogsCount > 0 && (
-                        <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsCount)} logs</span>
-                    )
+                    <>
+                        {totalLogsCount !== undefined && totalLogsCount > 0 && (
+                            <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsCount)} logs</span>
+                        )}
+                        {/* Gated here so the strip's logic (and its query) only mount when the flag is on. */}
+                        <FlaggedFeature flag={FEATURE_FLAGS.LOGS_IMPACT_STRIP}>
+                            <LogsImpactStrip id={id} />
+                        </FlaggedFeature>
+                    </>
                 )}
             </div>
             {inPatternsMode ? (

@@ -3,7 +3,8 @@ import { isRestorableReport } from "@posthog/core/inbox/reportMembership";
 import { Button } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { useInboxRestoreReport } from "@posthog/ui/features/inbox/hooks/useInboxRestoreReport";
-import { Spinner, Tooltip } from "@radix-ui/themes";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { Tooltip } from "@radix-ui/themes";
 
 /**
  * Restore for an archived report row — the Archive tab's action, now living on
@@ -28,7 +29,7 @@ export function ReportRestoreButton({ report }: { report: SignalReport }) {
         }}
       >
         {isPending ? (
-          <Spinner size="1" />
+          <Spinner size="sm" />
         ) : (
           <ArrowCounterClockwiseIcon size={12} />
         )}

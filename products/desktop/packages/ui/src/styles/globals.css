@@ -395,21 +395,6 @@ body:has(.rt-DialogOverlay[data-state="open"]) {
   --ph-yellow: #f8be2a;
 }
 
-/* Zen hedgehog float animation for auth/onboarding screens */
-@keyframes zen-float {
-  0%,
-  100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-14px);
-  }
-}
-
-.zen-float {
-  animation: zen-float 3.5s ease-in-out infinite;
-}
-
 /* Animated logo: one 2.4s timeline. The spines hop in a wave (AnimatedLogo.tsx
    staggers their delays), and the eyelid (a head-colored disc over the eye
    hole) closes as the wave lands on the head, so the blink keyframes sit just

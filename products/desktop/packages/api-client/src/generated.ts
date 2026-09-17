@@ -18903,14 +18903,6 @@ export namespace Schemas {
         web_analytics_pre_aggregated_tables_enabled?:
             | (boolean | null)
             | undefined;
-        /**
-         * The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031
-         */
-        event_retention_months: number;
-        /**
-         * Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031
-         */
-        events_retention_enforced: boolean;
     };
     /**
      * * `exact` - exact

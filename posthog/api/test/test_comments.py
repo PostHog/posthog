@@ -922,6 +922,20 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["content"] == "comment notebook-2"
 
+    def test_lists_comments_filtered_by_author(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other-author@posthog.com", "password")
+        self._create_comment({"content": "mine", "scope": "Replay", "item_id": "session-1"})
+        Comment.objects.create(
+            team=self.team, created_by=other_user, content="theirs", scope="Replay", item_id="session-2"
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/comments?scope=Replay&created_by={self.user.id}")
+        assert response.status_code == status.HTTP_200_OK
+        assert [comment["content"] for comment in response.json()["results"]] == ["mine"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/comments?created_by=not-a-user-id")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_lists_comments_thread(self) -> None:
         initial_comment = self._create_comment({"content": "comment notebook-1", "scope": "Notebook", "item_id": "1"})
         self._create_comment({"content": "comment reply", "source_comment": initial_comment["id"]})

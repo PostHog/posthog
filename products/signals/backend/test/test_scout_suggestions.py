@@ -256,11 +256,13 @@ class TestPlanSuggestionRuns(BaseTest):
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
+        self.team.ingested_event = True
+        self.team.save()
         self.now = timezone.now()
 
-    def _team(self, name: str, *, approved: bool = True) -> Team:
+    def _team(self, name: str, *, approved: bool = True, ingested: bool = True) -> Team:
         organization = Organization.objects.create(name=name, is_ai_data_processing_approved=approved)
-        return Team.objects.create(organization=organization, name=name)
+        return Team.objects.create(organization=organization, name=name, ingested_event=ingested)
 
     def _enable_scout(self, team: Team, *, engaged: bool) -> None:
         config = SignalScoutConfig.objects.create(team=team, skill_name="signals-scout-general", enabled=True)
@@ -439,6 +441,30 @@ class TestPlanSuggestionRuns(BaseTest):
 
         planned = plan_suggestion_runs(SuggestionSettings(enabled=True, eligibility_tier=2), self.now)
         self.assertEqual([(run.team_id, run.tier) for run in planned], [(project.id, 2)])
+
+    def test_a_project_that_never_ingested_an_event_is_planned_once_it_does(self):
+        empty = self._team("never-ingested", ingested=False)
+        self._enable_scout(empty, engaged=True)
+        settings = SuggestionSettings(enabled=True, eligibility_tier=2)
+
+        self.assertEqual(plan_suggestion_runs(settings, self.now), [])
+
+        Team.objects.filter(pk=empty.pk).update(ingested_event=True)
+        self.assertEqual([run.team_id for run in plan_suggestion_runs(settings, self.now)], [empty.id])
+
+    def test_an_allowlisted_project_is_planned_with_no_data(self):
+        empty = self._team("allowlisted-empty", ingested=False)
+
+        planned = plan_suggestion_runs(SuggestionSettings(enabled=True, team_allowlist=frozenset({empty.id})), self.now)
+        self.assertEqual([(run.team_id, run.tier) for run in planned], [(empty.id, 0)])
+
+    def test_ingestion_in_a_child_environment_keeps_the_project_planned(self):
+        project = self._team("child-ingestion", ingested=False)
+        Team.objects.create(organization=project.organization, name="prod", parent_team=project, ingested_event=True)
+        self._enable_scout(project, engaged=True)
+
+        planned = plan_suggestion_runs(SuggestionSettings(enabled=True), self.now)
+        self.assertEqual([run.team_id for run in planned], [project.id])
 
 
 class TestManualSuggestionsDispatch(BaseTest):

@@ -411,6 +411,9 @@ tools:
     logs-has-logs-retrieve:
         operation: logs_has_logs_retrieve
         enabled: false
+    logs-impact-create:
+        operation: logs_impact_create
+        enabled: false
     logs-metric-rules-create:
         operation: logs_metric_rules_create
         enabled: false
@@ -568,6 +571,12 @@ tools:
         enabled: false
     logs-views-update:
         operation: logs_views_update
+        enabled: false
+    organizations-projects-logs-config-partial-update:
+        operation: organizations_projects_logs_config_partial_update
+        enabled: false
+    organizations-projects-logs-config-retrieve:
+        operation: organizations_projects_logs_config_retrieve
         enabled: false
     query-logs:
         operation: logs_query_create

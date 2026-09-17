@@ -3,7 +3,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
-use std::sync::Arc;
 
 use chrono_tz::Tz;
 use cohort_core::filters::tree::{BehavioralLeafConfig, BehavioralValue};
@@ -459,6 +458,8 @@ fn derive_lookback(
             PinnedDropReason::AbsentFromFrozenCatalog,
         ));
     };
+    // The event name is not hashed into the key, but a condition without one never matched a
+    // catalog leaf, so it stays a drop.
     let Some(event_name) = raw.event_name.as_ref() else {
         return Ok(LookbackResolution::Dropped(
             PinnedDropReason::AbsentFromFrozenCatalog,
@@ -476,7 +477,6 @@ fn derive_lookback(
         explicit_datetime_to: raw.explicit_datetime_to.clone(),
         leaf_state_key: LeafStateKey([0; 16]),
         state_variant: None,
-        bytecode: Arc::new(Vec::new()),
         negated: false,
     }
     .with_state_key();

@@ -134,7 +134,7 @@ describe("useInboxReportResolveAction", () => {
     );
   });
 
-  it("updates the list before the request finishes without a success toast", async () => {
+  it("updates the list before the request finishes and confirms success", async () => {
     let finishRequest: ((value: SignalReport) => void) | undefined;
     mocks.updateState.mockReturnValue(
       new Promise<SignalReport>((resolve) => {
@@ -164,7 +164,7 @@ describe("useInboxReportResolveAction", () => {
     });
     await act(async () => finishRequest?.({ ...report, status: "resolved" }));
 
-    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Report resolved");
     expect(invalidate).toHaveBeenCalled();
   });
 

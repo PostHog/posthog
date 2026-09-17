@@ -65,8 +65,8 @@ function InclusionActionFilter({
             entitiesLimit={1}
             mathAvailability={MathAvailability.None}
             showNumericalPropsOnly={false}
+            {...commonActionFilterProps}
             actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-            propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
         />
     )
 }
@@ -97,8 +97,8 @@ function ActivationActionFilter({
             entitiesLimit={1}
             mathAvailability={MathAvailability.None}
             showNumericalPropsOnly={false}
+            {...commonActionFilterProps}
             actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-            propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
         />
     )
 }

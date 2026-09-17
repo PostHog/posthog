@@ -145,7 +145,11 @@ def _fake_activities(rec: _Recorder) -> list:
         return PostHogCodeRepoCascadeOutcome(mode=mode, repository=repository, reason="test")
 
     @activity.defn(name="classify_posthog_code_task_needs_repo_activity")
-    async def needs_repo(event_text: str, thread_messages: list[SlackThreadMessage]) -> bool:
+    async def needs_repo(
+        event_text: str,
+        thread_messages: list[SlackThreadMessage],
+        inputs: PostHogCodeSlackMentionWorkflowInputs | None = None,
+    ) -> bool:
         rec.needs_repo_calls.append(event_text)
         return True
 

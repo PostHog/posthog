@@ -328,15 +328,22 @@ class TestForwardPendingUserMessage(TestCase):
         mock_send.return_value = _command_result(
             success=True,
             status_code=200,
-            data={"result": {"assistant_message": "Which license should I use?"}},
+            data={
+                "result": {
+                    "assistant_message": "Which license should I use?",
+                    "trace_id": "f960aead-b2af-4ee0-b0eb-630109a1b2a0",
+                }
+            },
         )
 
         forward_pending_user_message(str(run.id))
 
+        # The trace id exists only in the agent's answer, so dropping it here loses it.
         mock_enqueue_relay.assert_called_once_with(
             run_id=str(run.id),
             text="Which license should I use?",
             user_message_ts="1234.5",
+            trace_id="f960aead-b2af-4ee0-b0eb-630109a1b2a0",
         )
         run.refresh_from_db()
         assert "pending_user_message" not in run.state
