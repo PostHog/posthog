@@ -309,4 +309,11 @@ describe('compareDataNodeQuery', () => {
     ])('ignores tags on %s', (_name, untagged, tagged) => {
         expect(compareDataNodeQuery(untagged, tagged)).toBe(true)
     })
+
+    it('reports a change against an undefined previous query instead of throwing', () => {
+        // dataNodeLogic passes oldProps.query, which is undefined on the first props change; a
+        // throw here crashed propsChanged before loadData and left tables permanently empty.
+        const query = { kind: NodeKind.HogQLQuery, query: 'select 1' } as Node
+        expect(compareDataNodeQuery(query, undefined as unknown as Node)).toBe(false)
+    })
 })

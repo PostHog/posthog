@@ -142,7 +142,8 @@ export const haveVariablesOrFiltersChanged = (a: Node, b: Node): boolean => {
 /** Query log metadata, stripped from result caching on the backend too, so it can never change what
  * comes back. Comparing it would refetch every tile whenever a tag alone changes. */
 const withoutQueryLogTags = <T extends Node>(node: T): T => {
-    if (!('tags' in node)) {
+    // dataNodeLogic compares against oldProps.query, which is undefined on the first props change.
+    if (!node || typeof node !== 'object' || !('tags' in node)) {
         return node
     }
     const { tags: _tags, ...rest } = node as T & { tags?: unknown }
