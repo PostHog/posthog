@@ -1964,7 +1964,24 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         }
 
-    def test_validates_mappings(self):
+    @parameterized.expand(
+        [
+            ("required", {"required": True}, "inputs__required_field", "This field is required."),
+            (
+                "secret",
+                {"secret": True},
+                "inputs_schema",
+                "Mappings do not support secret inputs. Set secrets in the destination inputs instead.",
+            ),
+            (
+                "secret_string",
+                {"secret": "true"},
+                "inputs_schema",
+                "Mappings do not support secret inputs. Set secrets in the destination inputs instead.",
+            ),
+        ]
+    )
+    def test_validates_mappings(self, _name: str, schema_options: dict, error_attr: str, error_detail: str) -> None:
         payload = {
             "name": "TypeScript Destination Function",
             "hog": "export function onLoad() { console.log(inputs.message); }",
@@ -1974,7 +1991,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "inputs": {"message": {"value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!"}},
                     "inputs_schema": [
                         {"key": "message", "type": "string", "label": "Message", "required": True},
-                        {"key": "required_field", "type": "string", "label": "Required", "required": True},
+                        {"key": "required_field", "type": "string", "label": "Required", **schema_options},
                     ],
                 },
             ],
@@ -1992,11 +2009,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json() == {
             "type": "validation_error",
             "code": "invalid_input",
-            "detail": "This field is required.",
-            "attr": "mappings__0__inputs__required_field",
+            "detail": error_detail,
+            "attr": f"mappings__0__{error_attr}",
         }
 
-    def test_compiles_valid_mappings(self):
+    @parameterized.expand([("default", {}), ("false", {"secret": False}), ("string_false", {"secret": "false"})])
+    def test_compiles_valid_mappings(self, _name: str, schema_options: dict) -> None:
         payload = {
             "name": "TypeScript Destination Function",
             "hog": "print(inputs.message)",
@@ -2005,7 +2023,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {
                     "inputs": {"message": {"value": "Hello, {arrayMap(a -> a, [1, 2, 3])}!"}},
                     "inputs_schema": [
-                        {"key": "message", "type": "string", "label": "Message", "required": True},
+                        {"key": "message", "type": "string", "label": "Message", "required": True, **schema_options},
                     ],
                     "filters": {
                         "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],

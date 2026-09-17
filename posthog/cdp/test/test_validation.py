@@ -11,9 +11,9 @@ from rest_framework.exceptions import ValidationError
 from posthog.hogql import ast
 
 from posthog.cdp.validation import (
+    FunctionInputsSerializer,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
-    MappingsSerializer,
     RecordAliasRewriter,
     compile_hog,
     generate_template_bytecode,
@@ -27,7 +27,7 @@ from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 
 def validate_inputs(schema, inputs, function_type="destination", is_dwh_source=False, context_extra=None):
-    serializer = MappingsSerializer(
+    serializer = FunctionInputsSerializer(
         data={
             "inputs_schema": schema,
             "inputs": inputs,
@@ -828,7 +828,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                 },
             ),
         ]:
-            serializer = MappingsSerializer(
+            serializer = FunctionInputsSerializer(
                 data={
                     "inputs_schema": inputs_schema,
                     "inputs": inputs,
@@ -855,7 +855,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             {"key": "secret_field", "type": "string", "required": True, "secret": True},
         ]
 
-        serializer = MappingsSerializer(
+        serializer = FunctionInputsSerializer(
             data={
                 "inputs_schema": inputs_schema,
                 "inputs": {"secret_field": input_value},

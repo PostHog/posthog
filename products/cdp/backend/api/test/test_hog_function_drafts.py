@@ -324,6 +324,56 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert stored_draft is not None
         assert "token" not in stored_draft["inputs"]
 
+    @parameterized.expand(
+        [
+            ("live_mask", False, {"secret": True}),
+            ("draft_mask", True, {"secret": True}),
+            ("draft_display_mask", True, {"secret": True, "value": "********"}),
+            ("draft_empty", True, {}),
+            ("draft_new_value", True, {"value": "example-mapping-token"}),
+            ("draft_schema_only", True, None),
+        ]
+    )
+    def test_mapping_secret_inputs_are_rejected(self, _name: str, enabled: bool, input_value: dict | None) -> None:
+        function_id = self._create(enabled=enabled)
+        if enabled:
+            self._stage(
+                function_id,
+                {
+                    "inputs": {
+                        "url": {"value": "https://example.com/live"},
+                        "token": {"value": "example-staged-token"},
+                    }
+                },
+            )
+        function = HogFunction.objects.get(id=function_id)
+        saved_draft = function.draft
+        saved_secrets = function.encrypted_inputs
+        saved_draft_secrets = function.draft_encrypted_inputs
+        revision_count = self._revisions(function_id).count()
+        mapping: dict[str, Any] = {
+            "inputs_schema": [{"key": "token", "type": "string", "secret": True}],
+        }
+        if input_value is not None:
+            mapping["inputs"] = {"token": input_value}
+
+        response = self._agent_patch(function_id, {"mappings": [mapping]})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "mappings__0__inputs_schema"
+        function.refresh_from_db()
+        assert function.mappings is None
+        assert function.draft == saved_draft
+        assert function.encrypted_inputs == saved_secrets
+        assert function.draft_encrypted_inputs == saved_draft_secrets
+        assert self._revisions(function_id).count() == revision_count
+        response = self.client.get(self._url(function_id))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["inputs"]["token"] == {"secret": True}
+        for secret in ("live-token", "example-staged-token", "example-mapping-token"):
+            assert secret not in response.content.decode()
+            assert not self._revisions(function_id).filter(content__icontains=secret).exists()
+
     def test_enabling_with_a_draft_open_is_refused_for_coercible_booleans(self):
         function_id = self._create()
         self._stage(function_id, {"hog": EDITED_HOG})

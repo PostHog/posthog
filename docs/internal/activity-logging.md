@@ -96,6 +96,10 @@ Four registries in `activity_log.py` tune it per scope:
 - `field_with_masked_contents` - record that the field changed, never its values. Use it for secrets and encrypted inputs.
 - `field_name_overrides` - rename a field in the stored change so the describer shows the user-facing label.
 
+Destination mappings do not support secret inputs.
+Set secrets in the destination's top-level inputs so encryption and masking also apply to drafts and revisions.
+The API rejects mapping schemas that declare secret inputs before it validates their values.
+
 ## Writes the signal cannot see
 
 The mixin hooks `save()` and `delete()`.

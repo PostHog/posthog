@@ -396,9 +396,9 @@ export interface HogFunctionMaskingApi {
 export type MappingsApiInputs = { [key: string]: InputsItemApi }
 
 export interface MappingsApi {
-    name?: string
     inputs_schema?: InputsSchemaItemApi[]
     inputs?: MappingsApiInputs
+    name?: string
     filters?: HogFunctionFiltersApi
 }
 

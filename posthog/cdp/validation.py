@@ -1032,15 +1032,33 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         return data
 
 
-class MappingsSerializer(serializers.Serializer):
-    name = serializers.CharField(required=False)
+class FunctionInputsSerializer(serializers.Serializer):
     inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(), required=False)
     inputs = InputsSerializer(required=False)
-    filters = HogFunctionFiltersSerializer(required=False)
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
         self.initial_data = data
+        return super().to_internal_value(data)
+
+
+class MappingsSerializer(FunctionInputsSerializer):
+    name = serializers.CharField(required=False)
+    filters = HogFunctionFiltersSerializer(required=False)
+
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, dict) and "inputs_schema" in data:
+            try:
+                inputs_schema = self.fields["inputs_schema"].run_validation(data["inputs_schema"])
+            except ValidationError as error:
+                raise serializers.ValidationError({"inputs_schema": error.detail}) from error
+            if any(schema.get("secret") for schema in inputs_schema):
+                raise serializers.ValidationError(
+                    {
+                        "inputs_schema": "Mappings do not support secret inputs. Set secrets in the destination inputs instead."
+                    }
+                )
+            data = {**data, "inputs_schema": inputs_schema}
         return super().to_internal_value(data)
 
 
