@@ -18,6 +18,7 @@ from products.approvals.backend.actions.feature_flags import (
 )
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.policies import PolicyEngine
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 SINGLE_DICT_PATHS = {"holdout"}
@@ -257,6 +258,48 @@ class TestUpdateFeatureFlagActionExtractIntent(APIBaseTest):
 
         assert len(intent["triggered_paths"]) > 0
         assert any("groups" in path for path in intent["triggered_paths"])
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestRelatedFieldsInIntent(APIBaseTest):
+    """A gated write can carry a related field alongside the gated one. `analytics_dashboards` is
+    a TeamScopedPrimaryKeyRelatedField, so it arrives in validated_data as Dashboard instances.
+    The gate has to store the primary keys: it replays `full_request_data` through the serializer,
+    which rejects an instance where it expects a primary key, and `intent` is a JSONField that
+    cannot hold a model object."""
+
+    def test_gated_update_stores_related_field_as_primary_keys(self, _mock_enabled):
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.enable",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="Flag analytics", created_by=self.user)
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+            active=False,
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"active": True, "analytics_dashboards": [dashboard.id]},
+            format="json",
+        )
+
+        assert response.status_code == 409, response.content
+        assert response.json().get("code") == "approval_required"
+
+        change_request = ChangeRequest.objects.get(action_key="feature_flag.enable")
+        assert change_request.intent["full_request_data"]["analytics_dashboards"] == [dashboard.id]
+
+        flag.refresh_from_db()
+        assert flag.active is False
 
 
 class TestUpdateFeatureFlagActionDisplayData(APIBaseTest):
