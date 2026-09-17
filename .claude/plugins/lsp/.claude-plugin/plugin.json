@@ -1,0 +1,30 @@
+{
+    "name": "posthog-lsp",
+    "description": "Language servers for this repo: tsgo for TypeScript/JavaScript and ty for Python, both taken from the pinned dev dependencies.",
+    "version": "1.0.0",
+    "author": {
+        "name": "PostHog"
+    },
+    "lspServers": {
+        "tsgo": {
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/typescript-lsp",
+            "extensionToLanguage": {
+                ".ts": "typescript",
+                ".tsx": "typescriptreact",
+                ".mts": "typescript",
+                ".cts": "typescript",
+                ".js": "javascript",
+                ".jsx": "javascriptreact",
+                ".mjs": "javascript",
+                ".cjs": "javascript"
+            }
+        },
+        "ty": {
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/python-lsp",
+            "extensionToLanguage": {
+                ".py": "python",
+                ".pyi": "python"
+            }
+        }
+    }
+}

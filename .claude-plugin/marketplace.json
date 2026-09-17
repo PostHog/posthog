@@ -1,0 +1,14 @@
+{
+    "name": "posthog",
+    "description": "Agent tooling that ships with the PostHog repository.",
+    "owner": {
+        "name": "PostHog"
+    },
+    "plugins": [
+        {
+            "name": "posthog-lsp",
+            "source": "./.claude/plugins/lsp",
+            "description": "Language servers for this repo: tsgo for TypeScript/JavaScript and ty for Python, both taken from the pinned dev dependencies."
+        }
+    ]
+}

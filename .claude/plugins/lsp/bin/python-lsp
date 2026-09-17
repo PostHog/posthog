@@ -1,0 +1,30 @@
+#!/bin/bash
+# Serves the ty build pinned in pyproject.toml.
+set -euo pipefail
+
+. "$(dirname "${BASH_SOURCE[0]}")/repo-root.sh"
+
+ROOT=$(posthog_repo_root) || {
+    echo "posthog-lsp: cannot find the repository root, Python LSP not started" >&2
+    exit 1
+}
+
+# ty resolves imports through VIRTUAL_ENV. flox keeps the venv in .flox/cache/venv
+# and uv keeps it in .venv, and an inherited value beats both because a borrowed
+# worktree venv is still the right one.
+VENV=""
+for candidate in "${VIRTUAL_ENV:-}" "$ROOT/.flox/cache/venv" "$ROOT/.venv"; do
+    if [ -n "$candidate" ] && [ -x "$candidate/bin/ty" ]; then
+        VENV="$candidate"
+        break
+    fi
+done
+
+if [ -z "$VENV" ]; then
+    echo "posthog-lsp: no venv with ty found, run 'uv sync' to get the Python LSP" >&2
+    exit 1
+fi
+
+cd "$ROOT"
+export VIRTUAL_ENV="$VENV"
+exec "$VENV/bin/ty" server

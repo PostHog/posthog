@@ -1,0 +1,20 @@
+#!/bin/bash
+# Serves the tsgo build pinned in package.json, so navigation and diagnostics agree
+# with `pnpm --filter=@posthog/frontend typescript:check`.
+set -euo pipefail
+
+. "$(dirname "${BASH_SOURCE[0]}")/repo-root.sh"
+
+ROOT=$(posthog_repo_root) || {
+    echo "posthog-lsp: cannot find the repository root, TypeScript LSP not started" >&2
+    exit 1
+}
+
+TSGO="$ROOT/node_modules/.bin/tsgo"
+if [ ! -x "$TSGO" ]; then
+    echo "posthog-lsp: $TSGO is missing, run 'pnpm install' to get the TypeScript LSP" >&2
+    exit 1
+fi
+
+cd "$ROOT"
+exec "$TSGO" --lsp --stdio
