@@ -109,72 +109,82 @@ def _withhold_encrypted_payloads(
     return replayable, encrypted
 
 
-def _holds_readable_payload(payload: dict[str, Any]) -> bool:
-    """Report whether a stored change holds a payload value that is not already the sentinel."""
-
-    def walk(value: Any) -> bool:
-        if isinstance(value, dict):
-            payloads = (value.get("filters") or {}).get("payloads") if isinstance(value.get("filters"), dict) else None
-            if isinstance(payloads, dict) and any(entry != REDACTED_PAYLOAD_VALUE for entry in payloads.values()):
-                return True
-            return any(walk(item) for item in value.values())
-        if isinstance(value, list):
-            return any(walk(item) for item in value)
-        return False
-
-    return walk(payload)
-
-
 def _flag_keeps_payloads_encrypted(change_request: "ChangeRequest") -> bool:
     """Ask the flag itself whether it keeps its payloads encrypted.
 
-    Only reached for a stored change that still holds a readable payload, which a write from
-    before the gate withheld one can do without saying so: the field is resolved against the
-    flag inside the serializer body, after the gate has already captured the change. A change
-    request whose flag cannot be resolved keeps its payload visible, because nothing then says
-    the payload was ever a secret.
+    Reached only for a stored change that holds a readable payload and says nothing either way,
+    which a write from before the gate withheld one can do: the serializer resolves the field
+    against the flag inside its own body, after the gate has captured the change.
+
+    Soft-deleted flags are included, and a flag that cannot be resolved at all counts as
+    encrypted. Deleting a flag must not turn a withheld payload back into a readable one, and
+    redaction that weakens when the resource disappears fails in the wrong direction. A create
+    carries no flag to ask and no stored payload to protect, so it counts as not encrypted.
     """
     flag_id = change_request.intent.get("flag_id") or change_request.resource_id
     if not flag_id:
         return False
     try:
         # nosemgrep: idor-lookup-without-team (project_id from the change request's own team)
-        return FeatureFlag.objects.filter(
-            id=flag_id,
-            team__project_id=change_request.team.project_id,
-            has_encrypted_payloads=True,
-        ).exists()
+        keeps_encrypted = (
+            FeatureFlag.objects_including_soft_deleted.filter(
+                id=flag_id,
+                team__project_id=change_request.team.project_id,
+            )
+            .values_list("has_encrypted_payloads", flat=True)
+            .first()
+        )
     except (ValueError, TypeError):
-        return False
+        return True
+    return True if keeps_encrypted is None else bool(keeps_encrypted)
 
 
-def _redact_payloads_for_read(payload: dict[str, Any], change_request: "ChangeRequest") -> dict[str, Any]:
-    """Remove withheld ciphertext and secret payload values from a stored intent.
+def _redact_change_request_for_read(data: dict[str, Any], change_request: "ChangeRequest") -> dict[str, Any]:
+    """Remove the withheld ciphertext and every secret flag payload from a served change request.
 
     `has_encrypted_payloads` sits beside `filters` in a validated flag change, so that sibling
-    marks a payload the flag keeps encrypted at rest. A change stored before the gate withheld
-    the payload can hold one without that marker, so the flag is asked directly in that case.
-    That lookup is skipped whenever every payload is already the sentinel, which is every
-    change this gate withholds, so it costs a query per listed change request that still
-    holds a readable payload. An ordinary payload is left alone, because anyone who can read
-    the flag can already read it.
+    decides whether those payloads are secret — including when it says they are not, which is how
+    a change that turns encryption off still shows an approver the plaintext it will apply. A
+    change stored before the gate withheld the payload carries neither the marker nor a sentinel,
+    so the flag is asked in that case: once per change request, and only when a payload is still
+    readable. An ordinary payload stays visible, because anyone who can read the flag can read it.
     """
-    encrypted = _holds_readable_payload(payload) and _flag_keeps_payloads_encrypted(change_request)
+    resolved: Optional[bool] = None
+
+    def flag_keeps_payloads_encrypted() -> bool:
+        nonlocal resolved
+        if resolved is None:
+            resolved = _flag_keeps_payloads_encrypted(change_request)
+        return resolved
+
+    def hides_payloads(container: dict[str, Any], payloads: dict[str, Any]) -> bool:
+        if "has_encrypted_payloads" in container:
+            return bool(container["has_encrypted_payloads"])
+        if all(value == REDACTED_PAYLOAD_VALUE for value in payloads.values()):
+            return False
+        return flag_keeps_payloads_encrypted()
 
     def walk(value: Any) -> Any:
         if isinstance(value, dict):
-            redacted = {key: walk(item) for key, item in value.items() if key != "encrypted_payloads"}
+            redacted = {key: walk(item) for key, item in value.items()}
             filters = redacted.get("filters")
-            if (encrypted or value.get("has_encrypted_payloads")) and isinstance(filters, dict):
+            if isinstance(filters, dict):
                 payloads = filters.get("payloads")
-                if isinstance(payloads, dict):
+                if isinstance(payloads, dict) and hides_payloads(value, payloads):
                     redacted["filters"] = {**filters, "payloads": dict.fromkeys(payloads, REDACTED_PAYLOAD_VALUE)}
             return redacted
         if isinstance(value, list):
             return [walk(item) for item in value]
         return value
 
-    return walk(payload)
+    redacted_data = dict(data)
+    for field in ("intent", "intent_display"):
+        stored = redacted_data.get(field)
+        if isinstance(stored, dict) and stored:
+            # The withheld ciphertext is only ever written at the intent root, so dropping the key
+            # there leaves a flag payload variant that happens to share the name untouched.
+            redacted_data[field] = walk({k: v for k, v in stored.items() if k != "encrypted_payloads"})
+    return redacted_data
 
 
 def _check_version_staleness(intent_data: dict[str, Any], context: Optional[dict[str, Any]] = None) -> bool:
@@ -444,8 +454,8 @@ class FeatureFlagActionBase(BaseAction):
         return flag
 
     @classmethod
-    def redact_intent_for_read(cls, payload: dict[str, Any], change_request: "ChangeRequest") -> dict[str, Any]:
-        return _redact_payloads_for_read(payload, change_request)
+    def redact_for_read(cls, data: dict[str, Any], change_request: "ChangeRequest") -> dict[str, Any]:
+        return _redact_change_request_for_read(data, change_request)
 
     @classmethod
     @abstractmethod
@@ -752,8 +762,8 @@ class UpdateFeatureFlagAction(BaseAction):
         return flag
 
     @classmethod
-    def redact_intent_for_read(cls, payload: dict[str, Any], change_request: "ChangeRequest") -> dict[str, Any]:
-        return _redact_payloads_for_read(payload, change_request)
+    def redact_for_read(cls, data: dict[str, Any], change_request: "ChangeRequest") -> dict[str, Any]:
+        return _redact_change_request_for_read(data, change_request)
 
     @classmethod
     def get_display_data(cls, intent_data: dict[str, Any]) -> dict[str, Any]:

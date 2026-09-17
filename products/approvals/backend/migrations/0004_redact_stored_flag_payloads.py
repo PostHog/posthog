@@ -35,33 +35,75 @@ def _scrub(payload):
     return walk(payload), changed
 
 
+def _stored_marker(intent):
+    """Read `has_encrypted_payloads` out of a stored change, or None when it says nothing."""
+    full_request_data = (intent or {}).get("full_request_data")
+    if isinstance(full_request_data, dict) and "has_encrypted_payloads" in full_request_data:
+        return bool(full_request_data["has_encrypted_payloads"])
+    return None
+
+
 def redact_stored_flag_payloads(apps, schema_editor):
-    """Clear flag payloads that change requests captured before the gate withheld them.
+    """Clear the flag payloads that change requests captured before the gate withheld them.
 
     A gated feature flag write reaches the approval gate before the serializer encrypts
-    `filters.payloads`, so a change request stored the payload as it arrived. The gate now
-    keeps the value out of the stored change, which leaves the rows written before that.
+    `filters.payloads`, so a change request stored the payload as it arrived. The gate now keeps
+    the value out of the stored change, which leaves the rows written before that.
 
-    Every payload is cleared, not only the payload of a flag marked for encryption. A stored
-    change does not reliably record that marker, and a payload can carry a secret either way,
-    so this errs toward clearing too much. It performs no encryption, so it cannot fail on a
-    database where the flag payload keys are absent.
+    Only a change whose flag keeps its payloads encrypted is scrubbed. The stored change decides
+    when it records `has_encrypted_payloads`, and otherwise the flag does. That precision is what
+    makes this safe to run more than once: a payload on a flag that does not encrypt its payloads
+    is readable by design, so clearing it would destroy correct data and fail a valid approval
+    with a message saying a secret was removed.
 
     A pending or approved row loses the payload it would have applied. Applying the rest would
-    apply something other than what an approver agreed to, so those rows move to `failed` and
-    the change has to be submitted again.
+    apply something other than what an approver agreed to, so those rows move to `failed` and the
+    change has to be submitted again.
 
     This is a single pass over the rows that exist when it runs. A process still on the previous
     release can write one more plaintext row while the deployment rolls over, and nothing here
     revisits it. The read path keeps such a row's payload out of the API by asking the flag, so
-    closing the remaining copy at rest needs this scrub run again once the rollout has drained.
+    closing the remaining copy at rest means running this scrub again once the rollout has
+    drained — which the paragraph above makes a no-op for everything it already settled.
     """
     ChangeRequest = apps.get_model("approvals", "ChangeRequest")
+
+    resolved_flag_ids = {}
+
+    def encrypted_flag_ids():
+        """Every flag that keeps its payloads encrypted, read once and only when a row needs it.
+
+        Soft-deleted flags are included: deleting a flag must not turn a withheld payload back
+        into a readable one. Raw SQL against the table `FeatureFlag.Meta` pins keeps this
+        migration off the feature flags app's migration state, and reading it lazily keeps a
+        database with no change requests from touching that table at all.
+        """
+        if "ids" not in resolved_flag_ids:
+            with schema_editor.connection.cursor() as cursor:
+                cursor.execute("SELECT id FROM posthog_featureflag WHERE has_encrypted_payloads")
+                resolved_flag_ids["ids"] = {row[0] for row in cursor.fetchall()}
+        return resolved_flag_ids["ids"]
+
+    def keeps_payloads_encrypted(change_request):
+        marker = _stored_marker(change_request.intent)
+        if marker is not None:
+            return marker
+        flag_id = (change_request.intent or {}).get("flag_id") or change_request.resource_id
+        if not flag_id:
+            # A create carries no flag to ask and no stored payload to protect.
+            return False
+        try:
+            return int(flag_id) in encrypted_flag_ids()
+        except (TypeError, ValueError):
+            # An unreadable reference errs toward clearing, matching the read path.
+            return True
 
     for change_request in ChangeRequest.objects.filter(resource_type="feature_flag").iterator(chunk_size=500):
         intent, intent_changed = _scrub(change_request.intent or {})
         intent_display, display_changed = _scrub(change_request.intent_display or {})
         if not intent_changed and not display_changed:
+            continue
+        if not keeps_payloads_encrypted(change_request):
             continue
 
         if change_request.state in NON_TERMINAL_STATES:
