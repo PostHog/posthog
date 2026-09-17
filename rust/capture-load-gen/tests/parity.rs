@@ -210,7 +210,7 @@ async fn reset_clears_the_team_and_leaves_others(pool: PgPool) -> Result<()> {
     insert_person(&pool, "posthog_person", 999, 1, true).await?;
     insert_person(&pool, TMP_PERSON, 999, 1, true).await?;
 
-    reset_team_on_pool(&pool, TEAM, TMP_PERSON, TMP_PDI).await?;
+    reset_team_on_pool(&pool, TEAM, TMP_PERSON, TMP_PDI, 2).await?;
 
     for table in [
         "posthog_person",
