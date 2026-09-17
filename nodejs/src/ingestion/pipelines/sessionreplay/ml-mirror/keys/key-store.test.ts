@@ -1,5 +1,6 @@
 import {
     BatchGetItemCommand,
+    BatchWriteItemCommand,
     ConditionalCheckFailedException,
     DynamoDBClient,
     PutItemCommand,
@@ -47,16 +48,39 @@ function transientError(name: string): Error {
 class DynamoBoundary {
     public readonly items = new Map<string, DynamoItem>()
     public readSizes: number[] = []
+    public readKeys: string[][] = []
     public writes = 0
+    public writeRequests = 0
+    public deferWrites = 0
+    public writeBatchSizes: number[] = []
     public conditionalFailures = 0
 
-    public async send(command: BatchGetItemCommand | PutItemCommand): Promise<object> {
+    public async send(command: BatchGetItemCommand | BatchWriteItemCommand | PutItemCommand): Promise<object> {
+        if (command instanceof BatchWriteItemCommand) {
+            const requests = command.input.RequestItems![table]
+            if (requests.length > 25) {
+                throw new Error(`BatchWriteItem takes at most 25 rows, got ${requests.length}`)
+            }
+            this.writeBatchSizes.push(requests.length)
+            this.writeRequests += 1
+            await Promise.resolve()
+            // DynamoDB answers a partial throttle by storing some rows and returning the rest as unprocessed.
+            const deferred = Math.min(this.deferWrites, requests.length)
+            this.deferWrites -= deferred
+            for (const request of requests.slice(deferred)) {
+                const row = request.PutRequest!.Item!
+                this.writes += 1
+                this.items.set(JSON.stringify([row.pk.S, row.sk.S]), row)
+            }
+            return deferred ? { UnprocessedItems: { [table]: requests.slice(0, deferred) } } : {}
+        }
         if (command instanceof BatchGetItemCommand) {
             const keys = command.input.RequestItems![table].Keys!
             if (keys.some((key) => Buffer.byteLength(key.sk.S!) > 1024)) {
                 throw new Error('DynamoDB sort key exceeds 1024 bytes')
             }
             this.readSizes.push(keys.length)
+            this.readKeys.push(keys.map((key) => JSON.stringify([key.pk.S, key.sk.S])))
             return Promise.resolve({
                 Responses: {
                     [table]: keys.flatMap((key) => {
@@ -69,6 +93,7 @@ class DynamoBoundary {
         const item = command.input.Item!
         const id = JSON.stringify([item.pk.S, item.sk.S])
         this.writes += 1
+        this.writeRequests += 1
         await Promise.resolve()
         if (command.input.ConditionExpression === 'attribute_not_exists(pk)' && this.items.has(id)) {
             this.conditionalFailures += 1
@@ -139,6 +164,62 @@ describe('ML session key batches', () => {
         expect(Math.max(...boundary.readSizes)).toBeLessThanOrEqual(100)
         expect(boundary.writes).toBe(4)
         expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(1)
+    })
+
+    it.each([
+        ['retries only the rows a batch write left unprocessed', 1, true],
+        ['gives up when a batch write keeps leaving rows unprocessed', 500, false],
+    ])('%s', async (_label, deferred, succeeds) => {
+        boundary.deferWrites = deferred
+        const batch = await store.prepare([session])
+        jest.useFakeTimers()
+        const settled = batch.commit().then(
+            () => 'committed',
+            () => 'failed'
+        )
+        await jest.runAllTimersAsync()
+        expect(await settled).toBe(succeeds ? 'committed' : 'failed')
+        if (succeeds) {
+            const location = sessionKeyId(session.teamId, session.sessionId)
+            expect(boundary.items.has(tableKeyString(monthKeyIndexId({ ...session }, location)))).toBe(true)
+            // Two index rows and two keys. A retry that re-sent the whole batch would store an index row twice.
+            expect(boundary.writes).toBe(4)
+            // One batch write, one retry carrying the single deferred row, and a put for each key.
+            expect(boundary.writeRequests).toBe(4)
+        }
+    })
+
+    it('writes one request per key instead of two by batching the month index entries', async () => {
+        const identities = Array.from({ length: 60 }, (_, index) => ({
+            ...session,
+            sessionId: `01994569-4380-7000-8000-${(index + 200).toString(16).padStart(12, '0')}`,
+        }))
+        const batch = await store.prepare(identities)
+        jest.useFakeTimers()
+        const committing = batch.commit()
+        await jest.runAllTimersAsync()
+        await committing
+        // 60 session keys and one team image key. Each is one conditional put, and their 61 index entries pack into
+        // three batches of at most 25, so 122 requests become 64.
+        expect(boundary.writes).toBe(122)
+        expect(boundary.writeRequests).toBe(64)
+        expect([...boundary.writeBatchSizes].sort((a, b) => b - a)).toEqual([25, 25, 11])
+    })
+
+    it('reads every row a batch needs in one pass', async () => {
+        const readsBefore = boundary.readSizes.length
+        await store.prepare([session])
+        // The team block, the session key and the team image key are known up front, so they go in one request.
+        expect(boundary.readSizes.length - readsBefore).toBe(1)
+        expect(new Set(boundary.readKeys.at(-1))).toEqual(
+            new Set(
+                [
+                    teamBlockId(session.teamId),
+                    sessionKeyId(session.teamId, session.sessionId),
+                    imageKeyId(session.teamId, '2025-09'),
+                ].map(tableKeyString)
+            )
+        )
     })
 
     it('commits concurrent new sessions without conditional failures', async () => {
@@ -264,7 +345,7 @@ describe('ML session key batches', () => {
         const send = boundary.send.bind(boundary)
         let remaining = 1
         jest.spyOn(boundary, 'send').mockImplementation((command) => {
-            if (command instanceof PutItemCommand && command.input.Item!.pk.S!.startsWith('month:') && remaining > 0) {
+            if (command instanceof BatchWriteItemCommand && remaining > 0) {
                 remaining -= 1
                 return Promise.reject(transientError('ProvisionedThroughputExceededException'))
             }
