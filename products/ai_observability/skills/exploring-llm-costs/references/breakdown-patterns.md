@@ -162,16 +162,20 @@ SELECT
     sum(toInt(properties.$ai_cache_read_input_tokens)) AS cache_read_tokens,
     sum(toInt(properties.$ai_cache_creation_input_tokens)) AS cache_write_tokens,
     round(
-        if(
-            any(properties.$ai_cache_reporting_exclusive) = 'true',
-            sum(toInt(properties.$ai_cache_read_input_tokens))
-                / nullIf(sum(toInt(properties.$ai_input_tokens))
-                       + sum(toInt(properties.$ai_cache_read_input_tokens))
-                       + sum(toInt(properties.$ai_cache_creation_input_tokens)), 0),
-            sum(toInt(properties.$ai_cache_read_input_tokens))
-                / nullIf(sum(toInt(properties.$ai_input_tokens)), 0)
-        ), 3
-    ) AS cache_hit_rate
+        sumIf(toInt(properties.$ai_cache_read_input_tokens),
+              properties.$ai_cache_reporting_exclusive = 'true')
+        / nullIf(sumIf(toInt(properties.$ai_input_tokens)
+                     + toInt(properties.$ai_cache_read_input_tokens)
+                     + toInt(properties.$ai_cache_creation_input_tokens),
+                       properties.$ai_cache_reporting_exclusive = 'true'), 0), 3
+    ) AS cache_hit_rate_exclusive,
+    round(
+        sumIf(toInt(properties.$ai_cache_read_input_tokens),
+              properties.$ai_cache_reporting_exclusive = 'false')
+        / nullIf(sumIf(toInt(properties.$ai_input_tokens),
+                       properties.$ai_cache_reporting_exclusive = 'false'), 0), 3
+    ) AS cache_hit_rate_inclusive,
+    countIf(properties.$ai_cache_reporting_exclusive IS NULL) AS calls_without_cache_flag
 FROM events
 WHERE event = '$ai_generation'
     AND timestamp >= now() - INTERVAL 30 DAY
@@ -179,13 +183,15 @@ GROUP BY model
 ORDER BY total_cost DESC
 ```
 
-The `cache_hit_rate` uses the provider-aware formula from
-[cache accounting](./cache-accounting.md) — it branches on
-`$ai_cache_reporting_exclusive` so the denominator is correct for both
-exclusive and inclusive providers without hardcoding any provider or model
-names. If a single model mixes both reporting styles across events
-(unusual), split by `$ai_cache_reporting_exclusive` in the GROUP BY
-instead of `any()`.
+The two cache-hit rates come from [cache
+accounting](./cache-accounting.md). Each one sums only the events whose
+`$ai_cache_reporting_exclusive` matches its branch, so the denominator is
+correct for both reporting styles without hardcoding any provider or model
+name. One model can mix both styles, so a single rate over the whole group is
+wrong and can exceed 1. A null rate means the model has no events in that
+branch. `calls_without_cache_flag` counts the events with no flag — they have
+no valid denominator, so they are in neither rate; read `cache_read_tokens`
+for those.
 
 Rank and roll up on `total_cost` — summing only the input/output components
 drops request and web-search fees and can diverge from the `/ai-observability`
@@ -193,5 +199,5 @@ UI. If `request_cost` or `web_search_cost` are a meaningful share of
 `total_cost` for a model, that's a separate optimization lever (e.g. chattier
 provider, tool-heavy generations).
 
-A low `cache_hit_rate` on a model that supports prompt caching is a lever —
+A low cache-hit rate on a model that supports prompt caching is a lever —
 prompt structure changes can move cost materially.

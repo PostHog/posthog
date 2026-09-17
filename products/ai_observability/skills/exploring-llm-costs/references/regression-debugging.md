@@ -61,20 +61,32 @@ ORDER BY day, model
 
 ## Step 4 — Look for cache degradation
 
+The `$ai_cache_reporting_exclusive` flag is per event, so group by it. One
+model-day can hold exclusive, inclusive and unset events together, and a
+formula picked with `any()` then runs over the wrong events and can report a
+rate above 1.
+
 ```sql
 posthog:execute-sql
 SELECT
     toDate(timestamp) AS day,
     properties.$ai_model AS model,
+    multiIf(
+        properties.$ai_cache_reporting_exclusive = 'true', 'exclusive',
+        properties.$ai_cache_reporting_exclusive = 'false', 'inclusive',
+        'unavailable'
+    ) AS cache_reporting,
     round(
-        if(
-            any(properties.$ai_cache_reporting_exclusive) = 'true',
+        multiIf(
+            cache_reporting = 'exclusive',
             sum(toInt(properties.$ai_cache_read_input_tokens))
                 / nullIf(sum(toInt(properties.$ai_input_tokens))
                        + sum(toInt(properties.$ai_cache_read_input_tokens))
                        + sum(toInt(properties.$ai_cache_creation_input_tokens)), 0),
+            cache_reporting = 'inclusive',
             sum(toInt(properties.$ai_cache_read_input_tokens))
-                / nullIf(sum(toInt(properties.$ai_input_tokens)), 0)
+                / nullIf(sum(toInt(properties.$ai_input_tokens)), 0),
+            NULL
         ), 3
     ) AS cache_hit_rate,
     sum(toInt(properties.$ai_input_tokens)) AS input_tokens,
@@ -82,13 +94,14 @@ SELECT
 FROM events
 WHERE event = '$ai_generation'
     AND timestamp >= now() - INTERVAL 30 DAY
-GROUP BY day, model
-ORDER BY day, model
+GROUP BY day, model, cache_reporting
+ORDER BY day, model, cache_reporting
 ```
 
 A drop often follows a system-prompt change that invalidated the cached prefix.
-A rate above 1 means the flag is unset on those events, so the inclusive
-branch ran over exclusive data. Read the token columns instead.
+Compare each `cache_reporting` row against itself over time — a model that
+shifts its mix between rows changes the totals without any real cache change.
+The `unavailable` rows have a null rate on purpose; read their token columns.
 
 ## Step 5 — Isolate the feature
 

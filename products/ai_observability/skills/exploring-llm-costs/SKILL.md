@@ -56,7 +56,9 @@ for the precedence rules and a diagnostic query.
 
 Cache-hit math depends on whether the provider reports cache tokens inclusively
 or exclusively of `$ai_input_tokens`. Always branch on the per-event
-`$ai_cache_reporting_exclusive` flag, never on provider name — see
+`$ai_cache_reporting_exclusive` flag, never on provider name. The flag changes
+between events of the same model, so group by it or use conditional sums, and
+never collapse it with `any()` — see
 [cache accounting](./references/cache-accounting.md) for the exclusive-vs-inclusive
 formula.
 
@@ -170,7 +172,7 @@ versions for the same provider. To avoid rot:
 - Exclude errored calls from cost totals only when explicitly asked — providers still charge for many error modes, and including them gives the truthful bill
 - For per-user totals, exclude rows where `distinct_id = properties.$ai_trace_id` — some SDKs default distinct_id to the trace ID when no user is set
 - Cost is additive across `$ai_generation` + `$ai_embedding` events within a trace; summing on `$ai_span` gives zero. `$ai_trace` may carry `$ai_total_cost_usd` from some SDK wrappers — don't include it in rollups or you'll double-count. `$ai_evaluation` events also carry cost but are not part of the stock UI rollups; include them only when the user explicitly wants evaluation spend in the total
-- Cache-hit rate depends on `$ai_cache_reporting_exclusive` — branch on the event-level flag rather than on provider or model name. Provider behavior and SDK versions drift; the flag is ingestion's resolved answer for that specific event
+- Cache-hit rate depends on `$ai_cache_reporting_exclusive` — branch on the event-level flag rather than on provider or model name. Provider behavior and SDK versions drift; the flag is ingestion's resolved answer for that specific event. Keep the flag in the `GROUP BY`, or sum each branch conditionally: `any()` over a mixed group reports a rate above 1. The flag is often unset, and those events get no rate at all
 - When answering "why is X expensive?", show the cost **and** the token split — the user almost always wants to know whether to shrink prompts, shrink outputs, or switch models
 - Before building a custom dashboard, check whether the stock `/ai-observability/dashboard` tiles already answer the question — re-creating them is churn
 - For large tenants, materialize common cost queries as insights and reuse via `insight-query`; ad-hoc SQL is fine for one-offs but re-running it on every dashboard load is expensive
