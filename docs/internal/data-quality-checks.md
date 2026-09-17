@@ -1,12 +1,12 @@
 # Data quality checks
 
-Data quality checks audit warehouse tables, saved views, and catalog metrics. Checks keep their identity and history when their assertion changes.
+Data quality checks audit warehouse tables, saved views, catalog metrics, and the PostHog tables `events`, `persons`, and `groups`. Checks keep their identity and history when their assertion changes.
 
 ## Authorization
 
-Every check is authored, read, run and scheduled through the project-wide `data_quality_checks` and `data_quality_runs` routes, whichever kind of subject it audits. A request names its subject in the body on create, and by check id after that; `subject_type` and `subject_uuid` query parameters narrow a listing, a health rollup, a run history, or a schedule to one subject.
+Every check is authored, read, run and scheduled through the project-wide `data_quality_checks` and `data_quality_runs` routes, whichever kind of subject it audits. A request names its subject in the body on create, and by check id after that; `subject_type` and `subject_uuid` query parameters narrow a listing, a health rollup, a run history, or a schedule to one subject. A PostHog table has no database row, so its `subject_uuid` is a fixed id derived from the table name and is the same in every project.
 
-Check and run routes require project membership, query access, and access to the subject. The static check-type catalog needs no access to any subject. Metric checks use catalog permissions. Table and view checks use their respective warehouse object permissions, including explicit object grants and inherited source grants. A resource-wide denial does not discard a more specific grant that the canonical access-control rules permit.
+Check and run routes require project membership, query access, and access to the subject. The static check-type catalog needs no access to any subject. Metric checks use catalog permissions. Table and view checks use their respective warehouse object permissions, including explicit object grants and inherited source grants. A PostHog table has no object to grant, so a check on one answers to project query access and the warehouse table resource level. A failing check on a PostHog table notifies members with query access and links to the data quality overview, because these tables have no page of their own. A resource-wide denial does not discard a more specific grant that the canonical access-control rules permit.
 
 Reading checks, health, and run history requires viewer access. Creating, editing, deleting, or manually running checks requires editor access to their subject. Referenced subjects require viewer access. These checks apply even when the warehouse query-enforcement feature flag is disabled.
 
@@ -20,15 +20,27 @@ A check that reads more than its own subject executes as a user. A manual run ex
 
 All routes below also require `query:read`. Write scopes include read access; read-only scopes do not authorize writes. Token scopes limit access independently of the user's grants, including for organization administrators.
 
-| Subject kind     | Read scope                                         | Write scope                                          |
-| ---------------- | -------------------------------------------------- | ---------------------------------------------------- |
-| Warehouse tables | `warehouse_objects:read` or `warehouse_table:read` | `warehouse_objects:write` or `warehouse_table:write` |
-| Warehouse views  | `warehouse_objects:read` or `warehouse_view:read`  | `warehouse_objects:write` or `warehouse_view:write`  |
-| Catalog metrics  | `data_catalog:read`                                | `data_catalog:write`                                 |
+| Subject kind                        | Read scope                                         | Write scope                                          |
+| ----------------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
+| Warehouse tables and PostHog tables | `warehouse_objects:read` or `warehouse_table:read` | `warehouse_objects:write` or `warehouse_table:write` |
+| Warehouse views                     | `warehouse_objects:read` or `warehouse_view:read`  | `warehouse_objects:write` or `warehouse_view:write`  |
+| Catalog metrics                     | `data_catalog:read`                                | `data_catalog:write`                                 |
 
 The family scope `warehouse_objects` reaches every warehouse kind. A per-kind scope reaches its own kind only, which is what a key minted by the Agent CLI carries. A token may select only the subject kinds its scopes permit. An unnamed manual sweep skips inaccessible checks; an explicitly selected inaccessible check is rejected. Cross-subject references must also fall within the caller's permitted subject types.
 
 The table above applies to the REST routes only. The MCP tools declare `query:read` alone, because a tool's scope list must be met in full and the two subject families are authorized independently; a token with no subject family is refused by the route. A raw HogQL query against `system.information_schema.data_quality_*` needs `query:read` and no other scope. The user's own permissions still apply to each row. A token with `query:read` reads metric checks only if its user has catalog access.
+
+## Lookback window
+
+A check may carry `lookback_hours`, which counts only the rows from the last N hours by the subject's own time column.
+It is optional.
+Without it, a check reads every row the subject holds.
+Only the PostHog tables carry a time column today: `events` bounds on `timestamp`, and `persons` and `groups` bound on `created_at`, which is when each was first seen rather than when it last changed.
+
+A `relationships` check bounds each side on its own, with `lookback_hours` for the rows it checks and `to_lookback_hours` for the rows it looks for a match among.
+Custom SQL takes no window, because bounding a query the author wrote would mean rewriting it. Put the filter in the query instead.
+A window named for a subject or a target that has no time column is rejected when the check is saved.
+A query that runs too long is recorded as `errored` with the message the database returned.
 
 ## Custom SQL
 
@@ -50,7 +62,7 @@ Catalog access is a project permission resource. Notification visibility follows
 
 ## Subject schedules
 
-A subject whose checks run on a recurring schedule has one Temporal Schedule in its canonical project. Metrics are the only such subject today; a table's and a view's checks run when their data changes instead. The first check creates an enabled daily schedule after the check transaction commits and starts an initial run. Available intervals are one hour, six hours, twelve hours, one day, and one week. A deterministic offset spreads recurring executions across each interval.
+A subject whose checks run on a recurring schedule has one Temporal Schedule in its canonical project. Metrics and PostHog tables are those subjects; a warehouse table's and a view's checks run when their data changes instead. A PostHog table is never synced or materialized, so a schedule is the only trigger its checks have. The first check creates an enabled daily schedule after the check transaction commits and starts an initial run. Available intervals are one hour, six hours, twelve hours, one day, and one week. A deterministic offset spreads recurring executions across each interval.
 
 Temporal owns the interval, pause state, and next execution time. The schedule endpoint reads and updates Temporal directly. Paused schedules return `next_run_at: null`. An unavailable schedule service returns HTTP 503; reload the schedule before retrying an update whose outcome is unknown. Last scheduled run information comes from the caller's readable suite history. Manual runs do not change it.
 
