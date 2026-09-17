@@ -1456,3 +1456,36 @@ class TestSharingConfigurationCanAccess(APIBaseTest):
             check_can_access_sharing_configuration(view, request, share)
 
         assert "cannot be shared through this endpoint" in str(caught.exception)
+
+    def test_an_interview_share_is_not_picked_up_as_another_resources_share(self):
+        topic = UserInterviewTopic.objects.create(
+            team=self.team,
+            created_by=self.user,
+            interviewee_emails=["alex@example.com"],
+            topic="t",
+        )
+        ic = IntervieweeContext.objects.create(
+            team=self.team,
+            topic=topic,
+            interviewee_identifier="alex@example.com",
+            agent_context="",
+            created_by=self.user,
+        )
+        interview_share = SharingConfiguration.objects.create(team=self.team, interviewee_context=ic, enabled=True)
+
+        # A resource whose id is not known yet, which is how a task artifact's very first share
+        # looks. Without naming interviewee_context the lookup ignores it and returns the
+        # interview's row, and the sharing gate then refuses that resource forever.
+        found = SharingConfiguration.get_active_for_resource(
+            team_id=self.team.id,
+            insight=None,
+            dashboard=None,
+            recording=None,
+            notebook=None,
+            canvas=None,
+            task_artifact=None,
+            interviewee_context=None,
+        )
+
+        assert found is None
+        assert SharingConfiguration.objects.filter(pk=interview_share.pk).exists()

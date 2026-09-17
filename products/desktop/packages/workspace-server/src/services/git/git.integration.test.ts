@@ -273,6 +273,8 @@ describe("GitService integration (git-read + git-mutate)", () => {
       expect(result.branch).toBe("feature");
     });
 
+    // Clones the repo and round-trips a commit through the bare remote, which
+    // outruns the 5s default when CI runs every package suite at once.
     it("pull fetches commits pushed by another clone", async () => {
       const clone = await fs.mkdtemp(path.join(os.tmpdir(), "git-clone-"));
       dirs.push(clone);
@@ -291,7 +293,7 @@ describe("GitService integration (git-read + git-mutate)", () => {
           .readFile(path.join(clone, "shared.txt"), "utf-8")
           .catch(() => null),
       ).toBe("from-work\n");
-    });
+    }, 15_000);
 
     it("sync pulls then pushes successfully", async () => {
       await fs.writeFile(path.join(work, "s.txt"), "z\n");

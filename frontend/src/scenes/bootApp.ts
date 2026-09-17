@@ -1,3 +1,4 @@
+import { shareTokenBeforeSend, shareTokenMaskNetworkRequest } from 'lib/utils/shareTokenRedaction'
 import { registerNotebookLinkDrag } from 'scenes/notebooks/AddToNotebook/registerNotebookLinkDrag'
 
 import { initKea } from '../initKea'
@@ -23,7 +24,13 @@ export function bootApp(): void {
     }
     appBooted = true
 
-    loadPostHogJS()
+    // The canvas fork scene holds a share token in its URL, and a shared page sends its viewer here
+    // to sign in with the token in `next`, so telemetry boots with the hooks that keep those tokens
+    // out of captured events and recorded network requests.
+    loadPostHogJS({
+        beforeSend: shareTokenBeforeSend,
+        sessionRecording: { maskCapturedNetworkRequestFn: shareTokenMaskNetworkRequest },
+    })
     // Kea must initialize before any component mounts
     initKea()
     // Link resolves its drag-to-notebook behavior through a seam so bundles without

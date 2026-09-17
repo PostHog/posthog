@@ -44,6 +44,10 @@ const PATHS_WITHOUT_PROJECT_ID = new Set([
     'shared',
     'embedded',
     'interview',
+    // The PostHog Desktop bridge routes are public and unauthenticated, and the Django
+    // allowances for them are anchored to the start of the path, so a project prefix would
+    // both break the link and defeat that anchor.
+    'desktop',
     'cli',
     'render_query',
 ])
