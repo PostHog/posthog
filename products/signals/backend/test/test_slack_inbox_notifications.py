@@ -1116,7 +1116,13 @@ def test_reviewer_added_notifies_added_reviewer_on_own_channel(org_and_team):
 
 
 @pytest.mark.django_db
-def test_reviewer_added_skips_org_member_without_project_access(org_and_team):
+@pytest.mark.parametrize(
+    ("report_ready", "team_channel", "expected_sent"),
+    [(False, None, 0), (True, None, 0), (True, "CTEAM", 1)],
+)
+def test_notification_respects_project_access(
+    org_and_team: tuple[Organization, Team], report_ready: bool, team_channel: str | None, expected_sent: int
+) -> None:
     # Org membership alone must not leak a private project's report into Slack: a member
     # locked out of the project (project marked private, no explicit access) gets no ping.
     org, team = org_and_team
@@ -1131,13 +1137,23 @@ def test_reviewer_added_skips_org_member_without_project_access(org_and_team):
         slack_notification_integration=integration,
         slack_notification_channel="C123|#inbox",
     )
-    report = _make_ready_report(team, priority=AutonomyPriority.P1)
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["no-access-bot"])
+    if team_channel:
+        _set_team_channel(team, team_channel)
 
     with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
-        sent = dispatch_reviewer_added_notifications(str(report.id), team.id, ["no-access-bot"])
+        if report_ready:
+            sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+        else:
+            sent = dispatch_reviewer_added_notifications(str(report.id), team.id, ["no-access-bot"])
 
-    assert sent == 0
-    assert slack_cls.call_count == 0
+    assert sent == expected_sent
+    assert slack_cls.call_count == expected_sent
+    if expected_sent:
+        post_message = slack_cls.return_value.client.chat_postMessage
+        post_message.assert_called_once()
+        assert post_message.call_args.kwargs["channel"] == team_channel
+        assert "Suggested reviewers" not in json.dumps(post_message.call_args.kwargs["blocks"])
 
 
 @pytest.mark.django_db
