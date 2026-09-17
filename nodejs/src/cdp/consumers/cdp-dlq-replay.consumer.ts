@@ -179,15 +179,20 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
             return
         }
 
-        // Which sources each event may rebuild, keyed by team and event UUID. One event can be
-        // parked more than once, because a record is written per event and step: once at `filter`
-        // for one function, once at `inputs` for another. Their targets are merged and the event is
-        // rebuilt once. The team is part of the key because a UUID comes from the client, so two
-        // teams can send the same one.
+        // Which sources each event may rebuild, held against the globals object the rebuild runs
+        // from. One event can be parked more than once, because a record is written per event and
+        // step: once at `filter` for one function, once at `inputs` for another. Their targets are
+        // merged and the event is rebuilt once.
+        //
+        // Team and event UUID only group the candidates, and the parked bytes decide. A UUID comes
+        // from the client, so one team can send two different events under the same one, and
+        // merging those would hand a destination parked for one of them the other's payload. A
+        // record parks the source bytes untouched, so two records for the same event compare equal.
         const eventKey = (globals: HogFunctionInvocationGlobals): string =>
             `${globals.project.id}:${globals.event.uuid}`
-        const targetsByEvent = new Map<string, Set<string> | null>()
-        const kindsByEvent = new Map<string, Set<SourceKind> | null>()
+        const parkedByKey = new Map<string, { globals: HogFunctionInvocationGlobals; value: Buffer }[]>()
+        const targetsByEvent = new Map<HogFunctionInvocationGlobals, Set<string> | null>()
+        const kindsByEvent = new Map<HogFunctionInvocationGlobals, Set<SourceKind> | null>()
         const globalsList: HogFunctionInvocationGlobals[] = []
 
         const resolved = await Promise.all(selected.map(({ message }) => this.toGlobals(message)))
@@ -202,22 +207,28 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
             }
             const targets = replayTargetIds(record)
             const kinds = replayTargetKinds(record)
+            // Present for every selected record: readDeadLetterRecord refuses one with no payload.
+            const value = message.value!
             const key = eventKey(globals)
-            if (targetsByEvent.has(key)) {
-                const existingTargets = targetsByEvent.get(key)!
-                const existingKinds = kindsByEvent.get(key)!
+            const candidates = parkedByKey.get(key) ?? []
+            const sameEvent = candidates.find((parked) => parked.value.equals(value))?.globals
+            if (sameEvent) {
+                const existingTargets = targetsByEvent.get(sameEvent)!
+                const existingKinds = kindsByEvent.get(sameEvent)!
                 // `null` is "everything", so a union with anything stays `null`.
                 targetsByEvent.set(
-                    key,
+                    sameEvent,
                     existingTargets === null || targets === null ? null : new Set([...existingTargets, ...targets])
                 )
                 kindsByEvent.set(
-                    key,
+                    sameEvent,
                     existingKinds === null || kinds === null ? null : new Set([...existingKinds, ...kinds])
                 )
             } else {
-                targetsByEvent.set(key, targets)
-                kindsByEvent.set(key, kinds)
+                candidates.push({ globals, value })
+                parkedByKey.set(key, candidates)
+                targetsByEvent.set(globals, targets)
+                kindsByEvent.set(globals, kinds)
                 globalsList.push(globals)
             }
             this.counts.replayed += 1
@@ -225,15 +236,17 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
 
         await this.groupsManager.addGroupsToGlobalsList(globalsList)
 
+        // Both pipelines hand the predicates back the globals object they were given, so the lookup
+        // is by identity rather than by any value read off the event.
         const allows = (id: string, globals: HogFunctionInvocationGlobals): boolean => {
-            const targets = targetsByEvent.get(eventKey(globals))
+            const targets = targetsByEvent.get(globals)
             return targets === null || targets === undefined ? targets === null : targets.has(id)
         }
 
         // A record that names a kind but no id is a pipeline that threw while the other one queued
         // its invocations. Rebuilding the kind it does not name would deliver those a second time.
         const allowsKind = (kind: SourceKind, globals: HogFunctionInvocationGlobals): boolean => {
-            const kinds = kindsByEvent.get(eventKey(globals))
+            const kinds = kindsByEvent.get(globals)
             return kinds === null || kinds === undefined ? kinds === null : kinds.has(kind)
         }
 
