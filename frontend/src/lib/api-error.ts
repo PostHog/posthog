@@ -173,6 +173,9 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  *   the user is told by whatever the caller renders for an empty result. Reporting these is what
  *   floods the project: grouping is stack-based, so every loader that meets the same connectivity
  *   blip opens an issue of its own, and one bad minute on a user's network manufactures dozens.
+ * - a 2xx response whose body stream failed mid-read. The server already answered successfully, so
+ *   the truncation happened on the wire, not in application code. These group the same stack-based
+ *   way, so one flaky connection opens an issue per endpoint it touched.
  *
  * Each of these still toasts wherever it did before, and `client_request_failure` still records
  * every non-OK response with its status and pathname, so failure rates stay queryable even where
@@ -186,6 +189,9 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  */
 export function shouldReportApiFailure(error: unknown): boolean {
     if (isBrowserNetworkFailure(error)) {
+        return false
+    }
+    if (error instanceof ResponseBodyReadError) {
         return false
     }
     if (error === null || typeof error !== 'object') {
@@ -322,5 +328,21 @@ export class NetworkError extends ApiError {
         // `dropUnactionableNetworkExceptions` and error tracking grouping rules match on.
         this.name = 'NetworkError'
         this.cause = cause
+    }
+}
+
+/**
+ * A 2xx response whose body stream failed part way through, after the server had already answered
+ * successfully — a dropped connection or a proxy hiccup truncating a chunked response, not an
+ * application defect. Callers still see a thrown `ApiError` and degrade exactly as before;
+ * `shouldReportApiFailure` recognizes the type and keeps it out of error tracking, the same way
+ * `isBrowserNetworkFailure` excuses a request the browser never completed.
+ */
+export class ResponseBodyReadError extends ApiError {
+    constructor(message: string) {
+        super(message)
+        // Sets the `type` posthog-js reports in `$exception_list`, which error tracking grouping
+        // rules match on.
+        this.name = 'ResponseBodyReadError'
     }
 }

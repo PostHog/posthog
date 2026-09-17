@@ -1,6 +1,7 @@
 import {
     ApiError,
     NetworkError,
+    ResponseBodyReadError,
     isScopeNotFoundError,
     isTransientServerError,
     shouldReportApiFailure,
@@ -133,6 +134,15 @@ describe('api-error', () => {
             // The residual `network` reason can be an ad blocker, a proxy, or our own edge, so it
             // stays reportable rather than being folded into the suppression above.
             ['a classified NetworkError', new NetworkError('network'), true],
+            // The server answered 2xx and the body stream broke on the wire afterwards. Grouping is
+            // stack-based, so one flaky connection would otherwise open an issue per endpoint.
+            [
+                'a body-read failure on a 2xx',
+                new ResponseBodyReadError('Failed to read response body [GET /api/foo] (status 200)'),
+                false,
+            ],
+            // A body that arrived whole but would not parse can be a real backend bug, so it stays.
+            ['a malformed JSON body on a 2xx', new ApiError('Malformed JSON response [GET /api/foo] (status 200)'), true],
             // No HTTP response to excuse the failure.
             ['an error with no status', { message: 'boom' }, true],
             ['a thrown string', 'went wrong', true],
