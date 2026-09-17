@@ -789,19 +789,13 @@ def build_report_presentation_prompt(
     previous_summary: str | None = None,
     previous_charts: list[ReportChart] | None = None,
     previous_metrics: list[ReportMetric] | None = None,
-    charts_enabled: bool = False,
     metrics_enabled: bool = False,
 ) -> str:
     schema_dict = ReportPresentationOutput.model_json_schema()
-    if not charts_enabled:
-        schema_dict.get("properties", {}).pop("charts", None)
-        schema_dict.get("$defs", {}).pop("ReportChart", None)
     if not metrics_enabled:
         schema_dict.get("properties", {}).pop("metrics", None)
         schema_dict.get("$defs", {}).pop("ReportMetric", None)
         schema_dict.get("$defs", {}).pop("ReportMetricComparison", None)
-    if not charts_enabled and not metrics_enabled:
-        schema_dict.pop("$defs", None)
     schema = json.dumps(schema_dict, indent=2)
     previous_presentation_context = _render_previous_presentation_context(previous_title, previous_summary)
 
@@ -811,11 +805,10 @@ def build_report_presentation_prompt(
         previous_metrics_context = _render_previous_metrics_context(previous_metrics or [])
         if previous_metrics_context:
             visual_sections.append(previous_metrics_context)
-    if charts_enabled:
-        visual_sections.append(_REPORT_CHARTS_GUIDANCE)
-        previous_charts_context = _render_previous_charts_context(previous_charts or [])
-        if previous_charts_context:
-            visual_sections.append(previous_charts_context)
+    visual_sections.append(_REPORT_CHARTS_GUIDANCE)
+    previous_charts_context = _render_previous_charts_context(previous_charts or [])
+    if previous_charts_context:
+        visual_sections.append(previous_charts_context)
     visual_context = "".join(f"\n\n{section}" for section in visual_sections)
 
     return f"""Now write the final **report title and summary** based on your research across all {total_signals} signal(s).
@@ -933,7 +926,6 @@ async def run_multi_turn_research(
     has_business_knowledge: bool = False,
     resolved_report_title: str | None = None,
     resolved_report_summary: str | None = None,
-    charts_enabled: bool = False,
     metrics_enabled: bool = False,
     steering_section: str = "",
 ) -> ReportResearchOutput:
@@ -1097,7 +1089,6 @@ async def run_multi_turn_research(
             previous_summary=summary or (previous_report_research.summary if previous_report_research else None),
             previous_charts=previous_report_research.charts if previous_report_research else None,
             previous_metrics=previous_report_research.metrics if previous_report_research else None,
-            charts_enabled=charts_enabled,
             metrics_enabled=metrics_enabled,
         )
         presentation_result = await session.send_followup(
@@ -1146,10 +1137,7 @@ async def run_multi_turn_research(
     return ReportResearchOutput(
         title=presentation_result.title,
         summary=presentation_result.summary,
-        # Only carry visuals for an opted-in team, regardless of what the model returned — a
-        # redundant guard alongside the gated schema/guidance, so the capability can't leak if a
-        # future change reintroduces a field into a disabled prompt.
-        charts=presentation_result.charts if charts_enabled else [],
+        charts=presentation_result.charts,
         metrics=presentation_result.metrics if metrics_enabled else [],
         research_task_id=str(session.task.id),
         verification_note=verification_note,
