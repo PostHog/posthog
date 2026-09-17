@@ -2888,7 +2888,9 @@ jobs:
                   # artifact, and the timing reporter needs both to pair a re-run recovery
                   # (attempt-N pass) with the attempt-1 failure it proves flaky.
                   name: junit-results-backend-${{ matrix.artifact_key }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
-                  path: junit-*.xml
+                  path: |
+                      junit-*.xml
+                      !junit-*-retry-failures.xml
 
             - name: Archive email renders
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
