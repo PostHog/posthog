@@ -73,6 +73,7 @@ import { ObservationShareButton } from './ObservationShareButton'
 import {
     neighborFilterParams,
     observationDetailUrl,
+    observationOriginParams,
     replayObservationLogic,
     scannerReturnParams,
 } from './replayObservationLogic'
@@ -238,9 +239,14 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     // navigation (and the server-computed neighbor ids) stay within the filtered list.
     const neighborParams = neighborFilterParams(searchParams)
     const neighborsFiltered = Object.keys(neighborParams).some((key) => key !== 'order_by')
-    // Prev/next keeps the return params too, so back still lands on the list view the reader came from.
+    // Prev/next keeps the return params too, so back still lands on the list view (or the watch feed)
+    // the reader came from.
     const observationUrl = (id: string): string =>
-        observationDetailUrl(id, { ...neighborParams, ...scannerReturnParams(searchParams) })
+        observationDetailUrl(id, {
+            ...neighborParams,
+            ...scannerReturnParams(searchParams),
+            ...observationOriginParams(searchParams),
+        })
 
     const seekEmbeddedPlayer = (ms: number): void => {
         if (!recordingExpanded) {
