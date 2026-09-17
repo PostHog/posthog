@@ -56,16 +56,38 @@ describe('rewriteAgentObjectTags', () => {
         ['fenced code', '```xml\n<insight id="a">kept</insight>\n```'],
         ['plain text without tags', 'Nothing to do here.'],
         ['unknown non-object markup', 'A <div>block</div> stays.'],
+        ['an unclosed fence containing a tag', 'Before\n```\n<insight id="a">x</insight>'],
+        ['a trailing opener inside inline code', 'Use `<insight id="a">`'],
+        ['a trailing partial that matches no kind', 'plain <widget'],
+        ['a comparison that looks like a partial tag', 'value a<b'],
     ])('leaves %s untouched', (_name, input) => {
         expect(rewriteAgentObjectTags(input, BASE)).toBe(input)
     })
 
     it.each([
-        ['a partial opener', 'Streaming <insi', 'Streaming '],
+        ['a partial opener of a known kind', 'Streaming <insi', 'Streaming '],
         ['a complete opener whose closer has not arrived', 'Streaming <insight id="a">Runtime', 'Streaming '],
-        ['an unclosed fence containing a tag', 'Before\n```\n<insight id="a">x</insight>', 'Before\n'],
+        ['an unregistered opener carrying an id', 'From <inbox id="r1">the rep', 'From '],
     ])('holds back %s until the rest of the chunk arrives', (_name, input, expected) => {
         expect(rewriteAgentObjectTags(input, BASE)).toBe(expected)
+    })
+
+    it('does not split a complete hogql tag whose SQL quotes tag markup', () => {
+        expect(rewriteAgentObjectTags('See <hogql label="q">SELECT \'<insight id="x">\'</hogql>.', BASE)).toBe(
+            'See [q](/project/2/sql?open_query=SELECT%20%27%3Cinsight%20id%3D%22x%22%3E%27).'
+        )
+    })
+
+    it('grows the fence past any backtick run in the SQL', () => {
+        expect(rewriteAgentObjectTags('<hogql display="block" title="T">a\n```\nb</hogql>', BASE)).toBe(
+            '**[T](/project/2/sql?open_query=a%0A%60%60%60%0Ab)**\n````\na\n```\nb\n````'
+        )
+    })
+
+    it('drops a list marker whose only content is a promoted block', () => {
+        expect(rewriteAgentObjectTags('- <hogql display="block" title="T">SELECT 1</hogql>', BASE)).toBe(
+            '**[T](/project/2/sql?open_query=SELECT%201)**\n```\nSELECT 1\n```'
+        )
     })
 
     it('is idempotent over its own output', () => {

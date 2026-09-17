@@ -97,20 +97,13 @@ function inlineCodeSpans(line: string, offset: number): Span[] {
     return spans
 }
 
-interface CodeScan {
-    /** Fenced blocks and inline code spans, in text order. */
-    spans: Span[]
-    /** Start of a fence that never closed, or null. The held-suffix logic needs it. */
-    openFenceStart: number | null
-}
-
 /**
  * Fenced blocks and inline code, found in one pass over the lines. Mirrors the
  * desktop renderer's fence rules: a backtick or tilde fence of three or more,
  * closed only by a run of the same character at least as long with nothing else
  * on the line, and an unclosed fence runs to the end of the text.
  */
-function scanCode(text: string): CodeScan {
+function scanCode(text: string): Span[] {
     const spans: Span[] = []
     let fenceChar = ''
     let fenceLength = 0
@@ -139,9 +132,8 @@ function scanCode(text: string): CodeScan {
     }
     if (fenceChar) {
         spans.push({ start: fenceStart, end: text.length })
-        return { spans, openFenceStart: fenceStart }
     }
-    return { spans, openFenceStart: null }
+    return spans
 }
 
 /**
@@ -252,7 +244,11 @@ function renderHogql(tag: Tag, projectBase: string): string | null {
         return link(label, url)
     }
     const title = safeLabel(tag.attrs['title'] || '') || hogql.kindLabel
-    const lines = [`**${link(title, url)}**`, '```', sql, '```']
+    // A backtick run in the SQL at least as long as the fence would close it early
+    // and spill the rest of the query into ordinary markdown.
+    const longestRun = Math.max(0, ...Array.from(sql.matchAll(RE_BACKTICK_RUN), (run) => run[0].length))
+    const fence = '`'.repeat(Math.max(3, longestRun + 1))
+    const lines = [`**${link(title, url)}**`, fence, sql, fence]
     const caption = (tag.attrs['caption'] || '').split(/\s+/).filter(Boolean).join(' ')
     if (caption) {
         lines.push(`_${caption}_`)
@@ -304,22 +300,57 @@ function closerRe(name: string): RegExp {
     return re
 }
 
+const KNOWN_TAG_NAMES = [...Object.keys(OBJECT_KIND_DATA), ...Object.keys(OBJECT_KIND_ALIASES)]
+const RE_ID_ATTR = /(?:^|\s)id\s*=/
+
+function inSpan(position: number, spans: Span[]): boolean {
+    return spans.some((span) => span.start <= position && position < span.end)
+}
+
 /**
- * Index where a trailing object tag, or code fence, that has not finished
- * streaming in begins, or null. Mirrors the Slack relay's
- * `split_incomplete_tag_suffix` so both surfaces hide the same fragments.
+ * Could this partial tag fragment still become a tag the renderer would touch?
+ * Either the name so far is a prefix of a registered kind, or the fragment
+ * already carries an `id` attribute (the object-shaped improvisations the
+ * renderer keeps the label of). Anything else — `plain <widget` — is prose.
  */
-function heldSuffixStart(text: string, openFenceStart: number | null): number | null {
-    if (openFenceStart !== null) {
-        return openFenceStart
+function partialCouldBecomeTag(fragment: string): boolean {
+    const name = /^<([a-z][\w-]*)/.exec(fragment)?.[1] ?? ''
+    if (/\s/.test(fragment)) {
+        // The name is complete; only the attributes are still streaming.
+        return resolveKind(name) !== null || RE_ID_ATTR.test(fragment.slice(1 + name.length))
     }
+    return KNOWN_TAG_NAMES.some((known) => known.startsWith(name))
+}
+
+/**
+ * Index where a trailing object tag that has not finished streaming in begins,
+ * or null. Mirrors the Slack relay's `split_incomplete_tag_suffix`, minus its
+ * fence holding: the Slack splitter is stateless across flushes and must keep
+ * an open fence buffered, while here the whole text re-renders every chunk and
+ * `scanCode` already keeps tags inside an open fence literal.
+ *
+ * Only the region after `searchFrom` (the end of the last complete tag) is
+ * considered, so tag-shaped text inside a complete tag's body — SQL quoting
+ * `'<insight id="x">'` — never splits the text. Openers inside code spans are
+ * prose, not streaming tags.
+ */
+function heldSuffixStart(text: string, spans: Span[], searchFrom: number): number | null {
     const lastLt = text.lastIndexOf('<')
-    if (lastLt !== -1 && !text.slice(lastLt).includes('>') && RE_PARTIAL_OPEN_TAG.test(text.slice(lastLt))) {
+    if (
+        lastLt >= searchFrom &&
+        !inSpan(lastLt, spans) &&
+        !text.slice(lastLt).includes('>') &&
+        RE_PARTIAL_OPEN_TAG.test(text.slice(lastLt)) &&
+        partialCouldBecomeTag(text.slice(lastLt))
+    ) {
         return lastLt
     }
     let lastOpen: { start: number; end: number; name: string } | null = null
     for (const match of text.matchAll(RE_OPEN_TAG)) {
-        if (match[3] === '>' && resolveKind(match[1]) !== null) {
+        if (match.index < searchFrom || match[3] !== '>' || inSpan(match.index, spans)) {
+            continue
+        }
+        if (resolveKind(match[1]) !== null || RE_ID_ATTR.test(match[2])) {
             lastOpen = { start: match.index, end: match.index + match[0].length, name: match[1] }
         }
     }
@@ -340,14 +371,15 @@ export function rewriteAgentObjectTags(text: string, projectBase: string): strin
     if (!text.includes('<')) {
         return text
     }
-    const scan = scanCode(text)
-    let spans = scan.spans
-    const held = heldSuffixStart(text, scan.openFenceStart)
+    const spans = scanCode(text)
+    const tags = scanTags(text, spans)
+    // Complete tags all end before the held region starts, so the slice below
+    // cannot invalidate them.
+    const searchFrom = tags.length > 0 ? tags[tags.length - 1].end : 0
+    const held = heldSuffixStart(text, spans, searchFrom)
     if (held !== null && text.length - held <= MAX_HELD_SUFFIX) {
         text = text.slice(0, held)
-        spans = scanCode(text).spans
     }
-    const tags = scanTags(text, spans)
     if (tags.length === 0) {
         return text
     }
@@ -369,6 +401,9 @@ export function rewriteAgentObjectTags(text: string, projectBase: string): strin
         output += before
         if (rendered.includes('\n')) {
             // A fenced block only survives markdown conversion as its own paragraph.
+            // A list marker whose only content is this block would be left as an
+            // empty bullet once the block moves out, so the bare marker goes too.
+            output = output.replace(/(^|\n)[ \t]{0,3}(?:[-*+]|\d{1,9}[.)])[ \t]*$/, '$1')
             if (output.trim() && !output.endsWith('\n\n')) {
                 output = output.replace(/\n+$/, '') + '\n\n'
             }

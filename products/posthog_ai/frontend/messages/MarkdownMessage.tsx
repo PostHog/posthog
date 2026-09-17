@@ -13,11 +13,10 @@ function parseMarkdownIntoBlocks(markdown: string): string[] {
     return tokens.map((token) => token.raw)
 }
 
-function rewriteObjectTags(markdown: string): string {
+function rewriteObjectTags(markdown: string, teamId: number | null): string {
     // Agent object tags (`<insight id="…">label</insight>`) become links into the
     // current project, carrying the agent's label; stripping them instead posted
     // empty bullets wherever a reply cited an object.
-    const teamId = getCurrentTeamIdOrNone()
     return rewriteAgentObjectTags(markdown, teamId !== null ? urls.project(teamId) : '')
 }
 
@@ -34,7 +33,9 @@ export const MarkdownMessage = memo(function MarkdownMessage({
     id: string
     className?: string
 }): JSX.Element {
-    const blocks = useMemo(() => parseMarkdownIntoBlocks(rewriteObjectTags(content)), [content])
+    // The team id is a memo dependency so a project switch re-points existing links.
+    const teamId = getCurrentTeamIdOrNone()
+    const blocks = useMemo(() => parseMarkdownIntoBlocks(rewriteObjectTags(content, teamId)), [content, teamId])
     return (
         <LemonMarkdown.Container className={className}>
             {blocks.map((block, index) => (
