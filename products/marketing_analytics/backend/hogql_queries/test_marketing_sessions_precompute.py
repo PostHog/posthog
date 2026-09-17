@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime, timedelta
 
 import time_machine
@@ -65,3 +66,8 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert row["min_event_timestamp"] == first_pageview
         assert row["max_event_timestamp"] == last_pageview
         assert row["pageview_count"] == 2
+
+        sessions_scans = re.findall(r"FROM\s+raw_sessions\s+WHERE(.*?)GROUP BY", response.clickhouse or "", re.S)
+        assert sessions_scans
+        for where in sessions_scans:
+            assert "session_id_v7, 80" in where
