@@ -4999,6 +4999,25 @@ class TestObservationSignalReportsAPI(_VisionAPITestCase):
         assert kwargs["source_type"] == "scanner_finding"
         assert kwargs["extra_equals"] == {"observation_id": str(observation.id)}
 
+    def test_denied_without_inbox_read_access(self) -> None:
+        # Scopes only gate API keys, so a session member denied inbox access must not read titles here.
+        scanner = self._create_scanner()
+        observation = ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id="sess-no-inbox",
+            scanner_snapshot=_snapshot_for(scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
+            side_effect=lambda resource, required_level=None, **_: resource != "task",
+        ):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/vision/observations/{observation.id}/signal_reports/"
+            )
+
+        assert response.status_code == 403, response.json()
+
     def test_resolves_the_observation_through_a_list_filter(self) -> None:
         # Without the detail-read exemption, a filter the observation does not match 404s the reports.
         scanner = self._create_scanner()

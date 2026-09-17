@@ -1035,6 +1035,10 @@ class ReplayObservationViewSet(
     )
     def signal_reports(self, request: Request, **kwargs: Any) -> Response:
         """The inbox reports this observation's emitted signals were grouped into, newest first."""
+        # `required_scopes` only gates API keys, so a session member denied inbox access would
+        # otherwise read report titles here that the reports endpoint never shows them.
+        if not self.user_access_control.check_access_level_for_resource("task", required_level="viewer"):
+            raise PermissionDenied("Reading an observation's signal reports requires inbox read access.")
         observation = self.get_object()
         reports = get_reports_for_signal_source_slice(
             team=self.team,
