@@ -20,6 +20,7 @@ from products.autoresearch.backend.models import (
 )
 from products.autoresearch.backend.presentation.views.serializers import (
     AGENT_DESCRIPTION_MAX_LENGTH,
+    MODEL_SPEC_MAX_BYTES,
     OBJECT_JSON_MAX_BYTES,
     CompleteTrainingRunSerializer,
     RecordIterationSerializer,
@@ -583,6 +584,7 @@ class TestAgentWriteSerializers(SimpleTestCase):
             ("lone_surrogate_in_recipe", {"recipe_snapshot": {**VALID_RECIPE, "note": "\ud800"}}, "recipe_snapshot"),
             ("boolean_holdout", {"holdout_score": True}, "holdout_score"),
             ("string_model_params", {"model_spec": {**VALID_SPEC, "model_params": "bad"}}, "non_field_errors"),
+            ("oversized_spec", {"model_spec": {**VALID_SPEC, "pad": "x" * MODEL_SPEC_MAX_BYTES}}, "model_spec"),
             ("nul_in_recipe", {"recipe_snapshot": {**VALID_RECIPE, "note": "a\x00b"}}, "recipe_snapshot"),
             (
                 "oversized_recipe",

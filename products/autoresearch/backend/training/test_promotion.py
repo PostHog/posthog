@@ -193,6 +193,9 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
             # was measured on transformed features would serve a different model.
             ("feature_transforms", {"feature_transforms": [{"column": "c", "transform": "log1p"}]}),
             ("string_model_params", {"model_params": "bad"}),
+            # sklearn refuses an unknown keyword only in the constructor, which inference would hit on
+            # every cadence.
+            ("unknown_model_param", {"model_params": {"unexpected": 1}}),
         ]
     )
     def test_recipe_the_legacy_scorer_cannot_run_is_refused(self, _name, iteration_kwargs):

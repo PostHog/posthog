@@ -26,6 +26,7 @@ from posthog.hogql.visitor import clear_locations
 from posthog.models.scoping import team_scope
 
 from products.autoresearch.backend.inference.sandbox import fit_champion_model
+from products.autoresearch.backend.inference.scoring import check_recipe_estimator
 from products.autoresearch.backend.models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -243,6 +244,7 @@ def _require_legacy_recipe_is_runnable(recipe: dict[str, Any]) -> None:
         )
     try:
         validate_model_class(str(recipe["model_class"]))
+        check_recipe_estimator(recipe)
     except RecipeValidationError as exc:
         raise PromotionError(f"Cannot persist a model on the legacy scoring path: {exc}") from exc
 

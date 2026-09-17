@@ -830,6 +830,21 @@ def _stable_seed(pipeline_id: str) -> int:
     return int(hashlib.sha256(pipeline_id.encode()).hexdigest()[:8], 16)
 
 
+def check_recipe_estimator(recipe: dict[str, Any]) -> None:
+    """Raise ``RecipeValidationError`` when the recipe's class and params cannot build an estimator.
+
+    Promotion calls this before a recipe-only champion is installed: the constructor is the
+    only place an unknown hyperparameter is refused, and a champion that fails there would fail
+    every scoring run instead of this one completion.
+    """
+    try:
+        _estimator_for(recipe, seed=0)
+    except RecipeValidationError:
+        raise
+    except Exception as exc:
+        raise RecipeValidationError(f"model_params cannot construct {recipe.get('model_class')!r}: {exc}") from exc
+
+
 def _estimator_for(recipe: dict[str, Any], *, seed: int) -> Any:
     """
     Instantiate the recipe's allowlisted sklearn class. This is the one in-process importlib

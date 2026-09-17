@@ -206,12 +206,26 @@ export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
                 'Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).'
             ),
         recipe_snapshot: zod
-            .looseObject({})
+            .object({
+                feature_sql: zod
+                    .string()
+                    .describe('A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id.'),
+                feature_transforms: zod
+                    .array(zod.looseObject({}))
+                    .optional()
+                    .describe('Transforms the bundle applies to the feature columns; empty on the in-process path.'),
+            })
             .describe(
                 'Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms.'
             ),
         model_spec: zod
-            .looseObject({})
+            .object({
+                model_class: zod.string().describe('Dotted path of the estimator class.'),
+                model_params: zod
+                    .record(zod.string(), zod.unknown())
+                    .optional()
+                    .describe("Keyword arguments for the estimator's constructor."),
+            })
             .describe(
                 'model_class and model_params tried this iteration. Any class is accepted here; the sklearn\/xgboost allowlist applies at completion, to a run that uploaded no bundle.'
             ),

@@ -41,6 +41,7 @@ ITERATION_STATUS_CHOICES = api.ITERATION_STATUS_CHOICES
 TARGET_EVENT_MAX_LENGTH = 255
 AGENT_DESCRIPTION_MAX_LENGTH = 2000
 OBJECT_JSON_MAX_BYTES = 64 * 1024
+MODEL_SPEC_MAX_BYTES = 4 * 1024
 OUTPUT_PERSON_PROPERTY_MAX_LENGTH = 255
 
 # The target event is interpolated into the sandboxed training agent's prompt brief, so reject
@@ -157,6 +158,8 @@ class ObjectJSONField(serializers.JSONField):
     object rides along on every iteration and comes back in every run and history response.
     """
 
+    max_bytes = OBJECT_JSON_MAX_BYTES
+
     def to_internal_value(self, data: Any) -> Any:
         value = super().to_internal_value(data)
         if not isinstance(value, dict):
@@ -170,8 +173,8 @@ class ObjectJSONField(serializers.JSONField):
             ) from exc
         if b"\\u0000" in encoded:
             raise serializers.ValidationError("Must not contain NUL characters.")
-        if len(encoded) > OBJECT_JSON_MAX_BYTES:
-            raise serializers.ValidationError(f"Must be at most {OBJECT_JSON_MAX_BYTES} bytes as JSON.")
+        if len(encoded) > self.max_bytes:
+            raise serializers.ValidationError(f"Must be at most {self.max_bytes} bytes as JSON.")
         return value
 
 
@@ -353,6 +356,18 @@ class ModelExplanationField(ObjectJSONField):
             "Compact recipe for this iteration: feature_sql, a read-only HogQL SELECT that reads from "
             "{anchors} and returns one row per person keyed on person_id, and optional feature_transforms."
         ),
+        "properties": {
+            "feature_sql": {
+                "type": "string",
+                "description": "A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id.",
+            },
+            "feature_transforms": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "Transforms the bundle applies to the feature columns; empty on the in-process path.",
+            },
+        },
+        "required": ["feature_sql"],
         "example": {
             "feature_sql": (
                 "SELECT a.person_id AS distinct_id, countIf(e.event = '$pageview') AS pageviews "
@@ -375,11 +390,21 @@ class IterationRecipeField(ObjectJSONField):
             "because a bundle runs its own code. A run that uploads no bundle scores in process, and "
             "completion then requires an allowlisted sklearn/xgboost classifier."
         ),
+        "properties": {
+            "model_class": {"type": "string", "description": "Dotted path of the estimator class."},
+            "model_params": {
+                "type": "object",
+                "additionalProperties": True,
+                "description": "Keyword arguments for the estimator's constructor.",
+            },
+        },
+        "required": ["model_class"],
         "example": {"model_class": "sklearn.linear_model.LogisticRegression", "model_params": {"C": 1.0}},
     }
 )
 class ModelSpecField(ObjectJSONField):
-    pass
+    # A class name and a few hyperparameters; the recipe field holds the SQL and gets the room.
+    max_bytes = MODEL_SPEC_MAX_BYTES
 
 
 @extend_schema_field(

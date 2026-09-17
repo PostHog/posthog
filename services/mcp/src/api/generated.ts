@@ -11233,15 +11233,32 @@ export namespace Schemas {
       P4: 'P4',
     } as const;
 
+    export type AutoresearchIterationRecipeSnapshotFeatureTransformsItem = { [key: string]: unknown };
+
     /**
      * Compact recipe snapshot at time of iteration. Full artifact lives in the model row.
      */
-    export type AutoresearchIterationRecipeSnapshot = { [key: string]: unknown };
+    export type AutoresearchIterationRecipeSnapshot = {
+      /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
+      feature_sql: string;
+      /** Transforms the bundle applies to the feature columns; empty on the in-process path. */
+      feature_transforms?: AutoresearchIterationRecipeSnapshotFeatureTransformsItem[];
+    };
+
+    /**
+     * Keyword arguments for the estimator's constructor.
+     */
+    export type AutoresearchIterationModelSpecModelParams = { [key: string]: unknown };
 
     /**
      * Model class and hyperparameters tried in this iteration.
      */
-    export type AutoresearchIterationModelSpec = { [key: string]: unknown };
+    export type AutoresearchIterationModelSpec = {
+      /** Dotted path of the estimator class. */
+      model_class: string;
+      /** Keyword arguments for the estimator's constructor. */
+      model_params?: AutoresearchIterationModelSpecModelParams;
+    };
 
     /**
      * * `kept` - Kept
@@ -11734,9 +11751,19 @@ export namespace Schemas {
     }
 
     /**
+     * Keyword arguments for the estimator's constructor.
+     */
+    export type IterationTrailModelSpecModelParams = { [key: string]: unknown };
+
+    /**
      * Model class and hyperparameters tried in this iteration.
      */
-    export type IterationTrailModelSpec = { [key: string]: unknown };
+    export type IterationTrailModelSpec = {
+      /** Dotted path of the estimator class. */
+      model_class: string;
+      /** Keyword arguments for the estimator's constructor. */
+      model_params?: IterationTrailModelSpecModelParams;
+    };
 
     /**
      * Compact, read-only view of one iteration for the cross-run history feed and the Training tab.
@@ -50171,14 +50198,31 @@ export namespace Schemas {
     }
 
     /**
+     * Keyword arguments for the estimator's constructor.
+     */
+    export type IterationTrailWithRecipeModelSpecModelParams = { [key: string]: unknown };
+
+    /**
      * Model class and hyperparameters tried in this iteration.
      */
-    export type IterationTrailWithRecipeModelSpec = { [key: string]: unknown };
+    export type IterationTrailWithRecipeModelSpec = {
+      /** Dotted path of the estimator class. */
+      model_class: string;
+      /** Keyword arguments for the estimator's constructor. */
+      model_params?: IterationTrailWithRecipeModelSpecModelParams;
+    };
+
+    export type IterationTrailWithRecipeRecipeSnapshotFeatureTransformsItem = { [key: string]: unknown };
 
     /**
      * The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them.
      */
-    export type IterationTrailWithRecipeRecipeSnapshot = { [key: string]: unknown };
+    export type IterationTrailWithRecipeRecipeSnapshot = {
+      /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
+      feature_sql: string;
+      /** Transforms the bundle applies to the feature columns; empty on the in-process path. */
+      feature_transforms?: IterationTrailWithRecipeRecipeSnapshotFeatureTransformsItem[];
+    };
 
     /**
      * The trail with each iteration's recipe, for history only: a run list page would otherwise carry every recipe of every run.
@@ -79415,15 +79459,32 @@ export namespace Schemas {
       recorded: boolean;
     }
 
+    export type RecordIterationRecipeSnapshotFeatureTransformsItem = { [key: string]: unknown };
+
     /**
      * Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms.
      */
-    export type RecordIterationRecipeSnapshot = { [key: string]: unknown };
+    export type RecordIterationRecipeSnapshot = {
+      /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
+      feature_sql: string;
+      /** Transforms the bundle applies to the feature columns; empty on the in-process path. */
+      feature_transforms?: RecordIterationRecipeSnapshotFeatureTransformsItem[];
+    };
+
+    /**
+     * Keyword arguments for the estimator's constructor.
+     */
+    export type RecordIterationModelSpecModelParams = { [key: string]: unknown };
 
     /**
      * model_class and model_params tried this iteration. Any class is accepted here; the sklearn/xgboost allowlist applies at completion, to a run that uploaded no bundle.
      */
-    export type RecordIterationModelSpec = { [key: string]: unknown };
+    export type RecordIterationModelSpec = {
+      /** Dotted path of the estimator class. */
+      model_class: string;
+      /** Keyword arguments for the estimator's constructor. */
+      model_params?: RecordIterationModelSpecModelParams;
+    };
 
     /**
      * * `kept` - kept
