@@ -377,7 +377,7 @@ tabs unmarked and scattered in its bar, and that is its most-requested fix.
   is on screen does nothing.
 - The pill's X, middle-click and `Close split` close every tab of the split.
   Removing one tab is the tile header's X, and Cmd/Ctrl+W closes the active
-  tile only. Bulk closes count a split pill as one slot but close all of its
+  tile only and focuses another tile of the split. Bulk closes count a split pill as one slot but close all of its
   tabs. `Separate all tabs` in the pill's menu dissolves the group and keeps
   the tabs. A split pill has no pin item.
 - Cmd/Ctrl+1-9 count the split pill as one stop.

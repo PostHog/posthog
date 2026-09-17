@@ -84,11 +84,12 @@ export function TaskDetail({
   );
 
   useEffect(() => {
+    if (inBackgroundTile) return;
     enableScope("taskDetail");
     return () => {
       disableScope("taskDetail");
     };
-  }, [enableScope, disableScope]);
+  }, [enableScope, disableScope, inBackgroundTile]);
 
   // Mounting TaskDetail means the task was actually rendered in front of the
   // user — that, not any API fetch of the task, is what clears the unread

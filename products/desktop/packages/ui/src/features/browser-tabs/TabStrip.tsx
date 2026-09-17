@@ -124,7 +124,7 @@ export function TabStrip({
             key={tab.id}
             tab={tab}
             index={index}
-            isActive={tab.id === activeTabId}
+            isActive={(tab.split?.activeId ?? tab.id) === activeTabId}
             closable={closable[index]}
             onSelect={onSelect}
             onClose={onClose}

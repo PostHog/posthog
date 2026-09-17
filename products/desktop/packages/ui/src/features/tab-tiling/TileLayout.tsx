@@ -109,6 +109,7 @@ export function TileLayout({ children }: { children: ReactNode }) {
   const activeTabId = useActiveTabId();
 
   useEffect(() => {
+    if (snapshot.windows.length === 0) return;
     prune(snapshot.tabs.map((t) => t.id));
   }, [snapshot, prune]);
 
@@ -134,8 +135,12 @@ export function TileLayout({ children }: { children: ReactNode }) {
         const next = tabsById.get(remaining[0]);
         if (next?.href) pushTabHistoryEntry(router.history, next.href, next.id);
       }
+      const rest = groupForTab(
+        useTileLayoutStore.getState().groups,
+        remaining[0],
+      );
       track(ANALYTICS_EVENTS.BROWSER_TAB_UNTILED, {
-        tile_count: remaining.length,
+        tile_count: rest ? tabIdsIn(rest.root).length : 0,
       });
     },
     [groups, untile, activeTabId, tabsById, router],

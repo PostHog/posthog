@@ -5,6 +5,8 @@ import {
   isTabAppView,
   TAB_APP_VIEW_META,
 } from "@posthog/ui/features/browser-tabs/tabAppViews";
+import { ActivityDetailCloseButton } from "@posthog/ui/features/canvas/components/ActivityDetailCloseButton";
+import { useActivitySelection } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
@@ -73,6 +75,7 @@ function ActiveTileHeader({
   onUntile: (tab: BrowserTab) => void;
 }) {
   const content = useHeaderStore((state) => state.content);
+  const activitySelection = useActivitySelection();
   const view = useAppView();
   const { data: tasks } = useTasks();
   const task =
@@ -93,6 +96,7 @@ function ActiveTileHeader({
         <TileName tab={tab} isActive onActivate={onActivate} />
       )}
       {task && <TaskHeaderActions task={task} />}
+      {activitySelection?.kind === "task" && <ActivityDetailCloseButton />}
     </ChromeBar>
   );
 }

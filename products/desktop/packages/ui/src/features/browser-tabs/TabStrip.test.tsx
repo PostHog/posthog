@@ -103,6 +103,7 @@ describe("TabStrip", () => {
 
   it("shows a split as one pill that closes and separates as a whole", async () => {
     const props = setup({
+      activeTabId: "t2",
       tabs: [
         {
           id: "t1",
@@ -120,6 +121,7 @@ describe("TabStrip", () => {
     });
     expect(screen.getAllByRole("tab")).toHaveLength(1);
     expect(screen.getByLabelText("Funnels (split, 2 tabs)")).toBeTruthy();
+    expect(screen.getByRole("tab")).toHaveAttribute("aria-selected", "true");
 
     await userEvent.click(screen.getByLabelText("Close split (2 tabs)"));
     expect(props.onClose).toHaveBeenCalledWith("t1");

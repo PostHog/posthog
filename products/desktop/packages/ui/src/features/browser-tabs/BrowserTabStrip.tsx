@@ -868,7 +868,8 @@ function BrowserTabStripImpl() {
   const handleClose = (tabId: string) => {
     const group = groupForTab(tileGroups, tabId);
     if (group) {
-      handleCloseMany(tabIdsIn(group.root));
+      const sibling = tabIdsIn(group.root).find((id) => id !== tabId);
+      handleCloseMany([tabId], sibling);
       return;
     }
     useDraftStore
@@ -929,6 +930,12 @@ function BrowserTabStripImpl() {
 
   const tabIdsOf = (view: TabView): string[] =>
     view.split ? view.split.members.map((m) => m.id) : [view.id];
+
+  const handleClosePill = (tabId: string) => {
+    const group = groupForTab(tileGroups, tabId);
+    if (group) handleCloseMany(tabIdsIn(group.root));
+    else handleClose(tabId);
+  };
 
   const handleCloseOthers = (tabId: string) => {
     handleCloseMany(
@@ -1031,7 +1038,7 @@ function BrowserTabStripImpl() {
       tabs={tabs}
       activeTabId={activeTabId}
       onSelect={handleSelect}
-      onClose={handleClose}
+      onClose={handleClosePill}
       onTogglePin={handleTogglePin}
       onCloseOthers={handleCloseOthers}
       onCloseToRight={handleCloseToRight}
