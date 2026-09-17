@@ -142,16 +142,16 @@ def create_backfill(
     ).id
 
 
-def update_batch_export(batch_export_id: UUID, **fields: Any) -> contracts.BatchExportDetail:
+def update_batch_export(batch_export_id: UUID, *, team_id: int, **fields: Any) -> contracts.BatchExportDetail:
     """Set fields on a batch export and return what it looks like afterwards."""
-    batch_export = BatchExport.objects.select_related("destination").get(id=batch_export_id)
+    batch_export = BatchExport.objects.select_related("destination").get(id=batch_export_id, team_id=team_id)
     for name, value in fields.items():
         setattr(batch_export, name, value)
     batch_export.save()
     return _to_detail(batch_export)
 
 
-def delete_batch_export(batch_export_id: UUID, temporal_client: "Client | None" = None) -> None:
+def delete_batch_export(batch_export_id: UUID, *, team_id: int, temporal_client: "Client | None" = None) -> None:
     """Remove a batch export row outright, and its Temporal schedule when a client is given.
 
     This is the teardown counterpart of ``create_batch_export``, not the product's delete
@@ -171,7 +171,7 @@ def delete_batch_export(batch_export_id: UUID, temporal_client: "Client | None" 
             if e.status != temporalio.service.RPCStatusCode.NOT_FOUND:
                 raise
 
-    BatchExport.objects.filter(id=batch_export_id).delete()
+    BatchExport.objects.filter(id=batch_export_id, team_id=team_id).delete()
 
 
 def list_runs(batch_export_id: UUID, limit: int = 100) -> list[contracts.BatchExportRunSummary]:

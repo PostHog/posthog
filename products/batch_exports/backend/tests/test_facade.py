@@ -94,7 +94,7 @@ def test_billable_rows_exported_drops_non_billable_runs(team, destination_type, 
     export_id = _export(team, destination_type=destination_type, **export_fields)
     _run(batch_export_id=export_id, finished_at=IN_WINDOW, records=10)
     if deleted:
-        testing.update_batch_export(export_id, deleted=True)
+        testing.update_batch_export(export_id, team_id=team.pk, deleted=True)
 
     assert api.get_teams_with_billable_rows_exported(WINDOW_BEGIN, WINDOW_END) == []
 
@@ -132,7 +132,7 @@ def test_latest_failed_runs_reports_only_exports_whose_most_recent_run_failed(te
 def test_latest_failed_runs_ignores_paused_and_deleted_exports(team, field):
     export_id = _export(team)
     _run(batch_export_id=export_id, finished_at=IN_WINDOW, status=BatchExportRun.Status.FAILED)
-    testing.update_batch_export(export_id, **{field: True})
+    testing.update_batch_export(export_id, team_id=team.pk, **{field: True})
 
     assert api.list_latest_failed_runs(team.pk) == []
 
