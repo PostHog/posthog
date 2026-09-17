@@ -1,7 +1,7 @@
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconExternal } from '@posthog/icons'
+import { IconExternal, IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
 
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { DataModelingNode } from '~/types'
 
 import { LineageGraph } from 'products/data_modeling/frontend/lineage/LineageGraph'
+import { lineageIssueMessage } from 'products/data_modeling/frontend/lineage/LineageNode'
 import { lineageNodeUrl } from 'products/data_modeling/frontend/lineage/lineageNodeUrl'
 import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
 
@@ -43,11 +44,11 @@ function LineageMessage({
     )
 }
 
-function UpstreamTable({ nodes }: { nodes: DataModelingNode[] }): JSX.Element {
+function UpstreamTable({ nodes, emptyState }: { nodes: DataModelingNode[]; emptyState: string }): JSX.Element {
     return (
         <LemonTable
             size="small"
-            emptyState={NOTHING_UPSTREAM}
+            emptyState={emptyState}
             columns={[
                 {
                     key: 'name',
@@ -125,6 +126,9 @@ export function MetricLineagePanel({
     const edges = lineage?.edges ?? []
     const currentNode = nodes.find((node) => node.metric_id === metric.id)
     const upstreamNodes = nodes.filter((node) => node.id !== currentNode?.id)
+    const upstreamEmptyState = currentNode?.lineage_issue
+        ? lineageIssueMessage(currentNode.lineage_issue)
+        : NOTHING_UPSTREAM
 
     return (
         <div className="@container flex flex-col gap-2">
@@ -139,15 +143,26 @@ export function MetricLineagePanel({
                     ]}
                     size="small"
                 />
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    to={urls.models('lineage')}
-                    targetBlank
-                    tooltip="Open the full graph"
-                    aria-label="Open the full graph"
-                    icon={<IconExternal />}
-                />
+                <div className="flex items-center gap-2">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={onRetry}
+                        loading={lineageLoading}
+                        icon={<IconRefresh />}
+                        tooltip="Refresh lineage"
+                        aria-label="Refresh lineage"
+                    />
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        to={urls.models('lineage')}
+                        targetBlank
+                        tooltip="Open the full graph"
+                        aria-label="Open the full graph"
+                        icon={<IconExternal />}
+                    />
+                </div>
             </div>
             {view === 'graph' && (
                 <div className="hidden @[40rem]:block h-[min(45vh,500px)] border border-border rounded-md overflow-hidden">
@@ -169,7 +184,7 @@ export function MetricLineagePanel({
                 </div>
             )}
             <div className={view === 'graph' ? '@[40rem]:hidden' : undefined}>
-                <UpstreamTable nodes={upstreamNodes} />
+                <UpstreamTable nodes={upstreamNodes} emptyState={upstreamEmptyState} />
             </div>
         </div>
     )
