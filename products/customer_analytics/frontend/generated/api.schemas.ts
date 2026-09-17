@@ -224,6 +224,22 @@ export interface ErrorResponseApi {
     error: string
 }
 
+export interface ExternalAccountListPermissionErrorApi {
+    /** Error category. */
+    type: string
+    /** Machine-readable error code. */
+    code: string
+    /** Error message. */
+    detail: string
+    /**
+     * Request field associated with the error, if any.
+     * @nullable
+     */
+    attr: string | null
+}
+
+export type ExternalAccountListAuthErrorApi = ErrorResponseApi | ExternalAccountListPermissionErrorApi
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -4260,6 +4276,11 @@ export type CustomerAnalyticsExternalAccountsRetrieveParams = {
      * When true, return only accounts where customer analytics holds authority over at least one controlled relationship, including accounts whose managed relationships are cleared and accounts that are ignored. Authority does not end when an account is ignored, so `include_ignored` is implied.
      */
     managed_only?: boolean
+    /**
+     * Project ID. Required for personal API keys. Project secret API keys use their bound project.
+     * @minimum 1
+     */
+    project_id?: number
 }
 
 export type AccountNotesListParams = {

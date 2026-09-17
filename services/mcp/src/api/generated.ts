@@ -38705,6 +38705,22 @@ export namespace Schemas {
       name: string | null;
     }
 
+    export interface ExternalAccountListPermissionError {
+      /** Error category. */
+      type: string;
+      /** Machine-readable error code. */
+      code: string;
+      /** Error message. */
+      detail: string;
+      /**
+         * Request field associated with the error, if any.
+         * @nullable
+         */
+      attr: string | null;
+    }
+
+    export type ExternalAccountListAuthError = ErrorResponse | ExternalAccountListPermissionError;
+
     /**
      * Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted.
      */
@@ -97656,6 +97672,11 @@ export namespace Schemas {
      * When true, return only accounts where customer analytics holds authority over at least one controlled relationship, including accounts whose managed relationships are cleared and accounts that are ignored. Authority does not end when an account is ignored, so `include_ignored` is implied.
      */
     managed_only?: boolean;
+    /**
+     * Project ID. Required for personal API keys. Project secret API keys use their bound project.
+     * @minimum 1
+     */
+    project_id?: number;
     };
 
     export type FeatureFlagsStaffCacheListParams = {
