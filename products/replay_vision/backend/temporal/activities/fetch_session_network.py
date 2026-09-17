@@ -37,6 +37,8 @@ _MAX_COMPRESSED_BYTES = 512 * 1024 * 1024
 # What the read is really bounded by. Memory is already bounded by the batch, so the risk of a long
 # listing is the activity's own 2 minute timeout, which the server enforces from outside and which no
 # block count predicts. Stop at the deadline and report what was read instead of refusing the session.
+# The deadline bounds the batch in flight as well as the next one: a request carries its own 30 second
+# timeout, so checking only between batches would let the read run to 90 seconds.
 _READ_BUDGET_SECONDS = 60.0
 
 
@@ -112,6 +114,16 @@ def _build_recording(team_id: int, session_id: str) -> SessionRecording:
     return SessionRecording(session_id=session_id, team_id=team_id)
 
 
+def _log_budget_spent(session_id: str, team_id: int, blocks_read: int, block_count: int) -> None:
+    logger.info(
+        "replay_vision.fetch_network.read_budget_spent",
+        session_id=session_id,
+        team_id=team_id,
+        blocks_read=blocks_read,
+        block_count=block_count,
+    )
+
+
 async def _collect(blocks: list[RecordingBlock], *, session_id: str, team_id: int) -> SessionNetworkPayload:
     """Fetch the blocks a batch at a time and decode each batch before fetching the next.
 
@@ -148,20 +160,21 @@ async def _collect(blocks: list[RecordingBlock], *, session_id: str, team_id: in
             return content.decode("utf-8", errors="replace").splitlines()
 
         for start in range(0, len(blocks), _BLOCK_CONCURRENCY):
-            if time.monotonic() >= deadline:
-                # Out of time, not out of blocks. What was read still helps; `partial` stops the scan
-                # reading the rest as "nothing failed here".
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
                 partial = True
-                logger.info(
-                    "replay_vision.fetch_network.read_budget_spent",
-                    session_id=session_id,
-                    team_id=team_id,
-                    blocks_read=start,
-                    block_count=len(blocks),
-                )
+                _log_budget_spent(session_id, team_id, start, len(blocks))
                 break
             batch = blocks[start : start + _BLOCK_CONCURRENCY]
-            for block_lines in await asyncio.gather(*(fetch(block) for block in batch)):
+            try:
+                results = await asyncio.wait_for(asyncio.gather(*(fetch(block) for block in batch)), timeout=remaining)
+            except TimeoutError:
+                # Out of time mid-batch. What was read still helps; `partial` stops the scan reading the
+                # rest of the session as "nothing failed here".
+                partial = True
+                _log_budget_spent(session_id, team_id, start, len(blocks))
+                break
+            for block_lines in results:
                 if block_lines is None:
                     partial = True
                     continue

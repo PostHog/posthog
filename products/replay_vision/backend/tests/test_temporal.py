@@ -1,7 +1,9 @@
 import time
 import uuid
+import asyncio
 import datetime as dt
 import threading
+import contextlib
 from typing import Any
 
 import pytest
@@ -2348,6 +2350,38 @@ class TestFetchSessionNetworkActivity:
 
         assert collect.await_count == 1, "a 700-block listing must still be read"
         assert payload.captured is True
+
+    @pytest.mark.asyncio
+    async def test_a_stalled_block_cannot_outlive_the_read_budget(self) -> None:
+        # A request carries its own 30s timeout, so a deadline checked only between batches lets the read
+        # run far past its budget and can spend the activity's whole timeout before anything is stored.
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        blocks = [
+            RecordingBlock(key=f"k{i}", start_byte=0, end_byte=16, start_timestamp="", end_timestamp="")
+            for i in range(8)
+        ]
+
+        class _StalledClient:
+            async def fetch_block(self, *args: Any, **kwargs: Any) -> bytes:
+                await asyncio.sleep(30)
+                return b""
+
+        @contextlib.asynccontextmanager
+        async def _client(*args: Any, **kwargs: Any) -> Any:
+            yield _StalledClient()
+
+        started = time.monotonic()
+        with (
+            patch.object(mod, "recording_api_client", _client),
+            patch.object(mod, "_READ_BUDGET_SECONDS", 0.2),
+        ):
+            payload = await mod._collect(blocks, session_id="sess-1", team_id=1)
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 5, f"the read ran {elapsed:.1f}s past a 0.2s budget"
+        assert payload.partial is True
+        assert payload.captured is False
 
     @pytest.mark.asyncio
     async def test_a_listing_over_the_size_ceiling_is_refused(self) -> None:
