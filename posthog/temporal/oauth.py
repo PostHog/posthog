@@ -236,18 +236,15 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          others meet. One scope object covers the whole surface, so the two
 #                          exclusions live in `products/replay_vision/backend/scout_writes.py`
 #                          instead: a scout cannot delete, and must cap what it creates or enables.
-#   feature_flag:write     Every feature flag in the scout's project: create, update, enable,
-#                          disable, archive, and delete, plus each flag's scheduled changes and the
-#                          bulk delete endpoint. This is the one grant that does not stop at an
-#                          artifact. A flag decides what end users see, so a scout holding it can
-#                          change production behavior: move a rollout, rewrite targeting, or turn off
-#                          a flag that shipped code still evaluates. It reaches every flag in the
-#                          project, not only stale ones and not only flags the scout made, including
-#                          the flags an experiment, an early access feature, a survey, a product
-#                          tour, or a replay setting runs on, so a change here can stop those too.
-#                          Delete is a recoverable soft-delete, and archiving takes a flag out of the
-#                          list reversibly. The organization-level copy endpoint names the scope as
-#                          well, but a scout token is scoped to one project and is refused there.
+#   feature_flag:write     Every feature flag in the scout's project, plus each flag's scheduled
+#                          changes and the bulk delete endpoint. The one grant that does not stop at
+#                          an artifact: a flag decides what end users see, so a scout holding it can
+#                          move a rollout, rewrite targeting, or turn off a flag shipped code still
+#                          evaluates. It reaches every flag, not only stale ones and not only the
+#                          scout's own, including the flags an experiment, an early access feature, a
+#                          survey, a product tour, or a replay setting runs on. Delete is a
+#                          recoverable soft-delete. The organization-level copy endpoint names the
+#                          scope too, but a project-scoped scout token is refused there.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -256,10 +253,9 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 # holding it can rewrite the skill body it runs from. That is accepted while the grant is a
 # deliberate per-scout choice a person makes, and the surfaces that offer it say so. So does
 # `feature_flag:write`, further than any of them: it is the only grant that reaches what end users
-# see rather than an artifact. #101988 put that reach to the team and settled on accepting it stated rather
-# than narrowed, so the scope is granted whole and every surface that offers it says what it can do.
-# Restricting it to hygiene writes, the way the scanner scope is restricted, stays a later decision
-# rather than one this code assumes.
+# see. #101988 settled on accepting that stated rather than narrowed, so the scope is granted whole
+# and every surface offering it says what it can do. Restricting it the way the scanner scope is
+# restricted stays a later decision.
 SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
     {
         "dashboard:write",
