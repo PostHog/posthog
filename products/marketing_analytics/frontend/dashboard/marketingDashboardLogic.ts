@@ -85,6 +85,7 @@ export interface marketingDashboardLogicValues {
     conversionGoals: ConversionGoalFilter[]
     conversionOverviewQuery: WebOverviewQuery | null
     conversionTableQuery: WebStatsTableQuery | null
+    conversionValueQuery: TrendsQuery | null
     dateRange: DateRange
     engagementTableQuery: WebStatsTableQuery
     overviewTableQuery: WebStatsTableQuery
@@ -144,6 +145,13 @@ export interface marketingDashboardLogicMeta {
             dashboardProperties: WebAnalyticsPropertyFilters,
             shouldFilterTestAccounts: boolean
         ) => MarketingAnalyticsRetentionQuery
+        conversionValueQuery: (
+            selectedConversionGoal: ConversionGoalFilter | null,
+            dateRange: DateRange,
+            compareFilter: CompareFilter,
+            dashboardProperties: WebAnalyticsPropertyFilters,
+            shouldFilterTestAccounts: boolean
+        ) => TrendsQuery | null
         revenueQuery: (
             revenueGoals: ConversionGoalFilter[],
             dateRange: DateRange,
@@ -364,6 +372,64 @@ export const marketingDashboardLogic = kea<marketingDashboardLogicType>([
                 filterTestAccounts,
                 tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
             }),
+        ],
+        /** Null when the selected goal totals no money property, which is what the Conversion
+         * section's value cards report as "no value" rather than as zero. */
+        conversionValueQuery: [
+            (s) => [
+                s.selectedConversionGoal,
+                s.dateRange,
+                s.compareFilter,
+                s.dashboardProperties,
+                s.shouldFilterTestAccounts,
+            ],
+            (
+                goal: ConversionGoalFilter | null,
+                dateRange: DateRange,
+                compareFilter: CompareFilter,
+                properties: WebAnalyticsPropertyFilters,
+                filterTestAccounts: boolean
+            ): TrendsQuery | null => {
+                if (!goal || goal.math !== PropertyMathType.Sum || !goal.math_property) {
+                    return null
+                }
+                const series =
+                    goal.kind === NodeKind.ActionsNode
+                        ? [
+                              {
+                                  kind: NodeKind.ActionsNode as const,
+                                  id: goal.id,
+                                  math: PropertyMathType.Sum,
+                                  math_property: goal.math_property,
+                                  properties: goal.properties,
+                              },
+                          ]
+                        : goal.kind === NodeKind.EventsNode
+                          ? [
+                                {
+                                    kind: NodeKind.EventsNode as const,
+                                    event: goal.event,
+                                    math: PropertyMathType.Sum,
+                                    math_property: goal.math_property,
+                                    properties: goal.properties,
+                                },
+                            ]
+                          : []
+                if (!series.length) {
+                    return null
+                }
+                return {
+                    kind: NodeKind.TrendsQuery,
+                    dateRange,
+                    compareFilter,
+                    properties,
+                    filterTestAccounts,
+                    interval: 'day',
+                    trendsFilter: { display: ChartDisplayType.BoldNumber },
+                    tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
+                    series,
+                } as TrendsQuery
+            },
         ],
         // Summed from the goals themselves rather than the marketing table, whose revenue counts
         // only conversions matched to a synced ad campaign.

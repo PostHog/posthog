@@ -7,6 +7,8 @@ import { MetricCardSpec, pctChange } from './cards/metricCardSpec'
 export interface RetentionTotals {
     acquired: number
     previousAcquired: number
+    returners: number
+    previousReturners: number
     eligible7d: number
     returned7d: number
     previousEligible7d: number
@@ -23,6 +25,8 @@ export interface RetentionTotals {
 const EMPTY_TOTALS: RetentionTotals = {
     acquired: 0,
     previousAcquired: 0,
+    returners: 0,
+    previousReturners: 0,
     eligible7d: 0,
     returned7d: 0,
     previousEligible7d: 0,
@@ -53,6 +57,7 @@ export function retentionTotals(rows: MarketingAnalyticsRetentionSummaryRow[] | 
             totals.previousReturned7d += row.returned7d
             totals.previousEligible30d += row.eligible30d
             totals.previousReturned30d += row.returned30d
+            totals.previousReturners += row.returners
             if (row.medianReturnDays !== null && row.returners) {
                 previousWeightedDays += row.medianReturnDays * row.returners
                 previousWeight += row.returners
@@ -64,6 +69,7 @@ export function retentionTotals(rows: MarketingAnalyticsRetentionSummaryRow[] | 
         totals.returned7d += row.returned7d
         totals.eligible30d += row.eligible30d
         totals.returned30d += row.returned30d
+        totals.returners += row.returners
         if (row.medianReturnDays !== null && row.returners) {
             weightedDays += row.medianReturnDays * row.returners
             weight += row.returners
@@ -93,19 +99,26 @@ export function sumTrendSeries(results: TrendResult[] | undefined): { value: num
     return { value, previous }
 }
 
-/** Pageviews over sessions, for the row and for the period before it. */
-export function pagesPerSessionItem(results: WebOverviewItem[] | undefined): MetricCardSpec | null {
-    const views = results?.find((item) => item.key === 'views')
-    const sessions = results?.find((item) => item.key === 'sessions')
-    if (!views?.value || !sessions?.value) {
+/** One overview scalar divided by another, as a card. Null when the denominator is missing or
+ * zero, which the caller shows as a notice rather than as a misleading zero. */
+export function ratioItem(
+    results: WebOverviewItem[] | undefined,
+    key: string,
+    numeratorKey: string,
+    denominatorKey: string
+): MetricCardSpec | null {
+    const numerator = results?.find((item) => item.key === numeratorKey)
+    const denominator = results?.find((item) => item.key === denominatorKey)
+    if (numerator?.value === undefined || !denominator?.value) {
         return null
     }
-    const value = views.value / sessions.value
-    const previous = views.previous !== undefined && sessions.previous ? views.previous / sessions.previous : undefined
+    const value = numerator.value / denominator.value
+    const previous =
+        numerator.previous !== undefined && denominator.previous ? numerator.previous / denominator.previous : undefined
     return {
         kind: 'metric',
         item: {
-            key: 'pages_per_session',
+            key,
             kind: 'unit',
             value,
             previous,

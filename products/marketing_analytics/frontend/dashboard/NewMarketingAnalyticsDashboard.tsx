@@ -25,7 +25,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
     const Section = SECTIONS[dashboardView]
 
     return (
-        <div className="mt-4 flex flex-col gap-4">
+        <div className="flex flex-col gap-4">
             <MarketingDashboardHeader />
             <div id="marketing-dashboard-section" className="flex flex-col gap-4">
                 <Section />

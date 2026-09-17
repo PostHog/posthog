@@ -11,6 +11,7 @@ import {
 
 import { labelFromKey } from '~/queries/nodes/WebOverview/WebOverview'
 
+import { ConversionValueCards } from '../cards/ConversionValueCards'
 import { MarketingMetricCardGrid } from '../cards/MarketingMetricCardGrid'
 import { pickOverviewItems } from '../cards/metricCardSpec'
 import { MetricNoticeCard } from '../cards/MetricNoticeCard'
@@ -85,6 +86,7 @@ export function ConversionSection(): JSX.Element {
                     select={(results) => pickOverviewItems(results, ['total conversions', 'conversion rate'])}
                     labelFromKey={(key) => CONVERSION_LABELS[key] ?? labelFromKey(key)}
                 />
+                <ConversionValueCards />
             </MarketingMetricCardGrid>
             <WebStatsBreakdownTable
                 tileId={TileId.MARKETING_CONVERSION_TABLE}

@@ -1,6 +1,6 @@
 import type React from 'react'
 
-import { VariationCell } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
+import type { ChangeFormat } from './ChangeValueCell'
 
 /** What every web analytics query returns per metric: this period and the one before it. */
 export type ComparedValue = [number, number | null]
@@ -12,9 +12,11 @@ export interface BreakdownTableColumn<Row> {
     shortTitle?: string
     tooltip?: string
     value: (row: Row) => ComparedValue | null
-    /** Built once at module level: VariationCell is a factory, and calling it in render would make
-     * a new component type on every pass. */
-    Cell: ReturnType<typeof VariationCell>
+    kind?: ChangeFormat
+    /** Up is bad, as for bounce rate. */
+    reverseColors?: boolean
+    /** Neither direction is good or bad, so the change stays grey. */
+    neutral?: boolean
     exportLabel: string
     exportValue?: (value: number) => string
     tooltipContent?: (row: Row) => React.ReactNode

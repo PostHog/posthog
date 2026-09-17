@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { TileId } from 'scenes/web-analytics/common'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
-import { VariationCell } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { MarketingAnalyticsRetentionQueryResponse } from '~/queries/schema/schema-general'
@@ -13,10 +12,6 @@ import { marketingDashboardLogic } from '../marketingDashboardLogic'
 import { BreakdownTableColumn } from './breakdownTableColumn'
 import { MarketingBreakdownTable } from './MarketingBreakdownTable'
 
-const CountCell = VariationCell({ reserveTrendSpace: false })
-const RateCell = VariationCell({ isPercentage: true })
-const DaysCell = VariationCell({ neutral: true, formatValue: (value) => value.toFixed(1) })
-
 const RETENTION_COLUMNS: BreakdownTableColumn<ReturnRow>[] = [
     {
         key: 'acquired',
@@ -24,8 +19,15 @@ const RETENTION_COLUMNS: BreakdownTableColumn<ReturnRow>[] = [
         shortTitle: 'New',
         tooltip: 'People whose first qualifying session was in the selected date range.',
         value: (row) => [row.acquired, row.comparison?.acquired ?? null],
-        Cell: CountCell,
         exportLabel: 'New visitors',
+    },
+    {
+        key: 'returners',
+        title: 'Returning visitors',
+        shortTitle: 'Returning',
+        tooltip: 'People from this cohort seen coming back within 30 days.',
+        value: (row) => [row.returners, row.comparison?.returners ?? null],
+        exportLabel: 'Returning visitors',
     },
     ...([7, 30] as const).map(
         (days): BreakdownTableColumn<ReturnRow> => ({
@@ -37,7 +39,7 @@ const RETENTION_COLUMNS: BreakdownTableColumn<ReturnRow>[] = [
                 const rate = returnRate(row, days)
                 return rate === null ? null : [rate, returnRate(row.comparison, days)]
             },
-            Cell: RateCell,
+            kind: 'percentage',
             exportLabel: `${days}-day return rate`,
             exportValue: (value) => percentage(value, 1),
             tooltipContent: (row) => {
@@ -54,7 +56,8 @@ const RETENTION_COLUMNS: BreakdownTableColumn<ReturnRow>[] = [
         tooltip: 'Median days from the first to the second session, among people seen returning within 30 days.',
         value: (row) =>
             row.medianReturnDays === null ? null : [row.medianReturnDays, row.comparison?.medianReturnDays ?? null],
-        Cell: DaysCell,
+        kind: 'decimal',
+        neutral: true,
         exportLabel: 'Median days to return',
         exportValue: (value) => value.toFixed(1),
     },

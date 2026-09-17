@@ -16,6 +16,7 @@ import { MarketingAnalyticsAttributionBreakdown } from '~/queries/schema/schema-
 import { marketingDashboardLogic } from '../marketingDashboardLogic'
 import { BreakdownTableColumn, compareByCurrent } from './breakdownTableColumn'
 import { buildExportMenuItems, buildExportRows } from './breakdownTableExport'
+import { ChangeValueCell } from './ChangeValueCell'
 
 export interface MarketingBreakdownTableProps<Row extends Record<string, any>> {
     tileId: TileId
@@ -82,19 +83,16 @@ export function MarketingBreakdownTable<Row extends Record<string, any>>({
                 align: 'right',
                 tooltip: column.tooltip,
                 sorter: compareByCurrent(column),
-                render: (_, row) => {
-                    const value = column.value(row)
-                    if (value === null) {
-                        return <span className="text-muted">–</span>
-                    }
-                    return (
-                        <column.Cell
-                            value={value}
-                            context={{ compareFilter: { compare: compare && value[1] !== null } }}
-                            tooltipContent={column.tooltipContent?.(row)}
-                        />
-                    )
-                },
+                render: (_, row) => (
+                    <ChangeValueCell
+                        value={column.value(row)}
+                        compare={compare}
+                        kind={column.kind}
+                        reverseColors={column.reverseColors}
+                        neutral={column.neutral}
+                        tooltipContent={column.tooltipContent?.(row)}
+                    />
+                ),
             })
         ),
     ]
