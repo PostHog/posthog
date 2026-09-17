@@ -62,7 +62,6 @@ class ScoutMode(StrEnum):
     REPORT = "report"
     WATCH = "watch"
     INVESTIGATE = "investigate"
-    CHECK_BACK = "check_back"
     DIGEST = "digest"
 
 
@@ -230,20 +229,19 @@ The offers, and when each fits. Pick only from the offers listed as available fo
   - report: the question is about the current state of a metric that stays useful when re-asked; the scout reruns the analysis and posts the numbers and what moved.
   - watch: the question carries a concern (is X down, are we ok); the scout reruns the analysis and posts only when the number crosses a bound you state in the prompt, staying silent otherwise.
   - investigate: the turn was diagnostic and the steps (queries, recordings, comparisons) form a runbook; the scout checks the metric and, when it dips again, reruns those steps and posts the findings.
-  - check_back: the turn found a cause with a fix or a release; the scout checks daily whether the metric recovered, posts once when it has or when a week passed, and stays silent after that.
   - digest: the conversation asked about several metrics across its turns; one scout covers all of them in one post. Use the earlier questions to draft it.
   A scout prompt (scout_prompt) is the complete markdown the scout runs on every run. It must stand alone: name the exact events, properties, filters, breakdowns and cohorts, restate the analysis with a relative window matching the cadence, tell the scout to compare with the previous period, and say what to post and when to stay silent. Tell it to say plainly when the project has no matching data instead of guessing. Do not mention the user or this conversation. scout_display_name is at most 60 characters in sentence case; scout_description one sentence, at most 200 characters; cadence weekly for weekly or monthly metrics and daily otherwise.
 - notebook: the turn was an investigation worth keeping with its queries as live cells. Set notebook_template:
   - conversation: save the conversation as it is.
   - incident: the investigation found a cause and a time; fill incident_timeline (markdown bullets, one per event with its time), incident_cause (one or two sentences) and incident_fix (what fixed it or what to do next). Leave those three empty for the conversation template.
   notebook_title is at most 80 characters in sentence case; notebook_summary one or two sentences, at most 300 characters.
-- error_alert: an error tracking issue from this turn is listed and it is the cause the user cares about; the alert posts to Slack when that issue happens again. Set error_issue_id to the listed id.
+- error_alert: an error tracking issue from this turn is listed, it is the cause the user cares about, and the answer says it is resolved or the fix shipped; the alert posts to Slack when that issue reopens, so a reopen means a regression. Do not offer it for an issue that is still active. Set error_issue_id to the listed id.
 - none: nothing above fits.
 
 Always fill title (the card headline, at most 60 characters, sentence case, for example "Get this every week in Slack" or "Tell me when this drops") and description (one sentence, at most 140 characters, why the offer helps here). Fields that do not apply to the chosen offer stay empty strings, 0, or their first enum value. Keep confidence honest: 0.9 or higher only when the tool calls clearly back the choice. Reply with the JSON object only."""
 
 _OFFER_LABELS = {
-    OfferKind.SCOUT: "scout (modes: report, watch, investigate, check_back, digest)",
+    OfferKind.SCOUT: "scout (modes: report, watch, investigate, digest)",
     OfferKind.NOTEBOOK: "notebook (templates: conversation, incident)",
     OfferKind.ALERT: "alert (on a saved insight listed below)",
     OfferKind.SUBSCRIPTION: "subscription (a saved insight listed below, on a cadence)",

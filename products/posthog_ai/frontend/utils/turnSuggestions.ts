@@ -31,7 +31,6 @@ export const SCOUT_MODE_HINTS: Record<ScoutSuggestionMode, string | null> = {
     report: null,
     watch: 'Posts only when the number moves past the bound in the prompt, and stays silent otherwise.',
     investigate: 'Reruns this investigation when the metric dips again and posts what it finds.',
-    check_back: 'Checks whether the metric recovered and posts when it has. Pause the scout once it did.',
     digest: 'Covers every metric from this conversation in one post.',
 }
 
