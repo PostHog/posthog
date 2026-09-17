@@ -161,26 +161,37 @@ def sync_installation_repositories(
                 if full_name not in resolved
             ]
             if candidates:
-                # ON CONFLICT DO NOTHING, so both unique constraints still decide which rows land and
-                # a concurrent sync of the same installation cannot make this raise. bulk_create also
-                # sends no per-row save signal, which is the audit outcome the suppression above gives
-                # the rest of this block.
-                StamphogRepoConfig.objects.for_team(team_id, canonical=True).using(write_db).bulk_create(
-                    candidates, ignore_conflicts=True, batch_size=_CREATE_BATCH_SIZE
-                )
-                # The primary keys are generated in Python, so reading them back says exactly which
-                # candidates this call inserted. ignore_conflicts reports nothing itself, and a row
-                # that lost to a conflict needs the per-row resolution below.
-                inserted_ids = set(
-                    StamphogRepoConfig.objects.for_team(team_id, canonical=True)
-                    .using(write_db)
-                    .filter(id__in=[candidate.id for candidate in candidates])
-                    .values_list("id", flat=True)
+                # The rows and the record of which ones this call inserted have to commit together.
+                # An unwrapped bulk_create commits on its own, so a failure of the read-back would
+                # leave the rows in place with created_rows empty, and the retry would then see them
+                # as pre-existing and never write their audit entries.
+                with transaction.atomic(using=write_db):
+                    # ON CONFLICT DO NOTHING, so both unique constraints still decide which rows land
+                    # and a concurrent sync of the same installation cannot make this raise.
+                    # bulk_create also sends no per-row save signal, which is the audit outcome the
+                    # suppression above gives the rest of this block.
+                    StamphogRepoConfig.objects.for_team(team_id, canonical=True).using(write_db).bulk_create(
+                        candidates, ignore_conflicts=True, batch_size=_CREATE_BATCH_SIZE
+                    )
+                    # The primary keys are generated in Python, so reading them back says exactly
+                    # which candidates this call inserted. ignore_conflicts reports nothing itself,
+                    # and a row that lost to a conflict needs the per-row resolution below.
+                    inserted_ids = set(
+                        StamphogRepoConfig.objects.for_team(team_id, canonical=True)
+                        .using(write_db)
+                        .filter(id__in=[candidate.id for candidate in candidates])
+                        .values_list("id", flat=True)
+                    )
+                # Recorded before the resolution below, so a failure in it still logs every row that
+                # landed.
+                created_rows.extend(
+                    {"id": candidate.id, "repository": candidate.repository}
+                    for candidate in candidates
+                    if candidate.id in inserted_ids
                 )
                 for candidate in candidates:
                     if candidate.id in inserted_ids:
                         resolved[candidate.repository] = candidate
-                        created_rows.append({"id": candidate.id, "repository": candidate.repository})
                         continue
                     # A unique constraint holds this repository. Either the same team already has it
                     # under a different installation_id, which is the manually-created config (blank
