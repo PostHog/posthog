@@ -4903,6 +4903,9 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
     def test_a_suggestion_carries_what_posthog_measured_next_to_what_it_claimed(self, _mock_flag):
         # The producer's numbers are its own claim; the reading stored beside them is PostHog's, from
         # the same per-version, per-step series the outcome card reads.
+        HogFlow.objects.filter(id=self.flow.id).update(
+            actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}]
+        )
         opted_in = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/optimisation", {"enabled": True}, format="json"
         )

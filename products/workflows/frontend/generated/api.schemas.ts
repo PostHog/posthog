@@ -1172,7 +1172,7 @@ export interface AppMetricsTotalsResponseApi {
 }
 
 export interface HogFlowOptimisationApi {
-    /** Whether PostHog may read this workflow's metrics and suggest changes to it. */
+    /** Whether PostHog may suggest changes to this workflow. */
     enabled: boolean
 }
 

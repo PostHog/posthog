@@ -281,6 +281,23 @@ class TestWorkflowProposals(APIBaseTest):
         detail = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
         assert "pending_suggestions" not in detail
 
+    def test_the_evidence_step_must_be_one_the_workflow_has(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            {
+                "title": "x",
+                "rationale": "y",
+                "content": {"exit_condition": "exit_only_at_end"},
+                "step_id": "ghost_step",
+                "base_version": 1,
+            },
+            format="json",
+        )
+        assert response.status_code == 400, response.json()
+        assert "step_id" in str(response.json())
+        assert WorkflowProposal.objects.for_team(self.team.id).count() == 0
+
     def test_a_workflow_nobody_opted_in_is_not_suggested_against(self, _mock_flag):
         flow_id = self._create_active_flow()
         self.client.post(

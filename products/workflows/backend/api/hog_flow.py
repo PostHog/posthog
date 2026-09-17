@@ -3815,9 +3815,7 @@ class WorkflowProposalEvidenceField(serializers.JSONField):
 
 
 class HogFlowOptimisationSerializer(serializers.Serializer):
-    enabled = serializers.BooleanField(
-        help_text="Whether PostHog may read this workflow's metrics and suggest changes to it."
-    )
+    enabled = serializers.BooleanField(help_text="Whether PostHog may suggest changes to this workflow.")
 
 
 class WorkflowProposalSerializer(serializers.ModelSerializer):
@@ -5530,10 +5528,21 @@ class HogFlowViewSet(
                     }
                 )
 
+        step_id = params.get("step_id") or None
+        if step_id:
+            # The reading below and the outcome later are keyed on this step, so a step the workflow
+            # does not have would attach real-looking numbers from nowhere to the suggestion.
+            known_steps = {_item_id(item) for item in snapshot_flow_content(instance).get("actions") or []}
+            added_steps = {_item_id(item) for item in content.get("actions") or []}
+            if step_id not in known_steps and step_id not in added_steps:
+                raise exceptions.ValidationError(
+                    {"step_id": "Name a step this workflow has, or one the suggestion adds."}
+                )
+
         # The producer's numbers are its own claim. The page shows PostHog's reading of the same
         # step at the same version instead, and a person sees when the two disagree.
         evidence = dict(params.get("evidence") or {})
-        measured = self._measure_evidence(instance, params["base_version"], params.get("step_id") or None, evidence)
+        measured = self._measure_evidence(instance, params["base_version"], step_id, evidence)
         if measured is not None:
             evidence["measured"] = measured
 
@@ -5543,7 +5552,7 @@ class HogFlowViewSet(
             rationale=params["rationale"],
             content=content,
             evidence=evidence,
-            step_id=params.get("step_id") or None,
+            step_id=step_id,
             base_version=params["base_version"],
             source_id=source_id,
             created_via=self._proposal_created_via(request),
@@ -5798,10 +5807,10 @@ class HogFlowViewSet(
     @extend_schema(request=HogFlowOptimisationSerializer, responses={200: HogFlowOptimisationSerializer})
     @action(detail=True, methods=["GET", "POST"], url_path="optimisation", filter_backends=[])
     def optimisation(self, request: Request, *args, **kwargs):
-        """Whether PostHog may look at this workflow and suggest changes to it.
+        """Whether PostHog may suggest changes to this workflow.
 
-        Turning it off stops a producer reading the workflow. Suggestions already made are left
-        alone: someone still has them to resolve.
+        Turning it off stops new suggestions. Suggestions already made are left alone: someone
+        still has them to resolve.
         """
         self._require_self_optimising_enabled()
         instance = self.get_object()

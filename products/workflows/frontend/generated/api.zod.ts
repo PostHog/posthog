@@ -2412,13 +2412,13 @@ export const HogFlowsInvocationsCancelCreateBody = /* @__PURE__ */ zod
     .describe('Cancel in-flight invocations of a workflow. Provide exactly one selector.')
 
 /**
- * Whether PostHog may look at this workflow and suggest changes to it.
+ * Whether PostHog may suggest changes to this workflow.
  *
- * Turning it off stops a producer reading the workflow. Suggestions already made are left
- * alone: someone still has them to resolve.
+ * Turning it off stops new suggestions. Suggestions already made are left alone: someone
+ * still has them to resolve.
  */
 export const HogFlowsOptimisationCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().describe("Whether PostHog may read this workflow's metrics and suggest changes to it."),
+    enabled: zod.boolean().describe('Whether PostHog may suggest changes to this workflow.'),
 })
 
 /**
