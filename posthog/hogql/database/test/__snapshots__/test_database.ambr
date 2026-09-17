@@ -10834,16 +10834,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
-              },
-              "storage_version": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "storage_version",
-                  "id": null,
-                  "name": "storage_version",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
               }
           },
           "id": "system.session_recordings",
@@ -22771,16 +22761,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
-              },
-              "storage_version": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "storage_version",
-                  "id": null,
-                  "name": "storage_version",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
               }
           },
           "id": "system.session_recordings",
