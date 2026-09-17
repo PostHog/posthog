@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest import mock
 
 from parameterized import parameterized
@@ -232,6 +232,9 @@ class TestQueryScanJobOnClickhouse(ClickhouseTestMixin, BaseTest):
             credential=credential,
             columns={"id": "String"},
         )
+        # The client flushes staged rows on its first query, and the job's first queries start on
+        # several threads at once, so the rows go in here, on one thread.
+        flush_persons_and_events()
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         tree = prepare_ast_for_printing(
             parse_select(

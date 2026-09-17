@@ -1,13 +1,19 @@
 """The query scan job, kept out of Celery so a test can call it directly.
 
 It asks ClickHouse how it planned the run's SQL, reads findings and shares off the plan, and stores
-the result in the scan slot. It runs EXPLAINs only, on the offline pool.
+the result in the scan slot. It runs EXPLAINs only, on the offline pool, and runs the ones that do
+not depend on each other at the same time.
 """
 
 from __future__ import annotations
 
+import contextvars
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from time import perf_counter
-from typing import Any, get_args
+from typing import Any, TypeVar, get_args
+
+from django.db import connection
 
 import structlog
 from celery.exceptions import SoftTimeLimitExceeded
@@ -40,8 +46,11 @@ from posthog.query_scan.tree_facts import TreeFacts
 
 logger = structlog.get_logger(__name__)
 
+T = TypeVar("T")
+
 EXPLAIN_MAX_SECONDS = 10
 TABLE_AVERAGES_MAX_SECONDS = 5
+MAX_EXPLAIN_WORKERS = 8
 
 # The two events tables and the three persons tables the persons gate compares in rows.
 _ROW_AVERAGE_TABLES = (
@@ -125,41 +134,62 @@ def _run(job: QueryScanJob, started: float) -> None:
         # The flag went off between the enqueue and now. Leave the pending slot to expire.
         return
 
-    # Read once per run: the average is a table-wide property, the same for every execution.
-    table_row_averages = _table_row_averages(job.team.pk)
+    team_id = job.team.pk
+    pool = ThreadPoolExecutor(max_workers=MAX_EXPLAIN_WORKERS, thread_name_prefix="query_scan")
+    try:
+        # Read once per run: the average is a table-wide property, the same for every execution.
+        table_row_averages = _submit(pool, _table_row_averages, team_id)
+        # The team's whole data on the initiator shard, run once for every execution's share.
+        team_granules = _submit(pool, _team_granules, team_id)
+        outers = [
+            _submit(pool, _plan, execution.stubbed_sql, execution.values, team_id) for execution in job.executions
+        ]
+        subqueries = [
+            [_submit(pool, _plan, sql, execution.values, team_id) for sql in execution.subqueries]
+            for execution in job.executions
+        ]
+        bounds = [_timestamp_bounds(outer.result()) for outer in outers]
+        range_granules = {
+            execution_bounds: _submit(pool, _range_granules, team_id, execution_bounds)
+            for execution_bounds in set(bounds)
+            if execution_bounds is not None
+        }
 
-    # The team's whole data on the initiator shard, run once for every execution's share.
-    team_granules = _denominator_granules(
-        _explain("SELECT uuid FROM events WHERE team_id = %(scan_team_id)s", {"scan_team_id": job.team.pk}, job.team.pk)
-    )
-    range_cache: dict[tuple[int | None, int | None], int | None] = {}
-
-    results: list[QueryScanResult] = []
-    for execution in job.executions:
-        outer = _plan(execution.stubbed_sql, execution.values, job.team.pk)
-        subqueries = tuple(
-            plan
-            for plan in (_plan(sql, execution.values, job.team.pk) for sql in execution.subqueries)
-            if plan is not None
-        )
-        range_granules = _range_granules(job.team.pk, outer, team_granules, range_cache)
-        results.append(
-            analyze(
-                PlanSet(outer=outer, subqueries=subqueries, team_granules=team_granules, range_granules=range_granules),
-                flag,
-                query_kind=job.query_kind or "",
-                run=RunFacts(
-                    all_time=job.all_time,
-                    dashboard_all_time=job.dashboard_all_time,
-                    all_history_by_design=job.all_history_by_design,
-                    all_events_by_design=job.all_events_by_design,
-                    open_filters_placeholder=job.open_filters_placeholder,
-                    tree=TreeFacts.from_payload(execution.tree),
-                ),
-                event_filter=_combined_event_filter(execution, outer),
-                table_row_averages=table_row_averages,
+        results: list[QueryScanResult] = []
+        for execution, outer_plan, subquery_plans, execution_bounds in zip(
+            job.executions, outers, subqueries, bounds, strict=True
+        ):
+            outer = outer_plan.result()
+            # With no bound the range is all time, so it equals the team denominator.
+            range_denominator = range_granules[execution_bounds] if execution_bounds is not None else team_granules
+            results.append(
+                analyze(
+                    PlanSet(
+                        outer=outer,
+                        subqueries=tuple(
+                            plan for plan in (future.result() for future in subquery_plans) if plan is not None
+                        ),
+                        team_granules=team_granules.result(),
+                        range_granules=range_denominator.result(),
+                    ),
+                    flag,
+                    query_kind=job.query_kind or "",
+                    run=RunFacts(
+                        all_time=job.all_time,
+                        dashboard_all_time=job.dashboard_all_time,
+                        all_history_by_design=job.all_history_by_design,
+                        all_events_by_design=job.all_events_by_design,
+                        open_filters_placeholder=job.open_filters_placeholder,
+                        tree=TreeFacts.from_payload(execution.tree),
+                    ),
+                    event_filter=_combined_event_filter(execution, outer),
+                    table_row_averages=table_row_averages.result(),
+                )
             )
-        )
+    finally:
+        # A job that stops early, on the task's time limit or a plan it cannot parse, must not leave
+        # queued EXPLAINs to run past it. The ones already running end on their own time limit.
+        pool.shutdown(wait=True, cancel_futures=True)
 
     merged = _merge(results, job.executions)
     # Stored under the flag in force now. A pending claim left under other thresholds expires on its
@@ -178,6 +208,23 @@ def _run(job: QueryScanJob, started: float) -> None:
         # goes and the next slow run analyzes again.
         clear_slot(job.team.pk, job.cache_key, thresholds=flag.thresholds_fingerprint)
     _report(job, merged, flag_event_ratio=flag.event_ratio, job_ms=round((perf_counter() - started) * 1000))
+
+
+def _submit(pool: ThreadPoolExecutor, fn: Callable[..., T], *args: Any) -> Future[T]:
+    """Run ``fn`` on the pool under a copy of the caller's context. A pool thread starts with an empty
+    context, and the task's query tags live in the caller's. One Context cannot be entered by two
+    threads at once, so each call gets its own copy."""
+    context = contextvars.copy_context()
+
+    def run() -> T:
+        try:
+            return context.run(fn, *args)
+        finally:
+            # The ClickHouse client reads the kill switch from Postgres when its cached copy is a
+            # minute old, and that read opens a connection that belongs to this thread.
+            connection.close()
+
+    return pool.submit(run)
 
 
 def _plan(sql: str, values: dict[str, Any], team_id: int) -> QueryPlan | None:
@@ -211,23 +258,24 @@ def _combined_event_filter(execution: Execution, outer: QueryPlan | None) -> Eve
     return combine_event_filter(outcome, outer)
 
 
-def _range_granules(
-    team_id: int,
-    outer: QueryPlan | None,
-    team_granules: int | None,
-    cache: dict[tuple[int | None, int | None], int | None],
-) -> int | None:
-    """The team's granules over the run's date range, cached per distinct bounds. With no bound the
-    range is all time, so it equals the team denominator.
-    """
+def _team_granules(team_id: int) -> int | None:
+    return _denominator_granules(
+        _explain("SELECT uuid FROM events WHERE team_id = %(scan_team_id)s", {"scan_team_id": team_id}, team_id)
+    )
+
+
+def _timestamp_bounds(outer: QueryPlan | None) -> TimestampBounds | None:
+    """The bounds of the outer plan's heaviest events read, or None when it is open on both sides."""
     events_read = outer.heaviest_events_read() if outer is not None else None
-    bounds = events_read.timestamp_bounds() if events_read is not None else TimestampBounds(lower=None, upper=None)
-    if bounds.lower is None and bounds.upper is None:
-        return team_granules
-    key = (bounds.lower, bounds.upper)
-    if key not in cache:
-        cache[key] = _denominator_granules(_explain_range(team_id, bounds))
-    return cache[key]
+    bounds = events_read.timestamp_bounds() if events_read is not None else None
+    if bounds is None or (bounds.lower is None and bounds.upper is None):
+        return None
+    return bounds
+
+
+def _range_granules(team_id: int, bounds: TimestampBounds) -> int | None:
+    """The team's granules over the run's date range."""
+    return _denominator_granules(_explain_range(team_id, bounds))
 
 
 def _explain_range(team_id: int, bounds: TimestampBounds) -> list[Any] | None:
@@ -265,8 +313,6 @@ def _table_row_averages(team_id: int) -> dict[str, float]:
                 team_id=team_id,
                 readonly=True,
             )
-    except SoftTimeLimitExceeded:
-        raise
     except Exception:
         logger.warning("query_scan_table_averages_failed", team_id=team_id, exc_info=True)
         return {}
@@ -287,9 +333,6 @@ def _explain(sql: str, values: dict[str, Any], team_id: int) -> list[Any] | None
                 readonly=True,
             )
         return rows
-    except SoftTimeLimitExceeded:
-        # Never swallow the task's timeout as an explain failure; the task leaves the slot pending.
-        raise
     except Exception:
         logger.warning("query_scan_explain_failed", team_id=team_id, exc_info=True)
         return None
