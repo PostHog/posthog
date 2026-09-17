@@ -64,6 +64,24 @@ export function BellIcon({ color = colors.ink }: { color?: string }) {
   );
 }
 
+export function SteeringIcon({ color = colors.ink }: { color?: string }) {
+  return (
+    <View style={styles.steer}>
+      <View style={[styles.steerRing, { borderColor: color }]} />
+      <View style={[styles.steerHub, { backgroundColor: color }]} />
+    </View>
+  );
+}
+
+export function CardsIcon({ color = colors.ink }: { color?: string }) {
+  return (
+    <View style={styles.cards}>
+      <View style={[styles.cardBack, { borderColor: color }]} />
+      <View style={[styles.cardFront, { borderColor: color }]} />
+    </View>
+  );
+}
+
 export function LockIcon({ color = colors.inkSoft }: { color?: string }) {
   return (
     <View style={styles.lock}>
@@ -79,6 +97,36 @@ const styles = StyleSheet.create({
   glyph: { fontSize: 20, fontFamily: fonts.sansBold, marginTop: -1 },
   stop: { width: 14, height: 14, borderRadius: 3 },
   lock: { width: 14, height: 14, alignItems: "center" },
+  cards: { width: 22, height: 20 },
+  cardBack: {
+    position: "absolute",
+    left: 6,
+    top: 0,
+    width: 12,
+    height: 16,
+    borderWidth: 1.8,
+    borderRadius: 3,
+    transform: [{ rotate: "12deg" }],
+  },
+  cardFront: {
+    position: "absolute",
+    left: 1,
+    top: 2,
+    width: 12,
+    height: 16,
+    borderWidth: 1.8,
+    borderRadius: 3,
+    backgroundColor: colors.bg,
+    transform: [{ rotate: "-8deg" }],
+  },
+  steer: {
+    width: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  steerRing: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.8 },
+  steerHub: { position: "absolute", width: 6, height: 6, borderRadius: 3 },
   bell: {
     width: 20,
     height: 20,

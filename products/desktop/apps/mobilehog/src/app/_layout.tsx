@@ -10,6 +10,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { useAuth } from "@/lib/auth";
 import { usePrefs } from "@/lib/prefs";
 import { useRepo } from "@/lib/repo";
+import { useSeenReports } from "@/lib/reports";
 import { useSessions } from "@/lib/session";
 import { colors } from "@/lib/theme";
 
@@ -26,11 +27,13 @@ function AuthGate() {
 
   const hydrateRepo = useRepo((s) => s.hydrate);
   const hydratePrefs = usePrefs((s) => s.hydrate);
+  const hydrateSeen = useSeenReports((s) => s.hydrate);
   useEffect(() => {
     hydrate();
     hydrateRepo();
     hydratePrefs();
-  }, [hydrate, hydrateRepo, hydratePrefs]);
+    hydrateSeen();
+  }, [hydrate, hydrateRepo, hydratePrefs, hydrateSeen]);
 
   useEffect(() => {
     if (!hydrated) return;
