@@ -101,7 +101,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri, get_instance_region, render_template
 from posthog.views import login_required
 
-from products.access_control.backend.facade.consent_access import organization_uses_access_controls
+from products.access_control.backend.facade.consent_access import any_organization_uses_access_controls
 
 logger = structlog.get_logger(__name__)
 
@@ -1585,11 +1585,11 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             }
         }
 
-        # Scopes cap what the token may do; access rules cap what the user may do. When rules
-        # exist, the consent screen says so, because a granted scope can still meet a 403.
-        current_organization = request.user.organization
+        # Scopes cap what the token may do; access rules cap what the user may do. The grant can
+        # reach any organization the user belongs to, so when any of them has rules the consent
+        # screen says so, because a granted scope can still meet a 403.
         template_context["oauth_consent_access_controls"] = {
-            "applies": current_organization is not None and organization_uses_access_controls(current_organization),
+            "applies": any_organization_uses_access_controls(request.user.organizations.all()),
         }
 
         requested_scope = (request.query_params.get("scope") or "").strip()

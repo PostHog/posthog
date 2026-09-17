@@ -47,6 +47,7 @@ from posthog.models.oauth import (
     revoke_application_sessions,
     revoke_oauth_session,
 )
+from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.scopes import get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
@@ -288,16 +289,25 @@ class TestOAuthAPI(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             return json.loads(response.context["posthog_app_context"])["oauth_consent_access_controls"]["applies"]
 
+        access_control_feature = [{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}]
         self.assertFalse(applies())
 
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
+        self.organization.available_product_features = access_control_feature
         self.organization.save()
         # The feature alone changes nothing a person can reach; a rule does.
         self.assertFalse(applies())
 
         AccessControl.objects.create(team=self.team, resource="feature_flag", access_level="viewer")
+        self.assertTrue(applies())
+
+        # The grant can reach any organization the user belongs to, not only the current one.
+        self.organization.available_product_features = []
+        self.organization.save()
+        self.assertFalse(applies())
+        other_org, _, other_team = Organization.objects.bootstrap(self.user, name="Other Organization")
+        other_org.available_product_features = access_control_feature
+        other_org.save()
+        AccessControl.objects.create(team=other_team, resource="insight", access_level="none")
         self.assertTrue(applies())
 
     def test_first_party_app_auto_approves_with_org_scoped_grant(self):
