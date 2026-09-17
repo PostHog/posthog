@@ -1238,7 +1238,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "report that was missing a qualifying reviewer or a repository can open a draft PR. The response "
             "carries the repository the report holds after the edit, and the call fails when a repository it "
             "named did not land. "
-            "Title/summary edits are best-effort: the pipeline may later re-research them."
+            "Title/summary edits are best-effort: the pipeline may later re-research them. "
+            "Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated "
+            "predecessor PRs close only after the replacement completes with verified open PRs."
         ),
         operation_id="signals_scout_edit_report",
     )
@@ -1267,6 +1269,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 charts=_to_report_charts(data.get("charts")),
                 metrics=_to_report_metrics(data.get("metrics")),
                 suggested_prompts=data.get("suggested_prompts"),
+                supersedes_implementation=bool(data.get("supersedes_implementation")),
+                corroboration_only=bool(data.get("corroboration_only")),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -1283,6 +1287,10 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "charts_set": result.charts_set,
                     "metrics_set": result.metrics_set,
                     "suggested_prompts_set": result.suggested_prompts_set,
+                    "is_content_revision": result.is_content_revision,
+                    "content_revision_count": result.content_revision_count,
+                    "supersedes_implementation": result.supersedes_implementation,
+                    "corroboration_collapsed": result.corroboration_collapsed,
                 }
             ).data,
             status=status.HTTP_200_OK,

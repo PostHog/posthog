@@ -27,6 +27,7 @@ logger = structlog.get_logger(__name__)
 # Event types we handle for support tickets
 SUPPORT_EVENT_TYPES = [
     "app_mention",
+    "link_shared",
     "message",
     "reaction_added",
     "member_joined_channel",
