@@ -161,12 +161,17 @@ export function checkCreatePayload(form: CheckFormValues, requiresColumn: boolea
     }
 }
 
+/** An unset config value is a missing key here and an explicit null as stored, so neither is compared. */
+function withoutUnset(config: Record<string, unknown>): Record<string, unknown> {
+    return Object.fromEntries(Object.entries(config).filter(([, value]) => value !== null && value !== undefined))
+}
+
 /** Whether the form asserts something other than what the stored check already asserts. */
 function assertionChanged(definition: CheckDefinitionPayload, check: DataQualityCheckApi): boolean {
     return (
         definition.check_type !== check.check_type ||
         definition.column_name !== (check.column_name ?? '') ||
-        !objectsEqual(definition.config, check.config ?? {})
+        !objectsEqual(withoutUnset(definition.config ?? {}), withoutUnset(check.config ?? {}))
     )
 }
 

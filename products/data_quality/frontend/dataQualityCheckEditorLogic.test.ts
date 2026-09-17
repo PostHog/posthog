@@ -410,6 +410,41 @@ describe('dataQualityCheckEditorLogic', () => {
         })
     })
 
+    it.each<[string, Partial<DataQualityCheckApi>]>([
+        [
+            'a relationships check with no target window',
+            {
+                check_type: CheckTypeEnumApi.Relationships,
+                config: {
+                    to_subject_type: 'table',
+                    to_subject_uuid: 'table-9',
+                    to_column: 'customer_id',
+                    to_lookback_hours: null,
+                },
+            },
+        ],
+        [
+            'a row_count check with only a minimum',
+            { check_type: CheckTypeEnumApi.RowCount, column_name: '', config: { min: 10, max: null } },
+        ],
+    ])('leaves the assertion out of a metadata-only edit of %s', async (_case, storedCheck) => {
+        // The stored config writes an unset value as null, so a comparison that counts keys reads
+        // every rename as an assertion edit and sends a definition the backend then revalidates.
+        ;(dataQualityChecksPartialUpdate as jest.Mock).mockResolvedValue(buildCheck())
+        await mountLogic()
+        await openWith(buildCheck(storedCheck), { description: 'renamed' })
+
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataQualityChecksPartialUpdate).toHaveBeenCalledWith('1', 'check-1', {
+            severity: 'error',
+            name: '',
+            description: 'renamed',
+            tags: [],
+        })
+    })
+
     it('does not submit before the check-type catalog arrives', async () => {
         // Enter can submit while the catalog request is still pending. Without it there is no column
         // requirement to validate against, so the payload would omit column_name and be rejected.
