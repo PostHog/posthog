@@ -820,6 +820,8 @@ depends_on = [
     "products.cdp",
     "products.conversations",
     "products.dashboards",
+    # Facade-only: the DRI pick on a self-driving pull request asks which team owns each of its files.
+    "products.engineering_analytics",
     # Facade-only (enforced by data_catalog's [[interfaces]] block): the scout harness gates
     # its catalog-first prompt rule on the data catalog flag.
     "products.data_catalog",
