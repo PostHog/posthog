@@ -306,16 +306,13 @@ export interface BuildConversationOptions {
 }
 
 export function hasSetupProgressForRun(
-  events: AcpMessage[] | AgentConversationEvent[],
+  events: AcpMessage[],
   runId?: string,
 ): boolean {
   if (!runId) return false;
   const group = `setup:${runId}`;
 
-  return events.some((event) => {
-    if (event.type === "progress") return event.group === group;
-    if (event.type !== "acp_message") return false;
-    const message = event.message;
+  return events.some(({ message }) => {
     return (
       isJsonRpcNotification(message) &&
       isNotification(message.method, POSTHOG_NOTIFICATIONS.PROGRESS) &&

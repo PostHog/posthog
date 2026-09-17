@@ -1312,10 +1312,6 @@ export function ChatThread({
   historyVersion,
   ...props
 }: ChatThreadProps) {
-  const currentRunId = useSessionSelector(
-    props.taskId,
-    (session) => session?.taskRunId,
-  );
   const { items, ...footerState } = useAgentConversationItems(
     events,
     props.isPromptPending,
@@ -1329,7 +1325,6 @@ export function ChatThread({
         {...props}
         conversationItems={items}
         footerState={footerState}
-        hasCurrentSetupProgress={hasSetupProgressForRun(events, currentRunId)}
       />
     </RawLogsToggleContext.Provider>
   );
@@ -1365,7 +1360,7 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
 interface ChatThreadRendererProps extends SharedChatThreadProps {
   conversationItems: ConversationItem[];
   footerState: Omit<BuildResult, "items">;
-  hasCurrentSetupProgress: boolean;
+  hasCurrentSetupProgress?: boolean;
 }
 
 function ChatThreadRenderer({
@@ -1377,7 +1372,7 @@ function ChatThreadRenderer({
   task,
   taskId,
   footerState,
-  hasCurrentSetupProgress,
+  hasCurrentSetupProgress = false,
   hasPendingPermission,
   currentWork,
   promptRecallRef,
