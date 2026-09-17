@@ -37,6 +37,7 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.event_usage import report_user_action
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.permissions import is_scout_sandbox_request
 from posthog.rate_limit import ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
 
@@ -65,11 +66,13 @@ from products.replay_vision.backend.scanner_access import (
     scanner_for_reading_observations,
 )
 from products.replay_vision.backend.scanning import RetryOutcome, retry_observation
+from products.replay_vision.backend.scout_writes import refuse_scout_scanner_scan
 from products.replay_vision.backend.search import (
     DEFAULT_SEARCH_LIMIT,
     MAX_SEARCH_LIMIT,
     ObservationSearchFilters,
     ObservationSearchResult,
+    is_transient_embedding_error,
     parse_date_bound,
     query_vector_for,
     search_observations,
@@ -122,6 +125,31 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     scanner_config = serializers.JSONField(
         help_text="Scanner-type-specific configuration at run time (prompt, tags, scale, etc.).",
     )
+    verify_positives = serializers.CharField(
+        help_text="How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (second draw recorded only), or `enforce` (the `yes` stands only when the second draw agrees).",
+    )
+
+
+class VerificationRecordSerializer(serializers.Serializer):
+    """Mirrors `temporal.types.VerificationRecord` for OpenAPI generation."""
+
+    mode = serializers.CharField(
+        help_text="Verify-positives mode the scan ran with: `shadow` records the second draw only, `enforce` serves the settled verdict.",
+    )
+    draws = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Monitor verdicts in draw order: the pass that triggered verification, then the second draw when it ran.",
+    )
+    resolved_verdict = serializers.CharField(
+        help_text="The verdict verification settled on: the first pass when the second draw agrees, else the dissent.",
+    )
+    served_verdict = serializers.CharField(
+        help_text="The verdict `model_output` carries: the resolved one under `enforce`, the first draw under `shadow`.",
+    )
+    skipped_reason = serializers.CharField(
+        allow_null=True,
+        help_text="Why verification stopped early (`no_cache`, `no_budget`, `draw_failed`), leaving the first pass in place. Null when every draw ran.",
+    )
 
 
 class ScannerResultSerializer(serializers.Serializer):
@@ -133,6 +161,10 @@ class ScannerResultSerializer(serializers.Serializer):
     signals_count = serializers.IntegerField(
         min_value=0,
         help_text="Number of PostHog Signals emitted from this observation.",
+    )
+    verification = VerificationRecordSerializer(
+        allow_null=True,
+        help_text="Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one.",
     )
 
 
@@ -780,6 +812,11 @@ class ReplayObservationViewSet(
     filter_backends = [_TeamAwareFilterBackend]
     filterset_class = ReplayObservationFilter
 
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        if self.action in {"retry"}:
+            refuse_scout_scanner_scan(is_scout_sandbox_request(request))
+
     def _scanner_for_url(self) -> ReplayScanner:
         # Per-request cache so `stats` doesn't re-run the RBAC + scanner-lookup roundtrip.
         cached = getattr(self, "_scanner_for_url_cache", None)
@@ -1351,9 +1388,11 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             )
         try:
             query_vector = query_vector_for(self.team, validated["q"])
-        except (requests.ConnectionError, requests.Timeout):
-            # The embedding worker is unreachable or slow, so the caller can retry. A rejected request
-            # (requests.HTTPError) is a bug, not retryable, and should surface as a 500.
+        except requests.RequestException as error:
+            # The embedding worker is unreachable, slow, or failing, so the caller can retry. A rejected
+            # request is a bug on our side, not retryable, and should surface as a 500.
+            if not is_transient_embedding_error(error):
+                raise
             logger.warning("replay_vision.observation_search.embedding_failed", team_id=self.team_id, exc_info=True)
             raise EmbeddingUnavailableError()
         filters = ObservationSearchFilters.from_raw(

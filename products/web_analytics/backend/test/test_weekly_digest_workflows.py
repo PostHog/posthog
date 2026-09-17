@@ -9,12 +9,12 @@ from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
+from products.web_analytics.backend.temporal.digest_common import OrgBatchPageResult
 from products.web_analytics.backend.temporal.weekly_digest.types import (
     WA_DIGEST_THRESHOLD_EXCEEDED_TYPE,
     DigestBatchInput,
     DigestBatchResult,
     OrgBatchPageInput,
-    OrgBatchPageResult,
     WAWeeklyDigestInput,
 )
 from products.web_analytics.backend.temporal.weekly_digest.workflows import WAWeeklyDigestWorkflow

@@ -43,7 +43,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 import { urls } from 'scenes/urls'
 
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { AccessControlLevel, AccessControlResourceType, ReplayTabs } from '~/types'
 
@@ -232,13 +231,6 @@ export interface navigation3000LogicMeta {
         isNavCollapsed: (isNavCollapsedDesktop: boolean, mobileLayout: boolean) => boolean
         navbarItems: (
             featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
-            dashboardsLoading: boolean,
-            pinnedDashboards: (
-                | import('~/types').DashboardBasicType
-                | import('~/types').DashboardType<
-                      import('~/types').QueryBasedInsightModel<import('../../queries/schema').Node<Record<string, any>>>
-                  >
-            )[],
             savedFilters: SavedSessionRecordingPlaylistsResult,
             savedFiltersLoading: boolean
         ) => NavbarItem[][]
@@ -619,24 +611,9 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             (isNavCollapsedDesktop: boolean, mobileLayout: boolean): boolean => !mobileLayout && isNavCollapsedDesktop,
         ],
         navbarItems: [
-            (s) => [
-                featureFlagLogic.selectors.featureFlags,
-                dashboardsModel.selectors.dashboardsLoading,
-                dashboardsModel.selectors.pinnedDashboards,
-                s.savedFilters,
-                s.savedFiltersLoading,
-            ],
+            (s) => [featureFlagLogic.selectors.featureFlags, s.savedFilters, s.savedFiltersLoading],
             (
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
-                dashboardsLoading: boolean,
-                pinnedDashboards: (
-                    | import('~/types').DashboardBasicType
-                    | import('~/types').DashboardType<
-                          import('~/types').QueryBasedInsightModel<
-                              import('../../queries/schema').Node<Record<string, any>>
-                          >
-                      >
-                )[],
                 savedFilters: import('~/types').SavedSessionRecordingPlaylistsResult,
                 savedFiltersLoading: boolean
             ): NavbarItem[][] => {
@@ -654,33 +631,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconDashboard />,
                             tooltipDocLink: 'https://posthog.com/docs/product-analytics/dashboards',
                             to: urls.dashboards(),
-                            sideAction:
-                                pinnedDashboards.length > 0
-                                    ? {
-                                          identifier: 'pinned-dashboards-dropdown',
-                                          dropdown: {
-                                              overlay: (
-                                                  <LemonMenuOverlay
-                                                      items={[
-                                                          {
-                                                              title: 'Pinned dashboards',
-                                                              items: pinnedDashboards.map((dashboard) => ({
-                                                                  label: dashboard.name,
-                                                                  to: urls.dashboard(dashboard.id),
-                                                              })),
-                                                              footer: dashboardsLoading && (
-                                                                  <div className="px-2 py-1 text-tertiary">
-                                                                      <Spinner /> Loading…
-                                                                  </div>
-                                                              ),
-                                                          },
-                                                      ]}
-                                                  />
-                                              ),
-                                              placement: 'bottom-end',
-                                          },
-                                      }
-                                    : undefined,
                         },
                         {
                             identifier: Scene.Notebooks,

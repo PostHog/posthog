@@ -32,6 +32,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CISignalsConfig,
     CITestRunner,
     CurrentBranchHealth,
+    DeliverySummary,
     DoraOverview,
     FlakyTestList,
     GitHubSource,
@@ -41,6 +42,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
+    PullRequestTimelines,
     QuarantineFile,
     QuarantineRequest,
     QuarantineRequestResult,
@@ -275,6 +277,51 @@ def list_author_workflow_costs(
     )
 
 
+def get_delivery_summary(
+    *,
+    team: Team,
+    author: str | None = None,
+    github_team: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> DeliverySummary:
+    """Delivery figures for exactly one of ``author`` or ``github_team``, each against the repository."""
+    # Validate the scope before resolving the source, so a bad request reads as a bad scope.
+    scope = logic.DeliveryScope.from_params(author=author, github_team=github_team, pr_number=None, repo=None)
+    return logic.build_delivery_summary(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        scope=scope,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def get_pull_request_timelines(
+    *,
+    team: Team,
+    author: str | None = None,
+    github_team: str | None = None,
+    pr_number: int | None = None,
+    repo: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> PullRequestTimelines:
+    """Timelines for exactly one of ``author``, ``github_team``, or ``pr_number`` (which needs ``repo``)."""
+    # Validate the scope before resolving the source, so a bad request reads as a bad scope.
+    scope = logic.DeliveryScope.from_params(author=author, github_team=github_team, pr_number=pr_number, repo=repo)
+    return logic.build_pull_request_timelines(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        scope=scope,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
 def list_workflow_jobs(
     *,
     team: Team,
@@ -349,6 +396,7 @@ def list_workflow_health(
     date_to: str | None = None,
     branch: str | None = None,
     run_scope: str | None = None,
+    workflow_name: str | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
@@ -359,6 +407,7 @@ def list_workflow_health(
         date_to=date_to,
         branch=branch,
         run_scope=run_scope,
+        workflow_name=workflow_name,
     )
 
 

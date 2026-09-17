@@ -1,5 +1,6 @@
 ---
 name: signals-scout-web-analytics
+scout-display-name: Web analytics
 description: >
   Signals scout for PostHog web traffic. Watches per-channel session volume, attribution
   breakage, and landing-page health (bounce and 404 steps) against the site's own baseline. Per-

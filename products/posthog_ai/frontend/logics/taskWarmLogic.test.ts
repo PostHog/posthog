@@ -10,7 +10,7 @@ import {
     type WarmTaskRequestApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import { taskWarmLogic } from './taskWarmLogic'
+import { taskWarmLogic, type WarmSubmission } from './taskWarmLogic'
 
 const WARM_REQUEST: WarmTaskRequestApi = {
     repository: 'posthog/posthog',
@@ -26,11 +26,13 @@ describe('taskWarmLogic', () => {
     let logic: ReturnType<typeof taskWarmLogic.build>
     let warmCalls: number
     let cancelledRuns: string[]
+    let cancelBodies: unknown[]
     let resolveWarm: ((value: unknown) => void) | null
 
     beforeEach(() => {
         warmCalls = 0
         cancelledRuns = []
+        cancelBodies = []
         resolveWarm = null
         useMocks({
             post: {
@@ -38,8 +40,9 @@ describe('taskWarmLogic', () => {
                     warmCalls += 1
                     return [200, { task_id: `warm-task-${warmCalls}`, run_id: `warm-run-${warmCalls}` }]
                 },
-                '/api/projects/:team/tasks/:taskId/runs/:runId/cancel/': async ({ params }) => {
+                '/api/projects/:team/tasks/:taskId/runs/:runId/cancel/': async ({ params, request }) => {
                     cancelledRuns.push(params.runId as string)
+                    cancelBodies.push(await request.json())
                     return [200, {}]
                 },
             },
@@ -68,20 +71,31 @@ describe('taskWarmLogic', () => {
         expect(logic.values.warmLease).toMatchObject({ taskId: 'warm-task-1', runId: 'warm-run-1' })
     })
 
-    it('consuming a warm on submit clears the lease without cancelling the run', async () => {
-        jest.useFakeTimers()
-        logic.actions.noteDraft(true, WARM_REQUEST)
-        jest.advanceTimersByTime(300)
-        jest.useRealTimers()
-        await expectLogic(logic).toFinishAllListeners()
+    it.each(['warm-run-1', 'cold-run'])(
+        'consuming a warm after submit activates %s releases only the unused run',
+        async (runId) => {
+            jest.useFakeTimers()
+            logic.actions.noteDraft(true, WARM_REQUEST)
+            jest.advanceTimersByTime(300)
+            jest.useRealTimers()
+            await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.consumeWarm()
-        await expectLogic(logic).toFinishAllListeners()
+            jest.useFakeTimers()
+            logic.actions.noteDraft(false, WARM_REQUEST)
+            const submission: WarmSubmission = { projectId: '997', lease: null }
+            logic.actions.prepareSubmit(submission)
+            await jest.advanceTimersByTimeAsync(5000)
+            jest.useRealTimers()
+            expect(cancelledRuns).toEqual([])
 
-        // The submit activates this very Run — cancelling it would kill the run out from under the message.
-        expect(logic.values.warmLease).toBeNull()
-        expect(cancelledRuns).toEqual([])
-    })
+            logic.actions.consumeWarm(submission, runId)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.warmLease).toBeNull()
+            expect(cancelledRuns).toEqual(runId === 'warm-run-1' ? [] : ['warm-run-1'])
+            expect(cancelBodies).toEqual(runId === 'warm-run-1' ? [] : [{ only_if_awaiting_first_message: true }])
+        }
+    )
 
     it('warms again for the next draft after a submit consumed the previous warm', async () => {
         jest.useFakeTimers()
@@ -91,7 +105,9 @@ describe('taskWarmLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(warmCalls).toBe(1)
 
-        logic.actions.consumeWarm()
+        const submission: WarmSubmission = { projectId: '997', lease: null }
+        logic.actions.prepareSubmit(submission)
+        logic.actions.consumeWarm(submission, 'warm-run-1')
         await expectLogic(logic).toFinishAllListeners()
 
         jest.useFakeTimers()
@@ -323,44 +339,98 @@ describe('taskWarmLogic', () => {
         expect(cancelledRuns).toEqual([])
     })
 
-    it('drops a warm that resolves after the submit consumed it mid-flight', async () => {
-        // The scene consumes the warm only after its create resolves, so a create round trip that beats
-        // the slower warm POST leaves the warm still in flight at consume time. Without a fence the
-        // completing POST installs a lease on a Run the create may have already activated, and a later
-        // selection change would then cancel that live Run.
-        let resolveHeldWarm: () => void = () => {}
+    it.each([
+        ['warm-run-1', false],
+        ['warm-run-1', true],
+        ['cold-run', false],
+        ['cold-run', true],
+    ] as const)('reconciles a warm response when submit activates %s (warm first: %s)', async (runId, warmFirst) => {
+        let resolveHeldWarm!: () => void
+        let warmStarted!: () => void
+        const started = new Promise<void>((resolve) => {
+            warmStarted = resolve
+        })
         useMocks({
             post: {
                 '/api/projects/:team/tasks/warm/': async () => {
                     await new Promise<void>((resolve) => {
                         resolveHeldWarm = resolve
+                        warmStarted()
                     })
                     return [200, { task_id: 'warm-task-1', run_id: 'warm-run-1' }]
-                },
-                '/api/projects/:team/tasks/:taskId/runs/:runId/cancel/': async ({ params }) => {
-                    cancelledRuns.push(params.runId as string)
-                    return [200, {}]
                 },
             },
         })
 
         logic.actions.prewarm(WARM_REQUEST)
-        await expectLogic(logic).toMount()
-        // The submit consumes the warm while the POST is still open.
-        logic.actions.consumeWarm()
+        await started
+        const submission: WarmSubmission = { projectId: '997', lease: null }
+        logic.actions.prepareSubmit(submission)
+        if (warmFirst) {
+            resolveHeldWarm()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.releaseWarm()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(cancelledRuns).toEqual([])
+        }
+        logic.actions.consumeWarm(submission, runId)
 
         resolveHeldWarm()
         await expectLogic(logic).toFinishAllListeners()
 
-        // No lease is installed, so a later selection change (noteDraft only releases when a lease is
-        // held) has nothing to cancel — the activated Run is safe. And the Run itself was not cancelled.
         expect(logic.values.warmLease).toBeNull()
-        expect(cancelledRuns).toEqual([])
+        expect(cancelledRuns).toEqual(runId === 'warm-run-1' ? [] : ['warm-run-1'])
+        expect(cancelBodies).toEqual(runId === 'warm-run-1' ? [] : [{ only_if_awaiting_first_message: true }])
     })
 
-    it('releases a held warm when the composer unmounts', async () => {
-        // Navigating away is the common way to leave the composer. Without an unmount release, the warm
-        // sandbox idles until the server reaper while holding a scarce per-user warm-pool slot.
+    it.each([false, true])(
+        'preserves an earlier warm that a later submission may use (in flight: %s)',
+        async (inFlight) => {
+            let finishWarm!: () => void
+            let warmStarted!: () => void
+            const started = new Promise<void>((resolve) => {
+                warmStarted = resolve
+            })
+            useMocks({
+                post: {
+                    '/api/projects/:team/tasks/warm/': async () => {
+                        await new Promise<void>((resolve) => {
+                            finishWarm = resolve
+                            warmStarted()
+                        })
+                        return [200, { task_id: 'warm-task-1', run_id: 'warm-run-1' }]
+                    },
+                },
+            })
+
+            logic.actions.prewarm(WARM_REQUEST)
+            await started
+            if (!inFlight) {
+                finishWarm()
+                await expectLogic(logic).toFinishAllListeners()
+            }
+            const first: WarmSubmission = { projectId: '997', lease: null }
+            const second: WarmSubmission = { projectId: '997', lease: null }
+            logic.actions.prepareSubmit(first)
+            logic.actions.prepareSubmit(second)
+            logic.actions.consumeWarm(first, 'cold-run')
+            finishWarm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(cancelledRuns).toEqual([])
+            logic.actions.consumeWarm(second, 'warm-run-1')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(cancelledRuns).toEqual([])
+            expect(logic.values.warmLease).toBeNull()
+        }
+    )
+
+    it.each([false, true])('releases a warm when the composer unmounts (in flight: %s)', async (inFlight) => {
+        let finishWarm!: () => void
+        let warmStarted!: () => void
+        const started = new Promise<void>((resolve) => {
+            warmStarted = resolve
+        })
         let cancelSeen: () => void = () => {}
         const cancelled = new Promise<void>((resolve) => {
             cancelSeen = resolve
@@ -369,27 +439,34 @@ describe('taskWarmLogic', () => {
             post: {
                 '/api/projects/:team/tasks/warm/': async () => {
                     warmCalls += 1
+                    await new Promise<void>((resolve) => {
+                        finishWarm = resolve
+                        warmStarted()
+                    })
                     return [200, { task_id: 'warm-task-1', run_id: 'warm-run-1' }]
                 },
-                '/api/projects/:team/tasks/:taskId/runs/:runId/cancel/': async ({ params }) => {
+                '/api/projects/:team/tasks/:taskId/runs/:runId/cancel/': async ({ params, request }) => {
                     cancelledRuns.push(params.runId as string)
+                    cancelBodies.push(await request.json())
                     cancelSeen()
                     return [200, {}]
                 },
             },
         })
 
-        jest.useFakeTimers()
-        logic.actions.noteDraft(true, WARM_REQUEST)
-        jest.advanceTimersByTime(300)
-        jest.useRealTimers()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.warmLease).toMatchObject({ runId: 'warm-run-1' })
+        logic.actions.prewarm(WARM_REQUEST)
+        await started
+        if (!inFlight) {
+            finishWarm()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.warmLease).toMatchObject({ runId: 'warm-run-1' })
+        }
 
-        // Leaving the composer unmounts the logic; the deferred promise resolves only if the cancel fires.
         logic.unmount()
+        finishWarm()
         await cancelled
 
         expect(cancelledRuns).toEqual(['warm-run-1'])
+        expect(cancelBodies).toEqual([{ only_if_awaiting_first_message: true }])
     })
 })

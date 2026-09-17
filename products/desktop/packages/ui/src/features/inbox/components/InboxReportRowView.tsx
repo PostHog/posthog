@@ -4,6 +4,10 @@ import {
   GitPullRequestIcon,
 } from "@phosphor-icons/react";
 import {
+  REPORT_IMPLEMENTATION_LABELS,
+  type ReportImplementationState,
+} from "@posthog/core/inbox/reportImplementation";
+import {
   deriveHeadline,
   humanizeReportTitle,
   parseConventionalCommitTitle,
@@ -19,6 +23,7 @@ import type { HTMLAttributes, ReactNode } from "react";
 
 export interface InboxReportRowViewProps {
   report: SignalReport;
+  implementationState?: ReportImplementationState | null;
   reviewers?: ReactNode;
   restoreAction?: ReactNode;
   prefetchHandlers?: Pick<
@@ -31,6 +36,7 @@ export interface InboxReportRowViewProps {
 
 export function InboxReportRowView({
   report,
+  implementationState,
   reviewers,
   restoreAction,
   prefetchHandlers,
@@ -87,6 +93,17 @@ export function InboxReportRowView({
         {headline && (
           <span className="line-clamp-2 text-[13px] text-gray-11">
             {headline}
+          </span>
+        )}
+        {implementationState && (
+          <span
+            className={`flex items-center gap-1.5 text-[12px] ${implementationState === "working" ? "text-blue-11" : "text-amber-11"}`}
+          >
+            <span
+              aria-hidden="true"
+              className="size-1.5 rounded-full bg-current"
+            />
+            {REPORT_IMPLEMENTATION_LABELS[implementationState]}
           </span>
         )}
         <span className="flex min-w-0 items-center gap-1.5 overflow-hidden text-[12.5px] text-gray-10">

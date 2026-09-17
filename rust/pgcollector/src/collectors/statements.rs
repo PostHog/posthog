@@ -59,6 +59,7 @@ pub fn empty(
             rows: vec![],
             events: vec![],
             aux: vec![],
+            indexes: vec![],
         },
         State {
             collected_at: Some(cx.now),
@@ -139,13 +140,19 @@ pub async fn collect(
         let mut text_types = texts.first().map(column_types).unwrap_or_default();
         // Fingerprint the normalised text so log-derived rows (durations, plans, errors)
         // can be joined to cur_queries even without %Q in log_line_prefix.
+        // pg_stat_statements keeps the text of whichever call it saw first, so the
+        // tags here are that first caller's; per-caller attribution comes from samples.
         for r in &mut text_rows {
             if let Some(Value::Text(q)) = r.get("query") {
                 let fp = crate::logs::fingerprint::fingerprint(q);
+                let ex = crate::tags::extract(q);
+                r.insert("query".into(), Value::Text(ex.sql));
+                r.insert("tags".into(), crate::tags::to_value(&ex.tags));
                 r.insert("fingerprint".into(), Value::Int(fp));
             }
         }
         text_types.insert("fingerprint".into(), "bigint".into());
+        text_types.insert("tags".into(), "jsonb".into());
         extra.known_ids.extend(unseen);
         if extra.known_ids.len() > MAX_KNOWN {
             extra.known_ids = extra
@@ -167,6 +174,7 @@ pub async fn collect(
             rows: text_rows,
             events: vec![],
             aux: vec![],
+            indexes: vec![],
         });
     }
 
@@ -183,6 +191,7 @@ pub async fn collect(
             rows: deltas,
             events,
             aux,
+            indexes: vec![],
         },
         state,
     ))

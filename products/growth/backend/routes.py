@@ -3,6 +3,7 @@ from posthog.api.routing import RouterRegistry
 from products.growth.backend.api.ai_enrichment import AIEnrichmentViewSet
 from products.growth.backend.api.identity_matching import IdentityMatchingLinkViewSet
 from products.growth.backend.api.product_push import ProductPushCampaignViewSet
+from products.growth.backend.presentation.views.rescore import GrowthEnrichmentViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -17,3 +18,5 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     # Staff-only, unscoped: prompt configs are instance-global, not team/org scoped.
     routers.root.register(r"growth_ai_enrichment", AIEnrichmentViewSet, "growth_ai_enrichment")
+    # Unauthenticated, unscoped: called by a realtime destination via shared-secret header.
+    routers.root.register(r"growth_enrichment", GrowthEnrichmentViewSet, "growth_enrichment")

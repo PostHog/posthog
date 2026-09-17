@@ -23,12 +23,9 @@ from products.batch_exports.backend.tests.temporal.destinations.s3.utils import 
 from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_from_s3
 
 pytestmark = [
+    pytest.mark.requires_vendor_credentials("S3_TEST_BUCKET", check=has_valid_credentials),
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    pytest.mark.skipif(
-        "S3_TEST_BUCKET" not in os.environ or not has_valid_credentials(),
-        reason="AWS credentials not set in environment or missing S3_TEST_BUCKET variable",
-    ),
 ]
 
 

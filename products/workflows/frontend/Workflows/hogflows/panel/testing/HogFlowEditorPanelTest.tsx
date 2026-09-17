@@ -23,8 +23,9 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { HogFunctionTestEditor } from 'scenes/hog-functions/configuration/HogFunctionTest'
 import { LogsViewerTable } from 'scenes/hog-functions/logs/LogsViewer'
-import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
+
+import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { renderWorkflowLogMessage } from '../../../logs/log-utils'
 import { TRIGGER_NODE_ID, workflowLogic } from '../../../workflowLogic'

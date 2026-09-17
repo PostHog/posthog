@@ -9,6 +9,7 @@ from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from jwt import PyJWTError
 
+from products.tasks.backend.facade.api import signal_workflow_completion
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.presentation.serializers import (
     AgentProxyCallbackRequestSerializer,
@@ -16,6 +17,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunErrorResponseSerializer,
 )
 from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
+
+from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +52,7 @@ def _dispatch_awaiting_input(run_id: str, task_id: str, team_id: int) -> bool:
     try:
         # The push dispatcher reads task.created_by; prefetch it so the dispatch stays one query.
         task_run = TaskRun.objects.select_related("task__created_by").get(id=run_id, task_id=task_id, team_id=team_id)
+        task_run.signal_agent_turn_completed()
         if task_run.mode != "interactive":
             return False
         notify_task_run_turn_completed(task_run)
@@ -69,6 +73,14 @@ def _dispatch_callback(kind: str, agent_active: bool, run_id: str, task_id: str,
         return _dispatch_boot_milestone(run_id, task_id, team_id, kind, "agent_activity_observed")
     if kind == "awaiting_input":
         return _dispatch_awaiting_input(run_id, task_id, team_id)
+    if kind == "turn_failed":
+        try:
+            if TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).exists():
+                signal_workflow_completion(run_id, "failed", PI_RUNTIME_ERROR_MESSAGE)
+                return True
+            logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
+        except Exception:
+            logger.exception("agent_proxy_callback.turn_failed_failed", extra={"run_id": run_id})
     return False
 
 
@@ -95,7 +107,7 @@ def _dispatch_callback(kind: str, agent_active: bool, run_id: str, task_id: str,
     description=(
         "Internal endpoint called by the standalone Node agent-proxy after accepting an ingest event "
         "that requires a Django-side side effect. Dispatches a Temporal heartbeat, a boot milestone, "
-        "or an awaiting-input mobile push notification depending on `kind`. "
+        "an awaiting-input mobile push notification, or a failed-run completion depending on `kind`. "
         "Authenticated with the forwarded sandbox event ingest JWT plus the X-Agent-Proxy-Secret "
         "shared secret (required outside local dev/test) — no session or API key involved. "
         "Best-effort: always returns 200 when auth passes; side-effect failures are logged, not surfaced."

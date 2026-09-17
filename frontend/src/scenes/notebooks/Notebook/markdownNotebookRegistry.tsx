@@ -211,6 +211,12 @@ const INLINE_QUERY_NOTEBOOK_NODE_OPTIONS: CreatePostHogWidgetNodeOptions<any> = 
         isDefaultFilterApplied: KNOWN_NODES[NotebookNodeType.Query].attributes.isDefaultFilterApplied,
         showSettings: KNOWN_NODES[NotebookNodeType.Query].attributes.showSettings,
         outputTab: KNOWN_NODES[NotebookNodeType.Query].attributes.outputTab,
+        returnVariable: KNOWN_NODES[NotebookNodeType.Query].attributes.returnVariable,
+        dataframeSource: KNOWN_NODES[NotebookNodeType.Query].attributes.dataframeSource,
+        dataframeQuery: KNOWN_NODES[NotebookNodeType.Query].attributes.dataframeQuery,
+        runId: KNOWN_NODES[NotebookNodeType.Query].attributes.runId,
+        result: KNOWN_NODES[NotebookNodeType.Query].attributes.result,
+        runStatus: KNOWN_NODES[NotebookNodeType.Query].attributes.runStatus,
     },
     defaultView: undefined,
     views: undefined,
@@ -253,12 +259,22 @@ export const MARKDOWN_NODE_DEFINITIONS: {
         label: 'Python',
         ToolbarComponent: NotebookCodeCellRunButton,
         insertCommand: {
+            // Sits next to SQL in the menu's top group, because the two cells do the same job in
+            // a notebook. A separate "Code" group sits below the fold, where a person who is not
+            // already looking for Python does not find it. Only the menu grouping moves. The
+            // definition's category still drives the node's styling in the editor.
+            category: COMMON_INSERT_COMMAND_CATEGORY,
+            badge: 'New',
             aliases: ['python', 'py'],
-            defaultProps: () => ({
-                ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2),
-                ...INPUT_PANEL_OPEN_PROPS,
-                nodeId: uuid(),
-            }),
+            defaultProps: () => {
+                const nodeId = uuid()
+                return {
+                    ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2),
+                    ...INPUT_PANEL_OPEN_PROPS,
+                    nodeId,
+                    returnVariable: `df_${nodeId.slice(0, 8)}`,
+                }
+            },
         },
     },
     // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
@@ -277,11 +293,15 @@ export const MARKDOWN_NODE_DEFINITIONS: {
             // New cells get a durable nodeId up front: parsed markdown block ids are content
             // fingerprints, so without a persisted id every prop change (running the cell
             // writes runId/result) would orphan the cell's run history and cross-cell refs.
-            defaultProps: () => ({
-                ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2),
-                ...INPUT_PANEL_OPEN_PROPS,
-                nodeId: uuid(),
-            }),
+            defaultProps: () => {
+                const nodeId = uuid()
+                return {
+                    ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2),
+                    ...INPUT_PANEL_OPEN_PROPS,
+                    nodeId,
+                    returnVariable: `sql_df_${nodeId.slice(0, 8)}`,
+                }
+            },
         },
     },
     {
@@ -350,6 +370,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
             ToolbarComponent: definition.ToolbarComponent,
             exclusiveEditPanel: definition.exclusiveEditPanel,
             editableTitle: options?.editableTitle,
+            persistNodeId: ['Widget', 'SQLV2', 'PythonV2', 'Insight', 'Query'].includes(definition.tagName),
             // Nodes with a Settings panel keep their filters toggle on read-only canvases
             // (customer profiles), where the panel is the only way to configure them.
             viewModeFilters: !!options?.Settings,
@@ -581,7 +602,7 @@ export function RealNotebookNodeIdentityAndViewEdit({
     notebookNodeType: NotebookNodeType
     options: CreatePostHogWidgetNodeOptions<any>
 }): JSX.Element | null {
-    const hasId = 'id' in options.attributes
+    const hasId = notebookNodeType !== NotebookNodeType.GeneratedWidget && 'id' in options.attributes
     if (!hasId && !options.views) {
         return null
     }

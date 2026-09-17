@@ -21,6 +21,7 @@ from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
     TeamSerializer,
+    TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _reset_default_data_color_theme_id_cache,
 )
@@ -46,6 +47,7 @@ from posthog.utils import get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 
 def team_api_test_factory():
@@ -475,13 +477,14 @@ def team_api_test_factory():
                     send_feature_flags=False,
                 ),
             ]
-            mock_start_workflow.assert_called_once_with(
-                team_ids=[team_pk],
-                project_id=team_pk,
-                user_id=self.user.id,
-                # The org's first project already holds the plain default name, so the second one gets a suffix
-                project_name="Default project 2",
-            )
+            mock_start_workflow.assert_called_once()
+            workflow_kwargs = mock_start_workflow.call_args.kwargs
+            self.assertEqual(workflow_kwargs["team_ids"], [team_pk])
+            self.assertEqual(workflow_kwargs["project_id"], team_pk)
+            self.assertEqual(workflow_kwargs["user_id"], self.user.id)
+            self.assertEqual(workflow_kwargs["project_name"], "Default project 2")
+            self.assertGreater(workflow_kwargs["start_delay"], timedelta(hours=47))
+            self.assertLessEqual(workflow_kwargs["start_delay"], timedelta(hours=48))
             assert mock_capture.call_args_list == expected_capture_calls
 
         @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
@@ -824,6 +827,43 @@ def team_api_test_factory():
                 ]
             )
 
+        def test_rotate_heatmaps_screenshot_secret(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.assertIsNone(self.team.heatmaps_screenshot_secret)
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            first_secret = response.json()["heatmaps_screenshot_secret"]
+            self.assertTrue(first_secret.startswith("phh_"))
+            self.assertEqual(first_secret, self.team.heatmaps_screenshot_secret)
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.assertNotEqual(response.json()["heatmaps_screenshot_secret"], first_secret)
+            changes = [
+                change
+                for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Team").order_by("created_at")
+                for change in (log.detail or {}).get("changes", [])
+                if change["field"] == "heatmaps_screenshot_secret"
+            ]
+            self.assertEqual([change["action"] for change in changes], ["created", "changed"])
+            self.assertNotIn(first_secret, str(changes))
+            self.assertNotIn(response.json()["heatmaps_screenshot_secret"], str(changes))
+
+            self.client.patch(f"/api/environments/{self.team.id}/", {"heatmaps_screenshot_secret": "phh_chosen"})
+            self.team.refresh_from_db()
+            self.assertNotEqual(self.team.heatmaps_screenshot_secret, "phh_chosen")
+
+        def test_rotate_heatmaps_screenshot_secret_insufficient_privileges(self):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.team.refresh_from_db()
+            self.assertIsNone(self.team.heatmaps_screenshot_secret)
+
         def test_rotate_secret_token_insufficient_privileges(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
@@ -1135,6 +1175,55 @@ def team_api_test_factory():
             self._patch_session_replay_config({"ai_config": {"included_event_properties": ["and another"]}})
             # and the existing second level nesting is not preserved
             self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
+
+        def test_workflow_task_limits_are_writable_and_clearable(self) -> None:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {
+                    "workflows_config": {
+                        "workflow_task_rate_limit_per_day": 250,
+                        "workflow_task_team_rate_limit_per_day": 1000,
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            self.team.refresh_from_db()
+            assert self.team.workflows_config.workflow_task_rate_limit_per_day == 250
+            assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"workflows_config": {"workflow_task_rate_limit_per_day": None}},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            self.team.refresh_from_db()
+            assert self.team.workflows_config.workflow_task_rate_limit_per_day is None
+            assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
+
+        def test_support_raised_limit_survives_an_echoed_update(self) -> None:
+            TeamWorkflowsConfig.objects.update_or_create(
+                team=self.team, defaults={"workflow_task_rate_limit_per_day": 600}
+            )
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {
+                    "workflows_config": {
+                        "capture_workflows_engagement_events": True,
+                        "workflow_task_rate_limit_per_day": 600,
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            row = TeamWorkflowsConfig.objects.get(team=self.team)
+            assert row.workflow_task_rate_limit_per_day == 600
+            assert row.capture_workflows_engagement_events is True
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"workflows_config": {"workflow_task_rate_limit_per_day": 700}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         def test_modifiers_are_merged_on_patch(self) -> None:
             # Set initial modifiers with personsOnEventsMode
@@ -1484,6 +1573,13 @@ def team_api_test_factory():
             other_org_membership.save()
             return other_org, other_org_membership
 
+        def _create_user_that_stays_in_source_organization(self) -> User:
+            outsider = User.objects.create_and_join(self.organization, "outsider@posthog.com", None)
+            outsider.current_team = self.team
+            outsider.current_organization = self.organization
+            outsider.save()
+            return outsider
+
         def test_cant_change_organization_if_not_admin_of_target_org(self):
             other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.MEMBER)
             res = self.client.post(
@@ -1533,22 +1629,18 @@ def team_api_test_factory():
             self.user.current_team = self.team
             self.user.current_organization = self.organization
             self.user.save()
-            # This user stays behind in the source organization
-            outsider = User.objects.create_and_join(self.organization, "outsider@posthog.com", None)
-            outsider.current_team = self.team
-            outsider.current_organization = self.organization
-            outsider.save()
+            outsider = self._create_user_that_stays_in_source_organization()
 
             res = self.client.post(
                 f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
             )
             assert res.status_code == status.HTTP_200_OK, res.json()
 
-            # A member of the target organization keeps the project and follows it across
+            # A member of the target organization keeps the project and follows it across.
             self.user.refresh_from_db()
             assert self.user.current_team == self.team
             assert self.user.current_organization == other_org
-            # Everyone else loses the pointer instead of keeping a project they cannot reach
+            # Everyone else loses the pointer instead of keeping a project they cannot reach.
             outsider.refresh_from_db()
             assert outsider.current_team_id is None and outsider.current_organization_id is None
 
@@ -1563,28 +1655,26 @@ def team_api_test_factory():
             )
             assert res.status_code == status.HTTP_200_OK, res.json()
 
-            # The losing organization keeps a readable record even though it can no longer reach the project
+            # The losing organization keeps a readable record even though it can no longer reach the project.
             source_project_logs = ActivityLog.objects.filter(
                 organization_id=source_org.id, scope="Project", item_id=str(self.project.pk)
             )
             assert source_project_logs.count() == 1
             source_project_log = source_project_logs.get()
             assert source_project_log.detail is not None
-            # The row names the project that left, not action text, so the losing org can read it
+            # The row names the project that left, not action text, so the losing org can read it.
             assert source_project_log.detail["name"] == self.project.name
 
-            # And one entry per environment that left, so the source org sees which ones moved
+            # And one entry per environment that left, so the source org sees which ones moved.
             source_team_logs = ActivityLog.objects.filter(
                 organization_id=source_org.id, scope="Team", item_id=str(self.team.pk)
             )
             assert source_team_logs.count() == 1
 
-            # The receiving organization still gets its arrival entry
+            # The receiving organization still gets its arrival entry.
             assert ActivityLog.objects.filter(organization_id=other_org.id, scope="Project").count() == 1
 
         def test_change_organization_to_same_organization_is_rejected(self):
-            # organization_id arrives from the request body as a string, so a same-org request must
-            # still be caught by the guard, or it writes false move entries in the activity log.
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
@@ -1597,7 +1687,7 @@ def team_api_test_factory():
 
             assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
             assert res.json()["detail"] == "Project is already in the target organization."
-            # A no-op move must not write audit rows
+            # A no-op move must not write audit rows.
             assert ActivityLog.objects.count() == logs_before
 
         def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
@@ -1951,6 +2041,52 @@ def team_api_test_factory():
                 )
                 assert "retention_days must be one of" in response.json()["detail"]
 
+        @parameterized.expand(
+            [
+                (" app.context ", "app.context"),
+                ("", ""),
+                (" " + "a" * 200 + " ", "a" * 200),
+                (" \t" + "😀" * 200 + "\n ", "😀" * 200),
+                ("\u001c\u001d\u001e\u001f\u0085" + "😀" * 200 + "\u3000\u00a0", "😀" * 200),
+                ("\ufeff" + "a" * 199, "\ufeff" + "a" * 199),
+            ]
+        )
+        def test_logs_settings_json_attribute_key(self, key, expected):
+            existing_settings = {
+                "retention_days": 14,
+                "json_parse_logs": False,
+                "pii_scrub_logs": True,
+                "future_setting": {"enabled": True},
+            }
+            self.team.logs_settings = existing_settings
+            self.team.save()
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {**existing_settings, "json_parse_logs_attribute_key": key}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            self.team.refresh_from_db()
+            expected_settings = {**existing_settings, "json_parse_logs_attribute_key": expected}
+            assert self.team.logs_settings == expected_settings
+            assert response.json()["logs_settings"] == expected_settings
+
+        @parameterized.expand([(123,), ("😀" * 201,), ("\ufeff" + "a" * 200,)])
+        def test_logs_settings_invalid_json_attribute_key(self, key):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"json_parse_logs_attribute_key": key}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "json_parse_logs_attribute_key must be a string" in response.json()["detail"]
+
+        def test_logs_settings_must_be_an_object(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": "json_parse_logs_attribute_key"},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "logs_settings must be an object" in response.json()["detail"]
+
         def test_logs_settings_retention_requires_matching_feature(self):
             response = self.client.patch(
                 "/api/environments/@current/",
@@ -2008,6 +2144,7 @@ def team_api_test_factory():
                         "logs_settings": {
                             "retention_days": 14,  # Same retention
                             "json_parse_logs": True,
+                            "json_parse_logs_attribute_key": "context",
                         }
                     },
                 )
@@ -3592,6 +3729,32 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         # Even the safe field must not be applied when the request is rejected.
         assert self.team.surveys_opt_in is not True
 
+    def test_member_cannot_read_heatmaps_screenshot_secret(self) -> None:
+        self.team.rotate_heatmaps_screenshot_secret_and_save(user=self.user, is_impersonated_session=False)
+        self.team.refresh_from_db()
+        assert self.team.heatmaps_screenshot_secret
+
+        for url in (f"/api/environments/{self.team.id}/", f"/api/projects/{self.project.id}/"):
+            response = self.client.get(url)
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["heatmaps_screenshot_secret"] is None, (
+                f"MEMBER read the admin-only screenshot secret via {url}"
+            )
+
+    def test_admin_can_read_heatmaps_screenshot_secret(self) -> None:
+        self.team.rotate_heatmaps_screenshot_secret_and_save(user=self.user, is_impersonated_session=False)
+        self.team.refresh_from_db()
+        secret = self.team.heatmaps_screenshot_secret
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        for url in (f"/api/environments/{self.team.id}/", f"/api/projects/{self.project.id}/"):
+            response = self.client.get(url)
+            assert response.json()["heatmaps_screenshot_secret"] == secret, (
+                f"ADMIN could not read the screenshot secret via {url}"
+            )
+
     def _enable_access_control_with_member_level(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -3671,6 +3834,24 @@ _TOO_MANY_WILDCARDS = ["https://*.*.*.*.*.*.example.com"]
 
 
 class TestTeamSerializerValidationNoDB(SimpleTestCase):
+    @parameterized.expand([(None,), (True,), (123,), ([],), ({},), ("a" * 201,)])
+    def test_invalid_logs_json_attribute_key(self, key):
+        self._assert_field_error(
+            "logs_settings",
+            {"json_parse_logs_attribute_key": key},
+            "invalid",
+            "json_parse_logs_attribute_key must be a string of at most 200 characters. "
+            "Use an empty string to disable parsing.",
+        )
+
+    @parameterized.expand(
+        [("context", "context"), (" app.context ", "app.context"), ("  ", ""), (" " + "a" * 200 + " ", "a" * 200)]
+    )
+    def test_normalize_logs_json_attribute_key(self, key, expected):
+        assert TeamSerializer().validate_logs_settings({"json_parse_logs_attribute_key": key}) == {
+            "json_parse_logs_attribute_key": expected
+        }
+
     # Field-level input validation runs inside `is_valid()` (in `to_internal_value`),
     # before the object-level `validate()` that needs request context — so these never
     # touch the DB. `.errors` carries DRF's raw code (`invalid`); the HTTP envelope's
@@ -3846,6 +4027,25 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         # widget_domains rides in on a raw JSONField, so entries reach validation untyped.
         serializer = TeamSerializer(data={"conversations_settings": {"widget_domains": [entry]}}, partial=True)
         assert not serializer.is_valid()
+
+    @parameterized.expand(
+        [
+            ["per workflow above the ceiling", "workflow_task_rate_limit_per_day", 501, False],
+            ["per workflow at the ceiling", "workflow_task_rate_limit_per_day", 500, True],
+            ["per workflow negative", "workflow_task_rate_limit_per_day", -1, False],
+            ["per workflow paused", "workflow_task_rate_limit_per_day", 0, True],
+            ["per project above the ceiling", "workflow_task_team_rate_limit_per_day", 2501, False],
+            ["per project at the ceiling", "workflow_task_team_rate_limit_per_day", 2500, True],
+        ]
+    )
+    def test_workflow_task_limit_ceiling(self, _name: str, field: str, value: int, expected_valid: bool) -> None:
+        # The ceiling is the only thing between this settings input and an unbounded daily
+        # spend on agent runs. Support raises a project past it in Django admin, which does
+        # not use this serializer. Asserted on the nested serializer, which is what
+        # `validate_workflows_config` builds, because a value the ceiling accepts goes on to
+        # TeamSerializer's object-level `validate()` and its request context.
+        serializer = TeamWorkflowsConfigSerializer(data={field: value})
+        assert serializer.is_valid() == expected_valid, serializer.errors
 
     def test_invalid_autocapture_exceptions_opt_in_not_a_boolean(self) -> None:
         # `autocapture_exceptions_errors_to_ignore` is deliberately not here: its validation

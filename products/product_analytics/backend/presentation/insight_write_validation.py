@@ -11,7 +11,7 @@ shows which saves the rules would refuse before any save starts to fail.
 """
 
 import logging
-from typing import Any, Literal
+from typing import Any
 
 from django.contrib.auth.models import AnonymousUser
 
@@ -22,7 +22,6 @@ from rest_framework.request import Request
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner_or_none
 from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
@@ -34,12 +33,10 @@ INSIGHT_WRITE_VALIDATION_ENFORCED_FLAG = "insight-write-validation-enforced"
 
 INSIGHT_WRITE_VALIDATION_COUNTER = Counter(
     "posthog_insight_write_validation_rejected_total",
-    "Insight writes holding a query the runner's validation rules reject, by rule, query kind "
-    "and which field carried the query. Writes counted in shadow mode were still saved.",
-    labelnames=["rule_code", "query_kind", "write_source", "mode"],
+    "Insight writes holding a query the runner's validation rules reject, by rule and query "
+    "kind. Writes counted in shadow mode were still saved.",
+    labelnames=["rule_code", "query_kind", "mode"],
 )
-
-WriteSource = Literal["query", "filters"]
 
 Writer = User | AnonymousUser | SyntheticUser
 
@@ -49,7 +46,6 @@ class InsightWriteRejection:
     rule_code: str
     message: str
     query_kind: str
-    write_source: WriteSource
 
 
 @frozen
@@ -61,20 +57,12 @@ class _RuleError:
 def validate_insight_write(
     *,
     query: dict[str, Any] | None,
-    filters: dict[str, Any] | None,
-    unchanged_query: dict[str, Any] | None = None,
     team: Team,
     user: Writer,
     request: Request | None = None,
 ) -> None:
     """Record, and once enforced reject, an insight write that no runner could execute."""
-    rejection = find_insight_write_rejection(
-        query=query,
-        filters=filters,
-        unchanged_query=unchanged_query,
-        team=team,
-        user=user,
-    )
+    rejection = find_insight_write_rejection(query=query, team=team, user=user)
     if rejection is None:
         return
 
@@ -84,37 +72,19 @@ def validate_insight_write(
         return
 
     raise ValidationError(
-        {rejection.write_source: ErrorDetail(rejection.message, code=rejection.rule_code)},
+        {"query": ErrorDetail(rejection.message, code=rejection.rule_code)},
     )
 
 
 def find_insight_write_rejection(
     *,
     query: dict[str, Any] | None,
-    filters: dict[str, Any] | None,
-    unchanged_query: dict[str, Any] | None = None,
     team: Team,
     user: Writer,
 ) -> InsightWriteRejection | None:
-    """The first validation rule the written query breaks, or None if every rule passes.
-
-    An insight renders from `query` whenever it has one, and falls back to `filters` only
-    when it does not. So a written query is what the rules must judge, and written filters
-    matter only when no query remains on the insight after this write. `unchanged_query` is
-    the stored query this write leaves in place, which keeps a filters write from being
-    judged on a field that nothing renders.
-    """
+    """The first validation rule the written query breaks, or None if every rule passes."""
     if query:
-        return _rejection_for(query, write_source="query", team=team, user=user)
-
-    if filters and not unchanged_query:
-        try:
-            source = filter_to_query(filters)
-        except Exception:
-            # Filters this side can't convert never reach a runner here, and the app converts
-            # them again in the browser, so we have nothing to say about them.
-            return None
-        return _rejection_for(source, write_source="filters", team=team, user=user)
+        return _rejection_for(query, team=team, user=user)
 
     return None
 
@@ -142,7 +112,6 @@ def is_insight_write_validation_enforced(user: Writer, team: Team) -> bool:
 def _rejection_for(
     query: dict[str, Any] | BaseModel,
     *,
-    write_source: WriteSource,
     team: Team,
     user: Writer,
 ) -> InsightWriteRejection | None:
@@ -158,7 +127,6 @@ def _rejection_for(
             rule_code=rule_error.code,
             message=rule_error.message,
             query_kind=str(getattr(runner.query, "kind", "unknown")),
-            write_source=write_source,
         )
     except Exception:
         # Only a rule saying "this can never run" is worth a 400. Anything else a rule throws
@@ -199,7 +167,6 @@ def _record(
     INSIGHT_WRITE_VALIDATION_COUNTER.labels(
         rule_code=rejection.rule_code,
         query_kind=rejection.query_kind,
-        write_source=rejection.write_source,
         mode=mode,
     ).inc()
 
@@ -210,7 +177,6 @@ def _record(
             {
                 "rule_code": rejection.rule_code,
                 "query_kind": rejection.query_kind,
-                "write_source": rejection.write_source,
                 "mode": mode,
             },
             team=team,

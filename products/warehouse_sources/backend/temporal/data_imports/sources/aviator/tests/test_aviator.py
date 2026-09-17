@@ -5,6 +5,7 @@ import pytest
 import time_machine
 from unittest.mock import MagicMock, patch
 
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviator import aviator
@@ -314,6 +315,141 @@ class TestFanOutExtraction:
         ]
 
 
+class TestBranchesFanOut:
+    def test_request_sends_the_repository_as_a_json_body(self, monkeypatch: Any) -> None:
+        # GET /branches takes a nested repository object that flat query params cannot express, so
+        # the documented form is a JSON body. Sending it as `params` instead is rejected by the API.
+        captured: dict[str, Any] = {}
+
+        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, **kwargs: Any) -> Any:
+            captured.update(kwargs)
+            return {"branches": [{"pattern": "release-*", "paused": True, "paused_message": "held"}]}
+
+        rows = _run_fan_out("branches", fake_fetch, [{"org": "o", "name": "r"}], _FakeResumableManager(), monkeypatch)
+
+        assert captured == {"json_body": {"repository": {"org": "o", "name": "r"}}}
+        assert rows == [{"org": "o", "repo": "r", "pattern": "release-*", "paused": True, "paused_message": "held"}]
+
+    def test_branch_without_a_pattern_is_skipped(self, monkeypatch: Any) -> None:
+        # pattern is part of the (org, repo, pattern) primary key; a null-keyed row would collapse
+        # every patternless branch in the repo into a single persisted row, so such rows are dropped.
+        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, **kwargs: Any) -> Any:
+            return {"branches": [{"pattern": "master", "paused": False}, {"paused": True}]}
+
+        rows = _run_fan_out("branches", fake_fetch, [{"org": "o", "name": "r"}], _FakeResumableManager(), monkeypatch)
+        assert [r["pattern"] for r in rows] == ["master"]
+
+
+class TestBotPullRequestsFanOut:
+    @staticmethod
+    def _fetch_for(queued: list[int], bot_prs: dict[int, Any]) -> Any:
+        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, **kwargs: Any) -> Any:
+            if url.endswith("/pull_request/queued"):
+                return {"pull_requests": [{"number": n} for n in queued]}
+            return bot_prs.get(kwargs["params"]["number"])
+
+        return fake_fetch
+
+    def test_queued_prs_sharing_a_batch_yield_one_row(self, monkeypatch: Any) -> None:
+        # Every queued PR in a batch resolves to the same bot PR. Merge only dedupes across syncs, so
+        # emitting all three would put duplicate (org, repo, number) keys in one batch, and every
+        # later merge would multi-match them.
+        batch = {
+            "number": 201,
+            "github_url": "https://github.com/o/r/pull/201",
+            "target_branch": "master",
+            "head_commit_sha": "abc",
+            "head_branch_oid": "abc",
+            "codemix_pre_batch_sha": "def",
+            "pull_requests": [{"number": 89}, {"number": 90}, {"number": 91}],
+        }
+        fake_fetch = self._fetch_for([89, 90, 91], {89: batch, 90: batch, 91: batch})
+
+        rows = _run_fan_out(
+            "bot_pull_requests", fake_fetch, [{"org": "o", "name": "r"}], _FakeResumableManager(), monkeypatch
+        )
+
+        # head_branch_oid is a documented legacy alias for head_commit_sha, so it is not carried.
+        # The pipeline lands the member list as a JSON string, which is what the warehouse column holds.
+        assert rows == [
+            {
+                "org": "o",
+                "repo": "r",
+                "number": 201,
+                "github_url": "https://github.com/o/r/pull/201",
+                "target_branch": "master",
+                "head_commit_sha": "abc",
+                "codemix_pre_batch_sha": "def",
+                "pull_request_numbers": "[89,90,91]",
+            }
+        ]
+
+    def test_queued_prs_without_a_batch_are_skipped(self, monkeypatch: Any) -> None:
+        # Serial-mode repos never create bot PRs, so the lookup 404s for every queued PR. That must
+        # sync an empty table rather than fail the whole run.
+        fake_fetch = self._fetch_for([89, 90], {89: None, 90: {"number": 202, "pull_requests": []}})
+
+        rows = _run_fan_out(
+            "bot_pull_requests", fake_fetch, [{"org": "o", "name": "r"}], _FakeResumableManager(), monkeypatch
+        )
+        assert [(r["number"], r["pull_request_numbers"]) for r in rows] == [(202, "[]")]
+
+
+class TestUserActions:
+    @staticmethod
+    def _run(pages: dict[int, Any], monkeypatch: Any) -> list[dict]:
+        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, **kwargs: Any) -> Any:
+            return pages[kwargs["params"]["page"]]
+
+        monkeypatch.setattr(aviator, "_fetch", fake_fetch)
+        rows: list[dict] = []
+        for table in get_rows(
+            api_token="av_uat_test",
+            endpoint="user_actions",
+            logger=MagicMock(),
+            resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+        ):
+            rows.extend(table.to_pylist())
+        return rows
+
+    def test_pagination_stops_on_the_first_empty_page(self, monkeypatch: Any) -> None:
+        # The endpoint documents no page size and no total, so an empty page is the only end signal.
+        pages = {
+            1: [
+                {
+                    "timestamp": "2026-06-15T10:00:00Z",
+                    "actor": "a@b.co",
+                    "action": "queue",
+                    "entity": "merge_queue",
+                    "target": "89",
+                }
+            ],
+            2: [
+                {
+                    "timestamp": "2026-06-14T10:00:00Z",
+                    "actor": "c@d.co",
+                    "action": "login",
+                    "entity": "account",
+                    "target": None,
+                }
+            ],
+            3: [],
+        }
+        rows = self._run(pages, monkeypatch)
+        assert [r["timestamp"] for r in rows] == ["2026-06-15T10:00:00Z", "2026-06-14T10:00:00Z"]
+        assert rows[1]["target"] is None
+
+    def test_entry_without_a_timestamp_is_skipped(self, monkeypatch: Any) -> None:
+        # timestamp leads the composite primary key and the endpoint exposes no id, so an entry
+        # without one cannot be identified at all.
+        pages = {
+            1: [{"timestamp": "2026-06-15T10:00:00Z", "action": "keep"}, {"action": "no timestamp"}],
+            2: [],
+        }
+        rows = self._run(pages, monkeypatch)
+        assert [r["action"] for r in rows] == ["keep"]
+
+
 class TestFanOutResume:
     def _fetch_stats(self, session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
         p = params or {}
@@ -386,17 +522,29 @@ class TestFetchRetries:
         assert result == {"ok": True}
         assert session.get.call_count == 2
 
-    def test_client_error_raises_without_retry(self) -> None:
-        import requests
-
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
+    def test_client_error_raises_without_retry(self, _name: str, status: int) -> None:
         bad = requests.Response()
-        bad.status_code = 401
+        bad.status_code = status
         session = MagicMock()
         session.get.return_value = bad
 
         with pytest.raises(requests.HTTPError):
             aviator._fetch(session, "https://api.aviator.co/api/v1/repo", {}, MagicMock())
         assert session.get.call_count == 1
+
+    def test_not_found_returns_none_only_when_opted_in(self) -> None:
+        # The bot-PR lookup treats 404 as "this PR has no batch"; every other caller must still raise,
+        # otherwise a mistyped path would silently sync an empty table.
+        bad = requests.Response()
+        bad.status_code = 404
+        session = MagicMock()
+        session.get.return_value = bad
+
+        result = aviator._fetch(
+            session, "https://api.aviator.co/api/v1/bot_pull_request", {}, MagicMock(), none_on_not_found=True
+        )
+        assert result is None
 
 
 class TestSourceResponseSortMode:
@@ -407,6 +555,10 @@ class TestSourceResponseSortMode:
             ("queued_pull_requests", "desc", "created_at"),
             ("queue_stats", "desc", None),
             ("config_history", "desc", "applied_at"),
+            ("branches", "desc", None),
+            ("bot_pull_requests", "desc", None),
+            # Top-level, but the endpoint documents newest-first ordering, so it is desc too.
+            ("user_actions", "desc", "timestamp"),
         ]
     )
     def test_sort_mode_and_partition(self, endpoint: str, expected_sort: str, partition_key: str | None) -> None:

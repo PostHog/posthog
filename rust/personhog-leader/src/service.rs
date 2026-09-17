@@ -6,13 +6,13 @@ use dashmap::DashMap;
 use metrics::{counter, histogram};
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
 use personhog_proto::personhog::types::v1::{
-    FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
-    GetPersonRequest, GetPersonResponse, LifecycleOpType, Person, ReleaseFenceRequest,
-    ReleaseFenceResponse, ReleaseOutcome, SealedSourceSnapshot, UpdatePersonPropertiesRequest,
-    UpdatePersonPropertiesResponse,
+    FencePersonRequest, FencePersonResponse, FencePersonsRequest, FencePersonsResponse,
+    FoldPersonDocumentRequest, FoldPersonDocumentResponse, GetPersonRequest, GetPersonResponse,
+    Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse,
+    SealedSourceSnapshot, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 use rdkafka::producer::FutureProducer;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -26,11 +26,10 @@ use crate::cache::{
 };
 use crate::emitted::{EmittedVersionGuard, EmittedVersions};
 use crate::fence::{
-    fenced_status, mark_status, semantic_refusal, target_mark_status, FenceHealer, FenceMap,
-    FenceState,
+    fenced_status, semantic_refusal, target_mark_status, FenceHealer, FenceMap, FenceState,
 };
 use crate::fencing::{FencedChangelogProducers, FencedProduceError};
-use crate::inflight::InflightTracker;
+use crate::inflight::{InflightGuard, InflightTracker};
 use crate::kafka::produce_person_changelog;
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
 use crate::pg::{load_person_from_pg, PgFallback};
@@ -40,6 +39,8 @@ use personhog_common::properties::{
     can_trim_property, jsonb_column_size, sanitize_for_jsonb, trim_properties_to_fit_size,
     trim_properties_with_candidates, SanitizeStats, TrimResult,
 };
+
+mod lifecycle;
 
 /// Mirrors the config's `fence_map_max_entries` default; production
 /// overrides via [`PersonHogLeaderService::with_fence_capacity`].
@@ -74,14 +75,33 @@ impl PropertySizeLimits {
     }
 }
 
+/// Lands a document in the changelog and then the cache, as its own task,
+/// so a handler dropped by its client cannot leave a record in flight
+/// without the person lock or committed without the cache update.
+struct Committer {
+    cache: Arc<PartitionedCache>,
+    dirty_index: Arc<DirtyIndex>,
+    emitted_versions: Arc<EmittedVersions>,
+    producer: FutureProducer<KafkaContext>,
+    changelog_topic: String,
+    fenced: Option<Arc<FencedChangelogProducers>>,
+}
+
+/// A committed document, with the locks the handler took for it, so the
+/// handler keeps them until it is done with the document.
+struct Committed {
+    proto: Person,
+    _lock: OwnedMutexGuard<()>,
+    _inflight: InflightGuard,
+}
+
 pub struct PersonHogLeaderService {
+    committer: Arc<Committer>,
     cache: Arc<PartitionedCache>,
     /// Per-key locks to serialize concurrent updates for the same person.
     /// Prevents lost updates from concurrent get -> compute -> produce -> put
     /// sequences, and thundering herd on PG fallback.
     locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
-    producer: FutureProducer<KafkaContext>,
-    changelog_topic: String,
     /// Read-only PG fallback (pool + the table it reads) for cache miss.
     fallback: Option<PgFallback>,
     /// Per-partition inflight counter used to drive the handoff drain phase.
@@ -110,9 +130,6 @@ pub struct PersonHogLeaderService {
     /// config for the full policy): at this many live fences, FencePerson
     /// sheds new fences with RESOURCE_EXHAUSTED.
     fence_map_max_entries: usize,
-    /// Present when broker-enforced epoch fencing is on; the write
-    /// path produces through the partition's transaction window.
-    fenced: Option<Arc<FencedChangelogProducers>>,
     /// This pod's claim to serve, consulted before answering a strong
     /// read. Present only when lease-gated reads are enabled.
     authority: Option<Arc<AuthorityClock>>,
@@ -172,13 +189,19 @@ impl PersonHogLeaderService {
         )))
     }
 
+    /// The gate every ack passes: a valid lease and in-process ownership.
+    #[allow(clippy::result_large_err)]
+    fn assert_authoritative(&self, partition: u32) -> Result<(), Status> {
+        self.check_authority(partition)?;
+        self.validate_ownership(partition)
+    }
+
     /// The fence RPCs' exit gate: a success answer re-proves authority at
     /// the moment it is given. Only a stale Ok can wrongly settle a saga;
     /// errors bounce and retry.
     #[allow(clippy::result_large_err)]
     fn authoritative_ok<T>(&self, partition: u32, resp: T) -> Result<Response<T>, Status> {
-        self.check_authority(partition)?;
-        self.validate_ownership(partition)?;
+        self.assert_authoritative(partition)?;
         Ok(Response::new(resp))
     }
 
@@ -200,14 +223,21 @@ impl PersonHogLeaderService {
         authority: Option<Arc<AuthorityClock>>,
         emitted_versions: Arc<EmittedVersions>,
     ) -> Self {
-        Self {
-            cache,
-            locks,
+        let committer = Arc::new(Committer {
+            cache: Arc::clone(&cache),
+            dirty_index: Arc::clone(&dirty_index),
+            emitted_versions: Arc::clone(&emitted_versions),
             producer,
             changelog_topic,
+            fenced,
+        });
+        Self {
+            committer,
+            cache,
+            locks,
             fence_healer: fallback
                 .as_ref()
-                .map(|f| Arc::new(FenceHealer::new(f.pool.clone(), Arc::clone(&fences)))),
+                .map(|f| Arc::new(FenceHealer::new(f.clone(), Arc::clone(&fences)))),
             fallback,
             inflight,
             num_partitions,
@@ -216,7 +246,6 @@ impl PersonHogLeaderService {
             size_limits,
             warnings,
             fences,
-            fenced,
             authority,
             emitted_versions,
             fence_map_max_entries: DEFAULT_FENCE_MAP_MAX_ENTRIES,
@@ -469,17 +498,18 @@ impl PersonHogLeaderService {
     }
 
     /// The shared tail of every document write: refuse unapplyable records,
-    /// produce to Kafka first, then dirty-mark and update the cache — so
-    /// readers only ever see durably committed state. The mark precedes the
-    /// cache insert: a reader that misses the cache in the gap sees the
-    /// mark and recovers this exact record from the changelog. Assumes the
-    /// caller holds the per-key lock.
+    /// produce to Kafka first, then dirty-mark and update the cache, so
+    /// readers only ever see durably committed state. The person lock and
+    /// the in-flight slot travel with the commit and come back with the
+    /// document.
     async fn commit_document(
         &self,
         partition: u32,
         cache_key: &PersonCacheKey,
         person: CachedPerson,
-    ) -> Result<Person, Status> {
+        lock: OwnedMutexGuard<()>,
+        inflight: InflightGuard,
+    ) -> Result<Committed, Status> {
         // A record the writer cannot bind must never reach the changelog —
         // no consumer downstream can apply or repair it.
         if let Err(reason) = assert_writeable(&person) {
@@ -508,9 +538,46 @@ impl PersonHogLeaderService {
         self.check_authority(partition)?;
 
         // From here the record may reach the changelog whatever happens
-        // to this request — including the request simply ceasing to exist
-        // when the client's deadline expires. The guard is what makes the
-        // version un-reusable in that case.
+        // to this request, including the request ceasing to exist when
+        // the client's deadline expires, so the rest runs as its own
+        // task: it finishes under the person lock, lands the record in
+        // the cache, and only then lets the lock go.
+        let committer = Arc::clone(&self.committer);
+        let (team_id, person_id) = (cache_key.team_id, cache_key.person_id);
+        let cache_key = cache_key.clone();
+        tokio::spawn(async move {
+            committer
+                .commit(partition, cache_key, person, proto, lock, inflight)
+                .await
+        })
+        .await
+        .unwrap_or_else(|e| {
+            // The floor stays raised through the unwind, so the version
+            // is spent; what is lost is only the outcome.
+            tracing::error!(
+                team_id,
+                person_id,
+                partition,
+                error = %e,
+                "commit task ended without reporting an outcome"
+            );
+            Err(Status::internal(format!("commit task: {e}")))
+        })
+    }
+}
+
+impl Committer {
+    async fn commit(
+        &self,
+        partition: u32,
+        cache_key: PersonCacheKey,
+        person: CachedPerson,
+        proto: Person,
+        lock: OwnedMutexGuard<()>,
+        inflight: InflightGuard,
+    ) -> Result<Committed, Status> {
+        // The guard is what makes the version un-reusable if this task
+        // never reports.
         let mut emitted = EmittedVersionGuard::new(
             Arc::clone(&self.emitted_versions),
             partition,
@@ -697,13 +764,19 @@ impl PersonHogLeaderService {
                 is_deleted: person.is_deleted,
             },
         );
-        self.cache.put(partition, cache_key.clone(), person);
+        self.cache.put(partition, cache_key, person);
         // The cache carries the version now, so the floor has nothing
         // left to say.
         emitted.resolved();
-        Ok(proto)
+        Ok(Committed {
+            proto,
+            _lock: lock,
+            _inflight: inflight,
+        })
     }
+}
 
+impl PersonHogLeaderService {
     /// The write path's fence conditional: an in-memory lookup and nothing
     /// else. The map is authoritative here — a fence that outlives its op
     /// is not the leader's to detect, because the op being unfinished is
@@ -887,13 +960,6 @@ fn partition_from_metadata<T>(request: &Request<T>) -> Result<u32, Status> {
         .map_err(|_| Status::invalid_argument("x-partition metadata is not a valid u32"))
 }
 
-/// Per-phase wall time of a committed release; the RPC histogram alone
-/// cannot separate the lock, the load, the mark check, and the produce.
-fn record_release_phase(phase: &'static str, started: Instant) {
-    histogram!("personhog_leader_release_phase_ms", "phase" => phase)
-        .record(started.elapsed().as_secs_f64() * 1000.0);
-}
-
 #[tonic::async_trait]
 impl PersonHogLeader for PersonHogLeaderService {
     async fn get_person(
@@ -957,10 +1023,9 @@ impl PersonHogLeader for PersonHogLeaderService {
         // — the frozen state stays the latest until cutover. The handoff
         // protocol waits for the per-partition inflight count to drop to
         // zero before advancing; combined with sync-acked produces, a zero
-        // count implies every acked write is durable in Kafka. Using a
-        // non-`_` prefixed binding so the RAII guard is held for the full
-        // handler lifetime (see the `let_underscore_drop` lint).
-        let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
+        // count implies every acked write is durable in Kafka. The guard
+        // moves into the commit, which holds it through the outcome.
+        let Some(inflight_guard) = self.inflight.try_begin(partition) else {
             return Err(Status::failed_precondition(format!(
                 "partition {partition} is fenced for handoff; writes are rejected"
             )));
@@ -1031,7 +1096,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             .value()
             .clone();
         let lock_wait = std::time::Instant::now();
-        let _guard = mutex.lock().await;
+        let guard = mutex.lock_owned().await;
         histogram!("personhog_leader_person_lock_wait_ms")
             .record(lock_wait.elapsed().as_secs_f64() * 1000.0);
 
@@ -1271,13 +1336,13 @@ impl PersonHogLeader for PersonHogLeaderService {
             approx_bytes,
         };
 
-        let proto = self
-            .commit_document(partition, &cache_key, updated_person)
+        let committed = self
+            .commit_document(partition, &cache_key, updated_person, guard, inflight_guard)
             .await?;
         counter!("personhog_leader_updates_total", "outcome" => "updated").increment(1);
 
         Ok(Response::new(UpdatePersonPropertiesResponse {
-            person: Some(proto),
+            person: Some(committed.proto),
             updated: true,
         }))
     }
@@ -1299,7 +1364,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             ));
         }
 
-        let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
+        let Some(inflight_guard) = self.inflight.try_begin(partition) else {
             return Err(Status::failed_precondition(format!(
                 "partition {partition} is fenced for handoff; writes are rejected"
             )));
@@ -1333,7 +1398,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             .value()
             .clone();
         let lock_wait = std::time::Instant::now();
-        let _guard = mutex.lock().await;
+        let guard = mutex.lock_owned().await;
         histogram!("personhog_leader_person_lock_wait_ms")
             .record(lock_wait.elapsed().as_secs_f64() * 1000.0);
 
@@ -1381,7 +1446,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                 "no-lifecycle-db",
             ));
         };
-        match target_mark_status(&fallback.pool, op_id, req.team_id, req.person_id).await {
+        match target_mark_status(fallback, op_id, req.team_id, req.person_id).await {
             Ok(Some(status)) if status == "marked" => {}
             Ok(_) => {
                 counter!("personhog_leader_fences_total", "action" => "fold_unverified")
@@ -1610,15 +1675,15 @@ impl PersonHogLeader for PersonHogLeaderService {
             approx_bytes,
         };
 
-        let proto = self
-            .commit_document(partition, &cache_key, folded_person)
+        let committed = self
+            .commit_document(partition, &cache_key, folded_person, guard, inflight_guard)
             .await?;
         counter!("personhog_leader_folds_total", "outcome" => fold_outcome).increment(1);
 
         self.authoritative_ok(
             partition,
             FoldPersonDocumentResponse {
-                person: Some(proto),
+                person: Some(committed.proto),
             },
         )
     }
@@ -1627,329 +1692,28 @@ impl PersonHogLeader for PersonHogLeaderService {
         &self,
         request: Request<FencePersonRequest>,
     ) -> Result<Response<FencePersonResponse>, Status> {
-        let partition = partition_from_metadata(&request)?;
-        let req = request.into_inner();
-        self.validate_partition(partition, req.team_id, req.person_id)?;
-        // Ownership below is in-process state, which is what a lease
-        // lapse makes stale: a fence installed here gates no writes.
-        self.check_authority(partition)?;
-        let op_id = Uuid::parse_str(&req.op_id)
-            .map_err(|_| Status::invalid_argument("op_id must be a valid UUID"))?;
-        let op_type = req.op_type();
-        if op_type == LifecycleOpType::Unspecified {
-            return Err(Status::invalid_argument("op_type must be specified"));
-        }
-        // A fence installed anywhere but the current owner protects
-        // nothing: the map that gates writes is the owner's. Both guards
-        // are needed — ownership covers a pod that already handed the
-        // partition off (release unfences), the handoff guard covers the
-        // drain window before that. Refusing is what makes "a mark
-        // committed after the takeover scan arrives as a FencePerson call
-        // to the current owner" true: the saga's retry re-routes to the
-        // new owner.
-        self.validate_ownership(partition)?;
-        let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
-            return Err(Status::failed_precondition(format!(
-                "partition {partition} is fenced for handoff; writes are rejected"
-            )));
-        };
+        self.fence_person_rpc(request).await
+    }
 
-        let cache_key = PersonCacheKey {
-            team_id: req.team_id,
-            person_id: req.person_id,
-        };
-        let mutex = self
-            .locks
-            .entry(cache_key.clone())
-            .or_default()
-            .value()
-            .clone();
-        let _guard = mutex.lock().await;
-
-        let refence = if let Some(entry) = self.fences.get(&cache_key) {
-            if entry.op_id != op_id {
-                let holder = *entry.value();
-                drop(entry);
-                // At most one lifecycle op holds a person; the loser backs
-                // off or aborts. The holder may also be a ghost (its op
-                // settled without this leader hearing); kick the lazy heal
-                // like the write paths do, since on a low-traffic person
-                // no other caller will.
-                if let Some(healer) = &self.fence_healer {
-                    healer.maybe_heal(cache_key.clone(), holder);
-                }
-                return Err(fenced_status(&holder));
-            }
-            true
-        } else {
-            false
-        };
-
-        // The memory fuse: the map has no eviction, so a surge of ops is
-        // bounded here, by shedding new fences. Re-seals are exempt — the
-        // person is already fenced, refusing frees nothing — and so is
-        // the takeover scan, whose marks are already live. The saga's
-        // retry absorbs the backpressure.
-        if !refence && self.fences.len() >= self.fence_map_max_entries {
-            counter!("personhog_leader_fences_total", "action" => "shed_capacity").increment(1);
-            return Err(Status::resource_exhausted(format!(
-                "fence map at capacity ({} live fences); retry later",
-                self.fence_map_max_entries
-            )));
-        }
-
-        // The seal: the newest cached state, captured under the same lock
-        // that admits writes — no gap for a write to sneak into. Fencing
-        // produces nothing and does not advance the version; the sealed
-        // version is the person's current one raised to the emitted
-        // floor, made final by the fence. The floor matters because a
-        // pre-fence write with an indeterminate outcome leaves a version
-        // spent above the cache's — sealing below it would derive the
-        // death document at a version that may already be live. A
-        // same-op re-fence takes this path too, re-sealing with fresh
-        // state (the saga's seal step is safe to repeat).
-        let person = self.lookup_or_load_locked(partition, &cache_key).await?;
-        // The load can park on the per-key lock or a recovery; the seal,
-        // not the arrival, must be backed by ownership.
-        self.check_authority(partition)?;
-        if person.is_deleted {
-            return Err(Status::not_found("person is destroyed"));
-        }
-
-        let mut sealed = cached_person_to_proto(&person);
-        sealed.version = self
-            .emitted_versions
-            .floor_for(partition, &cache_key, person.version);
-
-        self.fences.insert(cache_key, FenceState { op_id, op_type });
-        counter!("personhog_leader_fences_total", "action" => "fenced").increment(1);
-
-        self.authoritative_ok(
-            partition,
-            FencePersonResponse {
-                sealed: Some(sealed),
-            },
-        )
+    async fn fence_persons(
+        &self,
+        request: Request<FencePersonsRequest>,
+    ) -> Result<Response<FencePersonsResponse>, Status> {
+        self.fence_persons_rpc(request).await
     }
 
     async fn release_fence(
         &self,
         request: Request<ReleaseFenceRequest>,
     ) -> Result<Response<ReleaseFenceResponse>, Status> {
-        let partition = partition_from_metadata(&request)?;
-        let req = request.into_inner();
-        self.validate_partition(partition, req.team_id, req.person_id)?;
-        // The aborted arm would otherwise ack under a lapsed lease; the
-        // committed arm's produce and durable-fact acks need no cover.
-        self.check_authority(partition)?;
-        let op_id = Uuid::parse_str(&req.op_id)
-            .map_err(|_| Status::invalid_argument("op_id must be a valid UUID"))?;
-        let outcome = req.outcome();
+        self.release_fence_rpc(request).await
+    }
 
-        let cache_key = PersonCacheKey {
-            team_id: req.team_id,
-            person_id: req.person_id,
-        };
-        let mutex = self
-            .locks
-            .entry(cache_key.clone())
-            .or_default()
-            .value()
-            .clone();
-        let lock_started = Instant::now();
-        let _guard = mutex.lock().await;
-
-        // Releasing another op's fence would break that op's seal.
-        if let Some(entry) = self.fences.get(&cache_key) {
-            if entry.op_id != op_id {
-                return Err(fenced_status(entry.value()));
-            }
-        }
-
-        match outcome {
-            ReleaseOutcome::Committed => {
-                record_release_phase("lock_wait", lock_started);
-                // 0 is a legitimate sealed version (a fresh stub's),
-                // which is why the field is explicitly optional in the proto.
-                let Some(sealed_version) = req.sealed_version else {
-                    return Err(Status::invalid_argument(
-                        "sealed_version is required for a committed release",
-                    ));
-                };
-                if sealed_version < 0 {
-                    return Err(Status::invalid_argument(
-                        "sealed_version must not be negative",
-                    ));
-                }
-                if req.created_at <= 0 {
-                    return Err(Status::invalid_argument(
-                        "created_at is required for a committed release",
-                    ));
-                }
-                if Uuid::parse_str(&req.person_uuid).is_err() {
-                    return Err(Status::invalid_argument(
-                        "person_uuid must be a valid UUID for a committed release",
-                    ));
-                }
-                // Producing to the changelog must respect the handoff
-                // write freeze like any write.
-                let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
-                    return Err(Status::failed_precondition(format!(
-                        "partition {partition} is fenced for handoff; writes are rejected"
-                    )));
-                };
-
-                // Release must stay idempotent for the saga's retry and the
-                // sweeper, so a person the leader cannot load anymore is
-                // tolerated.
-                let load_started = Instant::now();
-                let loaded = self.lookup_or_load_locked(partition, &cache_key).await;
-                record_release_phase("load", load_started);
-                let current = match loaded {
-                    Ok(person) => Some(person),
-                    Err(status) if status.code() == tonic::Code::NotFound => None,
-                    Err(status) => return Err(status),
-                };
-
-                // Duplicate release: the death document already exists;
-                // producing another would only bump the version. Gate
-                // first — a refused release must leave the fence.
-                if current.as_ref().is_some_and(|p| p.is_deleted) {
-                    let resp = self.authoritative_ok(partition, ReleaseFenceResponse {})?;
-                    self.fences.remove(&cache_key);
-                    return Ok(resp);
-                }
-
-                // The death document's identity comes from the request (a
-                // cold leader has nothing else), so when the leader DOES
-                // hold the person, the request must agree with it — the
-                // writer upserts uuid verbatim, and a mismatched request
-                // would rewrite the row's identity on its way out.
-                if let Some(person) = &current {
-                    if person.uuid != req.person_uuid {
-                        return Err(semantic_refusal(
-                            "person_uuid does not match the person being released",
-                            "uuid-mismatch",
-                        ));
-                    }
-                }
-
-                // The mark row — the fence's source of truth — must vouch
-                // for the op before anything is destroyed. The in-memory
-                // fence is not enough: FencePerson never verified the op
-                // either, so the request (plus a fence it installed
-                // itself) must never be sufficient to produce a death
-                // document. Unverifiable requests are refused — fail
-                // closed.
-                let Some(fallback) = &self.fallback else {
-                    return Err(semantic_refusal(
-                        "no lifecycle database configured; refusing to produce a death document",
-                        "no-lifecycle-db",
-                    ));
-                };
-                let verify_started = Instant::now();
-                let mark = mark_status(&fallback.pool, op_id, req.team_id, req.person_id).await;
-                record_release_phase("verify_mark", verify_started);
-                match mark {
-                    // A live mark: the op holds the person; proceed.
-                    Ok(Some(status)) if status == "marked" || status == "sealed" => {}
-                    // The mark already settled as deleted: this release
-                    // already happened and the tombstone is durable;
-                    // absorb the retry.
-                    Ok(Some(status)) if status == "deleted" => {
-                        let resp = self.authoritative_ok(partition, ReleaseFenceResponse {})?;
-                        self.fences.remove(&cache_key);
-                        return Ok(resp);
-                    }
-                    Ok(_) => {
-                        counter!("personhog_leader_fences_total", "action" => "release_unverified")
-                            .increment(1);
-                        return Err(semantic_refusal(
-                            "op holds no live mark for this person; \
-                             refusing to produce a death document",
-                            "release-unverified",
-                        ));
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "mark verification failed; rejecting (fail closed)");
-                        return Err(Status::unavailable(
-                            "could not verify the lifecycle op against its mark; retry",
-                        ));
-                    }
-                }
-
-                if !self.dirty_index.can_admit(&cache_key) {
-                    counter!("personhog_leader_writes_shed_total", "reason" => "dirty_index_full")
-                        .increment(1);
-                    return Err(Status::resource_exhausted(
-                        "dirty index at capacity: the writer is behind and this death document \
-                         cannot be tracked; retry later",
-                    ));
-                }
-                // The death version: sealed + 1 per the RFC — the fence
-                // makes the sealed version final. The max over the current
-                // version and the emitted floor is defense in depth until
-                // broker producer fencing lands (a deposed leader's
-                // produce could otherwise still advance the version, and
-                // an indeterminate one leaves a version spent that the
-                // cache never learned of); a cold leader with no state
-                // falls back to the sealed version carried by the
-                // request, reproducing the death document
-                // deterministically.
-                let base_version = self.emitted_versions.floor_for(
-                    partition,
-                    &cache_key,
-                    current
-                        .as_ref()
-                        .map(|p| p.version)
-                        .unwrap_or(0)
-                        .max(sealed_version),
-                );
-                let death_version = base_version.checked_add(1).ok_or_else(|| {
-                    Status::invalid_argument("sealed_version leaves no room for the death version")
-                })?;
-                let death = CachedPerson {
-                    id: req.person_id,
-                    uuid: req.person_uuid.clone(),
-                    team_id: req.team_id,
-                    properties: b"{}".to_vec(),
-                    // The sealed value, not the cached one: cold and warm
-                    // leaders must produce the same document.
-                    created_at: req.created_at,
-                    version: death_version,
-                    is_identified: false,
-                    is_deleted: true,
-                    last_seen_at: None,
-                    approx_bytes: approx_person_bytes(2),
-                };
-                let produce_started = Instant::now();
-                let committed = self.commit_document(partition, &cache_key, death).await;
-                record_release_phase("produce", produce_started);
-                committed?;
-                // The death document stays cached while its mark stands,
-                // answering an authoritative not-found from memory; the
-                // prune-time settle drops it once the writer confirms,
-                // and PG answers from then on — revival included.
-                self.fences.remove(&cache_key);
-                counter!("personhog_leader_fences_total", "action" => "released_committed")
-                    .increment(1);
-            }
-            ReleaseOutcome::Aborted => {
-                // The op backed out: drop the fence, keep the entry,
-                // produce nothing. Gate first — a refused release must
-                // leave the fence (pinned).
-                let resp = self.authoritative_ok(partition, ReleaseFenceResponse {})?;
-                self.fences.remove(&cache_key);
-                counter!("personhog_leader_fences_total", "action" => "released_aborted")
-                    .increment(1);
-                return Ok(resp);
-            }
-            ReleaseOutcome::Unspecified => {
-                return Err(Status::invalid_argument("outcome must be specified"));
-            }
-        }
-
-        self.authoritative_ok(partition, ReleaseFenceResponse {})
+    async fn release_fences(
+        &self,
+        request: Request<ReleaseFencesRequest>,
+    ) -> Result<Response<ReleaseFencesResponse>, Status> {
+        self.release_fences_rpc(request).await
     }
 }
 
@@ -1974,6 +1738,7 @@ mod tests {
     use common_kafka::config::KafkaConfig;
     use envconfig::Envconfig;
     use health::HealthRegistry;
+    use personhog_proto::personhog::types::v1::{LifecycleOpType, ReleaseOutcome};
     use rdkafka::ClientConfig;
     use tonic::Code;
 
