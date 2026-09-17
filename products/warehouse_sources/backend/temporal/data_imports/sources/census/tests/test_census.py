@@ -136,13 +136,19 @@ class TestCensusTransport:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(endpoint="sync_runs")
 
-    @parameterized.expand([("sources",), ("destinations",)])
-    def test_get_resource_strips_connection_details(self, endpoint) -> None:
-        # `connection_details` carries warehouse account identifiers that must not land in a
-        # queryable warehouse table.
+    @parameterized.expand(
+        [
+            ("sources", "connection_details", {"user": "DEV"}),
+            ("destinations", "connection_details", {"user": "DEV"}),
+            ("workspaces", "notification_emails", ["alerts@example.com"]),
+        ]
+    )
+    def test_get_resource_strips_sensitive_fields(self, endpoint, stripped_field, stripped_value) -> None:
+        # `connection_details` carries warehouse account identifiers and `notification_emails`
+        # carries people's addresses; neither belongs in a table any project member can query.
         resource = cast(dict[str, Any], get_resource(endpoint=endpoint))
-        row = resource["data_map"]({"id": 1, "name": "Snowflake", "connection_details": {"user": "DEV"}})
-        assert row == {"id": 1, "name": "Snowflake"}
+        row = resource["data_map"]({"id": 1, "name": "Census", stripped_field: stripped_value})
+        assert row == {"id": 1, "name": "Census"}
 
     def test_get_resource_syncs_keeps_all_fields(self) -> None:
         resource = cast(dict[str, Any], get_resource(endpoint="syncs"))

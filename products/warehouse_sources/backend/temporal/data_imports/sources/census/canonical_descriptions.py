@@ -100,7 +100,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "Name of the workspace, unique within the organization.",
             "organization_id": "Identifier of the organization that owns the workspace.",
             "created_at": "Timestamp the workspace was created.",
-            "notification_emails": "Email addresses that receive alerts from the workspace.",
         },
     },
 }

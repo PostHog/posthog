@@ -15,7 +15,7 @@ CENSUS_HOSTS = {
 PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=True)
 class CensusEndpointConfig:
     name: str
     path: str
@@ -85,6 +85,7 @@ CENSUS_ENDPOINTS: dict[str, CensusEndpointConfig] = {
         name="workspaces",
         path="/api/v1/workspaces",
         partition_key="created_at",
+        strip_fields=("notification_emails",),
         # Workspaces is an organization-level endpoint, so a workspace-scoped token cannot read it.
         permission_denied_reason="Listing workspaces needs an organization-level Census API token. Reconnect with an organization token, or deselect this table.",
     ),
