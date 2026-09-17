@@ -1,9 +1,10 @@
 from collections.abc import Callable
 from functools import wraps
 
-from loginas.utils import is_impersonated_session
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+from posthog.helpers.impersonation import is_impersonated
 
 
 def disallow_if_impersonated(
@@ -14,7 +15,8 @@ def disallow_if_impersonated(
     Decorator that blocks impersonated sessions from executing the decorated action.
 
     Use this for endpoints where actions should only be performed by the actual user,
-    and might pollute analytics data if done by an impersonated session.
+    and might pollute analytics data if done by an impersonated session. Both impersonation
+    modes count: a loginas browser session, and an OAuth token minted during one (MCP).
 
     Args:
         message: Custom error message to return (default: "Impersonated sessions cannot perform this action.")
@@ -35,7 +37,7 @@ def disallow_if_impersonated(
     def decorator(f: Callable) -> Callable:
         @wraps(f)
         def wrapper(self, request: Request, *args, **kwargs):
-            if is_impersonated_session(request):
+            if is_impersonated(request):
                 # If allowed_methods specified, only allow those specific methods
                 if allowed_methods is None or request.method not in allowed_methods:
                     return Response({"detail": message}, status=403)

@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
@@ -163,35 +163,6 @@ describe('teamLogic', () => {
             expect((logic.values.currentTeam as TeamType)?.product_intents).toBeUndefined()
         })
 
-        it('skips the intent write while impersonating', async () => {
-            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
-            let intentRequests = 0
-            useMocks({
-                patch: {
-                    '/api/environments/:id/add_product_intent': () => {
-                        intentRequests++
-                        return [200, MOCK_DEFAULT_TEAM]
-                    },
-                },
-            })
-            window.POSTHOG_APP_CONTEXT = {
-                ...window.POSTHOG_APP_CONTEXT,
-                current_user: { ...window.POSTHOG_APP_CONTEXT?.current_user, is_impersonated: true },
-            } as unknown as AppContext
-
-            await expectLogic(logic, () => {
-                logic.actions.addProductIntent({
-                    product_type: ProductKey.SESSION_REPLAY,
-                    intent_context: ProductIntentContext.TAXONOMIC_FILTER_EMPTY_STATE,
-                })
-            }).toDispatchActions(['addProductIntentSuccess'])
-
-            // Read-only impersonation rejects this write with a 403, and the loader failure
-            // toasts at the operator on every surface that records an intent.
-            expect(intentRequests).toBe(0)
-            expect(logic.values.currentTeam?.id).toBe(MOCK_TEAM_ID)
-        })
-
         it('forwards the intent context', async () => {
             let requestBody: Record<string, unknown> | undefined
             useMocks({
@@ -212,6 +183,71 @@ describe('teamLogic', () => {
                 product_type: ProductKey.ERROR_TRACKING,
                 intent_context: ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_PRIMARY,
             })
+        })
+    })
+
+    describe('product intent loaders while impersonating', () => {
+        beforeEach(() => {
+            // Set before the logics mount: they read the user from the app context on mount.
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                current_user: { ...MOCK_DEFAULT_USER, is_impersonated: true },
+            } as unknown as AppContext
+            initKeaTests()
+            logic = teamLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                current_user: MOCK_DEFAULT_USER,
+            } as unknown as AppContext
+        })
+
+        // Each intent helper carries its own guard, so both need the case: the endpoint
+        // rejects an impersonated write with a 403, and the loader failure toasts at the
+        // operator on every surface that records an intent.
+        it.each([
+            [
+                'addProductIntent',
+                (): void => {
+                    logic.actions.addProductIntent({
+                        product_type: ProductKey.SESSION_REPLAY,
+                        intent_context: ProductIntentContext.TAXONOMIC_FILTER_EMPTY_STATE,
+                    })
+                },
+            ],
+            [
+                'addProductIntentForCrossSell',
+                (): void => {
+                    logic.actions.addProductIntentForCrossSell({
+                        from: ProductKey.PRODUCT_ANALYTICS,
+                        to: ProductKey.SESSION_REPLAY,
+                        intent_context: ProductIntentContext.TAXONOMIC_FILTER_EMPTY_STATE,
+                    })
+                },
+            ],
+        ])('%s skips the write while impersonating', async (action, dispatch) => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            let intentRequests = 0
+            useMocks({
+                patch: {
+                    '/api/environments/:id/add_product_intent': () => {
+                        intentRequests++
+                        return [200, MOCK_DEFAULT_TEAM]
+                    },
+                },
+            })
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                current_user: { ...window.POSTHOG_APP_CONTEXT?.current_user, is_impersonated: true },
+            } as unknown as AppContext
+
+            await expectLogic(logic, dispatch).toDispatchActions([`${action}Success`])
+
+            expect(intentRequests).toBe(0)
+            expect(logic.values.currentTeam?.id).toBe(MOCK_TEAM_ID)
         })
     })
 

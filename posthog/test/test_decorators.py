@@ -43,7 +43,7 @@ urlpatterns = [path("api/", include(_test_router.urls))]
 
 @override_settings(ROOT_URLCONF="posthog.test.test_decorators")
 class TestDisallowIfImpersonatedDecorator(APIBaseTest):
-    @patch("posthog.decorators.is_impersonated_session")
+    @patch("posthog.decorators.is_impersonated")
     def test_allows_non_impersonated_session(self, mock_is_impersonated):
         mock_is_impersonated.return_value = False
 
@@ -52,7 +52,7 @@ class TestDisallowIfImpersonatedDecorator(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["status"] == "success"
 
-    @patch("posthog.decorators.is_impersonated_session")
+    @patch("posthog.decorators.is_impersonated")
     def test_blocks_impersonated_session(self, mock_is_impersonated):
         mock_is_impersonated.return_value = True
 
@@ -61,7 +61,7 @@ class TestDisallowIfImpersonatedDecorator(APIBaseTest):
         assert response.status_code == 403
         assert response.json()["detail"] == "Impersonated sessions cannot perform this action."
 
-    @patch("posthog.decorators.is_impersonated_session")
+    @patch("posthog.decorators.is_impersonated")
     def test_custom_error_message(self, mock_is_impersonated):
         mock_is_impersonated.return_value = True
 
@@ -70,7 +70,7 @@ class TestDisallowIfImpersonatedDecorator(APIBaseTest):
         assert response.status_code == 403
         assert response.json()["detail"] == "Custom error message."
 
-    @patch("posthog.decorators.is_impersonated_session")
+    @patch("posthog.decorators.is_impersonated")
     def test_allowed_methods_get_is_allowed(self, mock_is_impersonated):
         mock_is_impersonated.return_value = True
 
@@ -80,7 +80,7 @@ class TestDisallowIfImpersonatedDecorator(APIBaseTest):
         assert response.json()["status"] == "success"
         assert response.json()["method"] == "GET"
 
-    @patch("posthog.decorators.is_impersonated_session")
+    @patch("posthog.decorators.is_impersonated")
     def test_allowed_methods_post_is_blocked(self, mock_is_impersonated):
         mock_is_impersonated.return_value = True
 
@@ -89,7 +89,7 @@ class TestDisallowIfImpersonatedDecorator(APIBaseTest):
         assert response.status_code == 403
         assert response.json()["detail"] == "Impersonated sessions cannot perform this action."
 
-    @patch("posthog.decorators.is_impersonated_session")
+    @patch("posthog.decorators.is_impersonated")
     def test_non_impersonated_can_use_all_methods(self, mock_is_impersonated):
         mock_is_impersonated.return_value = False
 

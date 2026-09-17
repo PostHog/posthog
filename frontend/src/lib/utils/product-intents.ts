@@ -1,16 +1,18 @@
 import api from 'lib/api'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { userLogic } from 'scenes/userLogic'
 
 import type { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import type { TeamType } from '~/types'
 
 export type ProductIntentMetadata = Record<string, unknown>
 
-// A staff member clicking around as the customer is not the customer's intent, so skip the
-// write entirely: read-only impersonation rejects it with a 403 that toasts at the user, and
-// read-write impersonation would record an intent the customer never expressed.
+// A staff member clicking around as the customer is not the customer's intent. The endpoint
+// refuses the write during impersonation, and the loader turns that 403 into a toast, so never
+// send it. The loaded user comes first because OAuth mode has no server-rendered app context.
 function isImpersonating(): boolean {
-    return !!getAppContext()?.current_user?.is_impersonated
+    const user = userLogic.findMounted()?.values.user ?? getAppContext()?.current_user
+    return !!user?.is_impersonated
 }
 
 export type ProductIntentProperties = {
