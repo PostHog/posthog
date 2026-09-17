@@ -201,8 +201,13 @@ def process_queued_person_deletion(
     actor: User | None,
     was_impersonated: bool,
     organization_id: uuid_lib.UUID | None,
+    unmatched_distinct_ids: builtins.list[str] | None = None,
 ) -> PersonProfileDeletionResult:
     """Run every distinct-ID-dependent deletion step for ``person_uuids`` from a background task.
+
+    ``unmatched_distinct_ids`` are requested distinct IDs that resolved to no person. They can
+    still own replay sessions, so their training deletion is queued here too; a failure is
+    recorded against the training step with no person.
 
     Persons are re-resolved without distinct IDs, then each person's distinct IDs are paged
     through with keyset pagination. There is no unbounded fallback: a failed page fetch marks
@@ -235,7 +240,7 @@ def process_queued_person_deletion(
         _record_step_failure(
             failures, step=PersonDeletionStep.RESOLVE_PERSONS, team_id=team_id, exc=exc, person_uuids=requested
         )
-        return PersonProfileDeletionResult(deleted_count=0, failures=failures)
+        persons = []
 
     def _fetch_distinct_ids(person_id: int) -> builtins.list[DistinctIdForPerson]:
         return personhog_call(
@@ -271,6 +276,14 @@ def process_queued_person_deletion(
             batch, batch_distinct_ids, batch_distinct_id_count = [], {}, 0
     if batch:
         deleted_count += _run_queued_deletion_steps(team_id, batch, batch_distinct_ids, failures, options)
+
+    if unmatched_distinct_ids:
+        try:
+            queue_person_training_deletion(team_id, unmatched_distinct_ids)
+        except Exception as exc:
+            _record_step_failure(
+                failures, step=PersonDeletionStep.QUEUE_TRAINING_DELETION, team_id=team_id, exc=exc, person_uuids=[]
+            )
 
     return PersonProfileDeletionResult(deleted_count=deleted_count, failures=failures)
 

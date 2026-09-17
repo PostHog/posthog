@@ -9,7 +9,7 @@ from celery import shared_task
 
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.person import Person
-from posthog.models.person.bulk_delete import process_queued_person_deletion
+from posthog.models.person.bulk_delete import PersonDeletionStep, process_queued_person_deletion
 from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
@@ -47,13 +47,19 @@ def queue_person_deletion(
     actor: User | None,
     request: HttpRequest | None,
     organization_id: uuid_lib.UUID | None,
+    unmatched_distinct_ids: list[str] | None = None,
 ) -> int:
-    """Enqueue the distinct-ID-dependent deletion steps for ``persons``; returns how many were queued."""
-    if not persons or not (delete_profile or delete_recordings):
+    """Enqueue the distinct-ID-dependent deletion steps for ``persons``; returns how many were queued.
+
+    ``unmatched_distinct_ids`` ride on the first chunk so their replay session lookup runs in the
+    task rather than in the request. They are sent even when no person resolved.
+    """
+    if not (delete_profile or delete_recordings):
         return 0
-    was_impersonated = is_impersonated(request)
     uuids = [str(person.uuid) for person in persons]
-    for chunk in _chunks(uuids, PERSONS_PER_DELETION_TASK):
+    chunks = list(_chunks(uuids, PERSONS_PER_DELETION_TASK)) or ([[]] if unmatched_distinct_ids else [])
+    was_impersonated = is_impersonated(request)
+    for index, chunk in enumerate(chunks):
         delete_persons_async.delay(
             team_id=team_id,
             person_uuids=chunk,
@@ -62,6 +68,7 @@ def queue_person_deletion(
             actor_id=actor.pk if actor is not None else None,
             organization_id=str(organization_id) if organization_id is not None else None,
             was_impersonated=was_impersonated,
+            unmatched_distinct_ids=list(unmatched_distinct_ids or []) if index == 0 else [],
         )
     return len(uuids)
 
@@ -92,11 +99,14 @@ def delete_persons_async(
     organization_id: str | None,
     was_impersonated: bool,
     attempt: int = 1,
+    unmatched_distinct_ids: list[str] | None = None,
 ) -> None:
+    unmatched_distinct_ids = unmatched_distinct_ids or []
     logger.info(
         "delete_persons_async started",
         team_id=team_id,
         person_count=len(person_uuids),
+        unmatched_distinct_id_count=len(unmatched_distinct_ids),
         delete_profile=delete_profile,
         delete_recordings=delete_recordings,
         attempt=attempt,
@@ -110,6 +120,7 @@ def delete_persons_async(
         actor=actor,
         was_impersonated=was_impersonated,
         organization_id=uuid_lib.UUID(organization_id) if organization_id else None,
+        unmatched_distinct_ids=unmatched_distinct_ids,
     )
     logger.info(
         "delete_persons_async finished",
@@ -123,6 +134,10 @@ def delete_persons_async(
 
     failures_by_step = Counter(failure.step.value for failure in result.failures)
     failed_uuids = [str(u) for u in result.errors]
+    # A training failure with no person is the unmatched distinct IDs; they come back on the requeue.
+    unmatched_failed = any(
+        f.step is PersonDeletionStep.QUEUE_TRAINING_DELETION and f.person_uuid is None for f in result.failures
+    )
     if attempt < MAX_DELETION_ATTEMPTS:
         countdown = min(RETRY_BACKOFF_SECONDS * 2 ** (attempt - 1), RETRY_BACKOFF_MAX_SECONDS)
         logger.warning(
@@ -143,6 +158,7 @@ def delete_persons_async(
                 "organization_id": organization_id,
                 "was_impersonated": was_impersonated,
                 "attempt": attempt + 1,
+                "unmatched_distinct_ids": unmatched_distinct_ids if unmatched_failed else [],
             },
             countdown=countdown,
         )

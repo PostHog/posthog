@@ -28,13 +28,39 @@ class TestQueuePersonDeletion(SimpleTestCase):
             patch("posthog.tasks.delete_persons.delete_persons_async.delay") as delay,
         ):
             queued = queue_person_deletion(
-                1, persons, delete_profile=True, delete_recordings=False, actor=None, request=None, organization_id=None
+                1,
+                persons,
+                delete_profile=True,
+                delete_recordings=False,
+                actor=None,
+                request=None,
+                organization_id=None,
+                unmatched_distinct_ids=["ghost"],
             )
         assert queued == 3
         assert [len(call.kwargs["person_uuids"]) for call in delay.call_args_list] == [2, 1]
         assert [uuid for call in delay.call_args_list for uuid in call.kwargs["person_uuids"]] == [
             str(p.uuid) for p in persons
         ]
+        # Unmatched distinct IDs ride on the first chunk only.
+        assert [call.kwargs["unmatched_distinct_ids"] for call in delay.call_args_list] == [["ghost"], []]
+
+    def test_queues_a_task_for_unmatched_distinct_ids_when_no_person_resolved(self) -> None:
+        with patch("posthog.tasks.delete_persons.delete_persons_async.delay") as delay:
+            queued = queue_person_deletion(
+                1,
+                [],
+                delete_profile=True,
+                delete_recordings=False,
+                actor=None,
+                request=None,
+                organization_id=None,
+                unmatched_distinct_ids=["ghost"],
+            )
+        assert queued == 0
+        delay.assert_called_once()
+        assert delay.call_args.kwargs["person_uuids"] == []
+        assert delay.call_args.kwargs["unmatched_distinct_ids"] == ["ghost"]
 
     @parameterized.expand(
         [
@@ -71,6 +97,7 @@ class TestDeletePersonsAsync(SimpleTestCase):
                 organization_id="00000000-0000-0000-0000-00000000000a",
                 was_impersonated=True,
                 attempt=attempt,
+                unmatched_distinct_ids=["ghost"],
             )
 
     def test_requeues_only_the_failed_persons(self) -> None:
@@ -92,7 +119,23 @@ class TestDeletePersonsAsync(SimpleTestCase):
         assert kwargs["delete_recordings"] is True
         assert kwargs["organization_id"] == "00000000-0000-0000-0000-00000000000a"
         assert kwargs["was_impersonated"] is True
+        assert kwargs["unmatched_distinct_ids"] == []
         assert requeue.call_args.kwargs["countdown"] == 60
+
+    def test_requeues_the_unmatched_distinct_ids_when_their_training_step_failed(self) -> None:
+        result = PersonProfileDeletionResult(
+            deleted_count=0,
+            failures=[
+                PersonDeletionFailure(
+                    step=PersonDeletionStep.QUEUE_TRAINING_DELETION, person_uuid=None, error="RuntimeError: x"
+                )
+            ],
+        )
+        with patch("posthog.tasks.delete_persons.delete_persons_async.apply_async") as requeue:
+            self._run(result, attempt=1)
+        kwargs = requeue.call_args.kwargs["kwargs"]
+        assert kwargs["person_uuids"] == []
+        assert kwargs["unmatched_distinct_ids"] == ["ghost"]
 
     def test_gives_up_after_the_last_attempt(self) -> None:
         result = PersonProfileDeletionResult(

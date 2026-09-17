@@ -965,13 +965,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Resolve persons without their distinct IDs and hand every distinct-ID-dependent step to Celery."""
         actor = cast(User, request.user)
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids, with_distinct_ids=False)
-        if distinct_ids and (not keep_person or delete_recordings):
-            # The task covers every distinct ID of each resolved person. Only a requested distinct ID
-            # with no person row is left, and it can still own replay sessions, so queue those here.
-            matched = {distinct_id for person in persons for distinct_id in person.distinct_ids}
-            unmatched = [distinct_id for distinct_id in distinct_ids if distinct_id not in matched]
-            if unmatched:
-                queue_person_training_deletion(self.team_id, unmatched)
+        # A requested distinct ID with no person row can still own replay sessions. The task covers
+        # every distinct ID of each resolved person, so only those unmatched IDs are handed over.
+        matched = {distinct_id for person in persons for distinct_id in person.distinct_ids}
+        unmatched = [distinct_id for distinct_id in distinct_ids or [] if distinct_id not in matched]
         if delete_events:
             queue_person_event_deletion(self.team_id, persons, actor=actor)
         persons_queued = queue_person_deletion(
@@ -982,6 +979,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             actor=actor,
             request=request,
             organization_id=self.organization.id,
+            unmatched_distinct_ids=unmatched,
         )
         return {
             "persons_found": len(persons),

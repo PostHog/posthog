@@ -261,6 +261,25 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         ch_delete.assert_not_called()
         pg_delete.assert_not_called()
 
+    def test_unmatched_distinct_ids_queue_training_deletion_and_fail_without_a_person(self):
+        with patch(
+            "posthog.models.person.bulk_delete.queue_person_training_deletion", side_effect=RuntimeError("down")
+        ) as training:
+            result = process_queued_person_deletion(
+                self.team.pk,
+                [],
+                delete_profile=True,
+                delete_recordings=False,
+                actor=self.user,
+                was_impersonated=False,
+                organization_id=self.organization.id,
+                unmatched_distinct_ids=["ghost"],
+            )
+        training.assert_called_once_with(self.team.pk, ["ghost"])
+        assert [(f.step, f.person_uuid) for f in result.failures] == [
+            (PersonDeletionStep.QUEUE_TRAINING_DELETION, None)
+        ]
+
     def test_resolve_failure_is_recorded_for_every_requested_person(self):
         uuids = [uuid4(), uuid4()]
         with patch(

@@ -453,11 +453,20 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
 
         assert resp.status_code == status.HTTP_202_ACCEPTED
         assert resp.json()["persons_found"] == 1
-        # The request only covers the requested ID with no person; the task covers the person's full set.
-        request_side.assert_called_once_with(self.team.pk, ["ghost"])
-        task_side.assert_called_once()
-        assert sorted(task_side.call_args.args[1]) == ["did-1", "did-2"]
+        # Nothing runs the replay session lookup in the request. The task queues the person's full
+        # set once and the requested ID that matched no person once.
+        request_side.assert_not_called()
+        assert sorted(sorted(call.args[1]) for call in task_side.call_args_list) == [["did-1", "did-2"], ["ghost"]]
         assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is None
+
+    @override_settings(PERSON_BULK_DELETE_ASYNC=True)
+    @mock.patch("posthog.models.person.bulk_delete.queue_person_training_deletion")
+    def test_bulk_delete_async_queues_training_deletion_when_no_person_matches(self, task_side):
+        resp = self.client.post("/api/person/bulk_delete/", {"distinct_ids": ["ghost"]})
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        assert resp.json()["persons_found"] == 0
+        task_side.assert_called_once_with(self.team.pk, ["ghost"])
 
     @override_settings(PERSON_BULK_DELETE_ASYNC=True)
     @mock.patch("posthog.models.person.bulk_delete._start_recording_workflows")
