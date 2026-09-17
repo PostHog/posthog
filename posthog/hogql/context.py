@@ -242,12 +242,19 @@ class HogQLContext:
         Resolving a table records the state of its warehouse sync, which only describes rows the query
         reads. A caller that resolves a table to read its schema reads no rows, so it must not collect
         that warning; a table the query really reads, resolved outside this block, still does.
+
+        Restores the map in place: shallow context copies share it by reference, and the executor
+        reads it through the context it copied from. Rebinding the attribute would leave the
+        suppressed warning on the map the response reads, and send a later real warning to a map
+        nothing reads.
         """
-        snapshot = dict(self.data_warehouse_sync_warnings)
+        warnings = self.data_warehouse_sync_warnings
+        snapshot = dict(warnings)
         try:
             yield
         finally:
-            self.data_warehouse_sync_warnings = snapshot
+            warnings.clear()
+            warnings.update(snapshot)
 
     @cached_property
     def project_id(self) -> int:

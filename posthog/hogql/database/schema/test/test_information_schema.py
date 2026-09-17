@@ -767,9 +767,21 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         )
         return table
 
-    def test_catalog_query_does_not_warn_about_syncs_of_tables_it_only_describes(self):
+    @parameterized.expand(
+        [
+            ("whole_catalog", "SELECT table_name FROM system.information_schema.tables"),
+            # The pushdown narrows the walk to this one table, so the unhealthy warehouse table is
+            # the first table the walk resolves. The warning it records must not survive on the map
+            # the response is built from.
+            (
+                "pushed_down_to_the_unhealthy_table",
+                "SELECT column_name FROM system.information_schema.columns WHERE table_name = 'stripe_charge'",
+            ),
+        ]
+    )
+    def test_catalog_query_does_not_warn_about_syncs_of_tables_it_only_describes(self, _name: str, query: str):
         self._create_table_with_a_failed_sync()
-        response = execute_hogql_query("SELECT table_name FROM system.information_schema.tables", team=self.team)
+        response = execute_hogql_query(query, team=self.team)
         assert response.warnings is None
 
     def test_warehouse_read_still_warns_when_the_query_also_reads_the_catalog(self):
