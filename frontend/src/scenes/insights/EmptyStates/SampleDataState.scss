@@ -32,11 +32,13 @@
     }
 
     &__chart {
-        // The quill chart root stretches via flex-1, so it needs a flex column parent
         display: flex;
         flex-direction: column;
+        // The quill chart root stretches via flex-1, so it needs a flex column parent
+        // align-self: stretch opts this item out of __viz's align-items: center, which otherwise
+        // leaves its height at content-size and breaks the flex-1 child's percentage sizing
+        align-self: stretch;
         width: 100%;
-        height: 100%;
 
         // The chart is a picture of made-up data, so it answers nothing the pointer asks of it.
         // Hover still reaches __viz, which owns the settle-to-full-opacity effect.
