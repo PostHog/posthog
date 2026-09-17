@@ -36,8 +36,9 @@ async def run_tool_loop(
     continue the conversation, or appends a correction (on failure) to re-prompt. Returns the final response;
     if the tool budget runs out we return the last response and let the caller validate it.
 
-    `on_round` receives how many lookups a turn asked for, once per turn that asked for any. A round is
-    what the budget spends, whether it carries one lookup or several.
+    `on_round` receives how many lookups a turn asked for, once per turn that asked for any, including the
+    turn that spends the last of the budget. A round is what the budget spends, whether it carries one
+    lookup or several.
     """
     response = await generate(convo)
     for _ in range(max_tool_iterations):
@@ -50,4 +51,11 @@ async def run_tool_loop(
         for call in calls:
             convo.append(types.Part(function_response=types.FunctionResponse(name=call.name, response=dispatch(call))))
         response = await generate(convo)
+    # Budget spent. The caller answers this response's pending calls before forcing a tool-free turn, so
+    # the round happened and is counted here. Without this every budget-exhausted run under-reports, and
+    # those are the runs where batching matters most.
+    if on_round is not None:
+        terminal = function_calls(response)
+        if terminal:
+            on_round(len(terminal))
     return response

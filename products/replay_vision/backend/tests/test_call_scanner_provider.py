@@ -1,5 +1,6 @@
 import datetime as dt
 import dataclasses
+from collections.abc import Callable
 from typing import Any, cast
 
 import pytest
@@ -49,16 +50,22 @@ class _Side(BaseModel):
 
 
 class _FakeContent:
-    def __init__(self, function_call: Any = None) -> None:
-        part = type("Part", (), {"function_call": function_call})()
-        self.parts = [part]
+    def __init__(self, function_calls: list[Any]) -> None:
+        self.parts = [type("Part", (), {"function_call": fc})() for fc in function_calls] or [
+            type("Part", (), {"function_call": None})()
+        ]
 
 
 class _Resp:
-    """Minimal genai response: `.text` and `.candidates[0].content.parts`."""
+    """Minimal genai response: `.text` and `.candidates[0].content.parts`.
 
-    def __init__(self, text: str = "", function_call: Any = None) -> None:
-        self.candidates = [type("Cand", (), {"content": _FakeContent(function_call)})()]
+    `function_calls` takes a list because a turn can ask for several lookups at once, which is the
+    behaviour the per-round histogram exists to measure.
+    """
+
+    def __init__(self, text: str = "", function_call: Any = None, function_calls: list[Any] | None = None) -> None:
+        calls = function_calls if function_calls is not None else ([function_call] if function_call else [])
+        self.candidates = [type("Cand", (), {"content": _FakeContent(calls)})()]
         self.text = text
 
 
@@ -89,7 +96,7 @@ async def _run(
     dispatch: Any = lambda c: {},
     cache_name=None,
     model: str = "models/gemini-3-flash-preview",
-    on_round: Any = None,
+    on_round: Callable[[int], None] | None = None,
 ):
     return await _run_steps(
         client=client,
@@ -203,13 +210,43 @@ async def test_each_tool_turn_reports_how_many_lookups_it_asked_for() -> None:
     rounds: list[int] = []
     steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
     responses = [
-        _Resp(function_call=_fc("get_events_around", {"vid_t": 5})),
+        _Resp(
+            function_calls=[
+                _fc("get_events_around", {"vid_t": 5}),
+                _fc("get_network_around", {"vid_t": 5}),
+                _fc("get_events_around", {"vid_t": 40}),
+            ]
+        ),
+        _Resp(function_call=_fc("get_events_around", {"vid_t": 90})),
         _Resp(text='{"verdict":"yes"}'),
     ]
     client = _FakeClient(responses)
     out = await _run(client, steps, dispatch=lambda fc: {"events": []}, on_round=rounds.append)
     assert out["core"].verdict == "yes"
-    assert rounds == [1]
+    # A turn asking for three lookups must report 3, not 1: telling those apart is the whole point.
+    assert rounds == [3, 1]
+
+
+@pytest.mark.asyncio
+async def test_the_turn_that_spends_the_last_budget_is_still_counted() -> None:
+    # The forced final turn answers that turn's pending lookups, so the round happened. Counting only
+    # the turns inside the loop under-reports exactly the budget-exhausted runs, where batching matters.
+    rounds: list[int] = []
+    budget = 3
+    steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
+    responses = [_Resp(function_call=_fc("get_events_around", {"vid_t": 5})) for _ in range(budget + 1)]
+    responses.append(_Resp(text='{"verdict":"yes"}'))
+    client = _FakeClient(responses)
+    out = await _run(
+        client,
+        steps,
+        dispatch=lambda fc: {"events": []},
+        model="models/gemini-3.8-flash",
+        on_round=rounds.append,
+    )
+    assert out["core"].verdict == "yes"
+    # budget turns inside the loop, plus the turn whose calls the forced answer dispatches.
+    assert len(rounds) == budget + 1
 
 
 @pytest.mark.asyncio
