@@ -23,6 +23,16 @@ describe('tagsModel', () => {
         jest.restoreAllMocks()
     })
 
+    it('shows cached tags for the project selected after mounting', () => {
+        const nextProject = { ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.id + 1 }
+        logic.actions.setProjectTags(MOCK_DEFAULT_TEAM.id, ['first-project'])
+        logic.actions.setProjectTags(nextProject.id, ['second-project'])
+
+        teamLogic.actions.loadCurrentTeamSuccess(nextProject)
+
+        expect(logic.values.tags).toEqual(['second-project'])
+    })
+
     it('keeps refreshed tags when an earlier request finishes afterwards', async () => {
         let resolveInitialRequest: (tags: string[]) => void
         let resolveRefreshRequest: (tags: string[]) => void
