@@ -525,6 +525,19 @@ describe('ML session key batches', () => {
         }
     })
 
+    it('refuses a blocked team on the next batch while its session row is still cached', async () => {
+        await (await store.prepare([session])).commit()
+        const warm = await store.prepare([session])
+        expect(warm.get(session.teamId, session.sessionId)).not.toBeUndefined()
+        const blocked = teamBlockId(session.teamId)
+        boundary.items.set(tableKeyString(blocked), { ...encodeKey(blocked), deleted: { BOOL: true } })
+        const readsBefore = boundary.readSizes.length
+        const next = await store.prepare([session])
+        // Only the team block row reached DynamoDB. The session row was served from the cache and did not hide the block.
+        expect(boundary.readSizes.slice(readsBefore).reduce((total, size) => total + size, 0)).toBe(1)
+        expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
+    })
+
     it('holds a session tombstone so a deleted session stops costing a read and a doomed write', async () => {
         const db = new MlKeyDynamoDB(boundary as unknown as DynamoDBClient, table)
         const store = new MlSessionKeyStore(db, encryption)
