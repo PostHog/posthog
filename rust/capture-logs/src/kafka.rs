@@ -8,14 +8,17 @@ use anyhow::anyhow;
 use apache_avro::{Codec, Schema, Writer, ZstandardSettings};
 use capture::config::KafkaConfig;
 use chrono::Utc;
+use common_kafka::error::error_code_tag;
 use health::HealthHandle;
 use metrics::{counter, gauge};
 use rdkafka::error::KafkaError;
 use rdkafka::message::{Header, OwnedHeaders};
+use rdkafka::producer::future_producer::OwnedDeliveryResult;
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use std::result::Result::Ok;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::log::{debug, info};
 
@@ -194,6 +197,43 @@ async fn build_producer(
     };
 
     Ok(producer)
+}
+
+fn count_produce_error(topic: &str, reason: &'static str) {
+    counter!(
+        "capture_kafka_produce_errors_total",
+        "topic" => Arc::<str>::from(topic),
+        "reason" => reason
+    )
+    .increment(1);
+}
+
+/// `None` means the delivery report never arrived, which is what a producer teardown
+/// with the batch still in flight looks like. A `message.timeout.ms` expiry is not this
+/// case: librdkafka always reports it, as an inner `MessageTimedOut`.
+fn interpret_delivery_result(
+    result: Option<OwnedDeliveryResult>,
+    topic: &str,
+) -> Result<(), anyhow::Error> {
+    match result {
+        None => {
+            count_produce_error(topic, "delivery_cancelled");
+            Err(anyhow!(
+                "kafka error: the producer dropped the batch without a delivery report"
+            ))
+        }
+        Some(Err((err, _))) => {
+            count_produce_error(topic, kafka_error_tag(&err));
+            Err(anyhow!("kafka error: delivery failed: {err}"))
+        }
+        Some(Ok(_)) => Ok(()),
+    }
+}
+
+fn kafka_error_tag(err: &KafkaError) -> &'static str {
+    err.rdkafka_error_code()
+        .map(error_code_tag)
+        .unwrap_or("rdkafka_other")
 }
 
 impl KafkaSink {
@@ -406,13 +446,14 @@ impl KafkaSink {
                     })
             }),
         }) {
-            Err((err, _)) => Err(anyhow!(format!("kafka error: {err}"))),
+            Err((err, _)) => {
+                count_produce_error(topic, "enqueue");
+                Err(anyhow!("kafka error: {err}"))
+            }
             Ok(delivery_future) => Ok(delivery_future),
         }?;
 
-        drop(future.await?);
-
-        Ok(())
+        interpret_delivery_result(future.await.ok(), topic)
     }
 
     pub async fn write(
@@ -512,5 +553,57 @@ impl KafkaSink {
         .await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rdkafka::error::RDKafkaErrorCode;
+    use rdkafka::message::OwnedMessage;
+    use rdkafka::Timestamp;
+
+    fn rejected_by_broker(code: RDKafkaErrorCode) -> Option<OwnedDeliveryResult> {
+        Some(Err((
+            KafkaError::MessageProduction(code),
+            OwnedMessage::new(
+                None,
+                None,
+                "logs".to_string(),
+                Timestamp::NotAvailable,
+                0,
+                0,
+                None,
+            ),
+        )))
+    }
+
+    #[test]
+    fn a_failed_delivery_is_never_reported_as_a_write() {
+        assert!(interpret_delivery_result(None, "logs").is_err());
+        assert!(interpret_delivery_result(
+            rejected_by_broker(RDKafkaErrorCode::MessageTimedOut),
+            "logs"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn a_delivered_batch_is_reported_as_a_write() {
+        assert!(interpret_delivery_result(Some(Ok((0, 42))), "logs").is_ok());
+    }
+
+    #[test]
+    fn a_broker_error_is_tagged_with_the_shared_vocabulary() {
+        assert_eq!(
+            kafka_error_tag(&KafkaError::MessageProduction(
+                RDKafkaErrorCode::MessageSizeTooLarge
+            )),
+            "message_size_too_large"
+        );
+        assert_eq!(
+            kafka_error_tag(&KafkaError::NoMessageReceived),
+            "rdkafka_other"
+        );
     }
 }
