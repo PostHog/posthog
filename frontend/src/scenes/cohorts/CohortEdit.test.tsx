@@ -567,9 +567,14 @@ describe('cohortEditLogic', () => {
 
             renderWithScenePanel(cohortId)
 
-            // The panel fills in once the cohort resolves. Waiting on a sibling action separates a
-            // panel that never rendered from one that rendered without this entry.
-            await screen.findByText('Message this cohort')
+            // The panel fills in behind a one second timer, so the default one second find budget
+            // has almost no margin. Waiting on a sibling action also separates a panel that never
+            // rendered from one that rendered without this entry.
+            await screen.findByText('Message this cohort', {}, { timeout: 5000 })
+
+            // An unloaded cohort has a falsy is_static, which satisfies the gate this test exists
+            // to catch, so pin that the fixture reached the scene before asserting on it.
+            expect(screen.getByText(isStatic ? 'Static' : 'Dynamic')).toBeInTheDocument()
 
             // Both cohort types record calculation history, so neither may have the tab that lists
             // it gated away.
