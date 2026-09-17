@@ -1,7 +1,17 @@
+import '@testing-library/jest-dom'
+
+import { cleanup, render, screen } from '@testing-library/react'
+
 import { ExternalDataSourceSyncSchema } from '~/types'
 
 import { SyncTypeLabelMap } from '../../../utils'
-import { getInitialRadioState, getSaveDisabledReason, shouldOfferXmin } from './SyncMethodForm'
+import {
+    SyncMethodForm,
+    getIncrementalSyncSupported,
+    getInitialRadioState,
+    getSaveDisabledReason,
+    shouldOfferXmin,
+} from './SyncMethodForm'
 
 const baseSchema: ExternalDataSourceSyncSchema = {
     table: 'orders',
@@ -21,7 +31,11 @@ const baseSchema: ExternalDataSourceSyncSchema = {
     xmin_available: true,
 }
 
+const SOURCE_CONFIGURATION_URL = '/project/1/data-warehouse/sources/managed-123/configuration'
+
 describe('SyncMethodForm', () => {
+    afterEach(cleanup)
+
     it.each([
         ['available', { xmin_available: true }, true],
         ['not available', { xmin_available: false }, false],
@@ -40,6 +54,55 @@ describe('SyncMethodForm', () => {
         ['key picked, key required', ['id'], true, undefined],
     ])('requires a merge key for incremental: %s', (_, mergeKey, keyRequired, expected) => {
         expect(getSaveDisabledReason('incremental', 'updated_at', null, mergeKey, keyRequired)).toBe(expected)
+    })
+
+    it.each([
+        [
+            'custom source points at the manifest',
+            'Custom',
+            "This table has no cursor in the source's manifest. Add one to sync it incrementally.",
+        ],
+        [
+            'other sources keep the table-level reason',
+            'Postgres',
+            "Incremental replication isn't supported on this table. Use full table replication instead.",
+        ],
+    ])('explains a table without incremental support: %s', (_, sourceType, expected) => {
+        expect(getIncrementalSyncSupported(baseSchema, sourceType)).toEqual({
+            disabled: true,
+            disabledReason: expected,
+        })
+    })
+
+    it('sends a custom source to the manifest that turns incremental sync on', () => {
+        render(
+            <SyncMethodForm
+                schema={baseSchema}
+                sourceType="Custom"
+                sourceConfigurationUrl={SOURCE_CONFIGURATION_URL}
+                onClose={jest.fn()}
+                onSave={jest.fn()}
+            />
+        )
+
+        expect(screen.getByRole('link', { name: 'Open the source configuration' })).toHaveAttribute(
+            'href',
+            SOURCE_CONFIGURATION_URL
+        )
+    })
+
+    it('leaves other sources without the manifest help', () => {
+        render(
+            <SyncMethodForm
+                schema={baseSchema}
+                sourceType="Postgres"
+                sourceConfigurationUrl={SOURCE_CONFIGURATION_URL}
+                onClose={jest.fn()}
+                onSave={jest.fn()}
+            />
+        )
+
+        expect(screen.queryByRole('link', { name: 'Open the source configuration' })).not.toBeInTheDocument()
     })
 
     it.each([

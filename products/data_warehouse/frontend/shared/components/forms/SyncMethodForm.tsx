@@ -1,12 +1,14 @@
 import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 
-import { LemonButton, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
 import { AvailableColumn, ExternalDataSourceSyncSchema } from '~/types'
+
+import { isManifestDrivenSource } from 'products/data_warehouse/frontend/utils'
 
 const LOOKBACK_UNIT_SECONDS = {
     minutes: 60,
@@ -38,14 +40,16 @@ export const secondsToLookbackParts = (
     return { amount: Math.floor(seconds / 60), unit: 'minutes' }
 }
 
-const getIncrementalSyncSupported = (
-    schema: ExternalDataSourceSyncSchema
+export const getIncrementalSyncSupported = (
+    schema: ExternalDataSourceSyncSchema,
+    sourceType?: string | null
 ): { disabled: true; disabledReason: string } | { disabled: false } => {
     if (!schema.incremental_available) {
         return {
             disabled: true,
-            disabledReason:
-                "Incremental replication isn't supported on this table. Use full table replication instead.",
+            disabledReason: isManifestDrivenSource(sourceType)
+                ? "This table has no cursor in the source's manifest. Add one to sync it incrementally."
+                : "Incremental replication isn't supported on this table. Use full table replication instead.",
         }
     }
 
@@ -98,6 +102,10 @@ interface SyncMethodFormProps {
         incrementalFieldLookbackSeconds?: number | null
     ) => void
     availableColumns?: AvailableColumn[]
+    /** Source type of the schema's source, e.g. 'Custom'. Decides how an unsupported sync method is explained. */
+    sourceType?: string | null
+    /** Link to the source's configuration tab, where a custom source's manifest is edited. */
+    sourceConfigurationUrl?: string
     detectedPrimaryKeys?: string[] | null
     primaryKeyDetectionSupported?: boolean
     primaryKeyLocked?: boolean
@@ -194,6 +202,8 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         onClose,
         onSave,
         availableColumns,
+        sourceType,
+        sourceConfigurationUrl,
         detectedPrimaryKeys,
         primaryKeyDetectionSupported,
         primaryKeyLocked,
@@ -204,7 +214,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     },
     ref
 ): JSX.Element {
-    const incrementalSyncSupported = getIncrementalSyncSupported(schema)
+    const incrementalSyncSupported = getIncrementalSyncSupported(schema, sourceType)
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
     const cdcSyncSupported = getCdcSyncSupported(schema)
 
@@ -706,8 +716,21 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         onSaveDisabledReasonChange?.(saveDisabledReason)
     }, [saveDisabledReason, onSaveDisabledReasonChange])
 
+    const showManifestCursorHelp = !schema.incremental_available && isManifestDrivenSource(sourceType)
+
     return (
         <>
+            {showManifestCursorHelp && (
+                <LemonBanner type="info" className="mb-4">
+                    To replicate this table incrementally, turn on "Enable incremental sync" for it in the source's
+                    manifest and set a cursor JSONPath, such as <code>updated_at</code>.{' '}
+                    {sourceConfigurationUrl ? (
+                        <Link to={sourceConfigurationUrl}>Open the source configuration</Link>
+                    ) : (
+                        'The manifest is on the previous step.'
+                    )}
+                </LemonBanner>
+            )}
             <LemonRadio
                 radioPosition="top"
                 value={radioValue}

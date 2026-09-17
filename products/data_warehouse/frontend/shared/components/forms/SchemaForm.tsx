@@ -18,7 +18,7 @@ import { pluralize } from 'lib/utils/strings'
 
 import { ExternalDataSourceSyncSchema } from '~/types'
 
-import { SyncTypeLabelMap } from 'products/data_warehouse/frontend/utils'
+import { SyncTypeLabelMap, isManifestDrivenSource } from 'products/data_warehouse/frontend/utils'
 
 import { sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { ColumnSelectionPicker } from '../../../scenes/SourceScene/tabs/ColumnSelectionModal'
@@ -208,7 +208,13 @@ export default function SchemaForm(): JSX.Element {
                     )
                 }
                 if (!schema.incremental_available && !schema.append_available) {
-                    return <span className="text-xs text-muted-foreground">Incremental sync not supported</span>
+                    return (
+                        <span className="text-xs text-muted-foreground">
+                            {isManifestDrivenSource(selectedConnector?.name)
+                                ? 'No cursor in the manifest'
+                                : 'Incremental sync not supported'}
+                        </span>
+                    )
                 }
 
                 if (schema.sync_type === 'webhook') {
@@ -310,6 +316,9 @@ export default function SchemaForm(): JSX.Element {
                         </div>
                     )
                 }
+                const fullRefreshOnlyReason = isManifestDrivenSource(selectedConnector?.name)
+                    ? "This table has no cursor in the source's manifest, so full table replication is the only sync method. Go back a step to add a cursor."
+                    : 'Full refresh is the only supported sync method for this table'
                 return (
                     <div className="justify-end flex">
                         <LemonButton
@@ -320,7 +329,7 @@ export default function SchemaForm(): JSX.Element {
                             disabledReason={
                                 schema.permission_error ??
                                 (!schema.incremental_available && !schema.append_available && !schema.supports_webhooks
-                                    ? 'Full refresh is the only supported sync method for this table'
+                                    ? fullRefreshOnlyReason
                                     : undefined)
                             }
                         >
@@ -695,7 +704,7 @@ export default function SchemaForm(): JSX.Element {
 
 const SyncMethodModal = (): JSX.Element => {
     const { cancelSyncMethodModal, updateSchemaSyncType, toggleSchemaShouldSync } = useActions(sourceWizardLogic)
-    const { syncMethodModalOpen, currentSyncMethodModalSchema } = useValues(sourceWizardLogic)
+    const { syncMethodModalOpen, currentSyncMethodModalSchema, selectedConnector } = useValues(sourceWizardLogic)
 
     if (!currentSyncMethodModalSchema) {
         return <></>
@@ -713,6 +722,7 @@ const SyncMethodModal = (): JSX.Element => {
         >
             <SyncMethodForm
                 schema={currentSyncMethodModalSchema}
+                sourceType={selectedConnector?.name}
                 onClose={cancelSyncMethodModal}
                 isNewSource
                 onSave={(
