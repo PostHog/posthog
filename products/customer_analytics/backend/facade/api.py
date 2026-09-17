@@ -613,7 +613,9 @@ def list_external_accounts(
         user__isnull=False,
         user__organization_membership__organization_id=organization_id,
     )
-    queryset = Account.objects.for_team(team_id).filter(external_id__isnull=False).exclude(external_id="")
+    queryset: QuerySet[Account] = (
+        Account.objects.for_team(team_id).filter(external_id__isnull=False).exclude(external_id="")
+    )
     if user_access_control is not None:
         queryset = user_access_control.filter_queryset_by_access_level(queryset)
     if not include_ignored:
