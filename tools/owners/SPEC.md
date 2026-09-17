@@ -219,12 +219,13 @@ The root file declares the alias files in `alias_files` (section 5).
 
 1. Each entry of `alias_files` MUST be a bare file name. It MUST NOT contain `/`.
 2. An entry MUST NOT be `owners.yaml`.
-3. A tool MUST NOT read a file as an ownership file unless the file is named `owners.yaml` or the root file declares its name in `alias_files`.
-4. A tool MUST read only the `owners` field of an alias file. All other fields have no effect on ownership.
-5. The `owners` field MUST be a list of non-empty strings. Otherwise the file counts as absent.
-6. An `owners.yaml` in the same directory takes precedence. A linter SHOULD report a directory that has both.
-7. When a directory holds more than one alias file, the first name in `alias_files` decides.
-8. An alias file in the repository root has no effect. The names come from the root `owners.yaml`, and that file takes precedence over any alias file next to it.
+3. `alias_files` MUST NOT hold more than 8 entries. A tool MUST ignore the whole list when it does.
+4. A tool MUST NOT read a file as an ownership file unless the file is named `owners.yaml` or the root file declares its name in `alias_files`.
+5. A tool MUST read only the `owners` field of an alias file. All other fields have no effect on ownership.
+6. The `owners` field MUST be a list of non-empty strings. Otherwise the file counts as absent.
+7. An `owners.yaml` in the same directory takes precedence. A linter SHOULD report a directory that has both.
+8. When a directory holds more than one alias file, the first name in `alias_files` decides.
+9. An alias file in the repository root has no effect. The names come from the root `owners.yaml`, and that file takes precedence over any alias file next to it.
 
 A repository with no root file, or with no `alias_files`, has no alias files. Only `owners.yaml` decides ownership there.
 

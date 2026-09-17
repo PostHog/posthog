@@ -166,6 +166,7 @@ def test_json_schema_accepts_the_same_top_level_keys_as_the_parser() -> None:
         ("reserved_dirs: ['a***b']\n", "reserved_dirs: invalid pattern"),
         ("alias_files: ['pkg/product.yaml']\n", "must be a bare file name"),
         ("alias_files: [owners.yaml]\n", "is the ownership file, not an alias"),
+        ("alias_files: [a, b, c, d, e, f, g, h, i]\n", "at most 8 names"),
         ("codeowners:\n  jest_dir: web\n", "codeowners: unknown field 'jest_dir'"),
     ],
 )

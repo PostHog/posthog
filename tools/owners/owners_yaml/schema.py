@@ -26,6 +26,9 @@ ROOT_ONLY_KEYS = {"teams", "github_org", "producers", "reserved_dirs", "codeowne
 # and `rules`, plus the required `match`.
 TOP_LEVEL_KEYS = {"version", "owners", "status", "inherit", "rules"} | ROOT_ONLY_KEYS
 _RULE_KEYS = {"match", "owners", "status", "inherit"}
+# Every alias name is one more file to read per directory, and a hosted resolver reads a root file
+# it does not control, so the list has a ceiling.
+MAX_ALIAS_FILES = 8
 _TEAMS_ENTRY_KEYS = {"slack", "notifications"}
 _CODEOWNERS_KEYS = {"jest_root", "jest_root_tests", "jest_root_packages"}
 
@@ -292,6 +295,9 @@ def _validate_settings(data: dict[object, object], errors: list[str]) -> RepoSet
             errors.append(f"alias_files: '{OWNERS_FILENAME}' is the ownership file, not an alias")
             continue
         alias_files.append(name)
+    if len(alias_files) > MAX_ALIAS_FILES:
+        errors.append(f"alias_files: at most {MAX_ALIAS_FILES} names are allowed")
+        alias_files = []
 
     codeowners = _validate_codeowners(data["codeowners"], errors) if "codeowners" in data else CodeownersSettings()
     return RepoSettings(
