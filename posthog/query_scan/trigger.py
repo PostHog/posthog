@@ -21,6 +21,7 @@ from posthog.schema import (
     FunnelMathType,
     GroupMathType,
     LifecycleQuery,
+    NodeKind,
     RetentionType,
 )
 
@@ -31,6 +32,7 @@ from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.query_stats import QueryStats, RecordedExecution
 
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, is_api_key_access_method
+from posthog.event_usage import EventSource
 from posthog.models.user import User
 from posthog.query_scan.event_filter import classify_event_filter
 from posthog.query_scan.findings import SQL_QUERY_KIND
@@ -79,10 +81,27 @@ _ANY_EVENT_MATHS: frozenset[str] = frozenset(
     }
 )
 
+# Every other kind belongs to a PostHog screen that shows no advice and has nothing to edit.
+_KINDS_A_PERSON_BUILDS: frozenset[str] = frozenset(
+    {
+        NodeKind.HOG_QL_QUERY,
+        NodeKind.TRENDS_QUERY,
+        NodeKind.FUNNELS_QUERY,
+        NodeKind.RETENTION_QUERY,
+        NodeKind.LIFECYCLE_QUERY,
+        NodeKind.PATHS_QUERY,
+        NodeKind.STICKINESS_QUERY,
+    }
+)
+# PostHog's own screens run SQL too, so the kind alone does not say a person wrote it.
+_SQL_SCENES_WITH_ADVICE: frozenset[str] = frozenset({"SQLEditor", "Insight"})
+
 SkipReason = Literal[
     "flag_off",
     "below_floor",
     "api_key",
+    "kind_not_analyzed",
+    "sql_without_surface",
     "no_principal",
     "no_clickhouse_query",
     "not_cacheable",
@@ -101,6 +120,15 @@ def is_mcp_run() -> bool:
     block above its results, so the skip for API callers with nowhere to read advice leaves it
     out."""
     return get_query_tag_value("feature") == Feature.MCP
+
+
+def _sql_run_has_surface(insight_id: int | None, dashboard_id: int | None) -> bool:
+    if insight_id or dashboard_id:
+        return True
+    if get_query_tag_value("scene") in _SQL_SCENES_WITH_ADVICE:
+        return True
+    # An agent's run carries no scene. The request middleware marks it as MCP before authentication.
+    return is_mcp_run() or get_query_tag_value("source") == EventSource.MCP
 
 
 def is_analyzable_principal(user: object) -> TypeGuard[User]:
@@ -147,6 +175,12 @@ def maybe_trigger_query_scan(
     if is_api_key_access_method(get_query_tag_value("access_method")) and not is_mcp_run():
         # An API caller has no surface to read the advice on, so the analysis would only cost.
         return "api_key"
+    kind = getattr(query, "kind", None)
+    query_kind = str(kind) if kind is not None else None
+    if query_kind not in _KINDS_A_PERSON_BUILDS:
+        return "kind_not_analyzed"
+    if query_kind == SQL_QUERY_KIND and not _sql_run_has_surface(insight_id, dashboard_id):
+        return "sql_without_surface"
     if getattr(query, "connectionId", None):
         # A direct connection reads the external warehouse instead of ClickHouse, so the job
         # would park a pending slot for an analysis that cannot happen.
@@ -171,9 +205,6 @@ def maybe_trigger_query_scan(
         # The run had no executions to print: it bypassed the executor, or fanned out into none.
         clear_slot(team_id, cache_key, thresholds=flag.thresholds_fingerprint)
         return "nothing_to_analyze"
-
-    kind = getattr(query, "kind", None)
-    query_kind = str(kind) if kind is not None else None
 
     # A module-level import would close the runner, trigger, task, job, runner cycle.
     from posthog.tasks.query_scan import analyze_query_scan  # noqa: PLC0415

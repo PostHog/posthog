@@ -172,6 +172,7 @@ def setup_test_query_runner_class(base: type[QueryRunner] = QueryRunner):
 
 
 _QUERY_SCAN_FLAG_SHOW = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
+_KINDS_WITH_THE_TEST_KIND = frozenset({"TestQuery"})
 _QUERY_SCAN_FLAG_LOG_ONLY = QueryScanFlag(
     mode=QueryScanMode.LOG_ONLY, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5
 )
@@ -341,6 +342,7 @@ class TestQueryRunner(BaseTest):
                 return_value=QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
             ),
             mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
+            mock.patch("posthog.query_scan.trigger._KINDS_A_PERSON_BUILDS", _KINDS_WITH_THE_TEST_KIND),
             mock.patch("posthog.query_scan.trigger.print_prepared_ast", return_value="SELECT 1"),
             mock.patch("posthog.tasks.query_scan.analyze_query_scan.delay") as delay,
             mock.patch.object(
@@ -385,6 +387,7 @@ class TestQueryRunner(BaseTest):
                 return_value=QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
             ),
             mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
+            mock.patch("posthog.query_scan.trigger._KINDS_A_PERSON_BUILDS", _KINDS_WITH_THE_TEST_KIND),
             mock.patch("posthog.tasks.query_scan.analyze_query_scan.delay") as delay,
             mock.patch.object(
                 TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_until_clickhouse_gives_up
@@ -2119,6 +2122,7 @@ class TestQueryFailureCaching(BaseTest):
         with (
             mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag),
             mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
+            mock.patch("posthog.query_scan.trigger._KINDS_A_PERSON_BUILDS", _KINDS_WITH_THE_TEST_KIND),
             mock.patch.object(
                 runner_class, "_calculate", autospec=True, side_effect=calculate_until_clickhouse_gives_up
             ),

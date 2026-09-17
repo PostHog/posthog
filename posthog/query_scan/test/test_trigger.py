@@ -14,6 +14,7 @@ from posthog.schema import (
     BreakdownType,
     DateRange,
     EventsNode,
+    EventsQuery,
     FunnelMathType,
     FunnelsQuery,
     HogQLFilters,
@@ -31,6 +32,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import QueryStats, RecordedExecution
 
 from posthog.clickhouse.query_tagging import AccessMethod, Feature, reset_query_tags, tag_queries
+from posthog.event_usage import EventSource
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.slot import slot_key
 from posthog.query_scan.tree_facts import TreeFacts
@@ -143,6 +145,18 @@ class TestQueryScanTrigger(SimpleTestCase):
             ("below the floor", {"stats": _stats(duration_ms=999.0)}, None, "below_floor"),
             ("api key run", {}, _tag_as_api_key, "api_key"),
             (
+                "a kind from one of posthog's own screens",
+                {"query": EventsQuery(select=["*"])},
+                None,
+                "kind_not_analyzed",
+            ),
+            (
+                "sql from a screen that shows no advice",
+                {"insight_id": None, "dashboard_id": None},
+                None,
+                "sql_without_surface",
+            ),
+            (
                 "direct connection",
                 {"query": HogQLQuery(query="select 1", connectionId="connection_1")},
                 None,
@@ -208,6 +222,21 @@ class TestQueryScanTrigger(SimpleTestCase):
         tag_queries(access_method=AccessMethod.PERSONAL_API_KEY, feature=Feature.MCP)
 
         result = self._trigger()
+
+        assert result is None
+        assert self.delay.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("the sql editor", {"scene": "SQLEditor"}),
+            ("an unsaved insight", {"scene": "Insight"}),
+            ("an mcp agent", {"source": EventSource.MCP}),
+        ]
+    )
+    def test_sql_outside_an_insight_is_analyzed_where_its_advice_is_read(self, _name, tags) -> None:
+        tag_queries(**tags)
+
+        result = self._trigger(insight_id=None, dashboard_id=None)
 
         assert result is None
         assert self.delay.call_count == 1
