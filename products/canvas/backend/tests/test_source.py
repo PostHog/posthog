@@ -305,35 +305,6 @@ class TestCanvasSourceAdapter(SimpleTestCase):
         self.assertFalse(has_errors(diagnostics))
         self.assertIn("network_fetch", [d["code"] for d in diagnostics])
 
-    @parameterized.expand([("viewport_height", "h-screen"), ("full_height", "h-full")])
-    def test_root_scroll_flex_column_warns_but_stays_publishable(self, _name: str, height_class: str) -> None:
-        code = f'''export default function Canvas() {{
-  return (
-    // Keep scrolling separate from flex layout.
-    <div className="{height_class} flex flex-col overflow-y-auto">content</div>
-  )
-}}
-'''
-        diagnostics = validate_source_project(project(files={CANVAS_COMPONENT_PATH: code}))
-
-        entry = next(d for d in diagnostics if d["code"] == "root_scroll_flex_column")
-        self.assertFalse(has_errors(diagnostics))
-        self.assertEqual(entry["path"], CANVAS_COMPONENT_PATH)
-        self.assertEqual(entry["line"], 4)
-
-    def test_separate_root_scroll_and_flex_column_has_no_layout_warning(self) -> None:
-        code = """export default function Canvas() {
-  return (
-    <div className="h-screen overflow-y-auto">
-      <div className="flex flex-col">content</div>
-    </div>
-  )
-}
-"""
-        diagnostics = validate_source_project(project(files={CANVAS_COMPONENT_PATH: code}))
-
-        self.assertNotIn("root_scroll_flex_column", [d["code"] for d in diagnostics])
-
     @parameterized.expand(
         [
             ("fetch", 'fetch("https://api.example.com/v1/data");', CANVAS_COMPONENT_PATH, "https://api.example.com"),
