@@ -32,6 +32,8 @@ import type {
     _TracingLatencyHeatmapRequestApi,
     _TracingLatencyHeatmapResponseApi,
     _TracingQueryRequestApi,
+    _TracingSessionErrorCountsRequestApi,
+    _TracingSessionErrorCountsResponseApi,
     _TracingSparklineRequestApi,
     _TracingTraceRequestApi,
     _TracingTreeRequestApi,
@@ -272,6 +274,27 @@ export const tracingSpansServiceNamesRetrieve = async (
     return apiMutator<void>(getTracingSpansServiceNamesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTracingSpansSessionErrorCountsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/session-error-counts/`
+}
+
+/**
+ * Count the exceptions each session hit around the spans in view, for the span list's
+ * error badges.
+ */
+export const tracingSpansSessionErrorCountsCreate = async (
+    projectId: string,
+    _tracingSessionErrorCountsRequestApi: _TracingSessionErrorCountsRequestApi,
+    options?: RequestInit
+): Promise<_TracingSessionErrorCountsResponseApi> => {
+    return apiMutator<_TracingSessionErrorCountsResponseApi>(getTracingSpansSessionErrorCountsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingSessionErrorCountsRequestApi),
     })
 }
 

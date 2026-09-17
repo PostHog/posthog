@@ -668,6 +668,22 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
         .describe('The tracing spans query to execute.'),
 })
 
+/**
+ * Count the exceptions each session hit around the spans in view, for the span list's
+ * error badges.
+ */
+export const tracingSpansSessionErrorCountsCreateBodySessionIdsMax = 200
+
+export const TracingSpansSessionErrorCountsCreateBody = /* @__PURE__ */ zod.object({
+    sessionIds: zod
+        .array(zod.string())
+        .min(1)
+        .max(tracingSpansSessionErrorCountsCreateBodySessionIdsMax)
+        .describe('Session IDs to count exceptions for. At most 200 per request.'),
+    dateFrom: zod.iso.datetime({ offset: true }).describe('Start of the window the exceptions must fall in. ISO 8601.'),
+    dateTo: zod.iso.datetime({ offset: true }).describe('End of the window the exceptions must fall in. ISO 8601.'),
+})
+
 export const tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault = []
 export const tracingSpansSparklineCreateBodyQueryOneRootSpansDefault = false
 

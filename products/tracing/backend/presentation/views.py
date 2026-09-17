@@ -15,11 +15,11 @@ import base64
 
 from django.db import models
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from pydantic import ValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import ParseError, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -37,7 +37,7 @@ from posthog.schema import (
 )
 
 from posthog.api.documentation import _FallbackSerializer
-from posthog.api.mixins import PydanticModelMixin
+from posthog.api.mixins import PydanticModelMixin, ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import CHQueryErrorTooManyBytes
@@ -66,6 +66,7 @@ from ..logic import (
     run_service_names_query,
     run_tree_query,
 )
+from ..session_error_counts import MAX_SESSIONS_PER_LOOKUP, count_session_exceptions
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
 from .date_window import normalize_tracing_date_range
 
@@ -324,6 +325,31 @@ class _TracingServiceNamesQuerySerializer(serializers.Serializer):
     dateRange = serializers.CharField(
         required=False,
         help_text='JSON-encoded date range, e.g. \'{"date_from": "-1h"}\'.',
+    )
+
+
+class _TracingSessionErrorCountsRequestSerializer(serializers.Serializer):
+    sessionIds = serializers.ListField(
+        child=serializers.CharField(),
+        min_length=1,
+        max_length=MAX_SESSIONS_PER_LOOKUP,
+        help_text=f"Session IDs to count exceptions for. At most {MAX_SESSIONS_PER_LOOKUP} per request.",
+    )
+    dateFrom = serializers.DateTimeField(help_text="Start of the window the exceptions must fall in. ISO 8601.")
+    dateTo = serializers.DateTimeField(help_text="End of the window the exceptions must fall in. ISO 8601.")
+
+
+class _TracingSessionErrorCountSerializer(serializers.Serializer):
+    session_id = serializers.CharField(help_text="The session the exceptions belong to.")
+    exceptions = serializers.IntegerField(
+        help_text="Exception events in the window that Error Tracking linked to an issue."
+    )
+
+
+class _TracingSessionErrorCountsResponseSerializer(serializers.Serializer):
+    results = _TracingSessionErrorCountSerializer(
+        many=True,
+        help_text="One entry per requested session that had exceptions. Sessions with none are omitted.",
     )
 
 
@@ -786,6 +812,37 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         if not compare_data:
             return None
         return self.get_model(compare_data, CompareFilter)
+
+    @validated_request(
+        _TracingSessionErrorCountsRequestSerializer,
+        responses={200: OpenApiResponse(response=_TracingSessionErrorCountsResponseSerializer)},
+    )
+    # Both scopes: the response is Error Tracking data, so a token scoped to tracing alone must
+    # not reach it. Scopes gate the token; the access-control check below gates the user.
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="session-error-counts",
+        required_scopes=["tracing:read", "error_tracking:read"],
+    )
+    def session_error_counts(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        """Count the exceptions each session hit around the spans in view, for the span list's
+        error badges."""
+        if not self.user_access_control.check_access_level_for_resource("error_tracking", "viewer"):
+            raise PermissionDenied("You do not have access to error tracking.")
+
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        data = request.validated_data
+        counts = count_session_exceptions(
+            team=self.team,
+            session_ids=data["sessionIds"],
+            date_from=data["dateFrom"],
+            date_to=data["dateTo"],
+        )
+        return Response(
+            {"results": [{"session_id": session_id, "exceptions": count} for session_id, count in counts.items()]},
+            status=status.HTTP_200_OK,
+        )
 
     @extend_schema(parameters=[_TracingServiceNamesQuerySerializer])
     @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])

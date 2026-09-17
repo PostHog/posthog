@@ -442,6 +442,31 @@ export interface _TracingQueryRequestApi {
     query: _TracingQueryBodyApi
 }
 
+export interface _TracingSessionErrorCountsRequestApi {
+    /**
+     * Session IDs to count exceptions for. At most 200 per request.
+     * @minItems 1
+     * @maxItems 200
+     */
+    sessionIds: string[]
+    /** Start of the window the exceptions must fall in. ISO 8601. */
+    dateFrom: string
+    /** End of the window the exceptions must fall in. ISO 8601. */
+    dateTo: string
+}
+
+export interface _TracingSessionErrorCountApi {
+    /** The session the exceptions belong to. */
+    session_id: string
+    /** Exception events in the window that Error Tracking linked to an issue. */
+    exceptions: number
+}
+
+export interface _TracingSessionErrorCountsResponseApi {
+    /** One entry per requested session that had exceptions. Sessions with none are omitted. */
+    results: _TracingSessionErrorCountApi[]
+}
+
 export interface _TracingSparklineQueryBodyApi {
     /** Date range for the query. Defaults to last hour. */
     dateRange?: _TracingDateRangeApi

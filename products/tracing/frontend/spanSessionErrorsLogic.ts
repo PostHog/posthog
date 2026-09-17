@@ -1,10 +1,9 @@
 import { MakeLogicType, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 
-import { hogql } from '~/queries/utils'
-
+import { tracingSpansSessionErrorCountsCreate } from './generated/api'
 import { sessionErrorsWindow } from './sessionErrors'
 import { resolveSpanSessionId } from './traceIdentity'
 import { tracingCorrelationConfigLogic } from './tracingCorrelationConfigLogic'
@@ -12,8 +11,8 @@ import { tracingDataLogic } from './tracingDataLogic'
 import { TRACING_SCENE_VIEWER_ID } from './tracingFiltersLogic'
 import type { Span } from './types'
 
-// One page of spans can carry hundreds of distinct sessions. The lookup is a single query either
-// way, but the IN list ends up in the query text, so cap how many one query can put there.
+// The most sessions the endpoint accepts in one request. Kept equal to MAX_SESSIONS_PER_LOOKUP in
+// products/tracing/backend/session_error_counts.py, which rejects a longer list.
 const MAX_SESSIONS_PER_LOOKUP = 200
 
 // Scrolling the list pages in several batches in quick succession. A kea breakpoint cancels a
@@ -32,6 +31,7 @@ export interface SpanSessionErrorsLogicProps {
 export interface spanSessionErrorsLogicValues {
     configuredSessionIdKeys: string[] | undefined // tracingCorrelationConfigLogic
     sessionErrorBadgesEnabled: boolean // tracingCorrelationConfigLogic
+    currentTeamId: number | null // teamLogic
     listRows: Span[] // tracingDataLogic
     errorCountByRow: Map<string, number>
     sessionErrorCounts: Record<string, number>
@@ -125,6 +125,8 @@ export const spanSessionErrorsLogic = kea<spanSessionErrorsLogicType>([
             ['listRows'],
             tracingCorrelationConfigLogic,
             ['configuredSessionIdKeys', 'sessionErrorBadgesEnabled'],
+            teamLogic,
+            ['currentTeamId'],
         ],
         actions: [tracingDataLogic({ id }), ['fetchSpansSuccess', 'fetchNextPageSuccess']],
     })),
@@ -163,23 +165,17 @@ export const spanSessionErrorsLogic = kea<spanSessionErrorsLogicType>([
                             })
                             .map((span) => span.timestamp)
                     )
-                    if (!range) {
+                    if (!range || !values.currentTeamId) {
                         return known
                     }
 
-                    const response = await api.queryHogQL(
-                        hogql`
-                            SELECT properties.$session_id AS session_id, count() AS exceptions
-                            FROM events
-                            WHERE event = '$exception'
-                              AND isNotNull(properties.$exception_issue_id)
-                              AND timestamp >= ${range.date_from}
-                              AND timestamp <= ${range.date_to}
-                              AND properties.$session_id IN ${sessionIds}
-                            GROUP BY session_id
-                        `,
-                        { scene: 'Tracing', productKey: 'tracing', name: 'tracing_session_error_counts' }
-                    )
+                    // The endpoint, not a HogQL query from here, because it checks the caller's
+                    // Error Tracking access before it answers. Its response is that product's data.
+                    const response = await tracingSpansSessionErrorCountsCreate(String(values.currentTeamId), {
+                        sessionIds,
+                        dateFrom: range.date_from,
+                        dateTo: range.date_to,
+                    })
                     breakpoint()
 
                     // Every session looked up gets an entry, including the ones with no exceptions.
@@ -187,8 +183,8 @@ export const spanSessionErrorsLogic = kea<spanSessionErrorsLogicType>([
                     const counts: Record<string, number> = Object.fromEntries(
                         sessionIds.map((sessionId) => [sessionId, 0])
                     )
-                    for (const [sessionId, exceptions] of (response.results ?? []) as [string, number][]) {
-                        counts[sessionId] = Number(exceptions)
+                    for (const { session_id, exceptions } of response.results) {
+                        counts[session_id] = exceptions
                     }
                     return { ...known, ...counts }
                 },

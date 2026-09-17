@@ -1,6 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -8,10 +7,20 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
+import { tracingSpansSessionErrorCountsCreate } from 'products/tracing/frontend/generated/api'
+
 import { makeSpan } from './__mocks__/span'
 import { spanSessionErrorsLogic } from './spanSessionErrorsLogic'
 import { tracingDataLogic } from './tracingDataLogic'
 import type { Span } from './types'
+
+jest.mock('products/tracing/frontend/generated/api', () => ({
+    tracingSpansSessionErrorCountsCreate: jest.fn(),
+}))
+
+const mockCountsCreate = tracingSpansSessionErrorCountsCreate as jest.MockedFunction<
+    typeof tracingSpansSessionErrorCountsCreate
+>
 
 function spanWithSession(uuid: string, sessionId: string | null): Span {
     return makeSpan({ uuid, span_id: uuid, attributes: sessionId ? { sessionId } : {} })
@@ -20,7 +29,6 @@ function spanWithSession(uuid: string, sessionId: string | null): Span {
 describe('spanSessionErrorsLogic', () => {
     let logic: ReturnType<typeof spanSessionErrorsLogic.build>
     let dataLogic: ReturnType<typeof tracingDataLogic.build>
-    let queryHogQLSpy: jest.SpyInstance
 
     // The loader success actions are what the list's fetches dispatch, so driving them is the
     // cheapest way to load a page without standing up the spans endpoint.
@@ -35,7 +43,8 @@ describe('spanSessionErrorsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     }
 
-    const queriesRun = (): string[] => queryHogQLSpy.mock.calls.map((call) => call[0] as string)
+    // The session ids each request asked about, in request order.
+    const sessionsAsked = (): string[][] => mockCountsCreate.mock.calls.map(([, body]) => body.sessionIds)
 
     const setErrorTrackingAccess = (level: AccessControlLevel): void => {
         window.POSTHOG_APP_CONTEXT = {
@@ -73,7 +82,8 @@ describe('spanSessionErrorsLogic', () => {
                 ],
             },
         })
-        queryHogQLSpy = jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [['session-a', 3]] } as any)
+        mockCountsCreate.mockReset()
+        mockCountsCreate.mockResolvedValue({ results: [{ session_id: 'session-a', exceptions: 3 }] })
         setErrorTrackingAccess(AccessControlLevel.Viewer)
         mountLogics()
     })
@@ -81,7 +91,6 @@ describe('spanSessionErrorsLogic', () => {
     afterEach(() => {
         logic.unmount()
         dataLogic.unmount()
-        queryHogQLSpy.mockRestore()
     })
 
     it('records a zero for every session it looked up, so the next page only asks about new ones', async () => {
@@ -99,9 +108,7 @@ describe('spanSessionErrorsLogic', () => {
             spanWithSession('span-3', 'session-c'),
         ])
 
-        expect(queriesRun()).toHaveLength(2)
-        expect(queriesRun()[1]).toContain("'session-c'")
-        expect(queriesRun()[1]).not.toContain("'session-a'")
+        expect(sessionsAsked()).toEqual([['session-a', 'session-b'], ['session-c']])
     })
 
     it('deduplicates the sessions on the page', async () => {
@@ -112,17 +119,27 @@ describe('spanSessionErrorsLogic', () => {
         ])
 
         expect(logic.values.sessionIdsInView).toEqual(['session-a'])
-        expect(queriesRun()[0].match(/'session-a'/g)).toHaveLength(1)
+        expect(sessionsAsked()).toEqual([['session-a']])
     })
 
-    it('asks only about exceptions that error tracking linked to an issue', async () => {
-        await loadFirstPage([spanWithSession('span-1', 'session-a')])
+    it('asks over the window around the rows in view', async () => {
+        await loadFirstPage([
+            makeSpan({
+                uuid: 'span-1',
+                span_id: 'span-1',
+                timestamp: '2026-06-02T08:00:00Z',
+                attributes: { sessionId: 'a' },
+            }),
+        ])
 
-        expect(queriesRun()[0]).toContain('isNotNull(properties.$exception_issue_id)')
+        expect(mockCountsCreate.mock.calls[0][1]).toMatchObject({
+            dateFrom: '2026-06-02T02:00:00.000Z',
+            dateTo: '2026-06-02T14:00:00.000Z',
+        })
     })
 
-    // The count query reads raw exception events, which no backend check ties to Error Tracking
-    // access, so a person who cannot open that product must be stopped here.
+    // The endpoint refuses a person without Error Tracking access, so this gate is what keeps the
+    // badges from showing an error state to them. It also spares every other team the scan.
     it.each([
         ['the feature flag is off', (): void => featureFlagLogic.actions.setFeatureFlags([], {})],
         [
@@ -138,7 +155,7 @@ describe('spanSessionErrorsLogic', () => {
         disable()
         await loadFirstPage([spanWithSession('span-1', 'session-a')])
 
-        expect(queriesRun()).toHaveLength(0)
+        expect(sessionsAsked()).toHaveLength(0)
         expect(logic.values.sessionErrorCounts).toEqual({})
         // Empty because the resolve is skipped, not because the rows carry no session. Without
         // that guard every team pays the per-row attribute scan for a feature they cannot see.
@@ -151,13 +168,12 @@ describe('spanSessionErrorsLogic', () => {
         const firstPage = Array.from({ length: 250 }, (_, i) => spanWithSession(`span-${i}`, `session-${i}`))
         await loadFirstPage(firstPage)
 
-        expect(queriesRun()[0].match(/'session-\d+'/g)).toHaveLength(200)
-        const asked = queriesRun().join(' ')
-        expect(asked).toContain("'session-249'")
+        expect(sessionsAsked()[0]).toHaveLength(200)
+        expect(sessionsAsked().flat()).toContain('session-249')
 
         await loadNextPage([...firstPage, spanWithSession('span-new', 'session-new')])
 
-        expect(queriesRun().join(' ')).toContain("'session-new'")
+        expect(sessionsAsked().flat()).toContain('session-new')
     })
 
     it('drops counts from the previous filters when a fresh query lands', async () => {
@@ -177,7 +193,7 @@ describe('spanSessionErrorsLogic', () => {
         expect(logic.values.sessionErrorCounts).toEqual({ 'session-a': 3 })
 
         // The fresh filters return no exceptions, so anything left over comes from the old page.
-        queryHogQLSpy.mockResolvedValue({ results: [] } as any)
+        mockCountsCreate.mockResolvedValue({ results: [] })
 
         const freshPage = [spanWithSession('span-2', 'session-b')]
         dataLogic.actions.fetchSpansSuccess(freshPage)

@@ -131,9 +131,9 @@ export const tracingCorrelationConfigLogic = kea<tracingCorrelationConfigLogicTy
         ],
         // Single owner of the "badge spans whose session hit errors?" rule, for the span list
         // badge and the trace drawer's Errors tab. Error Tracking viewer access is required as well
-        // as the flag, because the counts and the issues are that product's data. The Errors tab's
-        // query enforces that on the backend, but the count query runs over raw events and does
-        // not, so this gate is what keeps the counts from a person who cannot open Error Tracking.
+        // as the flag, because the counts and the issues are that product's data. The endpoints
+        // behind both refuse a caller without it, so this gate is what keeps those surfaces from
+        // rendering a refusal as an error state.
         sessionErrorBadgesEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean =>

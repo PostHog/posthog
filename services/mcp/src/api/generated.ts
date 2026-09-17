@@ -95266,6 +95266,31 @@ export namespace Schemas {
       query: _TracingQueryBody;
     }
 
+    export interface _TracingSessionErrorCount {
+      /** The session the exceptions belong to. */
+      session_id: string;
+      /** Exception events in the window that Error Tracking linked to an issue. */
+      exceptions: number;
+    }
+
+    export interface _TracingSessionErrorCountsRequest {
+      /**
+         * Session IDs to count exceptions for. At most 200 per request.
+         * @minItems 1
+         * @maxItems 200
+         */
+      sessionIds: string[];
+      /** Start of the window the exceptions must fall in. ISO 8601. */
+      dateFrom: string;
+      /** End of the window the exceptions must fall in. ISO 8601. */
+      dateTo: string;
+    }
+
+    export interface _TracingSessionErrorCountsResponse {
+      /** One entry per requested session that had exceptions. Sessions with none are omitted. */
+      results: _TracingSessionErrorCount[];
+    }
+
     export interface _TracingSparklineQueryBody {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _TracingDateRange;
