@@ -3853,6 +3853,23 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.run_interval_minutes == 120
         assert config.enabled_by_id == self.user.id
 
+    def test_create_upsert_switches_to_custom_on_stored_domains(self) -> None:
+        # The body is validated before the view loads the row, so without the stored list in the
+        # serializer context this switch would be rejected as custom-with-nothing-to-reach.
+        self._make_skill("signals-scout-fresh")
+        SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-fresh", allowed_domains=["status.example.com"]
+        )
+
+        response = self.client.post(
+            self._list_url(), data={"skill_name": "signals-scout-fresh", "network_access": "custom"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
+        assert config.network_access == SignalScoutConfig.NetworkAccess.CUSTOM
+        assert config.allowed_domains == ["status.example.com"]
+
     def test_create_upsert_leaves_omitted_fields_untouched(self) -> None:
         self._make_skill("signals-scout-fresh")
         SignalScoutConfig.objects.create(

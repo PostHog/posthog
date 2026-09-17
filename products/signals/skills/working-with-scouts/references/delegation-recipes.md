@@ -59,7 +59,7 @@ Scouts run in a sandbox that defaults to a trusted-domain allowlist (PostHog, Gi
    The change applies from the next run and is activity-logged.
    Scout configs live on the project's canonical parent — a credential scoped only to a child environment gets a 403 on this write, so make (or request) the grant from the parent project.
    Treat `full` as a real grant, not a convenience: the scout reads external content that may try to steer it (prompt injection) while it holds project read tools and open egress.
-   Reserve it for sources you trust, name the exact sites in the skill body and tell the scout to treat everything it fetches as untrusted data rather than instructions, and keep the rest of the fleet on the default `trusted` allowlist (a per-scout custom domain allowlist doesn't exist yet).
+   Reserve it for sources you trust, name the exact sites in the skill body and tell the scout to treat everything it fetches as untrusted data rather than instructions, and keep the rest of the fleet on the default `trusted` allowlist.
 
 ## "The scouts are too noisy"
 

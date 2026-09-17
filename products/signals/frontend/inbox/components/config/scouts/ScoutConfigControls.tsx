@@ -251,14 +251,14 @@ export function ScoutConfigForm({
                     disabledReason={updating ? 'Saving scout settings' : undefined}
                     className="w-44"
                     onChange={(value) => {
-                        // Custom mode is held here until the first domain arrives, because the API
-                        // rejects it with an empty list. Every other mode writes at once, so the
-                        // config stays the truth for them, including when a failed write rolls back.
-                        setCustomNetworkPicked(value === SignalScoutConfigNetworkAccessEnumApi.Custom)
-                        const savable =
-                            value !== SignalScoutConfigNetworkAccessEnumApi.Custom ||
-                            scoutAllowedDomains(config).length > 0
-                        if (savable && value !== config.network_access) {
+                        // Custom mode is held here only until the first domain arrives, because the
+                        // API rejects it with an empty list. Every savable pick writes at once, so
+                        // the config stays the truth for it, including when a failed write rolls back.
+                        const pendingCustom =
+                            value === SignalScoutConfigNetworkAccessEnumApi.Custom &&
+                            scoutAllowedDomains(config).length === 0
+                        setCustomNetworkPicked(pendingCustom)
+                        if (!pendingCustom && value !== config.network_access) {
                             onUpdate(config.id, { network_access: value })
                         }
                     }}

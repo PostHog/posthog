@@ -3625,12 +3625,13 @@ class SignalScoutConfigOptionsSerializer(_ScoutConfigCapabilityFieldsMixin, seri
         return _validate_allowed_domains(value)
 
     def validate(self, attrs: dict) -> dict:
-        # Create only, so there is no stored list to merge against: `custom` has to bring its own
-        # domains. The upsert path re-runs the update serializer against the existing row, which
-        # applies the merged check there.
+        # A create normally has no stored list, so `custom` has to bring its own domains. The config
+        # upsert view passes the row it is about to update, so switching an existing config to
+        # `custom` keeps the list it already holds instead of being rejected.
+        stored = self.context.get("stored_allowed_domains") or []
         _validate_network_access_domains(
             network_access=attrs.get("network_access"),
-            allowed_domains=attrs.get("allowed_domains", []),
+            allowed_domains=attrs.get("allowed_domains", list(stored)),
         )
         return attrs
 
