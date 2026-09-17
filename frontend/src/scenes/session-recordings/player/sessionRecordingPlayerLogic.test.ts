@@ -341,16 +341,34 @@ describe('sessionRecordingPlayerLogic', () => {
 
     describe('terminal data failures', () => {
         // Give-up signals must surface as a player error even when partial data already loaded —
-        // otherwise the affected range buffers forever with no error shown.
+        // otherwise the affected range buffers forever with no error shown. Each also has to leave
+        // the buffering state, or the re-evaluation cadence clears the error and retries a source
+        // that has run out of attempts.
         it.each(['snapshotProcessingFailed', 'snapshotSourceLoadExhausted'] as const)(
-            '%s sets a player error',
+            '%s sets a player error that survives re-evaluation',
             (action) => {
                 const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
                 logic.actions[action]()
                 expect(logic.values.playerError).toBe(action)
+                expect(logic.values.isBuffering).toBe(false)
+
+                logic.actions.syncPlayerState()
+
+                expect(logic.values.playerError).toBe(action)
                 consoleError.mockRestore()
             }
         )
+
+        it('re-enters buffering when the user retries after a terminal failure', () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            logic.actions.snapshotSourceLoadExhausted()
+
+            logic.actions.retryLoadingSnapshots()
+
+            expect(logic.values.playerError).toBeNull()
+            expect(logic.values.isBuffering).toBe(true)
+            consoleError.mockRestore()
+        })
     })
 
     describe('currentPlayerTime clamping', () => {

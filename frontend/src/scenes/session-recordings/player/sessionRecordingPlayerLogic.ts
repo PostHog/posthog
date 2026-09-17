@@ -2932,22 +2932,28 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         // Both are terminal give-ups: unlike the per-attempt failures above they fire even when other
         // data already loaded, because the missing range would otherwise buffer forever with no error.
+        // Each ends the buffer, or the re-evaluation cadence would keep clearing the error it just set
+        // and retrying a source that has already run out of attempts. Only a retry re-enters buffering.
         snapshotSourceLoadExhausted: () => {
             console.error('PostHog Recording Playback Error: A snapshot source repeatedly failed to load')
+            actions.endBuffer()
             actions.setPlayerError(
                 values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'snapshotSourceLoadExhausted'
             )
         },
         snapshotProcessingFailed: () => {
             console.error('PostHog Recording Playback Error: Snapshot processing repeatedly failed')
+            actions.endBuffer()
             actions.setPlayerError('snapshotProcessingFailed')
         },
         retryLoadingSnapshots: () => {
             actions.clearPlayerError()
-            actions.retrySnapshotLoading()
-            // A retry from the buffering overlay must also revive the loading chain and restart the
-            // cadence. syncPlayerState does nothing when the player is not buffering.
+            // A retry re-enters buffering, both after a terminal failure ended it and from the
+            // buffering overlay itself, so the cadence restarts at its shortest delay and
+            // syncPlayerState revives a loading chain that no longer has a request in flight.
+            actions.startBuffer()
             actions.armBufferingReevaluation(0)
+            actions.retrySnapshotLoading()
             actions.syncPlayerState()
         },
         setPlay: () => {
