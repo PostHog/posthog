@@ -193,8 +193,15 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "capture_enforcement_started_at": started,
             },
         )
-        HeatmapCaptureConfigVersion.objects.create(
-            team=self.team, mode="url_allowlist", patterns=patterns, effective_from=started, effective_to=None
+        self._add_capture_version(patterns, started_at)
+
+    def _add_capture_version(self, patterns: list[str], effective_from: str, effective_to: str | None = None) -> None:
+        HeatmapCaptureConfigVersion.objects.for_team(self.team.pk).create(
+            team=self.team,
+            mode="url_allowlist",
+            patterns=patterns,
+            effective_from=timezone.make_aware(datetime.fromisoformat(effective_from)),
+            effective_to=timezone.make_aware(datetime.fromisoformat(effective_to)) if effective_to else None,
         )
 
     def _seed_capture_enforcement_events(self) -> None:
@@ -208,6 +215,38 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._enable_capture_enforcement(["http://posthog.com/*"])
         self._seed_capture_enforcement_events()
         self._assert_heatmap_single_result_count({"date_from": "2023-03-01"}, 2)
+
+    @time_machine.travel("2025-03-31", tick=False)
+    @override_settings(HEATMAP_URL_ALLOWLIST_ENFORCEMENT_ENABLED=True)
+    def test_capture_allowlist_applies_the_version_active_when_each_row_was_captured(self) -> None:
+        self._enable_capture_enforcement(["http://posthog.com/*"])
+        HeatmapCaptureConfigVersion.objects.for_team(self.team.pk).update(
+            effective_to=timezone.make_aware(datetime.fromisoformat("2023-03-10T00:00:00"))
+        )
+        self._add_capture_version(["http://posthog.com/*", "http://other.com/*"], "2023-03-10T00:00:00")
+        self._create_heatmap_event("v1_allowed", "click", "2023-03-09T09:00:00", current_url="http://posthog.com/y")
+        self._create_heatmap_event("v1_blocked", "click", "2023-03-09T09:00:00", current_url="http://other.com/x")
+        self._create_heatmap_event("v2_allowed_a", "click", "2023-03-11T09:00:00", current_url="http://other.com/x")
+        self._create_heatmap_event("v2_allowed_b", "click", "2023-03-11T09:00:00", current_url="http://posthog.com/y")
+
+        self._assert_heatmap_single_result_count({"date_from": "2023-03-01"}, 3)
+        self._assert_heatmap_single_result_count({"date_from": "2023-03-11"}, 2)
+
+    @time_machine.travel("2025-03-31", tick=False)
+    @override_settings(HEATMAP_URL_ALLOWLIST_ENFORCEMENT_ENABLED=True)
+    def test_capture_allowlist_also_hides_off_list_rows_from_the_interaction_drill_down(self) -> None:
+        self._enable_capture_enforcement(["http://posthog.com/*"])
+        for session_id, timestamp, url in [
+            ("before", "2023-03-07T09:00:00", "http://other.com/x"),
+            ("after_blocked", "2023-03-09T09:00:00", "http://other.com/x"),
+            ("after_allowed", "2023-03-09T09:00:00", "http://posthog.com/y"),
+        ]:
+            self._create_heatmap_event(session_id, "click", timestamp, x=5, y=10, current_url=url)
+
+        points = quote(dumps([{"x": 0.0, "y": 16, "target_fixed": True}]), safe="")
+        response = self.client.get(f"/api/heatmap/events/?date_from=2023-03-01&points={points}")
+        assert response.status_code == status.HTTP_200_OK, response.data
+        assert sorted(result["session_id"] for result in response.data["results"]) == ["after_allowed", "before"]
 
     @time_machine.travel("2025-03-31", tick=False)
     def test_capture_allowlist_ignored_when_enforcement_disabled(self) -> None:
