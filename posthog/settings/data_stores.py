@@ -35,10 +35,12 @@ PERSON_TABLE_NAME: str = os.getenv("PERSON_TABLE_NAME", "posthog_person")
 # libpq reads a client certificate from $HOME/.postgresql when no path is given, and
 # fails the connection when it cannot read that path. Our container runs the app as
 # `nobody` while $HOME stays /root, so the probe kills every connection. Point the
-# unset paths at a file that does not exist, which libpq ignores. The directory is
-# writable by root only, so no other process in the container can plant a file there
-# and break every connection.
-NO_POSTGRES_CLIENT_CERT_PATH = "/etc/posthog/no-client-cert.pem"
+# unset paths at a file that does not exist, which libpq ignores. The file sits
+# directly under /etc, which only root can write, so no other process in the container
+# can plant a file there. It gets no directory of its own, because libpq accepts only
+# ENOENT and ENOTDIR from that stat, so a directory an operator mounts unreadable
+# would return EACCES and fail every connection again.
+NO_POSTGRES_CLIENT_CERT_PATH = "/etc/posthog-no-client-cert.pem"
 
 
 def postgres_config(host: str) -> dict:
