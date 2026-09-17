@@ -1,6 +1,5 @@
 // Serial: concurrent workers invalidate this CPU-performance threshold.
 import { compileHog } from '~/cdp/templates/compiler'
-import { parseJSON } from '~/common/utils/json-parse'
 
 import type { LogRecord } from '../../log-record-avro'
 import { buildLogRecordGlobals, executeLogTransformation } from '../hog-log-exec'
@@ -27,9 +26,10 @@ describe('logs transformation production-path benchmark', () => {
                 // Wire-form clone per iteration: execution mutates the record, and a
                 // pre-scrubbed record would let later iterations skip the regex work.
                 const runOnce = (): { durationUs: number; status: string } => {
-                    const rec: LogRecord = parseJSON(JSON.stringify(record))
-                    const globals = buildLogRecordGlobals(rec, project, { ...program.inputs })
+                    // oxlint-disable-next-line eslint-js/no-restricted-syntax
+                    const rec: LogRecord = JSON.parse(JSON.stringify(record))
                     const start = performance.now()
+                    const globals = buildLogRecordGlobals(rec, project, { ...program.inputs })
                     const outcome = executeLogTransformation(bytecode, rec, globals, { timeoutMs: TIMEOUT_MS })
                     return { durationUs: (performance.now() - start) * 1000, status: outcome.status }
                 }

@@ -1,7 +1,6 @@
 import { performance } from 'perf_hooks'
 
 import { compileHog } from '~/cdp/templates/compiler'
-import { parseJSON } from '~/common/utils/json-parse'
 
 import { encodeLogAttributeValue } from '../../attribute-value'
 import type { LogRecord } from '../../log-record-avro'
@@ -62,7 +61,8 @@ async function main(): Promise<void> {
             // mutates the record in place, and reusing a scrubbed record would let later
             // iterations skip the regex-replace work.
             const runOnce = (): { durationUs: number; status: string } => {
-                const rec: LogRecord = parseJSON(JSON.stringify(wireRecord))
+                // oxlint-disable-next-line eslint-js/no-restricted-syntax
+                const rec: LogRecord = JSON.parse(JSON.stringify(wireRecord))
                 const start = performance.now()
                 const globals = buildLogRecordGlobals(rec, project, { ...program.inputs })
                 const outcome = executeLogTransformation(bytecode, rec, globals, { timeoutMs: TIMEOUT_MS })

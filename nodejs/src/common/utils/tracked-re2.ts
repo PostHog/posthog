@@ -44,7 +44,10 @@ export function createTrackedRE2(pattern: string | RegExp, flags?: string, sourc
         return (flags ? new RE2(pattern, flags) : new RE2(pattern)) as RE2
     }
 
-    const key = `${flags ?? ''}${pattern}`
+    // Serialize the (flags, pattern) pair: concatenating without a separator lets
+    // distinct pairs alias each other (e.g. ('foo', 'is') and ('isfoo', undefined)),
+    // so the cache would hand back a regex compiled from the wrong pattern/flags.
+    const key = JSON.stringify([flags ?? '', pattern])
     const cached = re2Cache.get(key)
     if (cached) {
         // Refresh recency: delete+set moves the entry to the LRU tail.
