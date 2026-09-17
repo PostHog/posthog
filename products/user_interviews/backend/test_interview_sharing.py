@@ -26,12 +26,12 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from products.user_interviews.backend.models import IntervieweeContext, UserInterview, UserInterviewTopic
 from products.user_interviews.backend.presentation.webhooks import (
     DEFAULT_FIRST_MESSAGE_TEMPLATE,
-    EMBEDDING_CONTENT_MAX_BYTES,
     FIRST_MESSAGE_PROMPT_NAME,
     _build_first_message,
     _create_vapi_web_call,
     _resolve_first_message_template,
 )
+from products.user_interviews.backend.vapi_events import EMBEDDING_CONTENT_MAX_BYTES
 
 
 def _mock_web_call(assistant_overrides: dict[str, Any]) -> dict[str, Any]:
@@ -790,7 +790,7 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(response.json()["status"], "ignored")
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.presentation.webhooks.posthoganalytics.capture")
+    @patch("products.user_interviews.backend.vapi_events.posthoganalytics.capture")
     def test_webhook_status_update_in_progress_captures_started_event(self, mock_capture):
         share = self._create_share()
         self.client.logout()
@@ -817,7 +817,7 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(kwargs["properties"]["call_id"], "call_xyz")
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.presentation.webhooks.posthoganalytics.capture")
+    @patch("products.user_interviews.backend.vapi_events.posthoganalytics.capture")
     def test_webhook_status_update_duplicate_in_progress_emits_same_insert_id(self, mock_capture):
         # Vapi re-fires `status-update / in-progress` on transient drops + warm-transfer flows.
         # We tag every started event with `$insert_id` = "user_interview_conversation_started:<call_id>"
@@ -840,7 +840,7 @@ class TestVapiWebhook(APIBaseTest):
 
     @parameterized.expand([("ringing",), ("ended",), ("queued",), ("forwarding",), ("scheduled",)])
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.presentation.webhooks.posthoganalytics.capture")
+    @patch("products.user_interviews.backend.vapi_events.posthoganalytics.capture")
     def test_webhook_status_update_other_statuses_do_not_capture(self, call_status: str, mock_capture):
         share = self._create_share()
         self.client.logout()
@@ -858,7 +858,7 @@ class TestVapiWebhook(APIBaseTest):
         mock_capture.assert_not_called()
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.presentation.webhooks.posthoganalytics.capture")
+    @patch("products.user_interviews.backend.vapi_events.posthoganalytics.capture")
     def test_webhook_end_of_call_report_captures_ended_event(self, mock_capture):
         share = self._create_share()
         self.client.logout()
@@ -887,7 +887,7 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(UserInterview.objects.filter(team=self.team).count(), 1)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.presentation.webhooks.emit_embedding_request")
+    @patch("products.user_interviews.backend.vapi_events.emit_embedding_request")
     def test_webhook_emits_transcript_and_summary_embeddings(self, mock_emit):
         share = self._create_share()
         self.client.logout()
@@ -923,7 +923,7 @@ class TestVapiWebhook(APIBaseTest):
         ]
     )
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.presentation.webhooks.emit_embedding_request")
+    @patch("products.user_interviews.backend.vapi_events.emit_embedding_request")
     def test_webhook_skips_empty_content(self, _name, transcript, summary, expected_types, mock_emit):
         share = self._create_share()
         self.client.logout()
@@ -939,7 +939,7 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(emitted_types, expected_types)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.presentation.webhooks.emit_embedding_request")
+    @patch("products.user_interviews.backend.vapi_events.emit_embedding_request")
     def test_webhook_does_not_re_emit_on_duplicate(self, mock_emit):
         share = self._create_share()
         self.client.logout()
@@ -958,7 +958,7 @@ class TestVapiWebhook(APIBaseTest):
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     @patch(
-        "products.user_interviews.backend.presentation.webhooks.emit_embedding_request",
+        "products.user_interviews.backend.vapi_events.emit_embedding_request",
         side_effect=RuntimeError("kafka down"),
     )
     def test_webhook_succeeds_when_embedding_emit_fails(self, _mock_emit):
@@ -977,7 +977,7 @@ class TestVapiWebhook(APIBaseTest):
         ]
     )
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.presentation.webhooks.emit_embedding_request")
+    @patch("products.user_interviews.backend.vapi_events.emit_embedding_request")
     def test_webhook_truncates_oversized_content_before_emit(
         self, _name, oversize_transcript, oversize_summary, mock_emit
     ):

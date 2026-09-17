@@ -208,20 +208,9 @@ def _make_chart() -> ReportChart:
 
 
 class TestBuildReportPresentationPrompt:
-    # Chart and metric rollouts are independent: a team can receive live impact measurements
-    # without enabling free-form report charts, or vice versa.
-    def test_chart_guidance_and_schema_field_only_present_when_enabled(self):
-        off = build_report_presentation_prompt(2, charts_enabled=False)
-        on = build_report_presentation_prompt(2, charts_enabled=True)
-        assert "Attaching charts" not in off
-        assert "Attaching charts" in on
-        # The schema field is dropped when disabled and present when enabled.
-        assert '"charts"' not in off
-        assert '"charts"' in on
-
     def test_metric_guidance_and_schema_field_only_present_when_enabled(self):
-        off = build_report_presentation_prompt(2, charts_enabled=True, metrics_enabled=False)
-        on = build_report_presentation_prompt(2, charts_enabled=False, metrics_enabled=True)
+        off = build_report_presentation_prompt(2, metrics_enabled=False)
+        on = build_report_presentation_prompt(2, metrics_enabled=True)
 
         assert "Measuring impact" not in off
         assert '"metrics"' not in off
@@ -246,8 +235,8 @@ class TestBuildReportPresentationPrompt:
         assert "and `ActionsBar`" in on
         assert "bar or line response does not supply the whole-window total" in on
         assert "must set `aggregationAxisFormat` to exactly the same value" in on
-        assert "Attaching charts" not in on
-        assert '"charts"' not in on
+        assert "Attaching charts" in on
+        assert '"charts"' in on
 
     # A DataVisualizationNode carrying `display` but no `chartSettings` stores and validates
     # cleanly, then draws every row at a single x position instead of a series. The guidance is
@@ -255,17 +244,15 @@ class TestBuildReportPresentationPrompt:
     # SQL-backed chart the pipeline authors renders wrong in the reader's inbox with nothing
     # reporting a failure. The scout channel guards the same instruction in its own example.
     def test_chart_guidance_names_the_axes_a_sql_graph_needs(self):
-        on = build_report_presentation_prompt(2, charts_enabled=True)
+        on = build_report_presentation_prompt(2)
         assert "chartSettings.xAxis.column" in on
         assert "chartSettings.yAxis[].column" in on
 
-    def test_previous_charts_context_only_rendered_when_enabled(self):
+    def test_previous_charts_context_rendered_when_present(self):
         chart = _make_chart()
-        on = build_report_presentation_prompt(1, previous_charts=[chart], charts_enabled=True)
-        off = build_report_presentation_prompt(1, previous_charts=[chart], charts_enabled=False)
+        on = build_report_presentation_prompt(1, previous_charts=[chart])
         assert "Charts this report already shows" in on
         assert "signups-drop" in on
-        assert "Charts this report already shows" not in off
 
     def test_previous_metric_context_omits_legacy_comparison(self):
         metric = ReportMetric.model_validate(
