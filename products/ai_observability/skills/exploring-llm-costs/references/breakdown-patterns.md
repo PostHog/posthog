@@ -166,7 +166,10 @@ SELECT
               properties.$ai_cache_reporting_exclusive = 'true')
         / nullIf(sumIf(ifNull(toInt(properties.$ai_input_tokens), 0)
                      + ifNull(toInt(properties.$ai_cache_read_input_tokens), 0)
-                     + ifNull(toInt(properties.$ai_cache_creation_input_tokens), 0),
+                     + greatest(
+                           ifNull(toInt(properties.$ai_cache_creation_input_tokens), 0),
+                           ifNull(toInt(properties.$ai_cache_creation_5m_input_tokens), 0)
+                               + ifNull(toInt(properties.$ai_cache_creation_1h_input_tokens), 0)),
                        properties.$ai_cache_reporting_exclusive = 'true'), 0), 3
     ) AS cache_hit_rate_exclusive,
     round(

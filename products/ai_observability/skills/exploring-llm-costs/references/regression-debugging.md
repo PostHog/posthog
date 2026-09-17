@@ -82,7 +82,10 @@ SELECT
             sum(toInt(properties.$ai_cache_read_input_tokens))
                 / nullIf(sum(toInt(properties.$ai_input_tokens))
                        + sum(toInt(properties.$ai_cache_read_input_tokens))
-                       + sum(toInt(properties.$ai_cache_creation_input_tokens)), 0),
+                       + sum(greatest(
+                             ifNull(toInt(properties.$ai_cache_creation_input_tokens), 0),
+                             ifNull(toInt(properties.$ai_cache_creation_5m_input_tokens), 0)
+                                 + ifNull(toInt(properties.$ai_cache_creation_1h_input_tokens), 0))), 0),
             cache_reporting = 'inclusive',
             sum(toInt(properties.$ai_cache_read_input_tokens))
                 / nullIf(sum(toInt(properties.$ai_input_tokens)), 0),

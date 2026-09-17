@@ -9,6 +9,13 @@ changes accordingly:
 - **Inclusive** — `$ai_input_tokens` already includes cache tokens.
   OpenAI and most others currently report this way.
 
+Cache writes arrive in two shapes. Some SDKs report the total in
+`$ai_cache_creation_input_tokens`; others split it by TTL into
+`$ai_cache_creation_5m_input_tokens` and `$ai_cache_creation_1h_input_tokens`,
+and Bedrock traffic carries the split pair alone. The exclusive denominator
+takes whichever of the two is larger, so it never misses billed cache-write
+volume.
+
 Don't hardcode provider behavior — it varies by SDK and by SDK version,
 and providers can change their own reporting style over time. Instead,
 trust the per-event flag: when ingestion prices the input tokens, it
@@ -44,7 +51,10 @@ SELECT
             sum(toInt(properties.$ai_cache_read_input_tokens))
                 / nullIf(sum(toInt(properties.$ai_input_tokens))
                        + sum(toInt(properties.$ai_cache_read_input_tokens))
-                       + sum(toInt(properties.$ai_cache_creation_input_tokens)), 0),
+                       + sum(greatest(
+                             ifNull(toInt(properties.$ai_cache_creation_input_tokens), 0),
+                             ifNull(toInt(properties.$ai_cache_creation_5m_input_tokens), 0)
+                                 + ifNull(toInt(properties.$ai_cache_creation_1h_input_tokens), 0))), 0),
             cache_reporting = 'inclusive',
             sum(toInt(properties.$ai_cache_read_input_tokens))
                 / nullIf(sum(toInt(properties.$ai_input_tokens)), 0),
