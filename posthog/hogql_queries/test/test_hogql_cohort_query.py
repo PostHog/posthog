@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import cast
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import time_machine
@@ -473,20 +473,27 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         )
         return {str(row[0]) for row in rows}
 
-    @parameterized.expand([("AND",), ("OR",)])
+    @parameterized.expand(
+        [
+            ("and_scalar", "AND", True),
+            ("or_scalar", "OR", True),
+            ("and_list", "AND", [True]),
+            ("or_list", "OR", [True]),
+        ]
+    )
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_boolean_person_property_matches_when_combined(
-        self, group_type: str, mock_feature_enabled: MagicMock
+        self, case: str, group_type: str, value: Any, mock_feature_enabled: MagicMock
     ) -> None:
         member = _create_person(
             team=self.team,
-            distinct_ids=[f"member-{group_type}"],
+            distinct_ids=[f"member-{case}"],
             properties={"is_internal": True},
             immediate=True,
         )
         non_member = _create_person(
             team=self.team,
-            distinct_ids=[f"non-member-{group_type}"],
+            distinct_ids=[f"non-member-{case}"],
             properties={"is_internal": False},
             immediate=True,
         )
@@ -494,7 +501,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
 
         cohort = Cohort.objects.create(
             team=self.team,
-            name=f"internal users {group_type}",
+            name=f"internal users {case}",
             filters={
                 "properties": {
                     "type": "AND",
@@ -505,7 +512,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
                                 {
                                     "key": "is_internal",
                                     "type": "person",
-                                    "value": True,
+                                    "value": value,
                                     "negation": False,
                                     "operator": "exact",
                                 }

@@ -204,13 +204,14 @@ class TestWrapperCohortQuery:
 
 def convert_property(prop: Property) -> PersonPropertyFilter:
     value = prop.value
-    # bool is a subclass of Number at runtime, so it must be excluded from the numeric branch:
+    # bool is a subclass of Number at runtime, so a boolean must skip both stringify branches:
     # the HogQL property layer resolves a real boolean, but reads str(True) as a plain string.
+    # A cohort holds raw JSON, so a list can carry a boolean that ValueT does not declare.
     if not isinstance(value, bool):
         if isinstance(value, Number):
             value = str(value)
         elif isinstance(value, list):
-            value = [str(x) for x in value]
+            value = cast(Any, [x if isinstance(x, bool) else str(x) for x in cast(list[object], value)])
     return PersonPropertyFilter(key=prop.key, value=value, operator=prop.operator or PropertyOperator.EXACT)
 
 
