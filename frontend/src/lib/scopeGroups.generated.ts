@@ -84,7 +84,13 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
     },
     {
         label: 'Error tracking, logs & tracing',
-        objects: ['error_tracking', 'logs', 'tracing', 'metrics', 'health_issue'],
+        objects: [
+            'error_tracking',
+            'logs',
+            'tracing',
+            'metrics',
+            'health_issue',
+        ],
     },
     {
         label: 'LLM analytics',
