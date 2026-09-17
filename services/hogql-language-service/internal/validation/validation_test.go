@@ -143,6 +143,41 @@ func TestValidateAcceptsHogQLQualifiedTable(t *testing.T) {
 	}
 }
 
+func TestValidateDuplicateTableNames(t *testing.T) {
+	for _, test := range []struct {
+		name, query, qualifier string
+		valid                  bool
+	}{
+		{name: "unaliased", query: "SELECT events.properties FROM events JOIN events ON 1 = 1", qualifier: "events"},
+		{name: "duplicate alias", query: "SELECT e.properties FROM events AS e JOIN persons AS e ON 1 = 1", qualifier: "e"},
+		{name: "derived property", query: "WITH t AS (SELECT events.properties FROM events JOIN events ON 1 = 1) SELECT t.properties.$geo_cty FROM t", qualifier: "events"},
+		{name: "distinct aliases", query: "SELECT e.properties FROM events AS e JOIN events AS other ON 1 = 1", valid: true},
+		{name: "case-sensitive aliases", query: "SELECT e.properties FROM events AS e JOIN events AS E ON 1 = 1", valid: true},
+		{name: "nested reuse", query: "SELECT e.properties FROM events AS e WHERE uuid IN (SELECT properties FROM persons AS e)", valid: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := Validate(schema(), test.query)
+			if test.valid {
+				if !result.Valid || len(result.Diagnostics) != 0 {
+					t.Fatalf("result = %#v", result)
+				}
+				return
+			}
+			if result.Valid || len(result.Diagnostics) != 1 {
+				t.Fatalf("result = %#v", result)
+			}
+			diagnostic := result.Diagnostics[0]
+			if diagnostic.Code != "duplicate_table" || diagnostic.Message != fmt.Sprintf("Table name %q is used more than once. Use a distinct alias for each table.", test.qualifier) {
+				t.Fatalf("diagnostic = %#v", diagnostic)
+			}
+			secondJoin := strings.Index(test.query, " JOIN ") + len(" JOIN ")
+			if diagnostic.Start != secondJoin || diagnostic.End <= diagnostic.Start {
+				t.Fatalf("diagnostic span = %d:%d, want start %d", diagnostic.Start, diagnostic.End, secondJoin)
+			}
+		})
+	}
+}
+
 func TestValidateCommonTableExpressions(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -305,9 +340,24 @@ func TestValidatePropertiesAcrossGenericNamespaces(t *testing.T) {
 		{query: "WITH t AS (SELECT 1 AS x) SELECT properties.$geo_cty FROM events JOIN t ON 1 = 1", suggestion: "$geo_city"},
 		{query: "SELECT properties.$geo_cty FROM events JOIN (SELECT 1 AS x) AS t ON 1 = 1", suggestion: "$geo_city"},
 		{query: "WITH t AS (SELECT properties AS attrs FROM events) SELECT properties.$geo_cty FROM events JOIN t ON 1 = 1", suggestion: "$geo_city"},
+		{query: "WITH recent AS (SELECT properties FROM events) SELECT recent.properties.$geo_cty FROM recent", suggestion: "$geo_city"},
+		{query: "WITH recent AS (SELECT properties FROM events) SELECT properties.$geo_cty FROM recent", suggestion: "$geo_city"},
+		{query: "SELECT recent.properties.$geo_cty FROM (SELECT properties FROM events) AS recent", suggestion: "$geo_city"},
+		{query: "WITH recent AS (SELECT properties AS props FROM events) SELECT recent.props.$geo_cty FROM recent", suggestion: "$geo_city"},
+		{query: "WITH recent AS (SELECT properties AS props FROM events) SELECT props.$geo_cty FROM recent", suggestion: "$geo_city"},
+		{query: "WITH a AS (SELECT properties FROM persons), events AS (SELECT * FROM a) SELECT events.properties.$geo_contry FROM events", suggestion: "$geo_country"},
+		{query: "SELECT properties AS props, props AS attrs, attrs.$geo_cty FROM events", suggestion: "$geo_city"},
+		{query: "SELECT properties AS props, uuid AS props, props.$geo_cty FROM events", suggestion: ""},
+		{query: "SELECT properties FROM events EXCEPT SELECT properties.$geo_contry FROM persons", suggestion: "$geo_country"},
 	}
 	for _, test := range tests {
 		result := Validate(schema(), test.query)
+		if test.suggestion == "" {
+			if !result.Valid || len(result.Diagnostics) != 0 {
+				t.Fatalf("query %q returned %#v", test.query, result)
+			}
+			continue
+		}
 		if result.Valid || len(result.Diagnostics) != 1 {
 			t.Fatalf("query %q returned %#v", test.query, result)
 		}
