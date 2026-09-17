@@ -15,11 +15,13 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 ACTIVITY_LOG_CLIENT_HEADER = "x-posthog-client"
-ACTIVITY_LOG_CLIENT_MAX_LENGTH = 32
 # The MCP server forwards the same intent it sends to analytics as `$mcp_intent`. It is the
 # caller's own claim and does not establish a verified sandbox task binding.
 ACTIVITY_LOG_INTENT_HEADER = "x-posthog-intent"
 ACTIVITY_LOG_INTENT_MAX_LENGTH = 500
+# Wide enough for a server-derived tag as well as a header value: the `scout:<skill_name>` tag
+# written for a scout run needs room for a scout's whole name after the prefix.
+ACTIVITY_LOG_CLIENT_MAX_LENGTH = 100
 
 
 @frozen
