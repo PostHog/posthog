@@ -95,21 +95,27 @@ precomputes experiment results on a schedule (gated behind a minimum runtime —
 `data: null` placeholders that fill in on their own. Transient query load (e.g. rate-limiting at the
 moment you pulled the snapshot) produces the same shape.
 
-**Disambiguate transient from a real failure before reporting it.** Both calls need `id`, the
+**Disambiguate transient from a real failure before reporting it.** Every call below needs `id`, the
 experiment ID resolved in Step 1 of `SKILL.md`. `experiment-results-get` has no implicit current
 experiment.
 
 - **Re-pull** `experiment-results-get { id: <experiment_id> }` (cached — `refresh` defaults to false)
   a while later — if the previously-null rows now carry data, they were transient, not failing.
-- **Force one recompute** with `experiment-results-get { id: <experiment_id>, refresh: true }` — this
-  triggers an on-demand compute of every metric. A row that comes back populated proves the earlier
-  `null` was transient. **A row that stays `null` is unresolved, not proven broken.** The tool fires
-  every metric query at once, and it turns any single query failure (an exhausted rate-limit retry, a
-  network error) into `data: null` while the call as a whole still reports success. So a forced
-  refresh produces nulls of its own under load. Re-pull once the load clears, and report a metric as
-  failing to compute only after the row stays `null` across separate pulls. Then inspect its
-  definition (e.g. a `mean` metric over a property that doesn't exist, a baseline of zero, or a
-  malformed funnel).
+- **Re-fetch the missing rows** with `experiment-results-get { id: <experiment_id>, refresh: true }`.
+  `refresh: true` maps to the `blocking` execution mode, which computes a metric only when that
+  metric's cache is missing or stale, and serves a fresh cache otherwise. So this is not a forced
+  recompute, and a populated row is not proof that the compute path ran. A row that comes back
+  populated does prove the earlier `null` was transient. **A row that stays `null` is unresolved, not
+  proven broken.** The tool fires every metric query at once, and it turns any single query failure
+  (an exhausted rate-limit retry, a network error) into `data: null` while the call as a whole still
+  reports success. So this call produces nulls of its own under load. Re-pull once the load clears,
+  and report a metric as failing to compute only after the row stays `null` across separate pulls.
+  Then inspect its definition (e.g. a `mean` metric over a property that doesn't exist, a baseline of
+  zero, or a malformed funnel).
+- **To force a real recompute**, call `experiment-metrics-recalculation-create { id: <experiment_id> }`,
+  then poll `experiment-metrics-recalculation-latest-retrieve { id: <experiment_id> }`. No `refresh`
+  value on `experiment-results-get` recalculates a metric whose cache is already fresh. This path
+  needs the `experiment:write` scope, unlike the read-only calls above.
 
 Two cautions:
 

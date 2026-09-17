@@ -77,10 +77,11 @@ Returns per-variant exposure totals and metric results in one call:
 - `exposures.timeseries[]` — daily `exposure_counts` per variant, for trajectory/flat-tail.
 - `metrics.primary.results[]` / `metrics.secondary.results[]` — each row carries `index`, a `metric`
   summary, and `data` (the primary/secondary object itself also has a `count`); a `data: null` row is
-  failed-or-not-yet-computed, not necessarily broken. Re-pull, or force one recompute with
+  failed-or-not-yet-computed, not necessarily broken. Re-pull, or re-fetch the missing rows with
   `posthog:experiment-results-get { id: <experiment_id>, refresh: true }`, before reporting a metric
-  as failing (see the transient-vs-real protocol in `diagnostic-snapshot.md`). `<experiment_id>` is
-  the ID from §1 — the tool requires it.
+  as failing (see the transient-vs-real protocol in `diagnostic-snapshot.md`, which also covers why
+  `refresh: true` is not a forced recompute). `<experiment_id>` is the ID from §1 — the tool
+  requires it.
 
 ## 3. Exposure shape — `posthog:execute-sql`
 
