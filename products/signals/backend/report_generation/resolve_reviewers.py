@@ -589,10 +589,11 @@ def _rank_scored_candidates(
                 RelevantCommit(
                     sha=activity.last_commit_sha,
                     url=activity.last_commit_url,
-                    reason=(
+                    reason=bounded_reviewer_reason(
                         f"Recently active in {_area_label(activity.area)} "
                         f"({activity.commit_count} commit(s) in the last {ACTIVITY_WINDOW_DAYS} days)."
-                    ),
+                    )
+                    or "Recently active in the affected code.",
                 )
             ]
         name = login_names.get(login)

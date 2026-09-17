@@ -27,6 +27,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     RECENCY_FULL_WEIGHT_DAYS,
     STALE_BLAME_MULTIPLIER,
     _AreaContributor,
+    _rank_scored_candidates,
     _recency_multiplier,
     _relevant_area_activity,
     _score_candidates,
@@ -484,6 +485,30 @@ class TestRankAssigneeCandidates:
 
 @pytest.mark.django_db
 class TestResolveSuggestedReviewersEndToEnd:
+    def test_oversized_area_label_keeps_fallback_reviewer_payload_valid(self):
+        activity = _AreaContributor(
+            name="Area Owner",
+            commit_count=1,
+            days_since_last_commit=1,
+            last_commit_sha="a" * 7,
+            last_commit_url="https://github.com/acme/app/commit/aaaaaaa",
+            area="/".join(["a" * 250, "b" * 250]),
+            is_likely_owner_of_area=True,
+        )
+
+        reviewers = _rank_scored_candidates(Counter(), {"area-owner": activity}, {}, {})
+
+        assert reviewers[0].commits[0].reason == "Recently active in the affected code."
+        SuggestedReviewers.model_validate(
+            [
+                {
+                    "github_login": reviewer.login,
+                    "relevant_commits": [commit.model_dump() for commit in reviewer.commits],
+                }
+                for reviewer in reviewers
+            ]
+        )
+
     @pytest.mark.parametrize(("reason", "expected_reason"), [("x" * 500, "x" * 500), ("x" * 501, "")])
     def test_commit_reason_limit_keeps_reviewer_payload_valid(self, team, reason, expected_reason):
         class FakeGitHub:
