@@ -13,6 +13,7 @@ pub struct DistinctIdMapping {
 pub struct DistinctIdWithVersion {
     pub distinct_id: String,
     pub version: Option<i64>,
+    pub id: i64,
 }
 
 /// Outcome of one bounded DeleteTombstonedPersons call. Every requested uuid lands in at most

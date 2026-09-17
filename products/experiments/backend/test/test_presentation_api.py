@@ -5934,6 +5934,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         # Default behavior: existing groups preserved, no catch-all prepended
         self.assertEqual(flag_filters["groups"], original_groups)
 
+        activity_log = ActivityLog.objects.filter(
+            scope="Experiment", item_id=str(experiment_id), activity="variant_shipped"
+        ).latest("created_at")
+        assert activity_log.detail is not None
+        shipped_change = next(c for c in activity_log.detail["changes"] if c["field"] == "shipped_variant")
+        self.assertEqual(shipped_change["after"], "test")
+
     def test_ship_variant_endpoint_release_to_everyone_prepends_catch_all(self):
         data = self._create_running_experiment(name="Ship Everyone", flag_key="ship-everyone-flag")
         experiment_id = data["id"]

@@ -163,6 +163,13 @@ Source metadata describes what HogQL means. Target mappings describe where the c
 
 Creating a job through Django admin starts the Temporal workflow after the database transaction commits. Provisioning does not create or start these jobs. A job can snapshot every eligible view in the organization or an explicit set of saved-query UUIDs. The workflow validates selected views against the organization and its control-plane-enabled teams, then compiles each represented team independently on the DuckLake task queue.
 
+If preparation fails because the Trino target is not ready, search worker logs by the job's `organization_id` for `trino_target_not_ready` or `refusing_trino_catalog_for_mismatched_organization`.
+The `reason` field distinguishes `http_error`, `invalid_response`, `invalid_enabled`, `not_enabled`, `invalid_status`, `state_not_ready`, `organization_mismatch`, and `invalid_catalog`.
+Each event includes `status_code`, with the readiness state or invalid field's type where relevant.
+Disabled and pending targets log at info level; request errors and invalid responses log at warning level.
+These readiness logs omit response bodies, upstream error text, and connection credentials.
+Response organization strings are limited to 128 characters; non-string values log only their type.
+
 Compilation is best effort per view. Unsupported HogQL records a failed result and processing continues. A definition changed after the snapshot records a stale result. The workflow stores generated SQL and named values directly from activities so large SQL strings do not cross the Temporal workflow payload boundary. It never executes the SQL, creates Trino relations, or updates `DataWarehouseSavedQuery.query`.
 
 The result admin can retry selected failed or stale rows. A retry creates a new selected-view job linked to the source job, preserving the original job and results as an immutable audit record.

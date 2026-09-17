@@ -94,13 +94,18 @@ func TestValidateUnknownTableSuggestsVisibleMatch(t *testing.T) {
 }
 
 func TestValidateUnknownAliasedFieldSuggestsVisibleMatch(t *testing.T) {
-	result := Validate(schema(), "SELECT o.amuont FROM warehouse_orders AS o")
-	if result.Valid || len(result.Diagnostics) != 1 {
-		t.Fatalf("result = %#v", result)
-	}
-	diagnostic := result.Diagnostics[0]
-	if diagnostic.Code != "unknown_field" || len(diagnostic.Suggestions) == 0 || diagnostic.Suggestions[0].Label != "amount" || diagnostic.Suggestions[0].Distance != 2 {
-		t.Fatalf("diagnostic = %#v", diagnostic)
+	for _, test := range []struct{ query, suggestion string }{
+		{"SELECT o.amuont FROM warehouse_orders AS o", "amount"},
+		{"SELECT amount AS total FROM warehouse_orders ORDER BY totla", "total"},
+	} {
+		result := Validate(schema(), test.query)
+		if result.Valid || len(result.Diagnostics) != 1 {
+			t.Fatalf("query %q: result = %#v", test.query, result)
+		}
+		diagnostic := result.Diagnostics[0]
+		if diagnostic.Code != "unknown_field" || len(diagnostic.Suggestions) == 0 || diagnostic.Suggestions[0].Label != test.suggestion || diagnostic.Suggestions[0].Distance != 2 {
+			t.Fatalf("query %q: diagnostic = %#v", test.query, diagnostic)
+		}
 	}
 }
 
@@ -116,6 +121,10 @@ func TestValidateAcceptsKnownFieldsAndFunctions(t *testing.T) {
 		{query: "SELECT s.kind FROM (SELECT event AS kind FROM events) AS s", tableName: "events"},
 		{query: "WITH t AS (SELECT event AS `Σ` FROM events) SELECT t.`ς` FROM t", tableName: "events"},
 		{query: "WITH t AS (SELECT event AS kind FROM events) SELECT s.kind FROM (SELECT * FROM t) AS s", tableName: "events"},
+		{query: "SELECT amount AS total, total AS subtotal FROM warehouse_orders PREWHERE subtotal > 0 WHERE total > 0 GROUP BY total, subtotal HAVING total > 1 ORDER BY subtotal", tableName: "warehouse_orders"},
+		{query: "SELECT event AS kind FROM events WHERE uuid IN (SELECT uuid AS kind FROM events WHERE kind != '') ORDER BY kind", tableName: "events"},
+		{query: "SELECT s.subtotal FROM (SELECT amount AS total, total AS subtotal FROM warehouse_orders) AS s", tableName: "warehouse_orders"},
+		{query: "SELECT amount AS amount FROM warehouse_orders ORDER BY amount", tableName: "warehouse_orders"},
 	} {
 		result := Validate(schema(), test.query)
 		if !result.Valid || len(result.Diagnostics) != 0 {
@@ -211,11 +220,21 @@ func TestValidateRejectsUnknownCommonTableExpressionField(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsUnknownQualifiedFields(t *testing.T) {
+func TestValidateRejectsUnknownFields(t *testing.T) {
 	for _, query := range []string{
 		"SELECT missing.event FROM events",
 		"SELECT missing.properties.value FROM events",
 		"SELECT missing.* FROM events",
+		"SELECT total, amount AS total FROM warehouse_orders",
+		"SELECT total AS total FROM warehouse_orders",
+		"SELECT amount AS total FROM warehouse_orders JOIN events ON total = 1",
+		"SELECT amount AS total FROM warehouse_orders WHERE order_id IN (SELECT total FROM events)",
+		"SELECT total FROM warehouse_orders WHERE order_id IN (SELECT event AS total FROM events)",
+		"SELECT amount AS total FROM warehouse_orders; SELECT total FROM events",
+		"SELECT amount AS total FROM warehouse_orders UNION ALL SELECT total FROM warehouse_orders",
+		"WITH t AS (SELECT total FROM warehouse_orders) SELECT amount AS total FROM warehouse_orders",
+		"SELECT event AS kind FROM events ORDER BY events.kind",
+		"SELECT amount AS Total FROM warehouse_orders ORDER BY total",
 	} {
 		result := Validate(schema(), query)
 		if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_field" {
