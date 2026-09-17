@@ -44,6 +44,11 @@ Select fewer fields to stay within the limit.
 Field lookup work has a separate request-wide budget.
 Queries that exceed it return HTTP 400 for completion or a `query_limit` validation diagnostic; reduce the number of sources or qualify field names.
 Joining a CTE or subquery without a `properties` output does not suppress the physical table's property suggestions or validation.
+Direct property containers retain their catalog namespace through CTEs, aliased subqueries, renamed projections, wildcards, and visible SELECT aliases.
+For example, `WITH t AS (SELECT properties AS props FROM events) SELECT t.props.$br FROM t` suggests `$browser`.
+Computed or ambiguous property origins remain unknown; the service does not guess a namespace from a projected name.
+Validation reports `duplicate_table` for repeated table names or explicit aliases in one query scope and asks for distinct aliases.
+Duplicate qualifiers do not supply property provenance, even when raw ClickHouse accepts the corresponding unaliased self-join.
 
 Validation diagnostic offsets use `positionEncoding`, which defaults to UTF-16. Diagnostics include up to five visible
 typo suggestions ranked by case-insensitive Levenshtein distance. Dynamic properties use the same cached namespaces as
@@ -75,7 +80,7 @@ For incomplete SQL, completion can recover a single query's `FROM` clause and ke
 It does not recover bindings from malformed CTEs or nested queries.
 Completion and validation recognize explicit SELECT aliases in later SELECT items and clauses resolved after SELECT, including WHERE, GROUP BY, HAVING, and ORDER BY.
 Aliases stay within their defining query and do not appear in JOIN conditions.
-Derived-property provenance, additional alias forms, parser recovery, and other exclusions are tracked in [query analysis and remaining work](../../docs/internal/hogql-language-service.md#recovery-and-remaining-work).
+Computed and nested property provenance, additional alias forms, parser recovery, and other exclusions are tracked in [query analysis and remaining work](../../docs/internal/hogql-language-service.md#recovery-and-remaining-work).
 
 ## Multitenant catalogs
 
