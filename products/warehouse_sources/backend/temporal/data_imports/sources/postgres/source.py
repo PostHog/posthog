@@ -862,6 +862,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "connect until the database is available again. Upgrade your provider's plan or wait "
                 "for the quota to reset, then re-enable the sync."
             ),
+            # The same provider family (observed on Neon) blocks the handshake when the project's
+            # data-transfer allowance is spent, wording it as a plain libpq ERROR rather than a
+            # connection failure. The block only lifts when the customer upgrades the plan or the
+            # billing period resets, so a whole-activity retry re-hits it exactly like the
+            # compute-time quota above. Match the stable quota phrase and exclude the volatile
+            # host/IP and port libpq prefixes it with.
+            "exceeded the data transfer quota": (
+                "Your database provider blocked the connection because your project exceeded its data "
+                "transfer quota. Upgrade your provider's plan or wait for the quota to reset, then "
+                "re-enable the sync."
+            ),
             # A database proxy (observed on Prisma Accelerate) refuses the connection because the
             # account hit a plan limit, reporting "Your account has restrictions: planLimitReached".
             # The restriction is account-level state only the customer can lift (upgrade the plan or
