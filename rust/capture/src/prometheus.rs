@@ -1,5 +1,6 @@
 // prometheus exporter setup
 
+use common_types::timestamp::TimestampSource;
 use limiters::redis::QuotaResource;
 use metrics::counter;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
@@ -10,6 +11,7 @@ pub const CAPTURE_TIMESTAMP_PATH_TOTAL: &str = "capture_timestamp_path_total";
 pub const CAPTURE_STORED_VS_CLIENT_CAPTURE_SECONDS: &str =
     "capture_stored_vs_client_capture_seconds";
 pub const CAPTURE_EDGE_TO_NOW_SECONDS: &str = "capture_edge_to_now_seconds";
+pub const CAPTURE_EDGE_TIMESTAMP_REJECTED: &str = "capture_edge_timestamp_rejected_total";
 
 pub fn report_dropped_events(cause: &'static str, quantity: u64) {
     counter!(CAPTURE_EVENTS_DROPPED_TOTAL, "cause" => cause).increment(quantity);
@@ -33,50 +35,15 @@ pub fn report_clock_skew(skew: chrono::Duration) {
     metrics::histogram!("capture_client_clock_skew_seconds").record(skew_seconds);
 }
 
-/// Which branch of `parse_event_timestamp` set an event's stored timestamp. The
-/// branches do not share code, so a change to one leaves the others alone.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TimestampPath {
-    Offset,
-    SentAtSkew,
-    TimestampRaw,
-    NowFallback,
-}
-
-impl TimestampPath {
-    /// Mirrors `common_types::timestamp::handle_timestamp`, where a present
-    /// `offset` overwrites whatever the skew branch produced.
-    pub fn resolve(has_offset: bool, measured_skew: bool, has_timestamp: bool) -> Self {
-        if has_offset {
-            Self::Offset
-        } else if measured_skew {
-            Self::SentAtSkew
-        } else if has_timestamp {
-            Self::TimestampRaw
-        } else {
-            Self::NowFallback
-        }
-    }
-
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Offset => "offset",
-            Self::SentAtSkew => "sent_at_skew",
-            Self::TimestampRaw => "timestamp_raw",
-            Self::NowFallback => "now_fallback",
-        }
-    }
-}
-
 /// Records the branch, and the gap between the stored timestamp and the device's
 /// own capture instant. That gap is delivery delay minus device clock offset,
 /// which a single request cannot separate.
 pub fn report_timestamp_path(
-    path: TimestampPath,
+    source: TimestampSource,
     client_uuid: Option<uuid::Uuid>,
     stored: chrono::DateTime<chrono::Utc>,
 ) {
-    let path_tag = path.as_str();
+    let path_tag = source.as_str();
     counter!(CAPTURE_TIMESTAMP_PATH_TOTAL, "ts_path" => path_tag).increment(1);
 
     let Some(captured_ms) = client_uuid.and_then(crate::utils::client_capture_millis) else {
@@ -97,14 +64,17 @@ pub fn report_timestamp_path(
 }
 
 /// Time from an upstream hop stamping the request to capture reading its clock.
-/// Both headers are set by infrastructure, not by the client. A negative delta
-/// means the two clocks disagree, so it is dropped, which biases the histogram high.
+/// Neither proxy overwrites a client-supplied value: Envoy appends its own
+/// `X-Request-Start` after it, and the ALB keeps a supplied `Root` while putting its
+/// own time in `Self`. So read the last one, prefer `Self`, and bound the result.
 pub fn report_edge_to_now(headers: &axum::http::HeaderMap, now: chrono::DateTime<chrono::Utc>) {
     let now_ms = now.timestamp_millis();
     if let Some(start_ms) = headers
-        .get("x-request-start")
-        .and_then(|v| v.to_str().ok())
-        .and_then(parse_request_start_ms)
+        .get_all("x-request-start")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .filter_map(parse_request_start_ms)
+        .next_back()
     {
         record_edge_delta("envoy", now_ms - start_ms);
     }
@@ -117,8 +87,18 @@ pub fn report_edge_to_now(headers: &axum::http::HeaderMap, now: chrono::DateTime
     }
 }
 
+/// The Envoy route timeout is 120s and the ALB idle timeout is 300s, so a larger
+/// delta is a forged or broken header rather than a slow request.
+const EDGE_DELTA_CEILING_MS: i64 = 600_000;
+
 fn record_edge_delta(edge: &'static str, delta_ms: i64) {
-    if delta_ms < 0 {
+    if !(0..=EDGE_DELTA_CEILING_MS).contains(&delta_ms) {
+        let reason = if delta_ms < 0 {
+            "negative"
+        } else {
+            "implausible"
+        };
+        counter!(CAPTURE_EDGE_TIMESTAMP_REJECTED, "edge" => edge, "reason" => reason).increment(1);
         return;
     }
     metrics::histogram!(CAPTURE_EDGE_TO_NOW_SECONDS, "edge" => edge)
@@ -150,18 +130,35 @@ fn parse_request_start_ms(value: &str) -> Option<i64> {
     secs.checked_mul(1_000)?.checked_add(millis)
 }
 
-/// Parses the ALB receive second from `Root=1-<hex epoch>-<hex id>`. Whole seconds
-/// is all AWS encodes, so this answers only whether the leg is seconds long.
+/// `Self` is present only when the ALB kept a client-supplied `Root`, so it is the
+/// trustworthy field when both appear.
 fn parse_amzn_trace_epoch_ms(value: &str) -> Option<i64> {
-    let root = value
-        .split(';')
-        .find_map(|part| part.trim().strip_prefix("Root="))?;
-    let mut fields = root.split('-');
-    if fields.next()? != "1" {
+    let field = |name: &str| {
+        value
+            .split(';')
+            .find_map(|part| part.trim().strip_prefix(name))
+            .and_then(parse_trace_field_epoch_ms)
+    };
+    field("Self=").or_else(|| field("Root="))
+}
+
+/// AWS writes `1-<8 hex epoch seconds>-<24 hex id>`. A truncated epoch would read as
+/// 1970 and land every request in the top bucket.
+fn parse_trace_field_epoch_ms(field: &str) -> Option<i64> {
+    let mut parts = field.split('-');
+    if parts.next()? != "1" {
         return None;
     }
-    let secs = i64::from_str_radix(fields.next()?, 16).ok()?;
-    secs.checked_mul(1_000)
+    let epoch = parts.next()?;
+    let id = parts.next()?;
+    if parts.next().is_some()
+        || epoch.len() != 8
+        || id.len() != 24
+        || !id.bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    i64::from_str_radix(epoch, 16).ok()?.checked_mul(1_000)
 }
 
 pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> PrometheusHandle {
@@ -419,52 +416,50 @@ mod tests {
     }
 
     #[test]
-    fn amzn_trace_id_yields_the_alb_receive_second() {
-        // 0x6aab20ca is the epoch second AWS encodes in the Root field.
-        assert_eq!(
-            parse_amzn_trace_epoch_ms("Root=1-6aab20ca-7499b34d351523a60de25e91"),
-            Some(1789599946000)
-        );
+    fn alb_trace_prefers_the_field_the_load_balancer_controls() {
+        // Reading `Root` first would report a client's number as ours.
         assert_eq!(
             parse_amzn_trace_epoch_ms(
-                "Self=1-deadbeef-abc;Root=1-6aab20ca-7499b34d351523a60de25e91"
+                "Self=1-6aab488c-7f773a4636e043286963f18e;Root=1-3b9aca00-forgedforgedforgedforg"
             ),
+            Some(1789610124000)
+        );
+        assert_eq!(
+            parse_amzn_trace_epoch_ms("Root=1-6aab20ca-7499b34d351523a60de25e91"),
             Some(1789599946000)
         );
     }
 
     #[test]
-    fn amzn_trace_id_rejects_other_shapes() {
+    fn alb_trace_rejects_every_non_aws_shape() {
         for bad in [
             "",
             "Root=",
+            "Root=1-5",
+            "Root=1-6aab20ca",
+            "Root=1-6aab20ca-short",
+            "Root=1-6aab20ca-7499b34d351523a60de25e91-extra",
+            "Root=1-6aab20ca-zzzzzzzzzzzzzzzzzzzzzzzz",
             "Root=2-6aab20ca-7499b34d351523a60de25e91",
             "Root=1-zzzzzzzz-7499b34d351523a60de25e91",
-            "Self=1-6aab20ca-7499b34d351523a60de25e91",
         ] {
             assert_eq!(parse_amzn_trace_epoch_ms(bad), None, "{bad}");
         }
     }
 
     #[test]
-    fn timestamp_path_follows_the_offset_override() {
-        // `offset` wins even when a skew was also measured.
-        assert_eq!(
-            TimestampPath::resolve(true, true, true),
-            TimestampPath::Offset
-        );
-        assert_eq!(
-            TimestampPath::resolve(false, true, true),
-            TimestampPath::SentAtSkew
-        );
-        assert_eq!(
-            TimestampPath::resolve(false, false, true),
-            TimestampPath::TimestampRaw
-        );
-        assert_eq!(
-            TimestampPath::resolve(false, false, false),
-            TimestampPath::NowFallback
-        );
+    fn envoy_request_start_wins_over_a_client_supplied_one() {
+        // Envoy appends, so `HeaderMap::get` would return the forged first value.
+        let mut headers = axum::http::HeaderMap::new();
+        headers.append("x-request-start", "t=1000000000.000".parse().unwrap());
+        headers.append("x-request-start", "t=1789610124.697".parse().unwrap());
+        let chosen = headers
+            .get_all("x-request-start")
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .filter_map(parse_request_start_ms)
+            .next_back();
+        assert_eq!(chosen, Some(1789610124697));
     }
 
     #[test]
