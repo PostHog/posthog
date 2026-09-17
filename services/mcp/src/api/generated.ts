@@ -7140,7 +7140,6 @@ export namespace Schemas {
       GoogleCalendar: 'google-calendar',
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
-      GoogleTagManager: 'google-tag-manager',
       LinkedinAds: 'linkedin-ads',
       Snapchat: 'snapchat',
       Stripe: 'stripe',
