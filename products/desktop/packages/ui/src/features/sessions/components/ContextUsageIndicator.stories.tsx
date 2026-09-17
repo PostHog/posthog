@@ -28,6 +28,7 @@ const meta: Meta<typeof ContextUsageIndicator> = {
           isEnabled: (key) =>
             key === TASK_COST_VISIBLE_FLAG && context.parameters.costVisible,
           getPayload: () => undefined,
+          getVariant: () => undefined,
           onFlagsLoaded: () => () => {},
         };
         const container: ServiceContainer = {
