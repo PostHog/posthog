@@ -162,14 +162,22 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         mock_start.assert_not_called()
         mock_start_resolution.assert_not_called()
 
+    @parameterized.expand(
+        [
+            # (run_mode, the tier + effort the report keeps for its later normal turns)
+            (None, ("human", "xhigh")),
+            ("flash", ("agent_p2", "medium")),
+        ]
+    )
     @patch(_META, return_value=_pr_meta())
     @patch(_ACCESS, return_value=object())
     @patch(_START, return_value="wf-ui-1")
-    def test_trigger_during_a_running_cheaper_review_lifts_the_tier_and_says_so(
-        self, mock_start, _mock_access, _mock_meta
+    def test_trigger_during_a_running_cheaper_review_lifts_the_tier_unless_it_is_flash(
+        self, run_mode, expected_routing, mock_start, _mock_access, _mock_meta
     ):
         # Same join as the label path: the requester's source never reaches the fetch upsert, so the
-        # lift is written here and the UI is told no new run started.
+        # lift is written here and the UI is told no new run started. Flash is held back — the lift
+        # rewrites the persisted arm, so the cheapest request would raise what later turns cost.
         report = ReviewReport.objects.for_team(self.team.id).create(
             team=self.team,
             repository="posthog/posthog.com",
@@ -182,13 +190,13 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         )
         self.mock_busy.side_effect = lambda workflow_id: workflow_id.startswith("review-pr:")
         with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
-            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123")
+            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode=run_mode)
 
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         self.assertEqual(resp.json(), {"workflow_id": "wf-ui-1", "status": "joined_running_review"})
         mock_start.assert_called_once()
         report.refresh_from_db()
-        self.assertEqual((report.review_tier, report.review_reasoning_effort), ("human", "xhigh"))
+        self.assertEqual((report.review_tier, report.review_reasoning_effort), expected_routing)
 
     @patch(_ACCESS, return_value=object())
     @patch(_START_RESOLUTION)

@@ -174,6 +174,9 @@ class FetchPRDataInput:
     trigger_source: str = TRIGGER_MANUAL
     # `ReportPriority` value the trigger read before the implementation agent could write its own.
     signal_priority: str | None = None
+    # This turn's mode. Read only to hold the tier back on a flash turn: the persisted arm must stay
+    # what the PR's next normal review runs on. Defaulted so pre-field payloads stay full reviews.
+    review_mode: str = REVIEW_MODE_FULL
 
 
 @dataclass
@@ -592,7 +595,9 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         trigger_source=input.trigger_source,
         # Only the creating turn routes on it: the upsert is what knows whether the row exists.
         signal_priority=ReportPriority(input.signal_priority) if input.signal_priority is not None else None,
-        lift_tier_on_human_trigger=True,
+        # A flash trigger never lifts: the lift rewrites the persisted arm, and the person asking for
+        # the cheap review would raise what every later normal turn costs.
+        lift_tier_on_human_trigger=input.review_mode != REVIEW_MODE_FLASH,
     )
     # Read the report's watermark BEFORE persist_commit_snapshot advances it, so the parent can decide
     # whether this turn has anything to do. `published_head_sha == head_sha` means we already reviewed

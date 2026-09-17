@@ -861,7 +861,11 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             review_mode=REVIEW_MODE_FLASH if run_mode == RUN_MODE_FLASH else REVIEW_MODE_FULL,
         )
         if joins_running_review:
-            lifted = lift_review_tier_for_joined_trigger(team_id=team_id, repository=repository, pr_number=pr_number)
+            # Flash is excluded for the same reason the fetch upsert excludes it: the lift rewrites
+            # the persisted arm, so the cheapest request must not raise what later turns cost.
+            lifted = run_mode != RUN_MODE_FLASH and lift_review_tier_for_joined_trigger(
+                team_id=team_id, repository=repository, pr_number=pr_number
+            )
             logger.info(
                 f"ReviewHog UI trigger joined running workflow {workflow_id} for {pr_url} (tier lifted={lifted})"
             )

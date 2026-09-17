@@ -425,6 +425,7 @@ class ReviewPRWorkflow:
                 signal_report_id=inputs.signal_report_id,
                 trigger_source=inputs.trigger_source,
                 signal_priority=inputs.signal_priority,
+                review_mode=inputs.review_mode,
             ),
             start_to_close_timeout=_FETCH_TIMEOUT,
             retry_policy=_RETRY,

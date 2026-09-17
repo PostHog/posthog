@@ -3,10 +3,12 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.temporal.activities import FetchPRDataInput, _fetch_and_persist
-from products.review_hog.backend.temporal.types import TRIGGER_INBOX
+from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_UI
 from products.signals.backend.models import SignalReport
 
 _MODULE = "products.review_hog.backend.temporal.activities"
@@ -64,3 +66,55 @@ class TestFetchDecidesTheTier(BaseTest):
             "P3",
             "low",
         )
+
+    @parameterized.expand(
+        [
+            # (review_mode, the tier + effort the report keeps for its later normal turns)
+            ("full", ("human", "xhigh")),
+            ("flash", ("agent_p2", "medium")),
+        ]
+    )
+    @patch(f"{_MODULE}._installation_auth", return_value=("tok", "9876543"))
+    @patch(f"{_MODULE}.PRFetcher")
+    def test_a_flash_trigger_leaves_the_stored_arm_where_it_was(
+        self, review_mode, expected_routing, mock_fetcher, _auth
+    ) -> None:
+        # The mode is per turn: a flash turn runs on its own arm and must not rewrite the persisted
+        # one. A fetch that lifts anyway makes the cheapest click raise what every later normal turn
+        # costs — the opposite of what the person asked for. The full arm proves the lift still fires.
+        signal_report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.IN_PROGRESS, signal_count=1, total_weight=1.0
+        )
+        mock_fetcher.return_value.fetch_pr_data.return_value = (_pr_metadata(), [], [], "")
+
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+            created = _fetch_and_persist(
+                FetchPRDataInput(
+                    team_id=self.team.id,
+                    user_id=1,
+                    repository="o/r",
+                    owner="o",
+                    repo="r",
+                    pr_number=9,
+                    pr_url="https://github.com/o/r/pull/9",
+                    signal_report_id=str(signal_report.id),
+                    trigger_source=TRIGGER_INBOX,
+                    signal_priority="P2",
+                )
+            )
+            _fetch_and_persist(
+                FetchPRDataInput(
+                    team_id=self.team.id,
+                    user_id=1,
+                    repository="o/r",
+                    owner="o",
+                    repo="r",
+                    pr_number=9,
+                    pr_url="https://github.com/o/r/pull/9",
+                    trigger_source=TRIGGER_UI,
+                    review_mode=review_mode,
+                )
+            )
+
+        row = ReviewReport.objects.for_team(self.team.id).get(id=created.report_id)
+        assert (row.review_tier, row.review_reasoning_effort) == expected_routing
