@@ -25,6 +25,7 @@ METRIC_CHUNK_SIZE = 200
 class TeamResult:
     seen: int = 0
     synced: int = 0
+    unresolved: int = 0
     removed: int = 0
     degraded: int = 0
     stranded: int = 0
@@ -32,14 +33,15 @@ class TeamResult:
     def add(self, other: "TeamResult") -> None:
         self.seen += other.seen
         self.synced += other.synced
+        self.unresolved += other.unresolved
         self.removed += other.removed
         self.degraded += other.degraded
         self.stranded += other.stranded
 
     def __str__(self) -> str:
         return (
-            f"{self.seen} seen, {self.synced} synced, {self.removed} removed, "
-            f"{self.degraded} degraded, {self.stranded} stranded node(s) dropped"
+            f"{self.seen} seen, {self.synced} synced, {self.unresolved} unresolved, "
+            f"{self.removed} removed, {self.degraded} degraded, {self.stranded} stranded node(s) dropped"
         )
 
 
@@ -116,6 +118,8 @@ class Command(BaseCommand):
                     outcome = sync_metric_lineage(metric, database=database)
                     if outcome == LineageSyncOutcome.SYNCED:
                         result.synced += 1
+                    elif outcome == LineageSyncOutcome.UNRESOLVED:
+                        result.unresolved += 1
                     elif outcome == LineageSyncOutcome.REMOVED:
                         result.removed += 1
                     else:
