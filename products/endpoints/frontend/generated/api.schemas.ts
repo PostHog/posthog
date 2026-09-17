@@ -1035,7 +1035,7 @@ export interface QueryScanWarningApi {
     actionable: boolean
     /** True when the query reads this much on purpose, so reading less would change the answer. Absent means no. */
     by_design?: boolean | null
-    /** A short label for what in the query text kept the read wide, such as `in_or`. Analytics and the assistant read it, and the set of labels can change. Surfaces branch on `actionable`. */
+    /** A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change. */
     cause?: string | null
     /** The one fact the finding rests on. */
     evidence?: string | null
