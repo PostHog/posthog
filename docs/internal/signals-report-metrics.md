@@ -14,6 +14,8 @@ Metric refresh serves snapshots measured in the last 15 minutes from the query c
 
 Use lowercase non-currency units such as `users`, `sessions`, or `failure`. Use uppercase ISO currency codes such as `USD`.
 
+Every write path reads the organization-level `signals-report-metrics` flag through `report_content_gates.py`. The agentic research pipeline and the scout `emit_report` / `edit_report` channel both drop authored metrics while the flag is off, because a stored definition is also a query that the refresh path runs later. The check fails closed, so a flag-service error stores no definitions. A scout that sends an empty list still clears the report's metrics.
+
 ## Access limits
 
 Metrics with cohort references, including nested references, always hide both the query and the snapshot. This rule applies even when a token has all required scopes. `UserAccessControl` has no cohort object access policy, so the server cannot prove access. Keep this restriction until a safe cohort access policy exists. It is an intentional safety limit, not a display bug.

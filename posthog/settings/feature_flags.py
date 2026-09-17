@@ -4,7 +4,7 @@ from contextlib import suppress
 
 from posthog.settings.access import SECRET_KEY
 from posthog.settings.base_variables import TEST
-from posthog.settings.utils import get_from_env, get_list, get_set
+from posthog.settings.utils import get_from_env, get_list, get_set, str_to_bool
 
 # Used mostly by the hobby install to have some feature flags enabled by default
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
@@ -78,6 +78,39 @@ FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS: int = get_from_env(
 # Based on typical flag data, 5000 teams ≈ 10-100 MB depending on flag complexity.
 # See cache_expiry_manager.py for implementation details.
 FLAGS_CACHE_REFRESH_LIMIT: int = get_from_env("FLAGS_CACHE_REFRESH_LIMIT", 5000, type_cast=int)
+
+# Pacing for the teams the refresh sweep routes to the Kafka cache builder instead of
+# building itself. The builder drains a batch sequentially, so a whole run produced at
+# once sits in front of the flag edits raised after it and delays their rebuilds. The
+# run pauses for CHUNK_DELAY_SECONDS after every CHUNK_SIZE routed teams. WINDOW_SECONDS
+# caps the total pause, so a misconfigured chunk size or delay cannot make an hourly run
+# outlive its schedule.
+#
+# The window has to stay under the worker pod's termination grace period, currently 1230
+# seconds, because the pause happens inside the task and Celery waits for it on shutdown.
+# A window at or above that means a deploy landing mid-sweep leaves the pod in Terminating
+# for the rest of the run and then kills it before the end-of-run metrics push. 600 covers
+# a fully routed run at the volumes the sweep sees today, which peak around 2,300 teams
+# and need about 9 pauses. A larger run spends the window and routes the rest unpaced,
+# which logs a warning.
+# Per-deployment kill switch for routing the refresh sweep to the Kafka builder, read
+# before the per-team flag. The flag cannot do this job: local evaluation resolves it
+# against the single project key in posthog/apps.py, so raising it raises it in every
+# region at once, including one whose flags-cache-builder still rejects the `source`
+# field.
+FLAGS_CACHE_REFRESH_KAFKA_ENABLED: bool = get_from_env(
+    "FLAGS_CACHE_REFRESH_KAFKA_ENABLED", False, type_cast=str_to_bool
+)
+
+FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE: int = max(
+    1, get_from_env("FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE", 250, type_cast=int)
+)
+FLAGS_CACHE_REFRESH_KAFKA_CHUNK_DELAY_SECONDS: float = max(
+    0.0, get_from_env("FLAGS_CACHE_REFRESH_KAFKA_CHUNK_DELAY_SECONDS", 60.0, type_cast=float)
+)
+FLAGS_CACHE_REFRESH_KAFKA_WINDOW_SECONDS: float = max(
+    0.0, get_from_env("FLAGS_CACHE_REFRESH_KAFKA_WINDOW_SECONDS", 600.0, type_cast=float)
+)
 
 # Batch size for flags cache verification. Each batch loads both cached data
 # (from Redis) and DB data (FeatureFlag objects) into memory simultaneously.

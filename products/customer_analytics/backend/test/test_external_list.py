@@ -186,8 +186,17 @@ class TestExternalAccountListAPI(APIBaseTest):
         response = self._get(params={"project_id": self.team.id}, token=token)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @parameterized.expand([("all", False), ("managed", True)])
-    def test_personal_key_filters_account_access_before_pagination(self, _name: str, managed_only: bool) -> None:
+    @parameterized.expand(
+        [
+            ("all", False, False),
+            ("managed", True, False),
+            ("all_resource_denied", False, True),
+            ("managed_resource_denied", True, True),
+        ]
+    )
+    def test_personal_key_filters_account_access_before_pagination(
+        self, _name: str, managed_only: bool, resource_denied: bool
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -196,7 +205,16 @@ class TestExternalAccountListAPI(APIBaseTest):
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
         membership.level = OrganizationMembership.Level.MEMBER
         membership.save()
-        hidden = create_account(team_id=self.team.id, name="Hidden", external_id="hidden-account")
+        if resource_denied:
+            AccessControl.objects.create(
+                team=self.team, resource="customer_analytics", access_level="none", organization_member=membership
+            )
+        hidden = create_account(
+            team_id=self.team.id,
+            name="Hidden",
+            external_id="hidden-account",
+            created_by=self.user if resource_denied else None,
+        )
         visible = create_account(team_id=self.team.id, name="Visible", external_id="visible-account")
         if managed_only:
             self.csm_definition.is_controlled = True
@@ -206,8 +224,8 @@ class TestExternalAccountListAPI(APIBaseTest):
         AccessControl.objects.create(
             team=self.team,
             resource="account",
-            resource_id=str(hidden.id),
-            access_level="none",
+            resource_id=str(visible.id if resource_denied else hidden.id),
+            access_level="viewer" if resource_denied else "none",
             organization_member=membership,
         )
         _, token = self._create_personal_token(scopes=["account:read"])
@@ -217,7 +235,9 @@ class TestExternalAccountListAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([row["external_id"] for row in response.json()["results"]], [visible.external_id])
+        self.assertEqual(
+            [row["external_id"] for row in response.json()["results"]], [] if resource_denied else [visible.external_id]
+        )
         self.assertIsNone(response.json()["next_cursor"])
 
     def test_personal_key_respects_feature_gate(self) -> None:

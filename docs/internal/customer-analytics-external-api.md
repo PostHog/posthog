@@ -21,6 +21,7 @@ It uses the standard personal-key parser, which also accepts `personal_api_key` 
 
 The key must permit access to the selected project and organization.
 The key owner must have project access and permission to read accounts.
+Creating an account or receiving an individual account grant does not override a resource-level denial.
 Organization security rules also apply.
 The response includes only accounts the key owner can access.
 Account access filters apply before pagination.
