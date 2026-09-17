@@ -35,7 +35,13 @@ from posthog.dags.common.staged_dictionary import (
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dataclasses import frozen
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.deletion_targets import COVERAGE_DOC, resolve_placements, surviving_rows_sql, sweep_clusters
+from posthog.models.deletion_targets import (
+    COVERAGE_DOC,
+    _any_node_has,
+    resolve_placements,
+    surviving_rows_sql,
+    sweep_clusters,
+)
 from posthog.models.event.deletion import events_data_tables
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
@@ -45,6 +51,8 @@ from posthog.models.person.sql import (
     PERSON_STATIC_COHORT_TABLE,
     PERSONS_TABLE,
 )
+
+from products.error_tracking.backend.facade.api import DocumentEmbeddingTable, document_embedding_tables
 
 
 class DeleteConfig(dagster.Config):
@@ -149,6 +157,13 @@ _DELETE_PREDICATE = """or(
         AND (inserted_at IS NULL OR inserted_at <= dictGet(%(adhoc_event_deletes_dictionary)s, 'created_at', (team_id, uuid))))
 )"""
 
+
+# Embedding documents are keyed by the id of the thing they describe, and an Event deletion's key is
+# that same id, so the pending dictionary answers for both. Team deletions clear the team's documents.
+_DOCUMENT_DELETE_PREDICATE = """or(
+    dictHas(%(pending_deletes_dictionary)s, (team_id, %(event_deletion_type)s, document_id)),
+    dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))
+)"""
 
 ShardMutations = dict[int, MutationWaiters]
 # Shard numbers are per cluster, so a sweep spanning two of them cannot key its waiters by shard
@@ -651,6 +666,57 @@ def delete_events(
     return (load_and_verify_deletes_dictionary, cluster_mutations)
 
 
+@dagster.op
+def delete_event_documents(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    load_and_verify_deletes_dictionary: PendingDeletesDictionary,
+) -> tuple[PendingDeletesDictionary, ClusterShardMutations]:
+    """Delete the embedding documents of the events and teams queued for deletion.
+
+    An event queued by an `AsyncDeletion` of type `Event` may have had its text embedded into the
+    per-model `document_embeddings` tables under `document_id` equal to the event uuid, and those
+    rows carry the text itself, so they go with the event. A deleted team's documents go with the team.
+    """
+
+    def count_pending_deletes(client: Client) -> int:
+        result = client.execute(
+            f"""
+            SELECT count()
+            FROM {load_and_verify_deletes_dictionary.qualified_name}
+            WHERE deletion_type IN ({DeletionType.Event}, {DeletionType.Team})
+            """
+        )
+        return result[0][0] if result else 0
+
+    pending = cluster.any_host_by_role(count_pending_deletes, NodeRole.DATA).result()
+    if pending == 0:
+        context.add_output_metadata({"pending_deletes": dagster.MetadataValue.int(0)})
+        return (load_and_verify_deletes_dictionary, {})
+
+    context.add_output_metadata({"pending_deletes": dagster.MetadataValue.int(pending)})
+
+    reuse_floor = _mutation_reuse_floor(cluster)
+    by_shard: dict[int, list[MutationWaiter]] = {}
+    for table in _present_document_embedding_tables(cluster):
+        runner = LightweightDeleteMutationRunner(
+            table=table.sharded_table,
+            predicate=_DOCUMENT_DELETE_PREDICATE,
+            parameters=_document_delete_predicate_params(load_and_verify_deletes_dictionary),
+            reuse_since=reuse_floor,
+        )
+        for host, mutation in cluster.map_one_host_per_shard(runner).result().items():
+            if host.shard_num is not None:
+                by_shard.setdefault(host.shard_num, []).append(mutation)
+
+    cluster_mutations: ClusterShardMutations = {
+        (cluster.data_cluster_name, cluster.shard_role): {
+            shard_num: MutationWaiters(waiters=shard_waiters) for shard_num, shard_waiters in by_shard.items()
+        }
+    }
+    return (load_and_verify_deletes_dictionary, cluster_mutations)
+
+
 def delete_team_data(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
@@ -760,6 +826,23 @@ class VerifiedDeletionResources:
     adhoc_event_deletes_dictionary: AdhocEventDeletesDictionary
 
 
+def _present_document_embedding_tables(cluster: ClickhouseCluster) -> list[DocumentEmbeddingTable]:
+    """The embeddings tables that exist here: the Python registry can name a model whose migration has not landed.
+
+    Present on any shard host counts, as for the registered targets: a table missing from some hosts
+    makes the mutation fail loudly there, which beats skipping the deletion.
+    """
+    return [table for table in document_embedding_tables() if _any_node_has(cluster, table.sharded_table)]
+
+
+def _document_delete_predicate_params(pending_deletes_dictionary: "PendingDeletesDictionary") -> dict[str, str | int]:
+    return {
+        "pending_deletes_dictionary": pending_deletes_dictionary.qualified_name,
+        "event_deletion_type": DeletionType.Event,
+        "team_deletion_type": DeletionType.Team,
+    }
+
+
 def _delete_predicate_params(
     pending_deletes_dictionary: "PendingDeletesDictionary",
     adhoc_event_deletes_dictionary: "AdhocEventDeletesDictionary",
@@ -802,6 +885,7 @@ def _count_through(
     table: str,
     params: dict[str, str | int],
     max_execution_time: int,
+    predicate: str = _DELETE_PREDICATE,
 ) -> int | None:
     """Survivors on ``table``, or None when no attempt could complete.
 
@@ -811,7 +895,7 @@ def _count_through(
     slow or sick host.
     """
     query = Query(
-        surviving_rows_sql(table, _DELETE_PREDICATE),
+        surviving_rows_sql(table, predicate),
         params,
         settings={"max_execution_time": str(max_execution_time)},
     )
@@ -868,6 +952,16 @@ def _count_unswept_rows(
                 params,
                 max_execution_time,
             )
+    document_params = _document_delete_predicate_params(pending_deletes_dictionary)
+    for table in _present_document_embedding_tables(cluster):
+        counts[table.distributed_table] = _count_through(
+            context,
+            partial(_rows_from_any_host, cluster),
+            table.distributed_table,
+            document_params,
+            max_execution_time,
+            predicate=_DOCUMENT_DELETE_PREDICATE,
+        )
     return counts
 
 
@@ -979,6 +1073,10 @@ def deletes_job():
     # Delete all data requested
     delete_mutations = delete_events(pending_deletes_dictionary, adhoc_event_deletes_dictionary)
     pending_deletes_dictionary = wait_for_delete_mutations_in_shards(delete_mutations)
+    document_mutations = delete_event_documents(pending_deletes_dictionary)
+    pending_deletes_dictionary = wait_for_delete_mutations_in_shards.alias("wait_for_document_delete_mutations")(
+        document_mutations
+    )
 
     for table in [
         PERSON_DISTINCT_ID2_TABLE,

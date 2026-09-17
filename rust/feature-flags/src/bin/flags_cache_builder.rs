@@ -51,7 +51,7 @@ use tracing_subscriber::EnvFilter;
 
 use feature_flags::api::errors::FlagError;
 use feature_flags::flags::cache_builder::build_flags_cache;
-use feature_flags::flags::cache_invalidation::FlagsCacheInvalidation;
+use feature_flags::flags::cache_invalidation::{FlagsCacheInvalidation, Source};
 use feature_flags::flags::cache_shadow::{
     diff_live_entry, summarize_diffs, MismatchTracker, ShadowIssueType, ShadowLiveEntry,
     ShadowObservation, TrackerStoreOp,
@@ -128,7 +128,14 @@ const SHADOW_BUILD_DURATION_SECONDS: &str = "flags_cache_shadow_build_duration_s
 const SHADOW_LOG_MAX_ENTRIES: usize = 20;
 const SHADOW_LOG_MAX_BYTES: usize = 4096;
 
-const E2E_LATENCY_BUCKETS: &[f64] = &[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0];
+/// Seconds buckets for end-to-end latency. The ladder runs to an hour because a
+/// refresh message waits for the sweep that produced it to pace through its
+/// batch, and an unbounded top bucket makes every `source="refresh"` quantile
+/// read as `+Inf`. Every boundary at or below 60 s is unchanged, so edit-path
+/// quantiles stay comparable across this change.
+const E2E_LATENCY_BUCKETS: &[f64] = &[
+    0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 900.0, 1800.0, 3600.0,
+];
 /// Seconds buckets for the build-duration histogram. Our histograms are
 /// seconds-shaped, so both are overridden off `common_metrics`' ms-shaped default.
 const BUILD_DURATION_BUCKETS: &[f64] = &[
@@ -208,28 +215,62 @@ struct BuilderConfig {
 struct TeamBatch<O = Offset> {
     offsets: Vec<O>,
     /// Oldest `emitted_at` across the coalesced messages — the worst-case
-    /// staleness the build resolves, which is what end-to-end latency measures.
-    /// Also stamps the DLQ message if the build ultimately fails.
+    /// staleness the build resolves. Stamps the DLQ message if the build
+    /// ultimately fails, where worst case is the quantity triage wants.
     oldest_emitted_at: DateTime<Utc>,
+    /// Oldest `emitted_at` across the coalesced *edits*, absent when the batch
+    /// holds none. Both the reported source and the latency the build is
+    /// credited with fall out of this one value, so neither can disagree with it.
+    oldest_edit_emitted_at: Option<DateTime<Utc>>,
 }
 
 impl<O> TeamBatch<O> {
     /// Fold one coalesced message into the per-team map: append its offset and
-    /// keep the oldest `emitted_at` seen for the team, regardless of arrival order.
+    /// keep both minimums. Both are a `min` over a set, so neither depends on
+    /// arrival order.
     fn fold_into(
         by_team: &mut HashMap<TeamId, TeamBatch<O>>,
         team_id: TeamId,
         emitted_at: DateTime<Utc>,
+        source: Source,
         offset: O,
     ) {
         let entry = by_team.entry(team_id).or_insert_with(|| TeamBatch {
             offsets: Vec::new(),
             oldest_emitted_at: emitted_at,
+            oldest_edit_emitted_at: None,
         });
-        if emitted_at < entry.oldest_emitted_at {
-            entry.oldest_emitted_at = emitted_at;
+        entry.oldest_emitted_at = entry.oldest_emitted_at.min(emitted_at);
+        if source == Source::Edit {
+            entry.oldest_edit_emitted_at = Some(
+                entry
+                    .oldest_edit_emitted_at
+                    .map_or(emitted_at, |oldest| oldest.min(emitted_at)),
+            );
         }
         entry.offsets.push(offset);
+    }
+
+    /// The path this build is reported as serving. One build serves every
+    /// coalesced message, and an edit is the one with a serve-latency
+    /// expectation, so a batch holding any edit is an edit however many sweep
+    /// messages it also absorbed.
+    fn reported_source(&self) -> Source {
+        if self.oldest_edit_emitted_at.is_some() {
+            Source::Edit
+        } else {
+            Source::Refresh
+        }
+    }
+
+    /// How long the reported path waited. An edit is credited with the oldest
+    /// edit's age, never the older refresh it coalesced with — otherwise the
+    /// sweep's minutes land in the edit histogram, which is the reading the
+    /// `source` label exists to keep separable. With no edit in the batch every
+    /// message is a refresh, so the batch minimum is already the refresh minimum.
+    fn attributed_emitted_at(&self) -> DateTime<Utc> {
+        self.oldest_edit_emitted_at
+            .unwrap_or(self.oldest_emitted_at)
     }
 }
 
@@ -357,8 +398,14 @@ fn precreate_counters() {
 
     // The success arm of BUILDS_TOTAL emits no `reason` (see `process_team`), so
     // it is pre-created without one. Adding `reason="none"` there would change a
-    // live metric's label set and regroup the dashboard panel that reads it.
-    metrics::counter!(BUILDS_TOTAL, "result" => RESULT_SUCCESS).increment(0);
+    // live metric's label set to say nothing new. `source` changes the same label
+    // set deliberately: it splits a series that a sweep-driven build would
+    // otherwise share with the serve path, which is a distinction worth regrouping
+    // a panel for.
+    for source in Source::iter() {
+        metrics::counter!(BUILDS_TOTAL, "result" => RESULT_SUCCESS, "source" => source.as_label())
+            .increment(0);
+    }
 
     metrics::counter!(DLQ_PRODUCED, "result" => RESULT_SUCCESS).increment(0);
     metrics::counter!(DLQ_PRODUCED, "result" => RESULT_FAILURE).increment(0);
@@ -370,8 +417,10 @@ fn precreate_counters() {
     // per-category map of which metric it reaches, and the compiler can force a
     // new variant to fill that in but not to fill it in correctly.
     for category in FailureCategory::iter() {
-        metrics::counter!(BUILDS_TOTAL, "result" => RESULT_FAILURE, "reason" => category.as_label())
-            .increment(0);
+        for source in Source::iter() {
+            metrics::counter!(BUILDS_TOTAL, "result" => RESULT_FAILURE, "reason" => category.as_label(), "source" => source.as_label())
+                .increment(0);
+        }
         metrics::counter!(SHADOW_FAILURES, "category" => category.as_label()).increment(0);
     }
 
@@ -582,10 +631,11 @@ fn fold_message<O>(
     team_id: TeamId,
     is_shadow: bool,
     emitted_at: DateTime<Utc>,
+    source: Source,
     offset: O,
 ) {
     let target = if is_shadow { shadow } else { real };
-    TeamBatch::fold_into(target, team_id, emitted_at, offset);
+    TeamBatch::fold_into(target, team_id, emitted_at, source, offset);
 }
 
 /// Dedupe a fetched batch by `team_id` within each delivery mode, counting
@@ -610,6 +660,7 @@ fn coalesce_batch(batch: Vec<Result<(FlagsCacheInvalidation, Offset), RecvErr>>)
                     msg.team_id,
                     msg.shadow,
                     msg.emitted_at,
+                    msg.source,
                     offset,
                 );
             }
@@ -648,22 +699,29 @@ async fn process_team(
     team_id: TeamId,
     team_batch: TeamBatch,
 ) -> Vec<Offset> {
+    let source = team_batch.reported_source().as_label();
     match build_with_retry(pg_reader, writer, team_id, cfg).await {
         Ok(()) => {
-            metrics::counter!(BUILDS_TOTAL, "result" => RESULT_SUCCESS).increment(1);
-            let latency = (Utc::now() - team_batch.oldest_emitted_at)
+            metrics::counter!(BUILDS_TOTAL, "result" => RESULT_SUCCESS, "source" => source)
+                .increment(1);
+            let latency = (Utc::now() - team_batch.attributed_emitted_at())
                 .num_milliseconds()
                 .max(0) as f64
                 / 1000.0;
-            metrics::histogram!(E2E_LATENCY_SECONDS).record(latency);
+            metrics::histogram!(E2E_LATENCY_SECONDS, "source" => source).record(latency);
         }
         Err(failure) => {
-            metrics::counter!(BUILDS_TOTAL, "result" => RESULT_FAILURE, "reason" => failure.category.as_label())
+            metrics::counter!(BUILDS_TOTAL, "result" => RESULT_FAILURE, "reason" => failure.category.as_label(), "source" => source)
                 .increment(1);
-            tracing::error!(team_id, category = failure.category.as_label(), error = %failure.message, "Cache build failed after retries; routing to DLQ");
+            tracing::error!(team_id, source, category = failure.category.as_label(), error = %failure.message, "Cache build failed after retries; routing to DLQ");
             // The message is a trigger, not a payload, so reconstruct it for the
-            // DLQ from the team and its oldest coalesced timestamp.
-            let dlq_message = FlagsCacheInvalidation::new(team_id, team_batch.oldest_emitted_at);
+            // DLQ from the team, its oldest coalesced timestamp and the path that
+            // asked for the build — a replayed sweep must not arrive as an edit.
+            let dlq_message = FlagsCacheInvalidation::new(
+                team_id,
+                team_batch.oldest_emitted_at,
+                team_batch.reported_source(),
+            );
             dlq_produce(dlq_producer, &cfg.dlq_topic, &dlq_message, &failure).await;
         }
     }
@@ -1200,10 +1258,11 @@ mod tests {
     use std::collections::HashMap;
 
     use chrono::{DateTime, TimeZone, Utc};
+    use rstest::rstest;
 
     use super::{
         fold_message, max_per_partition, precreate_counters, retry_backoff, truncate_for_header,
-        BuildFailure, FlagError, ShadowOutcome, ShadowOutcomeLabel, TeamBatch,
+        BuildFailure, FlagError, ShadowOutcome, ShadowOutcomeLabel, Source, TeamBatch,
         DLQ_ERROR_HEADER_MAX,
     };
 
@@ -1220,72 +1279,112 @@ mod tests {
             .expect("valid timestamp")
     }
 
-    /// Fold a list of (team_id, emitted_at, offset) into per-team batches via the
-    /// same `TeamBatch::fold_into` the consumer uses. Offset type is `u64` here —
-    /// the production `Offset` has no public constructor, which is why the helper
-    /// is generic.
-    fn coalesce(items: Vec<(i32, DateTime<Utc>, u64)>) -> HashMap<i32, (DateTime<Utc>, Vec<u64>)> {
+    /// Fold a list of (team_id, emitted_at, source, offset) into per-team batches
+    /// via the same `TeamBatch::fold_into` the consumer uses, and hand back the
+    /// batches themselves so each test reads the fields it cares about. Offset
+    /// type is `u64` here — the production `Offset` has no public constructor,
+    /// which is why the helper is generic.
+    fn fold(items: Vec<(i32, DateTime<Utc>, Source, u64)>) -> HashMap<i32, TeamBatch<u64>> {
         let mut by_team: HashMap<i32, TeamBatch<u64>> = HashMap::new();
-        for (team_id, emitted_at, offset) in items {
-            TeamBatch::fold_into(&mut by_team, team_id, emitted_at, offset);
+        for (team_id, emitted_at, source, offset) in items {
+            TeamBatch::fold_into(&mut by_team, team_id, emitted_at, source, offset);
         }
         by_team
-            .into_iter()
-            .map(|(team, batch)| (team, (batch.oldest_emitted_at, batch.offsets)))
-            .collect()
+    }
+
+    /// Every message an edit, which is what the tests that only care about
+    /// offsets and timestamps want.
+    fn fold_edits(items: Vec<(i32, DateTime<Utc>, u64)>) -> HashMap<i32, TeamBatch<u64>> {
+        fold(
+            items
+                .into_iter()
+                .map(|(team_id, emitted_at, offset)| (team_id, emitted_at, Source::Edit, offset))
+                .collect(),
+        )
     }
 
     #[test]
     fn coalesce_keeps_oldest_emitted_at_regardless_of_arrival_order() {
         // Same team, timestamps arriving newest-first: the oldest must still win,
-        // since that worst-case staleness is what the e2e-latency metric measures.
-        let got = coalesce(vec![(7, ts(300), 0), (7, ts(100), 1), (7, ts(200), 2)]);
-        let (oldest, offsets) = &got[&7];
-        assert_eq!(*oldest, ts(100));
-        assert_eq!(offsets, &vec![0, 1, 2]);
+        // since that worst-case staleness is what stamps the DLQ message.
+        let got = fold_edits(vec![(7, ts(300), 0), (7, ts(100), 1), (7, ts(200), 2)]);
+        assert_eq!(got[&7].oldest_emitted_at, ts(100));
+        assert_eq!(got[&7].offsets, vec![0, 1, 2]);
     }
 
-    /// Route a list of (team_id, shadow, emitted_at, offset) through the same
-    /// `fold_message` the consumer uses and return the two maps' offsets.
+    #[rstest]
+    #[case::edit_then_older_refresh(vec![(7, ts(200), Source::Edit, 0), (7, ts(100), Source::Refresh, 1)])]
+    #[case::older_refresh_then_edit(vec![(7, ts(100), Source::Refresh, 0), (7, ts(200), Source::Edit, 1)])]
+    fn an_edit_records_its_own_age_not_the_refresh_it_coalesced_with(
+        #[case] items: Vec<(i32, DateTime<Utc>, Source, u64)>,
+    ) {
+        // One build serves both messages, and it is reported as the edit: the
+        // edit is the one with a serve expectation. It must be credited with its
+        // own age, because reading the batch minimum instead would put the
+        // sweep's minutes into the edit path's sub-second p99 — the reading the
+        // `source` label exists to keep separable.
+        let batch = &fold(items)[&7];
+        assert_eq!(batch.reported_source(), Source::Edit);
+        assert_eq!(batch.attributed_emitted_at(), ts(200));
+        // The DLQ stamp still wants worst-case staleness across the whole batch.
+        assert_eq!(batch.oldest_emitted_at, ts(100));
+    }
+
+    #[test]
+    fn a_batch_of_only_refreshes_stays_a_refresh() {
+        let batch = &fold(vec![
+            (7, ts(200), Source::Refresh, 0),
+            (7, ts(100), Source::Refresh, 1),
+        ])[&7];
+        assert_eq!(batch.reported_source(), Source::Refresh);
+        // With no edit in the batch the attributed age is the batch minimum.
+        assert_eq!(batch.attributed_emitted_at(), ts(100));
+        assert_eq!(batch.oldest_emitted_at, ts(100));
+    }
+
+    /// Route a list of (team_id, shadow, emitted_at, source, offset) through the
+    /// same `fold_message` the consumer uses and hand back both maps.
     fn route(
-        items: Vec<(i32, bool, DateTime<Utc>, u64)>,
-    ) -> (HashMap<i32, Vec<u64>>, HashMap<i32, Vec<u64>>) {
+        items: Vec<(i32, bool, DateTime<Utc>, Source, u64)>,
+    ) -> (HashMap<i32, TeamBatch<u64>>, HashMap<i32, TeamBatch<u64>>) {
         let mut real: HashMap<i32, TeamBatch<u64>> = HashMap::new();
         let mut shadow: HashMap<i32, TeamBatch<u64>> = HashMap::new();
-        for (team_id, is_shadow, emitted_at, offset) in items {
+        for (team_id, is_shadow, emitted_at, source, offset) in items {
             fold_message(
                 &mut real,
                 &mut shadow,
                 team_id,
                 is_shadow,
                 emitted_at,
+                source,
                 offset,
             );
         }
-        let flatten = |map: HashMap<i32, TeamBatch<u64>>| {
-            map.into_iter()
-                .map(|(team, batch)| (team, batch.offsets))
-                .collect()
-        };
-        (flatten(real), flatten(shadow))
+        (real, shadow)
     }
 
     #[test]
     fn shadow_messages_never_reach_the_real_build_map() {
         // The real map is the only route to a cache write; a shadow message
         // landing there would serve-write a team Python still owns.
-        let (real, shadow) = route(vec![(7, true, ts(100), 0), (7, true, ts(200), 1)]);
+        let (real, shadow) = route(vec![
+            (7, true, ts(100), Source::Edit, 0),
+            (7, true, ts(200), Source::Edit, 1),
+        ]);
         assert!(real.is_empty());
-        assert_eq!(shadow[&7], vec![0, 1]);
+        assert_eq!(shadow[&7].offsets, vec![0, 1]);
     }
 
     #[test]
     fn real_and_shadow_messages_for_one_team_do_not_coalesce() {
         // A mixed batch must produce both a real build and a shadow compare —
         // absorbing either into the other changes what gets written.
-        let (real, shadow) = route(vec![(7, false, ts(100), 0), (7, true, ts(200), 1)]);
-        assert_eq!(real[&7], vec![0]);
-        assert_eq!(shadow[&7], vec![1]);
+        let (real, shadow) = route(vec![
+            (7, false, ts(100), Source::Edit, 0),
+            (7, true, ts(200), Source::Edit, 1),
+        ]);
+        assert_eq!(real[&7].offsets, vec![0]);
+        assert_eq!(shadow[&7].offsets, vec![1]);
     }
 
     #[test]
@@ -1298,19 +1397,45 @@ mod tests {
         .expect("v1 message without shadow must parse");
         assert!(!msg.shadow);
 
-        let (real, shadow) = route(vec![(msg.team_id, msg.shadow, msg.emitted_at, 0)]);
-        assert_eq!(real[&7], vec![0]);
+        let (real, shadow) = route(vec![(
+            msg.team_id,
+            msg.shadow,
+            msg.emitted_at,
+            msg.source,
+            0,
+        )]);
+        assert_eq!(real[&7].offsets, vec![0]);
         assert!(shadow.is_empty());
     }
 
     #[test]
+    fn a_wire_refresh_reaches_the_batch_as_a_refresh() {
+        // Ties the deserialized `source` to the batch the builder reports on. The
+        // coalescing tests build `Source` values in memory, so without this the
+        // wire value could stop reaching `fold_message` and nothing would fail.
+        let msg: super::FlagsCacheInvalidation = serde_json::from_str(
+            r#"{"version": 1, "team_id": 7, "operation": "invalidate", "emitted_at": "2026-04-23T10:37:00Z", "source": "refresh"}"#,
+        )
+        .expect("v1 refresh message must parse");
+
+        let (real, _) = route(vec![(
+            msg.team_id,
+            msg.shadow,
+            msg.emitted_at,
+            msg.source,
+            0,
+        )]);
+        assert_eq!(real[&7].reported_source(), Source::Refresh);
+    }
+
+    #[test]
     fn coalesce_groups_offsets_per_team() {
-        let got = coalesce(vec![(1, ts(50), 10), (2, ts(60), 20), (1, ts(40), 11)]);
+        let got = fold_edits(vec![(1, ts(50), 10), (2, ts(60), 20), (1, ts(40), 11)]);
         assert_eq!(got.len(), 2);
-        assert_eq!(got[&1].0, ts(40));
-        assert_eq!(got[&1].1, vec![10, 11]);
-        assert_eq!(got[&2].0, ts(60));
-        assert_eq!(got[&2].1, vec![20]);
+        assert_eq!(got[&1].oldest_emitted_at, ts(40));
+        assert_eq!(got[&1].offsets, vec![10, 11]);
+        assert_eq!(got[&2].oldest_emitted_at, ts(60));
+        assert_eq!(got[&2].offsets, vec![20]);
     }
 
     #[test]
@@ -1527,14 +1652,22 @@ mod tests {
     /// unnoticed.
     const EXPECTED_PRECREATED_SERIES: &[&str] = &[
         "flags_cache_builder_build_retries_total{}",
-        "flags_cache_builder_builds_total{reason=cache_parse,result=failure}",
-        "flags_cache_builder_builds_total{reason=config_format,result=failure}",
-        "flags_cache_builder_builds_total{reason=database,result=failure}",
-        "flags_cache_builder_builds_total{reason=other,result=failure}",
-        "flags_cache_builder_builds_total{reason=redis,result=failure}",
-        "flags_cache_builder_builds_total{reason=s3,result=failure}",
-        "flags_cache_builder_builds_total{reason=serialize,result=failure}",
-        "flags_cache_builder_builds_total{result=success}",
+        "flags_cache_builder_builds_total{reason=cache_parse,result=failure,source=edit}",
+        "flags_cache_builder_builds_total{reason=cache_parse,result=failure,source=refresh}",
+        "flags_cache_builder_builds_total{reason=config_format,result=failure,source=edit}",
+        "flags_cache_builder_builds_total{reason=config_format,result=failure,source=refresh}",
+        "flags_cache_builder_builds_total{reason=database,result=failure,source=edit}",
+        "flags_cache_builder_builds_total{reason=database,result=failure,source=refresh}",
+        "flags_cache_builder_builds_total{reason=other,result=failure,source=edit}",
+        "flags_cache_builder_builds_total{reason=other,result=failure,source=refresh}",
+        "flags_cache_builder_builds_total{reason=redis,result=failure,source=edit}",
+        "flags_cache_builder_builds_total{reason=redis,result=failure,source=refresh}",
+        "flags_cache_builder_builds_total{reason=s3,result=failure,source=edit}",
+        "flags_cache_builder_builds_total{reason=s3,result=failure,source=refresh}",
+        "flags_cache_builder_builds_total{reason=serialize,result=failure,source=edit}",
+        "flags_cache_builder_builds_total{reason=serialize,result=failure,source=refresh}",
+        "flags_cache_builder_builds_total{result=success,source=edit}",
+        "flags_cache_builder_builds_total{result=success,source=refresh}",
         "flags_cache_builder_dlq_produced_total{result=failure}",
         "flags_cache_builder_dlq_produced_total{result=success}",
         "flags_cache_builder_kafka_recv_errors_total{}",
