@@ -1,4 +1,5 @@
 import copy
+from uuid import UUID
 
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
@@ -154,17 +155,24 @@ class OrganizationFilter(admin.SimpleListFilter):
     title = "organization"
     parameter_name = "organization"
 
+    def _organization_id(self) -> UUID | None:
+        try:
+            return UUID(self.value() or "")
+        except ValueError:
+            return None
+
     def lookups(self, request, model_admin):
-        value = self.value()
-        if not value:
+        organization_id = self._organization_id()
+        if organization_id is None:
             return []
-        organization = Organization.objects.filter(pk=value).only("name").first()
-        return [(value, organization.name if organization else value)]
+        organization = Organization.objects.filter(pk=organization_id).only("name").first()
+        return [(str(organization_id), organization.name if organization else str(organization_id))]
 
     def queryset(self, request, queryset):
-        if self.value():
-            return queryset.filter(team__organization_id=self.value())
-        return queryset
+        organization_id = self._organization_id()
+        if organization_id is None:
+            return queryset
+        return queryset.filter(team__organization_id=organization_id)
 
 
 @admin.register(Experiment)

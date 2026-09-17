@@ -59,6 +59,10 @@ class TestExperimentAdmin(BaseTest):
             self.stopped.id,
         }
 
+    def test_organization_filter_ignores_a_value_that_is_not_a_uuid(self) -> None:
+        all_ids = {self.draft.id, self.running.id, self.stopped.id, self.other_org_experiment.id}
+        assert self._changelist_ids({"organization": "invalid"}) == all_ids
+
     @parameterized.expand([("post_starts_manual_run", "post", True), ("get_is_a_noop", "get", False)])
     @patch("products.experiments.backend.admin.recalculation_panel.start_metrics_recalculation_workflow")
     def test_start_recalculation_view(self, _name: str, method: str, expects_run: bool, mock_start: MagicMock) -> None:
