@@ -1601,6 +1601,10 @@ class EditReportRequestSerializer(serializers.Serializer):
         max_length=MAX_NOTE_CONTENT_LENGTH,
         help_text="Optional free-form note to append to the report's work log (attributed to this scout).",
     )
+    corroboration_only = serializers.BooleanField(
+        required=False,
+        help_text="Set only when append_note confirms the finding with no new information. After four confirmations, store only the count. Other notes remain in the work log.",
+    )
     append_evidence = serializers.ListField(
         required=False,
         allow_null=True,
@@ -1676,6 +1680,19 @@ class EditReportRequestSerializer(serializers.Serializer):
             "left them pointing at the old report."
         ),
     )
+    supersedes_implementation = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Set this only when your rewrite changes what the fix should be: a different root cause, "
+            "a different file or layer, a materially wider or narrower scope. More evidence for the "
+            "same fix is not a reason, because the report's open pull request already implements it. "
+            "Setting it true records a replacement decision for a ready report. Policy and eligibility "
+            "checks gate the replacement. The existing pull request closes only after a successful, "
+            "verified replacement. Technical failures retry automatically; policy blocks wait for a new "
+            "edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, "
+            "and only within the first four content revisions, including revisions that did not request replacement."
+        ),
+    )
 
     def validate(self, attrs: dict) -> dict:
         """Reject a body field this serializer does not declare.
@@ -1697,7 +1714,13 @@ class EditReportResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Which presentation fields changed (e.g. `title`, `summary`); empty if only a note was appended.",
     )
-    note_appended = serializers.BooleanField(help_text="Whether a note artefact was appended.")
+    note_appended = serializers.BooleanField(
+        help_text=(
+            "Whether the edit included a note. True for a collapsed corroboration too, where the "
+            "report's count moves and no work-log entry is written. Read `corroboration_collapsed` "
+            "to tell the two apart."
+        ),
+    )
     evidence_appended = serializers.IntegerField(
         help_text="How many observations this edit added to the report's evidence rail; 0 if none."
     )
@@ -1734,6 +1757,28 @@ class EditReportResponseSerializer(serializers.Serializer):
             "How many prompts the report now suggests, or null if the edit left them as they were "
             "(the field omitted, or a re-send of what was already stored). 0 means the edit took the "
             "report's suggested prompts down."
+        ),
+    )
+    is_content_revision = serializers.BooleanField(
+        help_text=(
+            "Whether this edit actually rewrote the report's title or summary. False for a note, a "
+            "reviewer change, or a re-send of the text the report already had."
+        ),
+    )
+    content_revision_count = serializers.IntegerField(
+        help_text="How many times a scout has rewritten this report's title or summary, counting this edit.",
+    )
+    supersedes_implementation = serializers.BooleanField(
+        help_text=(
+            "Whether the edit recorded that the report's pull request should be replaced. False when "
+            "you did not ask for it, when the edit changed no content, or when the report has already "
+            "been rewritten too many times."
+        ),
+    )
+    corroboration_collapsed = serializers.BooleanField(
+        help_text=(
+            "Whether your note raised the report's corroboration count instead of landing as its own "
+            "entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log."
         ),
     )
 

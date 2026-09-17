@@ -220,11 +220,23 @@ export function getAdditionalProperties(
     )
 }
 
+function getStringProperty(properties: ErrorEventProperties, key: string): string | undefined {
+    const value = properties[key]
+    return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
 export function getSessionId(properties: ErrorEventProperties): string | undefined {
-    const sessionId = properties['$session_id']
     // $session_id can arrive malformed (e.g. a numeric timestamp) from misbehaving SDKs.
     // Only a non-empty string is a usable session id; anything else means "no session".
-    return typeof sessionId === 'string' && sessionId.length > 0 ? sessionId : undefined
+    return getStringProperty(properties, '$session_id')
+}
+
+export function getTraceId(properties: ErrorEventProperties): string | undefined {
+    return getStringProperty(properties, '$trace_id')
+}
+
+export function getSpanId(properties: ErrorEventProperties): string | undefined {
+    return getStringProperty(properties, '$span_id')
 }
 
 export function getRecordingStatus(properties: ErrorEventProperties): string | undefined {

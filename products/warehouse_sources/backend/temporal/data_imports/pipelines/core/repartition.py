@@ -966,6 +966,10 @@ async def _rewrite_into_temp(
         temp_uri=temp_uri,
     )
 
+    # The live table's properties travel with its rows. A buffered CDC lane reads its resume
+    # point from a statistic one of them declares, and a rebuilt table that lost it would report
+    # no position at all.
+    table_configuration = dict(old_delta.metadata().configuration or {}) or None
     dataset = await asyncio.to_thread(old_delta.to_pyarrow_dataset)
     if skip_rows:
         dataset, skip_rows = await asyncio.to_thread(_drop_copied_source_files, old_delta, dataset, skip_rows)
@@ -1049,6 +1053,7 @@ async def _rewrite_into_temp(
             mode="append",
             schema_mode="merge",
             storage_options=storage_options,
+            configuration=table_configuration,
         )
         rows_written += combined.num_rows
         commits += 1
