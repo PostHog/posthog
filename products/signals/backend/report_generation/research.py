@@ -1211,6 +1211,7 @@ async def run_multi_turn_research(
                     targets=[candidates[url] for url in selected],
                     research_run_count=implementation_context.run_count,
                     research_started_at=implementation_context.started_at,
+                    content_revision_count=implementation_context.content_revision_count,
                 )
             except Exception:
                 logger.exception("multi_turn_research: supersede turn failed, keeping the report's open PR")

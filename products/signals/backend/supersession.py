@@ -27,7 +27,12 @@ from products.signals.backend.implementation_pr import (
     fetch_implementation_prs_for_reports,
     implementation_pr_needed_by_another_report,
 )
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.models import (
+    MAX_SCOUT_CONTENT_REVISIONS,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportTask,
+)
 from products.signals.backend.report_claims import get_active_claim
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -41,6 +46,7 @@ class ImplementationResearchContext:
     candidates: tuple[ImplementationTarget, ...] = ()
     run_count: int | None = None
     started_at: datetime | None = None
+    content_revision_count: int = 0
 
 
 NO_IMPLEMENTATION_CONTEXT = ImplementationResearchContext()
@@ -70,6 +76,15 @@ def _verify_replacement_prs(replacement: SignalReportArtefact, run_id: UUID, url
             raise ReplacementPullRequestUnverified("Could not verify an open PR created by the replacement run")
 
 
+def decision_matches_report(report: SignalReport, decision: ImplementationDecision) -> bool:
+    return bool(
+        decision.research_run_count == report.run_count
+        and decision.research_started_at == report.last_run_at
+        and decision.content_revision_count == (report.content_revision_count or 0)
+        and (decision.research_started_at is not None or decision.content_revision_count > 0)
+    )
+
+
 def _can_close_target(
     replacement: SignalReportArtefact,
     content: ImplementationReplacement,
@@ -93,8 +108,7 @@ def _can_close_target(
             reservation
             and reservation.worker_token == progress.worker_token
             and report.status == SignalReport.Status.READY
-            and report.run_count == content.decision.research_run_count
-            and report.last_run_at == content.decision.research_started_at
+            and decision_matches_report(report, content.decision)
             and claim
             and claim.claim_id == replacement.claim_id
             and claim.actor_task_id == replacement.task_id
@@ -239,7 +253,10 @@ def research_implementation_context(team_id: int, report_id: str) -> Implementat
             if sha:
                 candidates.append(target.model_copy(update={"head_sha": sha}))
         return ImplementationResearchContext(
-            candidates=tuple(candidates), run_count=report.run_count, started_at=report.last_run_at
+            candidates=tuple(candidates),
+            run_count=report.run_count,
+            started_at=report.last_run_at,
+            content_revision_count=report.content_revision_count or 0,
         )
     except Exception:
         logger.exception("signals_automated_pr_lookup_failed", report_id=report_id)
@@ -294,11 +311,15 @@ def decision_is_current(report: SignalReport, decision: ImplementationDecision) 
     return bool(
         decision.supersede
         and decision.targets
-        and decision.research_started_at
         and report.status == SignalReport.Status.READY
-        and decision.research_run_count == report.run_count
-        and decision.research_started_at == report.last_run_at
-        and report.run_count > (report.implemented_at_run_count or 0)
+        and decision_matches_report(report, decision)
+        and (
+            report.run_count > (report.implemented_at_run_count or 0)
+            or (
+                0 < (report.content_revision_count or 0) <= MAX_SCOUT_CONTENT_REVISIONS
+                and (report.content_revision_count or 0) > (report.implemented_at_revision_count or 0)
+            )
+        )
         and pending_replacement(report.team_id, str(report.id)) is None
     )
 
@@ -397,7 +418,7 @@ def reconcile_replacement(team_id: int, replacement_id: str) -> bool:
             return False
         if not run.is_terminal:
             return False
-        if report.run_count != content.decision.research_run_count or report.status != SignalReport.Status.READY:
+        if not decision_matches_report(report, content.decision) or report.status != SignalReport.Status.READY:
             _finish(
                 replacement,
                 progress.model_copy(
@@ -477,7 +498,7 @@ def reconcile_replacement(team_id: int, replacement_id: str) -> bool:
                     return False
                 if (
                     current_report.status != SignalReport.Status.READY
-                    or current_report.run_count != content.decision.research_run_count
+                    or not decision_matches_report(current_report, content.decision)
                     or not current_claim
                     or current_claim.claim_id != replacement.claim_id
                 ):

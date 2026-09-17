@@ -23,6 +23,10 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.signals.backend.billing import current_billing_period_bounds
+from products.signals.backend.implementation_dispatch_tasks import (
+    dispatch_implementation_replacement as dispatch_implementation_replacement,
+    sweep_implementation_dispatches as sweep_implementation_dispatches,
+)
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
 from products.signals.backend.models import (
     SignalReport,
