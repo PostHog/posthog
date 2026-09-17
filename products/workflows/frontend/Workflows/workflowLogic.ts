@@ -350,7 +350,6 @@ export interface workflowLogicActions {
                                     }
                                     name?: string | undefined
                                 }[]
-                                delay_duration?: string | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1207,7 +1206,6 @@ export interface workflowLogicActions {
                                     }
                                     name?: string | undefined
                                 }[]
-                                delay_duration?: string | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -2068,12 +2066,6 @@ export interface workflowLogicActions {
                   }[]
               }
             | {
-                  reason?: string | undefined
-              }
-            | {
-                  type: 'schedule'
-              }
-            | {
                   conditions: {
                       filters: {
                           actions?: any[] | undefined
@@ -2082,7 +2074,12 @@ export interface workflowLogicActions {
                       }
                       name?: string | undefined
                   }[]
-                  delay_duration?: string | undefined
+              }
+            | {
+                  reason?: string | undefined
+              }
+            | {
+                  type: 'schedule'
               }
             | {
                   filters: {
@@ -2454,12 +2451,6 @@ export interface workflowLogicActions {
                   }[]
               }
             | {
-                  reason?: string | undefined
-              }
-            | {
-                  type: 'schedule'
-              }
-            | {
                   conditions: {
                       filters: {
                           actions?: any[] | undefined
@@ -2468,7 +2459,12 @@ export interface workflowLogicActions {
                       }
                       name?: string | undefined
                   }[]
-                  delay_duration?: string | undefined
+              }
+            | {
+                  reason?: string | undefined
+              }
+            | {
+                  type: 'schedule'
               }
             | {
                   filters: {
