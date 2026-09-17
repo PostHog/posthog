@@ -1,5 +1,5 @@
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
@@ -28,15 +28,34 @@ export function SuggestedReviewerReasonGroup({
                     return (
                         <div
                             key={reviewer.user?.uuid ?? reviewer.user_uuid ?? reviewer.github_login}
-                            className="group/member relative flex min-w-0 items-center rounded py-0.5 pr-7 pl-1.5 hover:bg-fill-highlight"
+                            className="group/member relative flex min-w-0 flex-col items-start rounded py-0.5 pr-7 pl-1.5 hover:bg-fill-highlight"
                         >
-                            <PersonDisplay
-                                person={{ properties: { email: reviewer.user?.email, name: displayName } }}
-                                displayName={displayName}
-                                withIcon="xs"
-                                noLink
-                                noPopover
-                            />
+                            <Tooltip
+                                title={
+                                    reviewer.user
+                                        ? undefined
+                                        : 'This reviewer is not linked to a PostHog member and cannot receive the report.'
+                                }
+                            >
+                                <span className={reviewer.user ? undefined : 'opacity-75'}>
+                                    <PersonDisplay
+                                        person={{ properties: { email: reviewer.user?.email, name: displayName } }}
+                                        displayName={displayName}
+                                        withIcon="xs"
+                                        noLink
+                                        noPopover
+                                    />
+                                </span>
+                            </Tooltip>
+                            {reviewer.relevant_commits.length > 0 && (
+                                <span className="flex flex-wrap gap-x-2 text-xs">
+                                    {reviewer.relevant_commits.map((commit) => (
+                                        <Link key={commit.sha} to={commit.url} target="_blank">
+                                            {commit.sha.slice(0, 7)}
+                                        </Link>
+                                    ))}
+                                </span>
+                            )}
                             <LemonButton
                                 type="tertiary"
                                 size="xsmall"
@@ -51,7 +70,7 @@ export function SuggestedReviewerReasonGroup({
                 })}
             </div>
             <div className="flex min-w-0 items-start justify-between gap-2 border-t px-2.5 py-2">
-                <span className="min-w-0 text-xs leading-snug text-tertiary">{reason}</span>
+                <span className="min-w-0 text-xs leading-snug text-tertiary [overflow-wrap:anywhere]">{reason}</span>
                 <span className="flex shrink-0 flex-wrap justify-end gap-1">
                     {sourceLabels.map((sourceLabel) => (
                         <LemonTag key={sourceLabel} type="muted" size="small">

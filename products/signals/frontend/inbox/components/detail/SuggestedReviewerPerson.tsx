@@ -1,5 +1,5 @@
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
@@ -42,14 +42,35 @@ export function SuggestedReviewerPerson({
     return (
         <div className="group relative grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2 rounded px-1.5 py-1.5">
             <div className={`flex min-w-0 flex-col gap-0.5 ${reviewer.user ? '' : 'opacity-75'}`}>
-                <PersonDisplay
-                    person={{ properties: { email: reviewer.user?.email, name: displayName } }}
-                    displayName={displayName}
-                    withIcon="xs"
-                    noLink
-                    noPopover
-                />
-                {explanation && <span className="text-xs leading-snug text-tertiary">{explanation}</span>}
+                <Tooltip
+                    title={
+                        reviewer.user
+                            ? undefined
+                            : 'This reviewer is not linked to a PostHog member and cannot receive the report.'
+                    }
+                >
+                    <span>
+                        <PersonDisplay
+                            person={{ properties: { email: reviewer.user?.email, name: displayName } }}
+                            displayName={displayName}
+                            withIcon="xs"
+                            noLink
+                            noPopover
+                        />
+                    </span>
+                </Tooltip>
+                {explanation && (
+                    <span className="text-xs leading-snug text-tertiary [overflow-wrap:anywhere]">{explanation}</span>
+                )}
+                {reviewer.relevant_commits.length > 0 && (
+                    <span className="flex flex-wrap gap-x-2 text-xs">
+                        {reviewer.relevant_commits.map((commit) => (
+                            <Link key={commit.sha} to={commit.url} target="_blank">
+                                {commit.sha.slice(0, 7)}
+                            </Link>
+                        ))}
+                    </span>
+                )}
             </div>
             <LemonTag type="muted" size="small">
                 {sourceLabel}
