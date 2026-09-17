@@ -1167,6 +1167,75 @@ class CanvasConnectorCallResultSerializer(serializers.Serializer):
     )
 
 
+class CanvasStateQuerySerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(choices=CanvasState.SCOPES, required=False, help_text="Only read this scope.")
+    key = serializers.CharField(required=False, max_length=200, help_text="Only read this exact key.")
+    key_prefix = serializers.CharField(
+        required=False,
+        max_length=200,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="Only read entries whose key starts with this prefix.",
+    )
+    keys_only = serializers.BooleanField(
+        required=False, default=False, help_text="True returns a key inventory without stored values."
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Entry offset from next_offset. Keep filters unchanged between pages.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=100,
+        help_text="Maximum entries per page. Omit for the full state. Prefer an inventory and state/value for large values.",
+    )
+
+
+class CanvasStateValueQuerySerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(choices=CanvasState.SCOPES, help_text="Scope of the value to read.")
+    key = serializers.CharField(max_length=200, help_text="Exact key to read.")
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Character offset from next_offset."
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=12000,
+        min_value=1,
+        max_value=12000,
+        help_text="Maximum JSON characters in this response.",
+    )
+    revision = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Revision from the first chunk. Required when offset is greater than zero.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["offset"] and not attrs.get("revision"):
+            raise serializers.ValidationError({"revision": "Read the first chunk and pass its revision to continue."})
+        return attrs
+
+
+class CanvasStateValueResponseSerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(choices=CanvasState.SCOPES, help_text="Scope of this value.")
+    key = serializers.CharField(help_text="Key of this value.")
+    value_json = serializers.CharField(
+        allow_blank=True, help_text="A chunk of JSON text. Join all chunks in order, then parse the complete JSON."
+    )
+    revision = serializers.CharField(
+        help_text="Content revision. Pass it on subsequent reads; a changed value returns 409."
+    )
+    offset = serializers.IntegerField(help_text="Character offset of this chunk.")
+    total_length = serializers.IntegerField(help_text="Character length of the complete JSON text.")
+    next_offset = serializers.IntegerField(allow_null=True, help_text="Next character offset, or null when complete.")
+    complete = serializers.BooleanField(
+        help_text="True when no further chunks remain. Earlier chunks are still needed when offset is nonzero."
+    )
+
+
 class CanvasStateEntrySerializer(serializers.Serializer):
     """One key of a canvas's runtime key-value state (the ph.state store)."""
 
@@ -1175,7 +1244,7 @@ class CanvasStateEntrySerializer(serializers.Serializer):
         help_text="user: private to the viewer who wrote it. shared: one value per canvas, visible to every viewer.",
     )
     key = serializers.CharField(max_length=200, help_text="The entry's key, unique within its scope.")
-    value = serializers.JSONField(help_text="The stored JSON value.")
+    value = serializers.JSONField(required=False, help_text="The stored JSON value. Omitted from a key inventory.")
     updated_at = serializers.DateTimeField(help_text="When the entry was last written.")
 
 
@@ -1186,6 +1255,8 @@ class CanvasStateResponseSerializer(serializers.Serializer):
         many=True,
         help_text="The canvas's shared entries plus the caller's own user-scoped entries.",
     )
+    next_offset = serializers.IntegerField(allow_null=True, help_text="Next entry offset, or null when complete.")
+    complete = serializers.BooleanField(help_text="True when no further entries remain for this selection.")
 
 
 class CanvasStateSetSerializer(serializers.Serializer):

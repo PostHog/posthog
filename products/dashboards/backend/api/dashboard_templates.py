@@ -41,7 +41,7 @@ logger = structlog.get_logger(__name__)
 MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION = 100
 
 _NON_STAFF_ALLOWED_PATCH_KEYS = frozenset({"template_name", "dashboard_description", "tags", "deleted", "scope"})
-_NON_STAFF_FORBIDDEN_CREATE_FIELDS = frozenset({"availability_contexts", "image_url", "github_url"})
+_NON_STAFF_FORBIDDEN_CREATE_FIELDS = frozenset({"availability_contexts", "image_url"})
 _NON_STAFF_ALLOWED_SCOPES = frozenset({DashboardTemplate.Scope.ONLY_TEAM, DashboardTemplate.Scope.ORGANIZATION})
 
 
@@ -361,7 +361,6 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             validated_data.pop("is_featured", None)
             validated_data.pop("availability_contexts", None)
             validated_data.pop("image_url", None)
-            validated_data.pop("github_url", None)
 
         try:
             return super().update(instance, validated_data, *args, **kwargs)
@@ -588,7 +587,6 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
             scope=DashboardTemplate.Scope.ONLY_TEAM,
             is_featured=False,
             image_url=None,
-            github_url=None,
             availability_contexts=None,
             deleted=False,
             created_by=user if user.is_authenticated else None,

@@ -1,16 +1,13 @@
-import {
-  ArrowSquareOutIcon,
-  CheckCircleIcon,
-  EyeSlashIcon,
-  FileTextIcon,
-  GitPullRequestIcon,
-} from "@phosphor-icons/react";
+import { FileTextIcon } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
 import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { InboxDetailFrameView } from "@posthog/ui/features/inbox/components/InboxDetailFrameView";
 import { InboxPanePresentation } from "@posthog/ui/features/inbox/components/InboxPanePresentation";
 import { InboxPaneRow } from "@posthog/ui/features/inbox/components/InboxPaneRow";
-import { inboxStoryReport } from "@posthog/ui/features/inbox/components/inboxStoryFixtures";
+import {
+  inboxStoryImplementations,
+  inboxStoryReport,
+} from "@posthog/ui/features/inbox/components/inboxStoryFixtures";
 import {
   ReportTriageFocusView,
   type ReportTriageFocusViewProps,
@@ -18,7 +15,10 @@ import {
 import { isInboxTriagePath } from "@posthog/ui/features/inbox/triageRoute";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useState } from "react";
+import { expect, waitFor, within } from "storybook/test";
+import { InboxStoryData } from "./InboxStoryData";
+import { ReportVerdictBanner } from "./ReportVerdictBanner";
 
 const report = inboxStoryReport();
 const previousReport = inboxStoryReport({
@@ -33,78 +33,55 @@ const nextReport = inboxStoryReport({
 });
 
 const viewportAt = (width: number) => (Story: () => ReactNode) => (
-  <div className="h-[760px] bg-gray-1" style={{ width }}>
+  <div className="h-[760px] w-full bg-gray-1" style={{ maxWidth: width }}>
     <Story />
   </div>
 );
 
-function createPrActions(): React.JSX.Element {
+function TriagePreview(props: ReportTriageFocusViewProps): React.JSX.Element {
+  const reports = [props.report, nextReport];
+  const [index, setIndex] = useState(0);
+  const [expanded, setExpanded] = useState(props.expanded);
+  const current = reports[index];
   return (
-    <div className="flex flex-wrap items-center gap-2.5">
-      <Button
-        type="button"
-        variant="outline"
-        className="h-9 gap-2 px-4 text-[14px]"
-      >
-        <CheckCircleIcon />
-        Resolve
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        className="h-9 gap-2 px-4 text-[14px]"
-      >
-        <EyeSlashIcon />
-        Dismiss
-      </Button>
-      <Button
-        type="button"
-        variant="primary"
-        className="h-9 gap-2 px-4 text-[14px]"
-      >
-        <GitPullRequestIcon />
-        Create PR
-      </Button>
-    </div>
-  );
-}
-
-function openPrActions(): React.JSX.Element {
-  return (
-    <div className="flex flex-wrap items-center gap-2.5">
-      <Button
-        type="button"
-        variant="outline"
-        className="h-9 gap-2 px-4 text-[14px]"
-      >
-        <CheckCircleIcon />
-        Resolve
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        className="h-9 gap-2 px-4 text-[14px]"
-      >
-        <EyeSlashIcon />
-        Dismiss
-      </Button>
-      <Button
-        type="button"
-        variant="primary"
-        className="h-9 gap-2 px-4 text-[14px]"
-      >
-        <ArrowSquareOutIcon />
-        View PR on GitHub
-      </Button>
-    </div>
+    <InboxStoryData key={current.id} report={current}>
+      <ReportTriageFocusView
+        {...props}
+        report={current}
+        position={index + 1}
+        total={reports.length}
+        previousReport={reports[index - 1] ?? null}
+        nextReport={reports[index + 1] ?? null}
+        expanded={expanded}
+        actions={
+          <ReportVerdictBanner
+            key={current.id}
+            report={current}
+            variant="triage-actions"
+            surface="triage"
+          />
+        }
+        onPrevious={() => {
+          setIndex(Math.max(0, index - 1));
+          setExpanded(false);
+        }}
+        onNext={() => {
+          setIndex(Math.min(reports.length - 1, index + 1));
+          setExpanded(false);
+        }}
+        onToggleSummary={() => setExpanded(!expanded)}
+      />
+    </InboxStoryData>
   );
 }
 
 const meta: Meta<typeof ReportTriageFocusView> = {
   title: "Inbox/Reports/Triage mode",
   component: ReportTriageFocusView,
+  tags: ["inbox"],
   parameters: { layout: "fullscreen" },
   decorators: [viewportAt(1100)],
+  render: (args) => <TriagePreview {...args} />,
   args: {
     report,
     position: 2,
@@ -116,7 +93,13 @@ const meta: Meta<typeof ReportTriageFocusView> = {
     expanded: false,
     prShortcut: "create",
     canRemoveSelfFromReviewers: true,
-    actions: createPrActions(),
+    actions: (
+      <ReportVerdictBanner
+        report={report}
+        variant="triage-actions"
+        surface="triage"
+      />
+    ),
     reviewers: (
       <span className="rounded bg-(--gray-3) px-1.5 py-0.5 text-[12px] text-gray-11">
         2 reviewers
@@ -135,13 +118,47 @@ type Story = StoryObj<typeof ReportTriageFocusView>;
 
 export const NeedsAPr: Story = {};
 
-export const ExistingPr: Story = {
-  args: {
-    report: inboxStoryReport({
-      implementation_pr_url: "https://github.com/PostHog/posthog/pull/12345",
-    }),
-    prShortcut: "open",
-    actions: openPrActions(),
+export const FailedTask: Story = {
+  args: { report: inboxStoryImplementations[1].report },
+  play: async ({ canvas }): Promise<void> => {
+    await expect(
+      await canvas.findByText(/PR task failed. Open the report to continue/),
+    ).toBeVisible();
+  },
+};
+
+export const WaitingOnYou: Story = {
+  args: { report: inboxStoryImplementations[2].report, prShortcut: null },
+};
+
+export const NoPrCreated: Story = {
+  args: { report: inboxStoryImplementations[4].report },
+};
+
+export const ReadAndNavigate: Story = {
+  play: async ({ canvas, userEvent }): Promise<void> => {
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Read summary" }),
+    );
+    await expect(
+      canvas.getByRole("button", { name: "Hide summary" }),
+    ).toBeVisible();
+    await userEvent.click(
+      canvas.getByRole("button", { name: /preserve breakdown order/ }),
+    );
+    await expect(
+      canvas.getByRole("heading", { name: /preserve breakdown order/ }),
+    ).toBeVisible();
+  },
+};
+
+export const CreatePrOptions: Story = {
+  play: async ({ canvas, canvasElement, userEvent }): Promise<void> => {
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Create PR", exact: true }),
+    );
+    const body = within(canvasElement.ownerDocument.body);
+    await expect(await body.findByRole("textbox")).toBeVisible();
   },
 };
 
@@ -214,17 +231,19 @@ function SidebarRestorationPreview(
       )}
       <main className="min-w-0 flex-1 overflow-auto">
         {isInboxTriagePath(pathname) ? (
-          <ReportTriageFocusView
-            {...props}
-            onExit={() => void navigate({ to: "/inbox" })}
-            onOpenReport={() =>
-              void navigate({
-                to: "/reports/$reportId",
-                params: { reportId: report.id },
-                search: { from: "/inbox/triage" },
-              })
-            }
-          />
+          <InboxStoryData report={props.report}>
+            <ReportTriageFocusView
+              {...props}
+              onExit={() => void navigate({ to: "/inbox" })}
+              onOpenReport={() =>
+                void navigate({
+                  to: "/reports/$reportId",
+                  params: { reportId: report.id },
+                  search: { from: "/inbox/triage" },
+                })
+              }
+            />
+          </InboxStoryData>
         ) : pathname.startsWith("/reports/") ? (
           <InboxDetailFrameView
             report={report}
@@ -253,4 +272,31 @@ function SidebarRestorationPreview(
 
 export const SidebarRestoration: Story = {
   render: (args) => <SidebarRestorationPreview {...args} />,
+  play: async ({ canvas, userEvent }): Promise<void> => {
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Start triage" }),
+    );
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("complementary", { name: "Self-driving sidebar" }),
+      ).not.toBeInTheDocument(),
+    );
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Exit triage" }),
+    );
+    await expect(
+      await canvas.findByRole("complementary", {
+        name: "Self-driving sidebar",
+      }),
+    ).toBeVisible();
+    await userEvent.click(canvas.getByRole("button", { name: "Start triage" }));
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Open report" }),
+    );
+    await expect(
+      await canvas.findByRole("complementary", {
+        name: "Self-driving sidebar",
+      }),
+    ).toBeVisible();
+  },
 };

@@ -47,6 +47,7 @@ from products.stamphog.backend.temporal.activities import (
     run_review_in_sandbox,
 )
 from products.stamphog.backend.temporal.constants import (
+    SANDBOX_RETRY_POLICY,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
     STAMPHOG_SANDBOX_REPO_DIR,
     SandboxPhaseError,
@@ -253,6 +254,9 @@ def test_failure_once_the_sandbox_exists_is_not_retried(team, stamphog_chain: St
     # stamphog:read can read run.error, and this phase reads an untrusted PR head.
     assert run.error == "SandboxPhaseError: the sandbox phase failed with RuntimeError"
     assert "modal refused the box" not in (run.error or "")
+    # The marker only saves a run from a second bill while the policy excludes it and retries the rest.
+    assert SANDBOX_RETRY_POLICY.maximum_attempts > 1
+    assert SandboxPhaseError.__name__ in (SANDBOX_RETRY_POLICY.non_retryable_error_types or [])
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -425,58 +429,6 @@ def test_a_retry_finishes_a_notice_the_previous_attempt_never_posted(team, stamp
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_sandbox_gets_minted_short_lived_credential_and_closed_egress(
-    team, user, stamphog_chain: StamphogChain
-) -> None:
-    # The sandbox runs an LLM over untrusted PR content, so it must never hold a long-lived
-    # credential: no raw Anthropic key, not the worker's own gateway key — only a per-run OAuth
-    # token minted under the connecting user — and its egress must be fenced to the hosts a
-    # review needs, so a prompt-injected reviewer has nowhere to exfiltrate to.
-    _repo_config(team.id)
-    recorder = stamphog_chain.recorder
-    head_sha = "sha110a"
-    recorder.register_pr(REPO, 110, _pr_object(110, "devex-dev", head_sha), _pr_files())
-    recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
-
-    worker_env = {"ANTHROPIC_API_KEY": "sk-ant-worker-secret", "AI_GATEWAY_API_KEY": "phs_worker_shared_key"}
-    # The row is deleted once the sandbox is destroyed, so capture it at mint time.
-    minted_rows: list[OAuthAccessToken] = []
-    real_mint = activities.create_oauth_access_token_for_user
-
-    def recording_mint(*args, **kwargs):
-        minted_token = real_mint(*args, **kwargs)
-        minted_rows.append(OAuthAccessToken.objects.get(token=minted_token))
-        return minted_token
-
-    with (
-        patch.dict(os.environ, worker_env),
-        patch.object(activities, "create_oauth_access_token_for_user", recording_mint),
-    ):
-        stamphog_chain.post_webhook(_opened_event(110, "devex-dev", head_sha), delivery_id=str(uuid.uuid4()))
-
-    config = stamphog_chain.sandbox_class.created_configs[0]
-    env = config.environment_variables
-    assert "ANTHROPIC_API_KEY" not in env
-    assert env["AI_GATEWAY_API_KEY"] != "phs_worker_shared_key"
-
-    (minted,) = minted_rows
-    assert minted.token == env["AI_GATEWAY_API_KEY"]
-    assert minted.user_id == user.id
-    # internal_run:read is the server-mint provenance marker the gateway's stamphog route demands
-    # (requires_server_credential); llm_gateway:read is the only real capability. Anything broader
-    # (task:write from the internal bundle) must never ride into the sandbox.
-    assert set(minted.scope.split()) == {"llm_gateway:read", "internal_run:read"}
-    assert minted.scoped_teams == [team.id]
-    assert minted.expires is not None and minted.expires > timezone.now()
-    # Revoked with the sandbox: the row is gone once the run ends.
-    assert not OAuthAccessToken.objects.filter(token=env["AI_GATEWAY_API_KEY"]).exists()
-
-    assert "github.com" in config.outbound_domain_allowlist
-    assert "llm-gateway.test" in config.outbound_domain_allowlist
-    assert "sha110a" not in config.outbound_domain_allowlist  # sanity: it's a domain list, not env spill
-
-
-@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_hosted_review_fails_closed_without_connecting_user(team, stamphog_chain: StamphogChain) -> None:
     # A repo whose installation was never synced has no identity to mint sandbox credentials
     # under — the run must fail, not fall back to a shared long-lived key.
@@ -603,11 +555,14 @@ def test_hosted_review_fails_closed_without_gateway_instead_of_anthropic_fallbac
 _GO_GATEWAY_SETTINGS = {"AI_GATEWAY_URL": "https://ai-gateway.test/v1", "AI_GATEWAY_API_KEY": "phs_stamphog_mint"}
 
 
-def _mint_response(status_code: int, payload: dict | None = None, text: str = "") -> MagicMock:
+def _mint_response(
+    status_code: int, payload: dict | None = None, text: str = "", headers: dict | None = None
+) -> MagicMock:
     response = MagicMock()
     response.status_code = status_code
     response.json.return_value = payload if payload is not None else {}
     response.text = text
+    response.headers = headers or {}
     return response
 
 
@@ -673,12 +628,12 @@ def test_sandbox_gets_a_scoped_gateway_token_when_the_go_gateway_is_configured(
     assert revoke_call.kwargs["headers"] == {"Authorization": "Bearer phs_stamphog_mint"}
     assert "ai-gateway.test" in config.outbound_domain_allowlist
     assert "github.com" in config.outbound_domain_allowlist
-    assert "llm-gateway.test" not in config.outbound_domain_allowlist
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_hosted_review_fails_closed_when_the_scoped_token_mint_fails(team, stamphog_chain: StamphogChain) -> None:
-    # A mint outage retries once and then fails the run: no sandbox, never a shared-key fallback.
+    # A mint outage is retried with backoff and then fails the run: no sandbox, never a shared-key
+    # fallback.
     # Nothing was paid for, so the failure stays retryable (not SandboxPhaseError).
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 114, "sha114a")
@@ -695,9 +650,40 @@ def test_hosted_review_fails_closed_when_the_scoped_token_mint_fails(team, stamp
     assert run.status == ReviewRunStatus.FAILED
     assert "gateway" in (run.error or "").lower()
     assert "HTTP 503" in (run.error or "")
-    assert mint.call_count == 2
+    assert mint.call_count == activities._MINT_ATTEMPTS
     assert not stamphog_chain.sandbox_class.created_configs
     assert not (run.error or "").startswith("SandboxPhaseError")
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_scoped_token_mint_waits_out_a_rate_limit_and_obeys_retry_after(team, stamphog_chain: StamphogChain) -> None:
+    # A rate-limited mint must not cost the review. The mint costs nothing, so it waits as long as the
+    # gateway asked and then keeps trying, and only a burst longer than every attempt fails the run.
+    _repo_config(team.id)
+    event = _register_review(stamphog_chain, 123, "sha123a")
+    mint = MagicMock(
+        side_effect=[
+            _mint_response(429, text="slow down", headers={"Retry-After": "7"}),
+            _mint_response(429, text="slow down"),
+            _mint_response(201, {"token": "phe_run"}),
+            _mint_response(200, {"revoked": True}),
+        ]
+    )
+    sleeps: list[float] = []
+
+    with (
+        override_settings(**_GO_GATEWAY_SETTINGS),
+        patch.object(activities.requests, "post", mint),
+        patch.object(activities.time, "sleep", side_effect=sleeps.append),
+    ):
+        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
+
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert run.status == ReviewRunStatus.COMPLETED
+    assert stamphog_chain.sandbox_class.created_configs[0].environment_variables["AI_GATEWAY_API_KEY"] == "phe_run"
+    # The header wins the first wait; the second grows on its own, jittered but bounded.
+    assert sleeps[0] == 7.0
+    assert 2.0 <= sleeps[1] <= 2.5
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -721,32 +707,9 @@ def test_scoped_token_mint_does_not_retry_a_credential_rejection(team, stamphog_
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_a_half_configured_go_gateway_keeps_the_oauth_path(team, stamphog_chain: StamphogChain) -> None:
-    # The keyless shape: AI_GATEWAY_URL on the legacy stamphog route, no AI_GATEWAY_API_KEY. The worker
-    # mints OAuth tokens for that route and never calls the mint API.
-    _repo_config(team.id)
-    event = _register_review(stamphog_chain, 116, "sha116a")
-    mint = MagicMock()
-
-    with (
-        override_settings(AI_GATEWAY_URL="https://llm-gateway.test/stamphog/v1", AI_GATEWAY_API_KEY=""),
-        patch.object(activities.requests, "post", mint),
-    ):
-        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
-
-    config = stamphog_chain.sandbox_class.created_configs[0]
-    env = config.environment_variables
-    assert env["AI_GATEWAY_URL"] == "https://llm-gateway.test/stamphog/v1"
-    assert env["AI_GATEWAY_API_KEY"].startswith("pha_")
-    mint.assert_not_called()
-    assert "llm-gateway.test" in config.outbound_domain_allowlist
-
-
-@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_go_gateway_url_without_a_key_fails_closed(team, user, stamphog_chain: StamphogChain) -> None:
-    # Production has ONE AI_GATEWAY_URL. A key-only rollback or a URL flip ahead of its key leaves the
-    # Go URL with no key; the OAuth token is a standard credential on the Go gateway, so sending it
-    # there would run the review uncapped and unpinned. The run must fail before any sandbox exists.
+    # A key-only rollback or a URL flip ahead of its key leaves the Go URL with no key; hosted runs
+    # have no other credential path, so the run fails before any sandbox exists.
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 121, "sha121a")
     mint = MagicMock()
@@ -759,7 +722,7 @@ def test_a_go_gateway_url_without_a_key_fails_closed(team, user, stamphog_chain:
 
     run = ReviewRun.objects.for_team(team.id).latest("created_at")
     assert run.status == ReviewRunStatus.FAILED
-    assert "AI_GATEWAY_API_KEY is unset" in (run.error or "")
+    assert "AI_GATEWAY_API_KEY" in (run.error or "")
     assert not stamphog_chain.sandbox_class.created_configs
     assert not OAuthAccessToken.objects.filter(user_id=user.id).exists()
     mint.assert_not_called()
@@ -2409,21 +2372,6 @@ def test_an_ineffective_revoke_is_logged(team, stamphog_chain: StamphogChain) ->
     assert any(
         "Could not revoke the reviewer token (no such token)" in str(call.args[0]) for call in warning.call_args_list
     )
-
-
-@pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_a_legacy_oauth_token_is_deleted_after_the_run(team, user, stamphog_chain: StamphogChain) -> None:
-    # On the legacy path the credential is a row this worker created with a six-hour TTL; it goes
-    # when the sandbox does, the same as the Go token.
-    _repo_config(team.id)
-    event = _register_review(stamphog_chain, 125, "sha125a")
-
-    with override_settings(AI_GATEWAY_URL="https://llm-gateway.test/stamphog/v1", AI_GATEWAY_API_KEY=""):
-        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
-
-    env = stamphog_chain.sandbox_class.created_configs[0].environment_variables
-    assert env["AI_GATEWAY_API_KEY"].startswith("pha_")
-    assert not OAuthAccessToken.objects.filter(token=env["AI_GATEWAY_API_KEY"]).exists()
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

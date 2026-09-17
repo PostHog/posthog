@@ -50,6 +50,7 @@ class AccountRelationshipDefinition:
     name: str = ""
     description: str | None = None
     is_single_holder: bool = True
+    is_controlled: bool = False
 
 
 @dataclass(frozen=True)
@@ -63,15 +64,20 @@ class UserCustomerAnalyticsConfig:
     pinned_properties: list[PinnedAccountProperty] = field(default_factory=list)
 
 
+RelationshipSourceValue = Literal["human", "workflow", "ai", "salesforce_claim", "migration"]
+
+
 @dataclass(frozen=True)
 class AccountRelationship:
-    """One assignment of a user to an account relationship, with its effective range."""
+    """One assignment of a user to an account relationship, with its effective range and which kind
+    of writer started it (None on rows written before provenance was recorded)."""
 
     id: UUID
     definition: AccountRelationshipDefinition
     user: AccountAssignment | None
     started_at: datetime
     ended_at: datetime | None
+    source: RelationshipSourceValue | None = None
 
 
 @dataclass(frozen=True)
@@ -541,9 +547,108 @@ class ExternalAccount:
     churned_at: datetime | None
     ignored_at: datetime | None
     properties: dict
+    ownership: "ExternalAccountOwnership"
     tags: list[str] = field(default_factory=list)
     relationships: dict[str, list[dict]] = field(default_factory=dict)
     custom_properties: dict[str, float | bool | str | None] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ExternalAccountOwnershipHolder:
+    """The user holding a controlled relationship, with the checks a consumer needs before projecting them."""
+
+    user_id: int
+    email: str | None
+    name: str | None
+    is_organization_member: bool
+    is_active: bool
+
+
+OwnershipRoleStateValue = Literal["unmanaged", "assigned", "cleared", "blocked"]
+OwnershipRoleDiagnosticValue = Literal[
+    "holder_missing",
+    "holder_inactive",
+    "holder_not_in_organization",
+    "multiple_active_holders",
+]
+
+
+@dataclass(frozen=True)
+class ExternalAccountRoleOwnership:
+    """One controlled relationship on one account.
+
+    ``state`` is what the consumer may act on: ``unmanaged`` keeps legacy authority whatever the
+    rows say, ``assigned`` and ``cleared`` are authoritative, and ``blocked`` means the holder
+    cannot be projected and the consumer keeps its last applied value. ``diagnostics`` explain a
+    block and are informational on an unmanaged role.
+    """
+
+    definition_id: UUID
+    definition_name: str
+    state: OwnershipRoleStateValue
+    controlled_at: datetime | None
+    relationship_id: UUID | None
+    holder: ExternalAccountOwnershipHolder | None
+    diagnostics: list[OwnershipRoleDiagnosticValue] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ExternalAccountOwnership:
+    """Canonical identity plus every controlled relationship of the team, on the external wire
+    shape. Consumers map ``definition_id`` to the roles they project."""
+
+    account_id: str
+    external_id: str | None
+    region: str | None
+    roles: list[ExternalAccountRoleOwnership]
+
+
+OwnershipClaimOutcome = Literal["accepted", "already_applied", "cleared", "not_held", "rejected", "blocked"]
+OwnershipClaimReason = Literal[
+    "account_not_found",
+    "binding_changed",
+    "role_not_managed",
+    "identity_mismatch",
+    "assignee_not_member",
+    "role_occupied",
+    "stale_allocation",
+    "future_allocation",
+]
+
+
+@dataclass(frozen=True)
+class OwnershipClaimDecision:
+    """An eligible initial allocation as frozen on a Salesforce Task, read from the warehouse.
+
+    The Task id (``source_ref``) is the idempotency key. A Task that has since been disqualified
+    carries ``released_at`` and who released it; that row withdraws the same Task's claim.
+    """
+
+    source_ref: str
+    organization_id: str
+    region: str
+    assignee_user_id: int
+    source_assignee_id: str
+    allocated_at: datetime
+    released_at: datetime | None = None
+    source_releaser_id: str | None = None
+
+    @property
+    def is_release(self) -> bool:
+        return self.released_at is not None
+
+
+@dataclass(frozen=True)
+class OwnershipClaimResult:
+    """What customer analytics did with a decision. ``rejected`` and ``blocked`` carry a reason;
+    ``blocked`` means the decision may apply after review, ``rejected`` that it does not apply as
+    read. Refusals are not stored, so every sweep evaluates the Task again; in practice only an
+    allocation that was still in the future can turn into an acceptance."""
+
+    outcome: OwnershipClaimOutcome
+    reason: OwnershipClaimReason | None
+    relationship_id: UUID | None
+    controlled_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -569,6 +674,7 @@ class ExternalAccountListItem:
     name: str
     churned_at: datetime | None
     ignored_at: datetime | None
+    ownership: ExternalAccountOwnership
     relationships: dict[str, list[ExternalAccountAssignment]] = field(default_factory=dict)
 
 
@@ -588,6 +694,7 @@ class ExternalAccountUpdateError(Enum):
     NOT_FOUND = "not_found"
     USER_NOT_IN_ORGANIZATION = "user_not_in_organization"
     RELATIONSHIP_DEFINITION_NOT_FOUND = "relationship_definition_not_found"
+    ROLE_MANAGED = "role_managed"
     INVALID_PROPERTIES = "invalid_properties"
     UPDATE_FAILED = "update_failed"
 
@@ -1084,9 +1191,8 @@ class CreateAccountNotebookInput:
     """Validated body for creating an account notebook.
 
     ``content`` is the ProseMirror document the caller supplied (or ``None``);
-    ``synthesized_content`` is the markdown-derived document the view built when the
-    caller passed only ``text_content`` — the view owns that normalization so the
-    ``ee.hogai`` tiptap helper stays off the facade import path.
+    ``synthesized_content`` is the markdown notebook document the view built when the
+    caller passed only ``text_content``.
     """
 
     title: str | None

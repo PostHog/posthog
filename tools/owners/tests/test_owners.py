@@ -11,6 +11,11 @@ from posthog_owners import (
     census,
     first_team_owner,
     fmt as fmt_module,
+    owner_handle,
+    package_dirs_from,
+    project,
+    runner_for_path,
+    spellings,
 )
 from posthog_owners.cli import _consolidation_suggestions, _live_scope, _reserved_location_error
 from posthog_owners.fmt import CanonicalPlacer, CanonicalPlan
@@ -287,6 +292,7 @@ def test_teams_registry_is_root_only(tmp_path: Path) -> None:
         ("teams:\n  team-a:\n    slack:\n      stamphog: false\n", "takes a single channel"),
         ("teams:\n  team-a:\n    notifications:\n      nosuchbot: false\n", "unknown producer 'nosuchbot'"),
         ("teams:\n  team-a:\n    notifications:\n      stamphog: 'no-hash'\n", "'stamphog' must be a string"),
+        ("teams:\n  team-a:\n    notifications:\n      visual_review: 'no-hash'\n", "'visual_review' must be a string"),
         ("teams:\n  team-a:\n    notifications: {}\n", "mapping names no producer"),
     ],
 )
@@ -525,6 +531,33 @@ def test_fmt_leaves_glob_files_untouched(tmp_path: Path) -> None:
         },
     )
     assert plan.is_canonical
+
+
+def test_fmt_keeps_a_nested_carrier_from_claiming_its_glob_served_parent(tmp_path: Path) -> None:
+    # `d` is frozen by its `ml-*` glob, so only `costs` is left to vote up the chain. A
+    # dir-statement built from that vote sits nearer than `d/owners.yaml`, shadows it,
+    # and moves `d/sub/a.py` off team-a, which the proof catches by aborting.
+    plan = _fmt_plan(
+        tmp_path,
+        {
+            "owners.yaml": "version: 1\nowners: [team-root]\n",
+            "r1.py": "x",
+            "r2.py": "x",
+            "d/owners.yaml": (
+                "version: 1\nowners: []\nrules:\n"
+                "  - match: '/sub/'\n    owners: [team-a]\n"
+                "  - match: '/sub/ml-*/'\n    owners: [team-c]\n"
+            ),
+            "d/sub/ml-one/z.py": "x",
+            "d/sub/a.py": "x",
+            "d/sub/b.py": "x",
+            "d/sub/pipe/ai/costs/owners.yaml": "version: 1\nowners: [team-b]\n",
+            "d/sub/pipe/ai/costs/g.py": "x",
+            "d/sub/pipe/ai/costs/h.py": "x",
+        },
+    )
+    assert plan.creations == []
+    assert plan.deletions == []
 
 
 def test_fmt_reports_top_level_owner_edits(tmp_path: Path) -> None:
@@ -811,3 +844,96 @@ def test_json_entrypoint_rejects_a_repo_root_that_is_not_a_directory(registry_re
     assert result.returncode == 2
     assert "--repo-root" in result.stderr
     assert result.stdout == ""
+
+
+def _codeowners_lookup(rendered: str, path: str) -> list[str]:
+    # The projection emits two rule shapes only: an exact file path, and a directory prefix ending
+    # in "/". Last match wins, which is what CODEOWNERS consumers implement.
+    owners: list[str] = []
+    for line in rendered.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        pattern, *rule_owners = line.split()
+        pattern = pattern.lstrip("/")
+        if pattern.endswith("/") and path.startswith(pattern):
+            owners = rule_owners
+        elif path == pattern:
+            owners = rule_owners
+    return owners
+
+
+@pytest.fixture
+def projection_repo(tmp_path: Path) -> Path:
+    _write(tmp_path, "owners.yaml", "version: 1\nowners: []\n")
+    _write(tmp_path, "posthog/security/owners.yaml", "version: 1\nowners: [team-security]\n")
+    _write(tmp_path, "posthog/security/test/owners.yaml", "version: 1\nowners: null\n")
+    _write(tmp_path, "products/alpha/owners.yaml", "version: 1\nowners: [team-alpha, '@someone']\n")
+    _write(tmp_path, "products/beta/owners.yaml", "version: 1\nowners: [team-beta]\n")
+    _write(tmp_path, "frontend/owners.yaml", "version: 1\nowners: [team-web]\n")
+    _write(tmp_path, "nodejs/owners.yaml", "version: 1\nowners: [team-pipeline]\n")
+    return tmp_path
+
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        ("posthog/api/test_thing.py", ["posthog/api/test_thing.py"]),
+        ("frontend/src/a.test.tsx", ["frontend/src/a.test.tsx", "src/a.test.tsx"]),
+        (
+            "products/alpha/frontend/a.test.tsx",
+            ["products/alpha/frontend/a.test.tsx", "../products/alpha/frontend/a.test.tsx"],
+        ),
+    ],
+    ids=["pytest-runs-from-the-repo-root", "jest-runs-from-its-package", "product-frontends-run-from-frontend"],
+)
+def test_spellings_cover_how_each_runner_writes_the_file_attribute(path: str, expected: list[str]) -> None:
+    assert spellings(path, package_dirs_from(["frontend/package.json", "products/alpha/package.json"])) == expected
+
+
+def test_projection_resolves_every_spelling_to_what_the_resolver_says(projection_repo: Path) -> None:
+    tracked = [
+        "frontend/package.json",
+        "products/alpha/package.json",
+        "frontend/src/a.test.tsx",
+        "posthog/security/test_sanitization.py",
+        "posthog/security/test/test_proxy.py",
+        "products/alpha/frontend/widget.test.tsx",
+        "products/alpha/backend/test_api.py",
+        "products/beta/backend/test_api.py",
+        "products/beta/backend/api.py",
+    ]
+    resolver = OwnersResolver(projection_repo)
+
+    projection = project(tracked, resolver, package_dirs_from(tracked))
+    rendered = projection.render()
+
+    for path in tracked:
+        if runner_for_path(path) is None:
+            continue
+        expected = [owner_handle(owner) for owner in resolver.resolve(path).owners or []]
+        for spelling in spellings(path, package_dirs_from(tracked)):
+            assert _codeowners_lookup(rendered, spelling) == expected, f"{spelling} resolved wrongly"
+    assert projection.owned_file_count == 5
+    assert projection.unowned_file_count == 1
+
+
+def test_projection_drops_a_spelling_two_teams_would_both_claim(projection_repo: Path) -> None:
+    tracked = [
+        "frontend/package.json",
+        "nodejs/package.json",
+        "frontend/src/shared.test.ts",
+        "nodejs/src/shared.test.ts",
+        # A sibling that leaves one owner in the directory, so a rule for the directory would
+        # otherwise claim the ambiguous spelling next to it.
+        "frontend/src/solo.test.ts",
+    ]
+
+    projection = project(tracked, OwnersResolver(projection_repo), package_dirs_from(tracked))
+    rendered = projection.render()
+
+    assert projection.ambiguous_spellings == ["src/shared.test.ts"]
+    assert _codeowners_lookup(rendered, "src/shared.test.ts") == []
+    assert _codeowners_lookup(rendered, "src/solo.test.ts") == ["@PostHog/team-web"]
+    assert _codeowners_lookup(rendered, "frontend/src/shared.test.ts") == ["@PostHog/team-web"]
+    assert _codeowners_lookup(rendered, "nodejs/src/shared.test.ts") == ["@PostHog/team-pipeline"]

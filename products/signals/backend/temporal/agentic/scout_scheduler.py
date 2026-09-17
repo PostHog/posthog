@@ -26,6 +26,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.scout_harness.limits import (
+    TRIGGERED_BY_CHECK,
     TRIGGERED_BY_MANUAL,
     TRIGGERED_BY_SCHEDULE,
     TRIGGERED_BY_WORKFLOW,
@@ -47,14 +48,18 @@ class RunSignalsScoutInput:
     skill_name: str
     skill_version: int | None = None
     repository: str | None = None
-    # "schedule" (coordinator dispatch, including breaker probes), "manual" (the `run` endpoint)
-    # or "workflow" (a workflow step that runs a scout). Only scheduled failures feed the
-    # failure-streak breaker; the default keeps in-flight workflow histories decoding to today's
-    # behavior. See `scout_harness/limits.py` for the vocabulary.
+    # "schedule" (coordinator dispatch, including breaker probes), "manual" (the `run` endpoint),
+    # "workflow" (a workflow step that runs a scout) or "check" (a report check the coordinator
+    # dispatched). Only scheduled failures feed the failure-streak breaker; the default keeps
+    # in-flight workflow histories decoding to today's behavior. See `scout_harness/limits.py` for
+    # the vocabulary.
     triggered_by: str = TRIGGERED_BY_SCHEDULE
     # Set by a workflow step that parks until this run wakes it.
     workflow_origin_key: str | None = None
     workflow_managed_resume: bool = False
+    # One-off steering typed alongside a manual trigger. Never set on a scheduled dispatch,
+    # where standing steering is a scout note instead.
+    run_note: str | None = None
 
 
 @frozen
@@ -191,6 +196,7 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 skill_version=input.skill_version,
                 repository=input.repository,
                 triggered_by=input.triggered_by,
+                run_note=input.run_note,
             )
     except (OperationalError, InterfaceError):
         # Transient DB connection drop (pgbouncer pool recycle / failover / deploy). Stay
@@ -309,6 +315,7 @@ async def _start_off_schedule_run(
     skill_name: str,
     source: str,
     workflow_origin_key: str | None = None,
+    run_note: str | None = None,
 ) -> str:
     """Start one `RunSignalsScoutWorkflow` off-schedule under `workflow_id`; return the id.
 
@@ -325,7 +332,11 @@ async def _start_off_schedule_run(
     await client.start_workflow(
         RunSignalsScoutWorkflow.run,
         RunSignalsScoutInput(
-            team_id=team_id, skill_name=skill_name, triggered_by=source, workflow_origin_key=workflow_origin_key
+            team_id=team_id,
+            skill_name=skill_name,
+            triggered_by=source,
+            workflow_origin_key=workflow_origin_key,
+            run_note=run_note,
         ),
         id=workflow_id,
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
@@ -335,14 +346,48 @@ async def _start_off_schedule_run(
     return workflow_id
 
 
-def start_manual_signals_scout_run(client: Client, *, team_id: int, skill_name: str) -> str:
-    """Dispatch one on-demand scout run on the signals task queue; return its workflow id."""
+def start_manual_signals_scout_run(
+    client: Client, *, team_id: int, skill_name: str, run_note: str | None = None
+) -> str:
+    """Dispatch one on-demand scout run on the signals task queue; return its workflow id.
+
+    `run_note` is optional steering for this run alone. The workflow id is stable per
+    `(team, skill)`, so a note never outlives the run it was typed for: the next dispatch under
+    the same id carries whatever that caller passed, or nothing.
+    """
     return _start_off_schedule_run(
         client,
         workflow_id=manual_run_workflow_id(team_id, skill_name),
         team_id=team_id,
         skill_name=skill_name,
         source=TRIGGERED_BY_MANUAL,
+        run_note=run_note,
+    )
+
+
+def check_run_workflow_id(team_id: int, skill_name: str) -> str:
+    """Deterministic workflow id for a run dispatched to answer a report check."""
+    return _off_schedule_run_workflow_id("signals-scout-check-run", team_id, skill_name)
+
+
+def start_check_signals_scout_run(client: Client, *, team_id: int, skill_name: str, run_note: str) -> str:
+    """Dispatch one scout run to answer a report check; return its workflow id.
+
+    Its own id namespace, like the manual and workflow paths, so a check dispatch and a human's
+    "Run now" single-flight separately. Two checks on the same lane still share the id, so the
+    second one is refused while the first is running and its coordinator tick defers it.
+
+    `run_note` is required here: the note is the whole brief. A check run with no note has nothing
+    to answer, so the caller composes it (`report_check_agent.build_check_run_note`) rather than
+    leaving the lane to guess.
+    """
+    return _start_off_schedule_run(
+        client,
+        workflow_id=check_run_workflow_id(team_id, skill_name),
+        team_id=team_id,
+        skill_name=skill_name,
+        source=TRIGGERED_BY_CHECK,
+        run_note=run_note,
     )
 
 

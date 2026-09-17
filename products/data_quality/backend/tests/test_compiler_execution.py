@@ -6,10 +6,12 @@ from parameterized import parameterized
 
 from posthog.hogql.query import execute_hogql_query
 
+from products.data_catalog.backend.facade.contracts import HogQLMetricDefinition
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import CheckType, SubjectType
 from products.data_quality.backend.logic.compiler import compile_check
 from products.data_quality.backend.logic.contracts import CompiledCheck, SubjectRef
+from products.data_quality.backend.logic.errors import CheckConfigError
 
 _STRING = {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)"}
 _INT = {"hogql": "IntegerDatabaseField", "clickhouse": "Int64"}
@@ -172,6 +174,38 @@ class TestCompiledCheckExecution(ClickhouseTestMixin, APIBaseTest):
         compiled = self._compile("orders", CheckType.ROW_COUNT, "", {"min": 1, "max": 10})
 
         assert self._execute(compiled.query).results[0][0] == 4
+
+    def test_metric_rejects_later_ctes_that_capture_sources_in_clickhouse(self) -> None:
+        metric = SubjectRef(
+            SubjectType.METRIC,
+            "1cd4a1ef-0000-0000-0000-000000000003",
+            "event_count",
+            "",
+            exists=True,
+            metric_definition=HogQLMetricDefinition(
+                query="SELECT count() AS total FROM events WHERE event = '__metric_cte_review_synthetic__'",
+                values={},
+            ),
+        )
+        baseline = compile_check(
+            check_type=CheckType.CUSTOM_SQL,
+            subject=metric,
+            column_name="",
+            config={"query": "SELECT * FROM {metric}"},
+        )
+        assert self._execute(baseline.printed_failing_rows_query).results == [(0,)]
+
+        with self.assertRaisesRegex(CheckConfigError, "cannot use CTEs"):
+            captured = compile_check(
+                check_type=CheckType.CUSTOM_SQL,
+                subject=metric,
+                column_name="",
+                config={
+                    "query": "WITH metric_output AS (SELECT * FROM {metric}), events AS (SELECT 123 AS total) "
+                    "SELECT metric_output.total FROM metric_output JOIN events ON 1 = 1"
+                },
+            )
+            self._execute(captured.printed_failing_rows_query)
 
     @parameterized.expand(
         [

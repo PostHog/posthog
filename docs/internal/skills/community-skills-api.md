@@ -50,6 +50,11 @@ Because catalog content originates outside the app, the install path re-validate
 trusting the sync:
 
 - Bundled file paths and sizes are re-checked with the same guards as normal skill creation.
+- The target name is held to the rule a new store skill is held to, which refuses the name of a skill
+  PostHog bundles (`bundled_skill_names()` in `products/skills/backend/bundled_skills.py`). Both sets
+  of skills reach an agent host under one name space, so a store skill under a bundled name leaves the
+  host unable to tell which skill an agent asked for. Install such an entry under a different
+  `new_name`.
 - Installs into auto-running namespaces are refused: the `signals-scout-` and `review-hog-` prefixes,
   whose skills PostHog registers and runs on its own (Signals scouts run with privileged scopes,
   ReviewHog skills auto-enable in a team's PR reviews). The whole `review-hog-` prefix is reserved,
@@ -79,6 +84,11 @@ Lives on `LLMSkillViewSet` (`products/skills/backend/api/skills.py`), not the co
 because the subject is a team-owned skill.
 Rendering and the GitHub calls are in `community_publish_services.py`.
 
+Callers must first retrieve the latest skill and show its version and file manifest to the publisher.
+The publish request must include the retrieved row's `id` as `expected_skill_id` and its numeric
+`version` as `expected_version`. The API returns `409` if either value differs from the latest row.
+After a conflict, retrieve the skill again and require new consent before another publish request.
+
 - Gated by `CommunityPublishFeatureFlagPermission`, which applies the same
   `llm-analytics-community-skills` check as the browse endpoints to this action alone. Skills is GA,
   so the flag cannot sit on the viewset.
@@ -86,7 +96,8 @@ Rendering and the GitHub calls are in `community_publish_services.py`.
   also accepts a personal API key, and the inherited throttle key prefers the key hash, so one member
   with several keys would otherwise get a fresh budget with each of them. The API-shaped
   `BurstRateThrottle` would not fire here at all: it only counts personal-API-key traffic.
-- The slug is held to the same rule ingest applies (`SKILL_NAME_PATTERN`, no reserved name), and body,
+- The slug is held to the same rule ingest applies (`SKILL_NAME_PATTERN`, no reserved name, no name
+  PostHog bundles), and body,
   file count, and per-file size to the same caps, so a publish that ingest would silently drop is
   refused before the pull request exists. The manifest is also checked for paths that differ only by
   case and for a name used as both a file and a folder, neither of which a git tree can hold.
@@ -183,10 +194,10 @@ Adding an owner is the remedy. There is no exemption for project or organization
 wants to publish adds themselves as an owner first.
 
 Errors surface as `400` (invalid payload), `403` (the requester does not own the skill, or it has no
-owners), `404` (unknown skill), `502` (GitHub refused a step), or `503` when the instance has no
-publisher App configured. The 503 is the fail-safe that keeps publishing off until the GitHub App is
-installed. A private key that cannot sign is a 503 too: it is a deployment nobody can retry their way
-out of, so it must not read as GitHub being down.
+owners), `404` (unknown skill), `409` (the reviewed skill row is no longer latest), `502` (GitHub
+refused a step), or `503` when the instance has no publisher App configured. The 503 is the fail-safe
+that keeps publishing off until the GitHub App is installed. A private key that cannot sign is a 503
+too: it is a deployment nobody can retry their way out of, so it must not read as GitHub being down.
 
 The three are kept apart on purpose, because each sends the publisher somewhere different. The skill
 is rendered before GitHub is touched, so a skill that has to be edited answers `400` even while the

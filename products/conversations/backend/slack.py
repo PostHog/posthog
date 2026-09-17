@@ -14,7 +14,7 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal, NamedTuple
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from django.conf import settings
@@ -55,6 +55,12 @@ from .services.attachments import (
     sanitize_attachment_filename,
     save_file_to_uploaded_media,
 )
+from .services.inbound_events import (
+    INBOUND_LEASE_RENEW_EVERY_REPLIES,
+    InboundClaim,
+    get_current_inbound_claim,
+    renew_inbound_lease,
+)
 from .support_slack import (
     SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
     SUPPORT_SLACK_FILE_READ_SCOPE,
@@ -66,6 +72,8 @@ from .support_slack import (
 logger = structlog.get_logger(__name__)
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 10
 MAX_REDIRECTS = 5
+# 200 replies per page. Stop so a runaway next_cursor cannot hold the worker.
+BACKFILL_THREAD_MAX_PAGES = 25
 
 # Slack message subtypes that carry real, user-authored content and may open or update a
 # ticket. A normal message has no subtype at all; these few subtypes also count as content
@@ -119,6 +127,10 @@ def get_safe_ticket_emoji(settings_dict: dict) -> str:
 TICKET_CONFIRM_ACTION_OPEN = "supporthog_open_ticket_confirm"
 TICKET_CONFIRM_ACTION_DISMISS = "supporthog_open_ticket_dismiss"
 
+# "View ticket" button on a ticket confirmation. The URL stays out of the message because
+# Slack has no message that only part of a channel can see (see _post_ticket_link).
+TICKET_VIEW_ACTION = "supporthog_view_ticket"
+
 
 def _get_team_id(team: Team) -> int:
     team_id = getattr(team, "id", None)
@@ -130,6 +142,50 @@ def _get_team_id(team: Team) -> int:
 def ticket_created_text(ticket: "Ticket | None") -> str:
     """Copy for message to confirm creation of ticket."""
     return f":ticket: Ticket #{ticket.ticket_number} created" if ticket else ":ticket: Ticket created"
+
+
+def ticket_deep_link(ticket: "Ticket", team: Team) -> str:
+    """App URL for a ticket. The detail scene is addressed by ticket number, not by UUID."""
+    return f"{settings.SITE_URL}/project/{_get_team_id(team)}/support/tickets/{ticket.ticket_number}"
+
+
+def my_tickets_link(ticket: "Ticket") -> str:
+    """Deep link into the requester's own ticket list, opened on this ticket.
+
+    A Slack ticket is keyed by the author's Slack profile email and created
+    ``identity_verified``, which is what the widget's email bridge matches on
+    (``api/widget.py:_identity_ticket_filter``), so it reaches a requester whose verified
+    PostHog email is that same address. For anyone else the scene clears the unresolvable
+    id and renders their plain list, so the link degrades instead of erroring. The id is
+    not a capability: widget access is decided by the viewer's session and attested email,
+    never by knowing a ticket's UUID.
+    """
+    return f"{settings.SITE_URL}/my-tickets?{urlencode({'ticket': str(ticket.id)})}"
+
+
+def ticket_created_blocks(ticket: "Ticket | None") -> list[dict]:
+    """Blocks for the ticket confirmation, carrying a "View ticket" button when there is a ticket.
+
+    The button holds the ticket number rather than the link, so the channel never shows the URL.
+    Without a ticket there is nothing to view, so the section stands alone.
+    """
+    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": ticket_created_text(ticket)}}]
+    if ticket is None:
+        return blocks
+    blocks.append(
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "action_id": TICKET_VIEW_ACTION,
+                    "text": {"type": "plain_text", "text": "View ticket", "emoji": True},
+                    "value": json.dumps({"ticket_number": ticket.ticket_number}),
+                }
+            ],
+        }
+    )
+    return blocks
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
@@ -590,15 +646,7 @@ def create_or_update_slack_ticket(
             "channel": slack_channel_id,
             "thread_ts": thread_ts,
             "text": f"Ticket #{ticket.ticket_number} created.",
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": ticket_created_text(ticket),
-                    },
-                },
-            ],
+            "blocks": ticket_created_blocks(ticket),
         }
         bot_display_name = support_settings.get("slack_bot_display_name")
         bot_icon_url = support_settings.get("slack_bot_icon_url")
@@ -847,10 +895,10 @@ def nudge_event_properties(
     }
 
 
-def capture_nudge_event(team: Team, event: str, properties: dict[str, Any]) -> None:
-    """Internal product analytics for the nudge funnel, attributed to the team like
-    report_team_action — but through a scoped client, since both call sites run in
-    Celery tasks where the global client's flush can be lost."""
+def capture_support_event(team: Team, event: str, properties: dict[str, Any]) -> None:
+    """Internal product analytics attributed to the team like report_team_action — but through
+    a scoped client, since every call site runs in a Celery task where the global client's
+    flush can be lost."""
     with ph_scoped_capture() as capture:
         capture(
             distinct_id=str(team.uuid),
@@ -858,6 +906,11 @@ def capture_nudge_event(team: Team, event: str, properties: dict[str, Any]) -> N
             properties=properties,
             groups=groups(team=team),
         )
+
+
+def capture_nudge_event(team: Team, event: str, properties: dict[str, Any]) -> None:
+    """Internal product analytics for the nudge funnel."""
+    capture_support_event(team, event, properties)
 
 
 def _is_nudge_classifier_flag_enabled(team: Team) -> bool:
@@ -1284,6 +1337,37 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
     )
 
 
+def _renew_backfill_lease(claim: InboundClaim | None) -> InboundClaim | None:
+    """Extend the inbound lease. On fencing failure or renew error return None and keep going.
+
+    create_or_update_slack_ticket returns None to losers so they do not backfill.
+    This worker already created the ticket, so aborting here would drop the rest of
+    the thread permanently. Fencing still stops this worker settling the receipt.
+    """
+    if claim is None:
+        return None
+    try:
+        if renew_inbound_lease(claim):
+            return claim
+    except Exception as exc:
+        capture_exception(
+            exc,
+            {"inbound_event_id": str(claim.event.id), "fencing_token": claim.event.fencing_token},
+        )
+        logger.warning(
+            "inbound_event_lease_renew_error",
+            inbound_event_id=str(claim.event.id),
+            fencing_token=claim.event.fencing_token,
+        )
+        return None
+    logger.warning(
+        "inbound_event_lease_renew_rejected",
+        inbound_event_id=str(claim.event.id),
+        fencing_token=claim.event.fencing_token,
+    )
+    return None
+
+
 def _backfill_thread_replies(
     client: WebClient,
     team: Team,
@@ -1293,6 +1377,7 @@ def _backfill_thread_replies(
     *,
     slack_team_id: str | None,
     after_ts: str | None = None,
+    claim: InboundClaim | None = None,
 ) -> None:
     """Fetch existing thread replies and add them as comments on the ticket.
 
@@ -1301,12 +1386,31 @@ def _backfill_thread_replies(
     isn't pulled in. Slack ts values are lexicographically ordered, so string comparison is
     safe.
     """
-    try:
-        result = client.conversations_replies(channel=channel, ts=thread_ts, limit=200)
-        replies: list[dict] = result.get("messages", [])
-    except Exception:
-        logger.warning("slack_support_reaction_backfill_failed", channel=channel, thread_ts=thread_ts)
-        return
+    active_claim = claim if claim is not None else get_current_inbound_claim()
+    replies: list[dict] = []
+    cursor: str | None = None
+    for _ in range(BACKFILL_THREAD_MAX_PAGES):
+        kwargs: dict[str, Any] = {"channel": channel, "ts": thread_ts, "limit": 200}
+        if cursor is not None:
+            kwargs["cursor"] = cursor
+        try:
+            result = client.conversations_replies(**kwargs)
+        except Exception:
+            logger.warning("slack_support_reaction_backfill_failed", channel=channel, thread_ts=thread_ts)
+            break
+        replies.extend(result.get("messages") or [])
+        next_cursor = ((result.get("response_metadata") or {}).get("next_cursor")) or None
+        if not next_cursor or next_cursor == cursor:
+            break
+        cursor = next_cursor
+        active_claim = _renew_backfill_lease(active_claim)
+    else:
+        logger.warning(
+            "slack_support_reaction_backfill_page_cap",
+            channel=channel,
+            thread_ts=thread_ts,
+            max_pages=BACKFILL_THREAD_MAX_PAGES,
+        )
 
     thread_replies = [
         r for r in replies if r.get("ts") != thread_ts and (after_ts is None or (r.get("ts") or "") > after_ts)
@@ -1322,6 +1426,8 @@ def _backfill_thread_replies(
         thread_reply_count=len(thread_replies),
     )
 
+    active_claim = _renew_backfill_lease(active_claim)
+
     own_bot_user_id = get_bot_user_id(client)
     user_cache: dict[str, dict] = {}
     posthog_user_cache: dict[str, User | None] = {}
@@ -1329,7 +1435,9 @@ def _backfill_thread_replies(
     customer_message_count = 0
     team_message_count = 0
 
-    for reply in thread_replies:
+    for reply_index, reply in enumerate(thread_replies, start=1):
+        if reply_index % INBOUND_LEASE_RENEW_EVERY_REPLIES == 0:
+            active_claim = _renew_backfill_lease(active_claim)
         reply_is_bot = bool(reply.get("bot_id") or reply.get("subtype") == "bot_message")
         if not _is_ticketable_message(reply, is_bot=reply_is_bot):
             continue

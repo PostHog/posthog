@@ -61,13 +61,17 @@ import {
     RecordingEventType,
 } from '~/types'
 
-import type { ExperimentSessionContextItemApi } from '../../../../../../products/experiments/frontend/generated/api.schemas'
+import type {
+    ExperimentSessionContextItemApi,
+    ExperimentSessionContextResponseApi,
+} from '../../../../../../products/experiments/frontend/generated/api.schemas'
 import type { FeatureFlagsSet } from '../../../../lib/logic/featureFlagLogic'
 import type { RecordingSegment, SessionPlayerData, SessionRecordingType } from '../../../../types'
 import { sessionRecordingExperimentContextLogic } from '../player-meta/sessionRecordingExperimentContextLogic'
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
 import {
     DoctorDiagnostics,
+    MatchingEventSkipTarget,
     SessionRecordingPlayerLogicProps,
     sessionRecordingPlayerLogic,
 } from '../sessionRecordingPlayerLogic'
@@ -432,6 +436,7 @@ export interface playerInspectorLogicValues {
     uuidToIndex: Record<string, number> // sessionRecordingDataCoordinatorLogic
     windowIdForTimestamp: (timestamp: number) => number | undefined // sessionRecordingDataCoordinatorLogic
     windowIds: number[] // sessionRecordingDataCoordinatorLogic
+    experimentContextSettled: boolean // sessionRecordingExperimentContextLogic
     experimentItems: ExperimentSessionContextItemApi[] // sessionRecordingExperimentContextLogic
     currentPlayerTime: number // sessionRecordingPlayerLogic
     currentTimestamp: number | undefined // sessionRecordingPlayerLogic
@@ -462,6 +467,7 @@ export interface playerInspectorLogicValues {
     items: InspectorListItem[]
     matchingEvents: MatchedRecordingEvent[] | null
     matchingEventsLoading: boolean
+    matchingEventsSettled: boolean
     metricEventItems: InspectorListItemMetricEvent[]
     notebookCommentItems: InspectorListItemNotebookComment[]
     playbackIndicatorIndex: number
@@ -575,6 +581,20 @@ export interface playerInspectorLogicActions {
             | 'performance'
             | 'session-change'
     } // sessionRecordingEventUsageLogic
+    loadExperimentContextFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // sessionRecordingExperimentContextLogic
+    loadExperimentContextSuccess: (
+        experimentContext: ExperimentSessionContextResponseApi | null,
+        payload?: any
+    ) => {
+        experimentContext: ExperimentSessionContextResponseApi | null
+        payload?: any
+    } // sessionRecordingExperimentContextLogic
     seekToTime: (
         timeInMilliseconds: number,
         forcePlay?: boolean | undefined
@@ -585,13 +605,17 @@ export interface playerInspectorLogicActions {
     setSkipToFirstMatchingEvent: (skipToFirstMatchingEvent: boolean) => {
         skipToFirstMatchingEvent: boolean
     } // sessionRecordingPlayerLogic
-    setSkippingToMatchingEvent: (isSkippingToMatchingEvent: boolean) => {
+    setSkippingToMatchingEvent: (
+        isSkippingToMatchingEvent: boolean,
+        target?: MatchingEventSkipTarget | undefined
+    ) => {
         isSkippingToMatchingEvent: boolean
+        target: MatchingEventSkipTarget
     } // sessionRecordingPlayerLogic
     startScrub: () => {
         value: true
     } // sessionRecordingPlayerLogic
-    loadMatchingEvents: () => any
+    loadMatchingEvents: (_: void) => void
     loadMatchingEventsFailure: (
         error: string,
         errorObject?: any
@@ -601,10 +625,10 @@ export interface playerInspectorLogicActions {
     }
     loadMatchingEventsSuccess: (
         matchingEvents: MatchedRecordingEvent[] | null,
-        payload?: any
+        payload?: void
     ) => {
         matchingEvents: MatchedRecordingEvent[] | null
-        payload?: any
+        payload?: void
     }
     markSkippedToFirstMatchingEvent: () => {
         value: true
@@ -851,6 +875,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ['seekToTime', 'setSkippingToMatchingEvent', 'setSkipToFirstMatchingEvent', 'startScrub'],
             playerInspectorLogsLogic(props),
             ['loadLogs', 'loadMoreLogs', 'markLogsInitialLoadRequested'],
+            sessionRecordingExperimentContextLogic({ sessionRecordingId: props.sessionRecordingId }),
+            ['loadExperimentContextSuccess', 'loadExperimentContextFailure'],
         ],
         values: [
             miniFiltersLogic,
@@ -889,7 +915,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             sessionRecordingExperimentContextLogic({ sessionRecordingId: props.sessionRecordingId }),
-            ['experimentItems'],
+            ['experimentItems', 'experimentContextSettled'],
             playerInspectorLogsLogic(props),
             [
                 'logs',
@@ -943,12 +969,22 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 startScrub: () => true,
             },
         ],
+        // A failed load returns no events, so the loader's own value cannot tell "no matches" from
+        // "not answered yet". The exposure skip waits for this answer before it picks a target.
+        matchingEventsSettled: [
+            false,
+            {
+                loadMatchingEvents: () => false,
+                loadMatchingEventsSuccess: () => true,
+                loadMatchingEventsFailure: () => true,
+            },
+        ],
     })),
     loaders(({ props }) => ({
         matchingEvents: [
             [] as MatchedRecordingEvent[] | null,
             {
-                loadMatchingEvents: async () => {
+                loadMatchingEvents: async (_: void, breakpoint) => {
                     const matchingEventsMatchType = props.matchingEventsMatchType
                     const matchType = matchingEventsMatchType?.matchType
                     if (!matchingEventsMatchType || matchType === 'none' || matchType === 'name') {
@@ -973,6 +1009,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
 
                     const response = await api.recordings.getMatchingEvents(toParams(params))
+                    // kea-loaders still dispatches success for a superseded call. Drop this response
+                    // when a newer load started while it was in flight, so that it cannot overwrite
+                    // the newer events or settle the skip on the previous filters' events.
+                    breakpoint()
                     return response.results
                 },
             },
@@ -2140,7 +2180,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 allItemsByItemType['events']?.length > 0,
         ],
     })),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions, cache, props }) => ({
         setItemExpanded: ({ index, expanded }) => {
             if (expanded) {
                 const group = values.displayGroups[index]
@@ -2171,6 +2211,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         loadMatchingEventsSuccess: () => {
             actions.trySkipToFirstMatchingEvent()
         },
+        loadMatchingEventsFailure: () => {
+            actions.trySkipToFirstMatchingEvent()
+        },
+        loadExperimentContextSuccess: () => {
+            actions.trySkipToFirstMatchingEvent()
+        },
+        loadExperimentContextFailure: () => {
+            actions.trySkipToFirstMatchingEvent()
+        },
         loadRecordingMetaSuccess: () => {
             actions.trySkipToFirstMatchingEvent()
         },
@@ -2188,27 +2237,55 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             actions.trySkipToFirstMatchingEvent()
         },
         trySkipToFirstMatchingEvent: () => {
+            const exposureExperimentId = props.exposureSkipExperimentId
             if (
                 !values.skipToFirstMatchingEvent ||
                 values.hasSkippedToFirstMatchingEvent ||
                 !values.start ||
-                !values.matchingEvents?.length ||
                 // seekToTime no-ops until the player has an initial timestamp — bail without
                 // consuming the skip so a later trigger retries once the player is ready
                 values.currentTimestamp == null
             ) {
                 return
             }
+            // With an exposure target, wait for both sources so the earlier one wins. The skip
+            // fires once, so acting on whichever source lands first would leave the playhead
+            // past the other one.
+            if (exposureExperimentId != null && (!values.experimentContextSettled || !values.matchingEventsSettled)) {
+                return
+            }
 
-            const earliestMatchingEvent = values.matchingEvents.reduce((previous, current) =>
-                previous.timestamp < current.timestamp ? previous : current
+            const candidates: { timestamp: string; target: MatchingEventSkipTarget }[] = (
+                values.matchingEvents ?? []
+            ).map((event) => ({ timestamp: event.timestamp, target: 'filtered-event' }))
+            const exposureTimestamp =
+                exposureExperimentId != null
+                    ? values.experimentItems.find((item) => item.experiment_id === exposureExperimentId)
+                          ?.first_exposure_timestamp
+                    : null
+            if (exposureTimestamp) {
+                candidates.push({ timestamp: exposureTimestamp, target: 'experiment-exposure' })
+            }
+            if (!candidates.length) {
+                // Without an exposure target a later matching-events load can still arm the skip.
+                // With one, both sources have settled, so the empty verdict is final.
+                if (exposureExperimentId != null) {
+                    actions.markSkippedToFirstMatchingEvent()
+                }
+                return
+            }
+
+            // Compared as parsed instants rather than as strings, because the two sources
+            // serialize their timestamps in different shapes.
+            const earliest = candidates.reduce((previous, current) =>
+                dayjs(previous.timestamp).valueOf() <= dayjs(current.timestamp).valueOf() ? previous : current
             )
-            const { timestamp, timeInRecording } = timeRelativeToStart(earliestMatchingEvent, values.start)
-            // The matching-events query has slack around the recording window, so the earliest
-            // match can fall past the playable range — seeking there would pin the player to its
-            // final frame and immediately trigger end-reached (auto-advancing playlists). The
-            // verdict is terminal for this recording: consume the flag so a matching-events
-            // reload can't fire the skip mid-playback.
+            const { timestamp, timeInRecording } = timeRelativeToStart(earliest, values.start)
+            // The matching-events query has slack around the recording window, and the exposure can
+            // come from a wider window still, so the earliest moment can fall past the playable
+            // range — seeking there would pin the player to its final frame and immediately trigger
+            // end-reached (auto-advancing playlists). The verdict is terminal for this recording:
+            // consume the flag so a matching-events reload can't fire the skip mid-playback.
             if (values.end && timestamp.isAfter(values.end)) {
                 actions.markSkippedToFirstMatchingEvent()
                 return
@@ -2217,7 +2294,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
             actions.markSkippedToFirstMatchingEvent()
             if (seekTime > 1000) {
-                actions.setSkippingToMatchingEvent(true)
+                actions.setSkippingToMatchingEvent(true, earliest.target)
                 cache.disposables.add(() => {
                     const timerId = setTimeout(() => actions.setSkippingToMatchingEvent(false), 1500)
                     return () => clearTimeout(timerId)

@@ -5,7 +5,8 @@ import { IconInfo, IconPeople, IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { EnrichedReviewer, SignalReport } from '../../types'

@@ -42,6 +42,11 @@ from pydantic import BaseModel, Field, ValidationError
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+# After the sys.path line above, because this module also runs as a script, where the repo root is
+# not importable until then. The skills store reads the same set to refuse a store skill that takes
+# a bundled name, so both sides read one definition.
+from products.skills.backend.bundled_skills import OMNIBUS_SKILL_NAMES  # noqa: E402
+
 MANIFEST_VERSION = "1.0.0"
 _ZIP_FIXED_TIME = (2025, 1, 1, 0, 0, 0)
 
@@ -49,20 +54,6 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _BINARY_CHECK_SIZE = 8192
 _MAX_SKILL_DESCRIPTION_LENGTH = 1024
 _ALLOWED_SUBDIRS = {"references", "scripts"}
-# Skills authored in PostHog/context-mill. Every shipping consumer unzips this
-# repo's skills first and then unzips the context-mill release on top, so a
-# same-named skill here is overwritten instead of shipped — a failure that is
-# silent without this check, because the copy still builds and still publishes.
-OMNIBUS_SKILL_NAMES = frozenset(
-    {
-        "instrument-integration",
-        "instrument-product-analytics",
-        "instrument-feature-flags",
-        "instrument-error-tracking",
-        "instrument-llm-analytics",
-        "instrument-logs",
-    }
-)
 
 # Tool/skill reference linting: skills must only reference MCP tools and skills that exist.
 # The valid tool names come from the checked-in MCP schema registries (kept in sync with the

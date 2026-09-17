@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='op_renew_lease' */ \n            UPDATE lifecycle_op_tmp\n            SET lease_expires_at = now() + make_interval(secs => $2)\n            WHERE op_id = $1 AND completed_at IS NULL AND attempt = $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Float8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "39ab1966818f47096125777241a761565dbfce330ff1c1635c64c3f516e4c981"
+}

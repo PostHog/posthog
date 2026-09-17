@@ -311,6 +311,8 @@ def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmSugge
     try:
         client = genai.Client(
             api_key=api_key,
+            # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
+            posthog_privacy_mode=True,
             posthog_client=posthoganalytics.default_client,
             http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
         )

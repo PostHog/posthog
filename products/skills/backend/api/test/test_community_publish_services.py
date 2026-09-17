@@ -113,7 +113,7 @@ class TestRenderSkillMd:
             # install_community_skill refuses a blank body as having no instructions, so publishing
             # one merges a listing that nobody can ever install.
             ("blank body", "n", "d", "  \n  "),
-            # Longer than the Agent Skills spec allows, so validate_for_export refuses the skill once
+            # Longer than the Agent Skills spec allows, so compute_spec_problems refuses the skill once
             # someone installs it from the catalog.
             ("description over the spec cap", "n", "x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1), "b"),
             # Longer than CommunitySkill.name: the PR would merge and ingest would then drop the entry.
@@ -253,7 +253,18 @@ class TestRenderCommunitySkillFiles:
     def test_rejects_bad_slug(self) -> None:
         # "new" and the category-tab slugs are rejected by ingest, so publishing one merges a pull
         # request whose skill never appears in the catalog. A trailing newline needs `fullmatch`.
-        for bad in ["Make-PR", "make_pr", "-bad", "double--hyphen", "x" * 65, "new", "review-hog", "make-pr\n"]:
+        # A catalog entry installs under its slug, so a slug PostHog bundles is refused here too.
+        for bad in [
+            "Make-PR",
+            "make_pr",
+            "-bad",
+            "double--hyphen",
+            "x" * 65,
+            "new",
+            "review-hog",
+            "make-pr\n",
+            "signals-scout-logs",
+        ]:
             try:
                 render_community_skill_files(slug=bad, name="n", description="d", body="b")
             except CommunitySkillPublishError:
