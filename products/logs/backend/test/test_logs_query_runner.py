@@ -605,6 +605,9 @@ class TestLogsQueryExecutionBudget(APIBaseTest):
 
         self.assertEqual(runner.settings.max_execution_time, 7)
 
+    def test_a_slice_that_runs_out_of_budget_throws_instead_of_returning_a_partial_result(self):
+        self.assertEqual(self._runner().settings.timeout_overflow_mode, "throw")
+
 
 class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True

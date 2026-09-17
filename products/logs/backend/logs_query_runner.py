@@ -911,4 +911,9 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
             max_execution_time=self.max_execution_time,
             max_bytes_to_read=None,
             read_overflow_mode=None,
+            # The slice ladder reads a timeout as its truncation signal, so a slice that runs out
+            # of budget has to raise instead of returning what it read. Left unset, the cluster
+            # profile decides, and a "break" profile returns a short page that the endpoint then
+            # reports as a complete one.
+            timeout_overflow_mode="throw",
         )
