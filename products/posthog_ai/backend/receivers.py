@@ -52,13 +52,20 @@ def copied_chats_hidden_without_sandbox_mode(team_id: int, user_id: int | None) 
 
     if user_id is None:
         return ()
+    # Every task read calls this, and most users have no copied chat: answer that with one query
+    # before paying for the team, the user and a flag evaluation.
+    copied_task_ids = list(
+        Conversation.objects.filter(
+            team_id=team_id, user_id=user_id, task_id__isnull=False, agent_runtime=Conversation.AgentRuntime.LANGGRAPH
+        ).values_list("task_id", flat=True)
+    )
+    if not copied_task_ids:
+        return ()
     team = Team.objects.filter(id=team_id).only("id", "organization_id").first()
     user = User.objects.filter(id=user_id).only("id", "distinct_id").first()
     if team is None or user is None or has_sandbox_mode_feature_flag(team, user):
         return ()
-    return Conversation.objects.filter(
-        team_id=team_id, user_id=user_id, task_id__isnull=False, agent_runtime=Conversation.AgentRuntime.LANGGRAPH
-    ).values_list("task_id", flat=True)
+    return copied_task_ids
 
 
 def catch_up_conversation_copy_before_run(task_id: str, team_id: int, user_id: int | None) -> str | None:

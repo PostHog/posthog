@@ -608,8 +608,8 @@ class TestFacadeReadsAndMappers(TestCase):
         )
 
         # The runs this path prefetches already carry the earlier PR, so finding it costs
-        # no second trip to the database.
-        with self.assertNumQueries(3):
+        # no second trip to the database. One of the four is the read exclusion PostHog AI registers.
+        with self.assertNumQueries(4):
             dto = facade.get_task_detail(task.id, self.team.id, self.user.id)
 
         assert dto is not None and dto.latest_run is not None and dto.latest_run.output is not None
@@ -860,8 +860,9 @@ class TestFacadeReadsAndMappers(TestCase):
             )
             TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
 
-        # The page costs one inherited-PR query, whatever the number of tasks on it.
-        with self.assertNumQueries(6):
+        # The page costs one inherited-PR query, whatever the number of tasks on it. One of the
+        # seven is the read exclusion PostHog AI registers.
+        with self.assertNumQueries(7):
             dtos = facade.list_tasks(self.team.id, self.user.id, filters={})
 
         by_title = {dto.title: dto for dto in dtos}
