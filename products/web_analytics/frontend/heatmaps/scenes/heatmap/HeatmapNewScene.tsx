@@ -150,8 +150,10 @@ function CaptureUrlReadiness(): JSX.Element | null {
             type="warning"
             action={{ children: 'Manage capture URLs', to: urls.settings('environment-heatmaps') }}
         >
-            This page is not in your heatmap capture URLs, so it will not collect new data. Add it to your capture URLs,
-            or switch to Allow all URLs.
+            {settings.enforcement_enabled
+                ? 'This page is not in your heatmap capture URLs, so it is not collecting new data. '
+                : 'This page is not in your heatmap capture URLs. When capture limits take effect, it will stop collecting new data. '}
+            Add it to your capture URLs, or switch to Allow all URLs.
         </LemonBanner>
     )
 }

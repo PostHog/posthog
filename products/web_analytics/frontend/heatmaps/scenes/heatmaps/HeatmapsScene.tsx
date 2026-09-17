@@ -46,10 +46,13 @@ export function HeatmapsScene(): JSX.Element {
     const { savedHeatmaps, savedHeatmapsLoading, filters, totalCount } = useValues(heatmapsSceneLogic)
     const { deleteHeatmap, setHeatmapsFilters } = useActions(heatmapsSceneLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { urlAllowlist, canCaptureAllUrls, captureMode } = useValues(
+    const { settings, urlAllowlist, captureMode } = useValues(
         heatmapCaptureSettingsLogic({ teamId: currentTeamId ?? 0 })
     )
-    const showCaptureStatus = !canCaptureAllUrls && captureMode === 'url_allowlist'
+    const showCaptureStatus = !!settings && captureMode === 'url_allowlist'
+    const wontCaptureTooltip = settings?.enforcement_enabled
+        ? 'Not in your capture URLs, so this page is not collecting new heatmap data.'
+        : 'Not in your capture URLs. When capture limits take effect, this page stops collecting new heatmap data.'
 
     const columns: LemonTableColumns<HeatmapScreenshotType> = [
         {
@@ -72,7 +75,7 @@ export function HeatmapsScene(): JSX.Element {
                             <span className="truncate max-w-[28rem] inline-block align-middle">{row.url}</span>
                         </Link>
                         {wontCapture && (
-                            <Tooltip title="Not in your capture URLs. When capture limits take effect, this page stops collecting new heatmap data.">
+                            <Tooltip title={wontCaptureTooltip}>
                                 <IconHide className="text-muted shrink-0" />
                             </Tooltip>
                         )}

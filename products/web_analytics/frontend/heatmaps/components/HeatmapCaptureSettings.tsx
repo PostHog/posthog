@@ -31,8 +31,9 @@ export function HeatmapCaptureSettings(): JSX.Element {
         captureUrlLimit,
         disabledPages,
         pagesLoading,
+        pagesError,
     } = useValues(logic)
-    const { loadSettings, setCaptureMode, setUrlAllowlist, saveSettings } = useActions(logic)
+    const { loadSettings, loadPages, setCaptureMode, setUrlAllowlist, saveSettings } = useActions(logic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -51,7 +52,6 @@ export function HeatmapCaptureSettings(): JSX.Element {
 
     const isAllowlist = captureMode === 'url_allowlist'
     const emptyAllowlist = isAllowlist && urlAllowlist.length === 0
-    const atUrlLimit = captureUrlLimit != null && urlAllowlist.length >= captureUrlLimit
 
     return (
         <div className="flex flex-col gap-3 max-w-160">
@@ -110,7 +110,8 @@ export function HeatmapCaptureSettings(): JSX.Element {
                             setUrlAllowlist(captureUrlLimit != null ? value.slice(0, captureUrlLimit) : value)
                         }
                         placeholder="https://example.com/pricing"
-                        disabled={!!restrictedReason || settingsLoading || atUrlLimit}
+                        limit={captureUrlLimit ?? undefined}
+                        disabled={!!restrictedReason || settingsLoading}
                         data-attr="heatmap-capture-url-allowlist"
                     />
                     <p className="text-secondary mb-0">
@@ -126,6 +127,10 @@ export function HeatmapCaptureSettings(): JSX.Element {
                     <LemonLabel>Pages that will stop capturing</LemonLabel>
                     {pagesLoading ? (
                         <LemonSkeleton className="h-16" />
+                    ) : pagesError ? (
+                        <LemonBanner type="error" action={{ children: 'Retry', onClick: loadPages }}>
+                            Could not check which pages your listed URLs cover. Try again.
+                        </LemonBanner>
                     ) : disabledPages.length === 0 ? (
                         <p className="text-secondary mb-0">
                             Your listed URLs cover every page we currently collect heatmaps on.
