@@ -11,6 +11,7 @@ import {
   type ContextObject,
   isHttpUrl,
   parsePostHogObjectUrl,
+  urlHost,
 } from "@posthog/core/canvas/contextDocument";
 import {
   fileDisplayName,
@@ -41,7 +42,6 @@ import type {
   ContextSourceState,
   ContextSources,
 } from "@posthog/ui/features/canvas/hooks/useContextSources";
-import { useNavigate } from "@tanstack/react-router";
 import {
   cloneElement,
   isValidElement,
@@ -106,7 +106,6 @@ export function AddContextDialog({
   const [fileName, setFileName] = useState("");
   const [upload, setUpload] = useState<File | null>(null);
 
-  const navigate = useNavigate();
   const detected = useMemo(() => detectLink(url, sources), [url, sources]);
   const filePath =
     filesFolder && fileName.trim()
@@ -118,15 +117,33 @@ export function AddContextDialog({
   const uploadExists =
     uploadPath !== null && existingTargets.includes(uploadPath);
 
-  const canSubmit =
-    !busy &&
-    (mode === "link"
-      ? detected !== null && detected.kind !== "invalid"
-      : mode === "markdown"
-        ? filePath !== null && !fileExists
-        : uploadPath !== null && !uploadExists);
+  const work = ((): (() => Promise<void>) | null => {
+    if (mode === "link") {
+      if (!detected || detected.kind === "invalid") return null;
+      const finalTitle = (title ?? detected.title).trim() || detected.title;
+      return () =>
+        detected.kind === "object"
+          ? onAddObject({ ...detected.object, title: finalTitle })
+          : onAddLink({ target: detected.target, title: finalTitle, note: "" });
+    }
+    if (mode === "markdown") {
+      return filePath && !fileExists ? () => onAddFile(filePath, null) : null;
+    }
+    if (!upload || !uploadPath || uploadExists) return null;
+    return async () => {
+      if (upload.size > UPLOAD_MAX_BYTES) {
+        throw new Error(
+          "The file is over 1 MB. Trim it, or link to it instead.",
+        );
+      }
+      const text = await upload.text();
+      await onAddFile(uploadPath, newFileContent(upload.name, text));
+    };
+  })();
+  const canSubmit = !busy && work !== null;
 
-  const run = async (work: () => Promise<void>) => {
+  const submit = async () => {
+    if (busy || !work) return;
     setBusy(true);
     setError(null);
     try {
@@ -136,30 +153,6 @@ export function AddContextDialog({
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(false);
-    }
-  };
-
-  const submit = () => {
-    if (!canSubmit) return;
-    if (mode === "link" && detected && detected.kind !== "invalid") {
-      const finalTitle = (title ?? detected.title).trim() || detected.title;
-      void run(() =>
-        detected.kind === "object"
-          ? onAddObject({ ...detected.object, title: finalTitle })
-          : onAddLink({ target: detected.target, title: finalTitle, note: "" }),
-      );
-    } else if (mode === "markdown" && filePath) {
-      void run(() => onAddFile(filePath, null));
-    } else if (mode === "upload" && upload && uploadPath) {
-      void run(async () => {
-        if (upload.size > UPLOAD_MAX_BYTES) {
-          throw new Error(
-            "The file is over 1 MB. Trim it, or link to it instead.",
-          );
-        }
-        const text = await upload.text();
-        await onAddFile(uploadPath, newFileContent(upload.name, text));
-      });
     }
   };
 
@@ -178,7 +171,7 @@ export function AddContextDialog({
               className="flex flex-col gap-3"
               onSubmit={(event) => {
                 event.preventDefault();
-                submit();
+                void submit();
               }}
             >
               <Input
@@ -195,11 +188,7 @@ export function AddContextDialog({
               <Detection
                 detected={detected}
                 empty={url.trim().length === 0}
-                onConnect={(state) =>
-                  state.needsCredentials
-                    ? void navigate({ to: "/mcp-servers" })
-                    : sources.connect(state)
-                }
+                onConnect={sources.connect}
               />
               {detected && detected.kind !== "invalid" ? (
                 <Field label="Title">
@@ -216,7 +205,7 @@ export function AddContextDialog({
               className="flex flex-col gap-3"
               onSubmit={(event) => {
                 event.preventDefault();
-                submit();
+                void submit();
               }}
             >
               <Field label="File name">
@@ -273,7 +262,7 @@ export function AddContextDialog({
             <Button
               variant="primary"
               size="sm"
-              onClick={submit}
+              onClick={() => void submit()}
               disabled={!canSubmit}
               loading={busy}
             >
@@ -334,7 +323,7 @@ function detectLink(
       kind: "web",
       target: value,
       title: titleFromUrl(value),
-      host: hostOf(value),
+      host: urlHost(value),
     };
   }
   return { kind: "invalid" };
@@ -346,15 +335,7 @@ function titleFromUrl(target: string): string {
     const last = url.pathname.split("/").filter(Boolean).pop();
     return last
       ? decodeURIComponent(last).replace(/[-_]+/g, " ")
-      : hostOf(target);
-  } catch {
-    return target;
-  }
-}
-
-function hostOf(target: string): string {
-  try {
-    return new URL(target).host.replace(/^www\./, "");
+      : urlHost(target);
   } catch {
     return target;
   }
@@ -426,7 +407,7 @@ function Detection({
               disabled={state.connecting}
               onClick={() => onConnect(state)}
             >
-              {state.connecting ? "Waiting" : connectLabel(state)}
+              {connectLabel(state)}
             </Button>
           )
         }

@@ -1,3 +1,6 @@
+import type { Adapter, AgentRuntime } from "@posthog/shared";
+import type { EffortLevel } from "@posthog/shared/domain-types";
+
 // Builds the prompt for the task that generates a space's CONTEXT.md. The
 // task runs as a normal repo-less agent task (no repo picked up front), so the
 // agent has full tools; this is the task's content (its first user message).
@@ -189,3 +192,18 @@ single publishing call below.
 
 ${buildContextPublishInstructions(channelId, contextLayerEnabled)}`;
 }
+
+export interface AgentChoice {
+  adapter: Adapter;
+  model: string;
+  reasoningLevel: EffortLevel;
+  runtime: AgentRuntime;
+}
+
+/** The agent that runs `buildGoalMeasurePrompt`. */
+export const GOAL_MEASURE_AGENT: AgentChoice = {
+  adapter: "codex",
+  model: "gpt-5.6-luna",
+  reasoningLevel: "high",
+  runtime: "pi",
+};

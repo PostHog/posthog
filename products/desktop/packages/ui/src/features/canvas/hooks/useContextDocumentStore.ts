@@ -22,8 +22,6 @@ export interface ContextDocumentStore {
   isLoading: boolean;
   isRefreshing: boolean;
   error: Error | null;
-  /** "v3" for legacy versions, the wiki path for wiki pages. */
-  versionLabel: string | null;
   updatedAt: string | null;
   save: (content: string) => Promise<void>;
   isSaving: boolean;
@@ -54,7 +52,6 @@ export function useLegacyContextDocumentStore(
     isLoading: latest.isLoading,
     isRefreshing: latest.isFetching && !latest.isLoading,
     error: latest.error,
-    versionLabel: version > 0 ? `v${version}` : null,
     updatedAt: latest.data?.created_at ?? null,
     save,
     isSaving: isPublishing,
@@ -88,7 +85,6 @@ export function useWikiContextDocumentStore(
     isLoading: page.isLoading,
     isRefreshing: page.isFetching && !page.isLoading,
     error: page.error,
-    versionLabel: path,
     updatedAt: page.data?.updated_at ?? null,
     save,
     isSaving: mutation.isPending,

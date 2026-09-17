@@ -17,10 +17,10 @@ import type { Task } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
+  type AgentChoice,
   buildContextGenerationPrompt,
   contextMdTaskTitle,
 } from "@posthog/ui/features/canvas/contextPrompt";
-import type { AgentChoice } from "@posthog/ui/features/canvas/goalMeasureAgent";
 import { channelFeedQueryKey } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import { channelFeedMessagesQueryKey } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";

@@ -11,6 +11,7 @@ import {
   type GoalStatus,
   type GoalTarget,
   goalStatus,
+  goalValueSuffix,
 } from "@posthog/core/canvas/contextDocument";
 import {
   Button,
@@ -27,7 +28,6 @@ import {
   useGoalPalette,
 } from "@posthog/ui/features/canvas/goalColors";
 import type { GoalMeasureTask } from "@posthog/ui/features/canvas/goalMeasureTasks";
-import { goalValueSuffix } from "@posthog/ui/features/canvas/goalUnits";
 import {
   useGoalMeasure,
   useGoalTrend,
@@ -49,8 +49,6 @@ interface GoalsListProps {
   isSaving: boolean;
 }
 
-type Editing = { index: number | null } | null;
-
 const GOAL_GRID = "grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4";
 
 /**
@@ -66,20 +64,20 @@ export function GoalsList({
   onOpenMeasureTask,
   isSaving,
 }: GoalsListProps) {
-  const [editing, setEditing] = useState<Editing>(null);
-  const editingGoal =
-    editing && editing.index !== null ? goals[editing.index] : null;
+  const [editing, setEditing] = useState<number | "new" | null>(null);
+  const editingIndex = typeof editing === "number" ? editing : null;
+  const editingGoal = editingIndex === null ? null : goals[editingIndex];
 
   const save = async (goal: ContextGoal) => {
-    const adding = editing?.index == null;
+    const adding = editingIndex === null;
     const primary = goal.primary || (adding && goals.length === 0);
     const next = { ...goal, primary };
     const rest = primary ? goals.map((g) => ({ ...g, primary: false })) : goals;
-    if (adding) {
-      await onChange([...rest, next]);
-    } else {
-      await onChange(rest.map((g, i) => (i === editing.index ? next : g)));
-    }
+    await onChange(
+      adding
+        ? [...rest, next]
+        : rest.map((g, i) => (i === editingIndex ? next : g)),
+    );
     setEditing(null);
   };
   const makePrimary = (index: number) =>
@@ -94,8 +92,8 @@ export function GoalsList({
   };
 
   const remove = async () => {
-    if (editing?.index == null) return;
-    await onChange(goals.filter((_, i) => i !== editing.index));
+    if (editingIndex === null) return;
+    await onChange(goals.filter((_, i) => i !== editingIndex));
     setEditing(null);
   };
 
@@ -108,7 +106,7 @@ export function GoalsList({
             variant="link-muted"
             size="xs"
             disabled={isSaving}
-            onClick={() => setEditing({ index: null })}
+            onClick={() => setEditing("new")}
           >
             <PlusIcon size={12} />
             Add goal…
@@ -122,9 +120,9 @@ export function GoalsList({
             <li key={`${goal.name}-${index}`} className="min-w-0">
               <GoalCard
                 goal={goal}
-                selected={editing?.index === index}
+                selected={editing === index}
                 measureTask={measureTasks.get(goal.name) ?? null}
-                onOpen={() => setEditing({ index })}
+                onOpen={() => setEditing(index)}
                 onOpenTask={onOpenMeasureTask}
                 onRetry={() => onAskAgentForMeasure(goal)}
                 onMakePrimary={
@@ -139,7 +137,7 @@ export function GoalsList({
         <div className={GOAL_GRID}>
           <button
             type="button"
-            onClick={() => setEditing({ index: null })}
+            onClick={() => setEditing("new")}
             disabled={isSaving}
             className="flex flex-col items-start gap-1 rounded-lg border border-border border-dashed p-4 text-left transition-colors hover:bg-fill-hover"
           >
@@ -153,7 +151,7 @@ export function GoalsList({
         </div>
       )}
 
-      {editing ? (
+      {editing !== null ? (
         <Dialog open onOpenChange={(open) => !open && setEditing(null)}>
           <DialogContent className="w-[640px] max-w-[92vw]">
             <DialogHeader>
@@ -167,10 +165,10 @@ export function GoalsList({
               </DialogDescription>
             </DialogHeader>
             <GoalComposer
-              key={editing.index ?? "new"}
+              key={editing}
               initial={editingGoal}
               takenNames={goals
-                .filter((_, i) => i !== editing.index)
+                .filter((_, i) => i !== editingIndex)
                 .map((goal) => goal.name)}
               onSave={save}
               onAskAgent={askAgent}

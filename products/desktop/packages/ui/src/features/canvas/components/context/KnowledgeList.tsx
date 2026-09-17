@@ -13,6 +13,7 @@ import {
   type ContextLink,
   type ContextObject,
   isHttpUrl,
+  urlHost,
 } from "@posthog/core/canvas/contextDocument";
 import {
   fileDisplayName,
@@ -35,7 +36,6 @@ import {
 import { useWatchedObjectPreview } from "@posthog/ui/features/canvas/hooks/useWatchedObjectPreview";
 import { useContextWikiPageMutation } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { AddContextDialog, type AddContextMode } from "./AddContextDialog";
 import { EditableNote } from "./EditableNote";
@@ -242,22 +242,12 @@ function LinkRow({
   onRemove: () => void;
   disabled: boolean;
 }) {
-  const navigate = useNavigate();
   const external = isHttpUrl(link.target);
   const parsed = external ? parseContextSourceInput(link.target, null) : null;
   const state = parsed ? sources.byId(parsed.source.id) : undefined;
-  const unconnected = state !== undefined && state.status !== "connected";
+  const unconnected = state && state.status !== "connected" ? state : null;
   const kind =
     parsed && parsed.item.label !== link.title ? parsed.item.label : null;
-  const name = state?.source.name ?? "";
-  const warning = state ? unconnectedWarning(state) : null;
-  const action = !state
-    ? null
-    : state.connecting
-      ? "Waiting"
-      : state.needsCredentials
-        ? connectLabel(state)
-        : `${connectLabel(state)} ${name}`;
   return (
     <KnowledgeRow
       icon={
@@ -271,32 +261,28 @@ function LinkRow({
       }
       title={link.title}
       meta={
-        unconnected && warning ? (
-          <span className="text-warning-foreground">{warning}</span>
+        unconnected ? (
+          <span className="text-warning-foreground">
+            {unconnectedWarning(unconnected)}
+          </span>
         ) : null
       }
-      prefix={kind ?? (external ? hostOf(link.target) : null)}
+      prefix={kind ?? (external ? urlHost(link.target) : null)}
       note={link.note}
       onNoteChange={
-        unconnected && warning
-          ? undefined
-          : (note) => onChange({ ...link, note })
+        unconnected ? undefined : (note) => onChange({ ...link, note })
       }
       onOpen={external ? () => openExternalUrl(link.target) : null}
       onRemove={onRemove}
       actions={
-        unconnected && state ? (
+        unconnected ? (
           <Button
             variant="outline"
             size="xs"
-            disabled={state.connecting}
-            onClick={() =>
-              state.needsCredentials
-                ? void navigate({ to: "/mcp-servers" })
-                : sources.connect(state)
-            }
+            disabled={unconnected.connecting}
+            onClick={() => sources.connect(unconnected)}
           >
-            {action}
+            {connectLabel(unconnected, true)}
           </Button>
         ) : null
       }
@@ -451,12 +437,4 @@ function OpenGlyph() {
       className="opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100"
     />
   );
-}
-
-function hostOf(url: string): string {
-  try {
-    return new URL(url).host.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
 }

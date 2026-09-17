@@ -1,6 +1,5 @@
 import {
   fileDisplayName,
-  fileTitle,
   newFileContent,
 } from "@posthog/core/canvas/contextFiles";
 import { useWikiContextDocumentStore } from "@posthog/ui/features/canvas/hooks/useContextDocumentStore";
@@ -25,7 +24,7 @@ export function SpaceFileDialog({
       fileName={name}
       description={`Saved beside CONTEXT.md. Agents in ${channelName} read it with the rest of the context.`}
       store={store}
-      template={newFileContent(fileTitle(name))}
+      template={newFileContent(name)}
       onClose={onClose}
     />
   );

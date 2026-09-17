@@ -1,10 +1,18 @@
 import type { ContextSourceState } from "@posthog/ui/features/canvas/hooks/useContextSources";
 
-export function connectLabel(state: ContextSourceState): string {
+export function connectLabel(
+  state: ContextSourceState,
+  withName = false,
+): string {
+  if (state.connecting) return "Waiting";
   if (state.needsCredentials) return "Open MCP servers";
-  if (state.status === "needs_reauth") return "Reconnect";
-  if (state.status === "pending_oauth") return "Finish authorizing";
-  return "Connect";
+  const verb =
+    state.status === "needs_reauth"
+      ? "Reconnect"
+      : state.status === "pending_oauth"
+        ? "Finish authorizing"
+        : "Connect";
+  return withName ? `${verb} ${state.source.name}` : verb;
 }
 
 /** Why a link from this source is not readable yet, in the status's own words. */

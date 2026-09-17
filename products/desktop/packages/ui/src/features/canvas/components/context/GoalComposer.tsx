@@ -10,6 +10,7 @@ import {
   type GoalDirection,
   type GoalMeasure,
   type GoalTarget,
+  goalValueSuffix,
 } from "@posthog/core/canvas/contextDocument";
 import {
   looksLikeHogQL,
@@ -26,7 +27,6 @@ import {
 } from "@posthog/quill";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import type { GoalMeasureTask } from "@posthog/ui/features/canvas/goalMeasureTasks";
-import { goalValueSuffix } from "@posthog/ui/features/canvas/goalUnits";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useMutation } from "@tanstack/react-query";
 import {
@@ -138,27 +138,21 @@ export function GoalComposer({
     el.focus();
   }, []);
 
-  const applyTarget = (target: GoalTarget | null) => {
-    if (!target) return;
-    setDirection(target.direction);
-    setTargetValue(String(target.value));
-    setDueDate(target.dueDate ?? "");
-  };
-
   const parsedTarget = targetValue.trim()
     ? Number(targetValue.replace(/,/g, ""))
     : null;
   const targetInvalid = parsedTarget !== null && !Number.isFinite(parsedTarget);
+  const target: GoalTarget | null =
+    parsedTarget !== null && !targetInvalid
+      ? { direction, value: parsedTarget, dueDate: dueDate || null }
+      : null;
 
   const buildGoal = (withMeasure: GoalMeasure | null): ContextGoal => ({
     name: sentenceCase(name.trim()) || "Untitled goal",
     why: initial?.why ?? "",
     measure: withMeasure,
     primary,
-    target:
-      parsedTarget !== null && Number.isFinite(parsedTarget)
-        ? { direction, value: parsedTarget, dueDate: dueDate || null }
-        : null,
+    target,
   });
 
   const save = async () => {
@@ -169,16 +163,10 @@ export function GoalComposer({
   const askAgent = async () => {
     setAskedAgent(true);
     const parsed = parseGoalSentence(sentence.trim());
-    if (!name.trim()) setName(parsed.name);
-    applyTarget(parsed.target);
     await onAskAgent({
       ...buildGoal(null),
       name: sentenceCase(name.trim() || parsed.name),
-      target:
-        parsed.target ??
-        (parsedTarget !== null && Number.isFinite(parsedTarget)
-          ? { direction, value: parsedTarget, dueDate: dueDate || null }
-          : null),
+      target: parsed.target ?? target,
     });
   };
 
@@ -281,8 +269,8 @@ export function GoalComposer({
                 measure={measure}
                 onChange={(sql) =>
                   setMeasure((prev) =>
-                    prev?.kind === "hogql" && prev.trendSql
-                      ? { kind: "hogql", sql, trendSql: prev.trendSql }
+                    prev?.kind === "hogql"
+                      ? { ...prev, sql }
                       : { kind: "hogql", sql },
                   )
                 }

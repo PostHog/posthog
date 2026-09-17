@@ -1,8 +1,10 @@
 import {
+  COMMA,
   maskLiterals,
   restoreLiterals,
   splitClauses,
-  splitTopLevel,
+  splitOn,
+  wordPattern,
 } from "./formatHogQL";
 
 const BLOCKING = new Set([
@@ -15,6 +17,9 @@ const BLOCKING = new Set([
   "INNER JOIN",
   "CROSS JOIN",
 ]);
+const AND = wordPattern("AND");
+const OR = wordPattern("OR");
+
 export type TrendPeriod = "day" | "week" | "month";
 
 export interface DerivedTrend {
@@ -64,7 +69,7 @@ export function deriveTrendSql(
   if (segments[0]?.keyword !== "SELECT") return null;
   if (segments.some((segment) => BLOCKING.has(segment.keyword))) return null;
   const select = segments[0].body.trim();
-  if (!select || splitTopLevel(select, ",").length !== 1) return null;
+  if (!select || splitOn(select, COMMA).length !== 1) return null;
   const from = segments.find((s) => s.keyword === "FROM")?.body.trim();
   if (!from || !/^events\b/i.test(from)) return null;
   const where = segments.find((s) => s.keyword === "WHERE")?.body.trim();
@@ -82,37 +87,8 @@ export function deriveTrendSql(
 }
 
 function withoutTimeFilters(where: string): string[] | null {
-  if (hasTopLevel(where, /\bOR\b/i)) return null;
-  const parts = splitTopLevelWord(where, "AND");
-  return parts
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0 && !/\btimestamp\b/i.test(part))
+  if (splitOn(where, OR).length > 1) return null;
+  return splitOn(where, AND)
+    .filter((part) => !/\btimestamp\b/i.test(part))
     .map((part) => `(${part})`);
-}
-
-function hasTopLevel(text: string, word: RegExp): boolean {
-  return splitTopLevelWord(text, "OR").length > 1 && word.test(text);
-}
-
-function splitTopLevelWord(text: string, word: string): string[] {
-  const pattern = new RegExp(`^${word}\\b`, "i");
-  const parts: string[] = [];
-  let depth = 0;
-  let start = 0;
-  let index = 0;
-  while (index < text.length) {
-    const char = text[index];
-    if (char === "(") depth += 1;
-    if (char === ")") depth = Math.max(0, depth - 1);
-    const atWordStart = index > 0 && text[index - 1] === " ";
-    if (depth === 0 && atWordStart && pattern.test(text.slice(index))) {
-      parts.push(text.slice(start, index));
-      index += word.length;
-      start = index;
-      continue;
-    }
-    index += 1;
-  }
-  parts.push(text.slice(start));
-  return parts;
 }

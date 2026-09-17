@@ -3,6 +3,7 @@ import {
   resolveContextSources,
 } from "@posthog/core/canvas/contextSources";
 import { useMcpServers } from "@posthog/ui/features/mcp-servers/hooks/useMcpServers";
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 
 export interface ContextSourceState extends ResolvedContextSource {
@@ -11,19 +12,16 @@ export interface ContextSourceState extends ResolvedContextSource {
 }
 
 export interface ContextSources {
-  sources: ContextSourceState[];
-  isLoading: boolean;
   connect: (state: ContextSourceState) => void;
   byId: (id: string) => ContextSourceState | undefined;
 }
 
 /** The external sources this space can link, with whether each one's MCP server is connected. */
 export function useContextSources(): ContextSources {
+  const navigate = useNavigate();
   const {
     servers,
-    serversLoading,
     installations,
-    installationsLoading,
     installingId,
     installTemplate,
     reauthorize,
@@ -44,10 +42,10 @@ export function useContextSources(): ContextSources {
   );
 
   return {
-    sources,
-    isLoading: serversLoading || installationsLoading,
     connect: (state) => {
-      if (state.installation && state.status !== "connected") {
+      if (state.needsCredentials) {
+        void navigate({ to: "/mcp-servers" });
+      } else if (state.installation && state.status !== "connected") {
         reauthorize(state.installation.id);
       } else {
         installTemplate(state.template);

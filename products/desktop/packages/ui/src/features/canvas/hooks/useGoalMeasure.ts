@@ -2,9 +2,11 @@ import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import {
   firstNumericCell,
   type GoalMeasure,
+  numericCell,
 } from "@posthog/core/canvas/contextDocument";
 import { insightCurrentValue } from "@posthog/core/canvas/goalMeasures";
 import {
+  type DerivedTrend,
   deriveTrendSql,
   type TrendPeriod,
   trendPeriodFor,
@@ -60,7 +62,7 @@ export interface GoalTrend {
 export function goalTrendQuery(
   goalName: string,
   measure: GoalMeasure | null,
-): { sql: string; period: TrendPeriod } | null {
+): DerivedTrend | null {
   if (measure?.kind !== "hogql") return null;
   const period = trendPeriodFor(goalName, measure.sql);
   const derived = deriveTrendSql(measure.sql, period);
@@ -69,20 +71,10 @@ export function goalTrendQuery(
   return explicit ? { sql: explicit, period } : null;
 }
 
-export const goalTrendQueryKey = (
-  goalName: string,
-  measure: GoalMeasure | null,
-) =>
-  ["context-goal-trend", goalTrendQuery(goalName, measure)?.sql ?? ""] as const;
-
 function lastNumericCell(row: unknown[]): number | null {
   for (let index = row.length - 1; index >= 0; index -= 1) {
-    const cell = row[index];
-    if (typeof cell === "number" && Number.isFinite(cell)) return cell;
-    if (typeof cell === "string" && cell.trim() !== "") {
-      const parsed = Number(cell);
-      if (Number.isFinite(parsed)) return parsed;
-    }
+    const value = numericCell(row[index]);
+    if (value !== null) return value;
   }
   return null;
 }
@@ -121,7 +113,7 @@ function bucketStarts(period: TrendPeriod): Date[] {
 export function useGoalTrend(goalName: string, measure: GoalMeasure | null) {
   const query = goalTrendQuery(goalName, measure);
   return useAuthenticatedQuery<GoalTrend>(
-    goalTrendQueryKey(goalName, measure),
+    ["context-goal-trend", query?.sql ?? ""] as const,
     async (client) => {
       if (!query) return { period: "day", points: [] };
       const grid = await client.runHogQLQuery(query.sql);

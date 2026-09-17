@@ -105,10 +105,6 @@ const SECTION_BY_HEADING: Record<string, ManagedSection> = {
   "goals and measures": "goals",
 };
 
-export function emptyContextDocument(): ContextDocument {
-  return { knowledge: "", links: [], objects: [], goals: [] };
-}
-
 function managedSectionFor(line: string): ManagedSection | null {
   const match = /^##\s+(.+?)\s*$/.exec(line);
   if (!match) return null;
@@ -262,7 +258,12 @@ function parseGoals(lines: string[]): ContextGoal[] {
 }
 
 export function parseContextDocument(markdown: string): ContextDocument {
-  const doc = emptyContextDocument();
+  const doc: ContextDocument = {
+    knowledge: "",
+    links: [],
+    objects: [],
+    goals: [],
+  };
   const knowledge: string[] = [];
   const buckets: Record<ManagedSection, string[]> = {
     links: [],
@@ -323,6 +324,10 @@ function formatTarget(target: GoalTarget): string {
 export function formatNumber(value: number): string {
   if (Number.isInteger(value)) return value.toLocaleString("en-US");
   return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
+export function goalValueSuffix(goalName: string): string {
+  return /%|percent|conversion/i.test(goalName) ? "%" : "";
 }
 
 export function serializeContextDocument(doc: ContextDocument): string {
@@ -424,6 +429,14 @@ export function isHttpUrl(value: string): boolean {
   }
 }
 
+export function urlHost(url: string): string {
+  try {
+    return new URL(url).host.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
 export type GoalStatus =
   | "met"
   | "on_track"
@@ -457,16 +470,20 @@ export function goalProgress(current: number, target: GoalTarget): number {
   return Math.max(0, Math.min(1, current / target.value));
 }
 
+export function numericCell(cell: unknown): number | null {
+  if (typeof cell === "number") return Number.isFinite(cell) ? cell : null;
+  if (typeof cell === "string" && cell.trim() !== "") {
+    const parsed = Number(cell);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 /** The first numeric cell of a HogQL result grid, or null when there is none. */
 export function firstNumericCell(results: unknown[][]): number | null {
-  const row = results[0];
-  if (!row) return null;
-  for (const cell of row) {
-    if (typeof cell === "number" && Number.isFinite(cell)) return cell;
-    if (typeof cell === "string" && cell.trim() !== "") {
-      const parsed = Number(cell);
-      if (Number.isFinite(parsed)) return parsed;
-    }
+  for (const cell of results[0] ?? []) {
+    const value = numericCell(cell);
+    if (value !== null) return value;
   }
   return null;
 }

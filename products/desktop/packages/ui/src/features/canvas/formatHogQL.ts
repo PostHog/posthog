@@ -1,11 +1,18 @@
-const CLAUSE =
-  /^(SELECT DISTINCT|SELECT|FROM|WHERE|GROUP BY|HAVING|ORDER BY|LIMIT|OFFSET|UNION ALL|LEFT JOIN|INNER JOIN|CROSS JOIN|JOIN|WITH)\b/i;
-const CONNECTOR = /^(AND|OR)\b/i;
 const OPENERS = new Set(["(", "[", "{"]);
 const CLOSERS = new Set([")", "]", "}"]);
 const LITERAL = /'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`[^`]*`/g;
 const MASK = String.fromCharCode(0);
 const MASKED = new RegExp(`${MASK}(\\d+)${MASK}`, "g");
+
+export function wordPattern(words: string): RegExp {
+  return new RegExp(`(?<=^|\\s)(?:${words})\\b`, "iy");
+}
+
+const CLAUSE = wordPattern(
+  "SELECT DISTINCT|SELECT|FROM|WHERE|GROUP BY|HAVING|ORDER BY|LIMIT|OFFSET|UNION ALL|LEFT JOIN|INNER JOIN|CROSS JOIN|JOIN|WITH",
+);
+const CONNECTOR = wordPattern("AND|OR");
+export const COMMA = /,/y;
 
 export interface Segment {
   keyword: string;
@@ -46,87 +53,59 @@ function normalize(text: string): string {
   return text.replace(/\s+/g, "").toLowerCase();
 }
 
-export function splitClauses(text: string): Segment[] {
+export function splitOutsideBrackets(text: string, pattern: RegExp): Segment[] {
   const segments: Segment[] = [];
   let current: Segment = { keyword: "", body: "" };
   let depth = 0;
   let index = 0;
   while (index < text.length) {
-    const char = text[index];
-    const atWordStart = index === 0 || text[index - 1] === " ";
-    if (depth === 0 && atWordStart) {
-      const match = CLAUSE.exec(text.slice(index));
-      if (match) {
-        if (current.keyword || current.body.trim()) segments.push(current);
-        current = { keyword: match[1].toUpperCase(), body: "" };
-        index += match[1].length;
-        continue;
-      }
+    pattern.lastIndex = index;
+    const match = depth === 0 ? pattern.exec(text) : null;
+    if (match) {
+      segments.push(current);
+      current = { keyword: match[0], body: "" };
+      index += match[0].length;
+      continue;
     }
+    const char = text[index];
     if (OPENERS.has(char)) depth += 1;
     if (CLOSERS.has(char)) depth = Math.max(0, depth - 1);
     current.body += char;
     index += 1;
   }
   segments.push(current);
-  return segments;
+  return segments.filter((segment) => segment.keyword || segment.body.trim());
+}
+
+export function splitOn(text: string, pattern: RegExp): string[] {
+  return splitOutsideBrackets(text, pattern)
+    .map((segment) => segment.body.trim())
+    .filter((body) => body.length > 0);
+}
+
+export function splitClauses(text: string): Segment[] {
+  return splitOutsideBrackets(text, CLAUSE).map(({ keyword, body }) => ({
+    keyword: keyword.toUpperCase(),
+    body,
+  }));
 }
 
 function renderSegment({ keyword, body }: Segment): string {
   const text = body.trim();
   if (!keyword) return text;
   if (keyword.startsWith("SELECT")) {
-    const items = splitTopLevel(text, ",");
+    const items = splitOn(text, COMMA);
     return items.length > 1 || text.length > 60
       ? `${keyword}\n  ${items.join(",\n  ")}`
       : `${keyword} ${text}`;
   }
   if (keyword === "WHERE" || keyword === "HAVING") {
-    return `${keyword} ${splitConnectors(text).join("\n  ")}`;
+    const lines = splitOutsideBrackets(text, CONNECTOR).map((segment) =>
+      [segment.keyword.toUpperCase(), segment.body.trim()]
+        .filter(Boolean)
+        .join(" "),
+    );
+    return `${keyword} ${lines.join("\n  ")}`;
   }
   return `${keyword} ${text}`;
-}
-
-export function splitTopLevel(text: string, separator: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (OPENERS.has(char)) depth += 1;
-    if (CLOSERS.has(char)) depth = Math.max(0, depth - 1);
-    if (depth === 0 && char === separator) {
-      parts.push(text.slice(start, index).trim());
-      start = index + 1;
-    }
-  }
-  parts.push(text.slice(start).trim());
-  return parts.filter((part) => part.length > 0);
-}
-
-function splitConnectors(text: string): string[] {
-  const lines: string[] = [];
-  let depth = 0;
-  let start = 0;
-  let index = 0;
-  while (index < text.length) {
-    const char = text[index];
-    if (OPENERS.has(char)) depth += 1;
-    if (CLOSERS.has(char)) depth = Math.max(0, depth - 1);
-    const atWordStart = index > 0 && text[index - 1] === " ";
-    if (depth === 0 && atWordStart) {
-      const match = CONNECTOR.exec(text.slice(index));
-      if (match) {
-        lines.push(text.slice(start, index).trim());
-        start = index;
-        index += match[1].length;
-        continue;
-      }
-    }
-    index += 1;
-  }
-  lines.push(text.slice(start).trim());
-  return lines
-    .filter((line) => line.length > 0)
-    .map((line) => line.replace(CONNECTOR, (word) => word.toUpperCase()));
 }

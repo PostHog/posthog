@@ -11,9 +11,9 @@ import { isTerminalStatus, type Task } from "@posthog/shared/domain-types";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import {
   buildGoalMeasurePrompt,
+  GOAL_MEASURE_AGENT,
   goalMeasureTaskTitle,
 } from "@posthog/ui/features/canvas/contextPrompt";
-import { GOAL_MEASURE_AGENT } from "@posthog/ui/features/canvas/goalMeasureAgent";
 import {
   type GoalMeasureTask,
   readGoalMeasureTaskIds,
@@ -118,14 +118,9 @@ export function SpaceContextPage({
       ...store,
       content: doc.knowledge,
       save: (knowledge) =>
-        store.save(
-          serializeContextDocument({
-            ...parseContextDocument(store.content),
-            knowledge,
-          }),
-        ),
+        store.save(serializeContextDocument({ ...doc, knowledge })),
     }),
-    [store, doc.knowledge],
+    [store, doc],
   );
 
   const askAgentForMeasure = async (goal: ContextGoal) => {
@@ -203,19 +198,21 @@ export function SpaceContextPage({
         <div className="@container min-h-0 flex-1 overflow-y-auto">
           <div className={cn(COLUMN, "flex flex-col gap-6 pt-10 pb-24")}>
             {store.saveError ? (
-              <Notice
-                tone="warning"
-                message={
-                  store.isConflict
+              <div className="flex items-center justify-between gap-3 border-border border-y py-2.5">
+                <Text size="xs" className="text-warning-foreground">
+                  {store.isConflict
                     ? "Someone else saved a newer version while you were editing. Reload to see it, then make your change again."
-                    : `Could not save: ${store.saveError.message}`
-                }
-                action={
-                  <Button variant="outline" size="sm" onClick={store.refetch}>
-                    Reload
-                  </Button>
-                }
-              />
+                    : `Could not save: ${store.saveError.message}`}
+                </Text>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={store.refetch}
+                >
+                  Reload
+                </Button>
+              </div>
             ) : null}
 
             {isBlank ? (
@@ -292,26 +289,4 @@ function taskStateFor(
     ? isTerminalStatus(task.latest_run?.status)
     : !loading && channelTasks.length > 0;
   return { taskId, state: ended ? "ended" : "running" };
-}
-
-function Notice({
-  message,
-  action,
-  tone = "default",
-}: {
-  message: string;
-  action: React.ReactNode;
-  tone?: "default" | "warning";
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-border border-y py-2.5">
-      <Text
-        size="xs"
-        className={tone === "warning" ? "text-warning-foreground" : undefined}
-      >
-        {message}
-      </Text>
-      <div className="flex shrink-0 items-center gap-1">{action}</div>
-    </div>
-  );
 }
