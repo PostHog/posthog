@@ -158,6 +158,9 @@ jobs:
                         - 'posthog/person_db_router.py'
                         - 'posthog/persons_db.py'
                         - 'posthog/personhog_client/**'
+                        # The gRPC stubs personhog_client imports. check-dagster-paths.py reads
+                        # `personhog` as third-party, so it cannot flag this entry as missing.
+                        - 'packages/personhog-proto/**'
                         - 'posthog/redis.py'
                         - 'posthog/storage/**'
                         - 'posthog/event_usage.py'

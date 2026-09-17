@@ -548,6 +548,9 @@ jobs:
                         - pyproject.toml
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
+                        # The personhog gRPC stubs are an installed package, outside the
+                        # local packages the import analysis graphs.
+                        - 'packages/personhog-proto/**'
 
                       llmAnalyticsEvals:
                         - 'posthog/temporal/ai_observability/**'

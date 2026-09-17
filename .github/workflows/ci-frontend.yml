@@ -139,6 +139,8 @@ jobs:
                         - '!.github/workflows/desktop-*.yml'
                         - '!.github/actions/desktop-*/**'
                         - '!.github/scripts/desktop/**'
+                        # The personhog Python stubs sit under packages/ but no frontend code reads them
+                        - '!packages/personhog-proto/**'
                         - 'playwright/**'
                         - 'docs/**/*.tsx'
                         # Make sure we run if someone is explicitly change the workflow
@@ -182,6 +184,8 @@ jobs:
                         # products/desktop is the imported desktop app; it has its own
                         # desktop-* CI and must not drag this suite onto its PRs
                         - '!products/desktop/**'
+                        # The personhog Python stubs sit under packages/ but no frontend code reads them
+                        - '!packages/personhog-proto/**'
                         - 'playwright/**'
                         # The onboarding step components compile into the app and sit in the
                         # frontend tsconfig program, so they are code, not docs.

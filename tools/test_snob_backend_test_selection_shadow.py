@@ -296,6 +296,7 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             ("quarantine_lift", ".test_quarantine.json"),
             ("hogql_parser_sources", "common/hogql_parser/HogQLParser.cpp"),
             ("hogvm", "common/hogvm/python/execute.py"),
+            ("personhog_stubs", "packages/personhog-proto/personhog/types/v1/person_pb2.py"),
             ("product_manifest", "products/surveys/manifest.tsx"),
         ]
     )
