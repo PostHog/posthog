@@ -909,7 +909,10 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // the API may normalize the stored node (injected defaults, version
         // stamps), and a comparison against that would never match and would
         // save a duplicate insight on every click.
-        lastSavedQueryNode: [null as MetricsQuery | null, { setLastSavedQueryNode: (_, { query }) => query }],
+        lastSavedQueryNode: [
+            null as MetricsQuery | MetricsHistogramQuery | null,
+            { setLastSavedQueryNode: (_, { query }) => query },
+        ],
         // Armed while an addToDashboard-initiated save is in flight, so the success
         // path opens the modal instead of the "View insight" toast. Not reset on
         // success by a reducer — the success listener must still read it as armed.
