@@ -24,6 +24,8 @@ import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { AnyPropertyFilter, CohortPropertyFilter, HeatmapType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { heatmapsBrowserLogic, redirectEmptyStateMessage } from './heatmapsBrowserLogic'
+
 const cohortIdsToPropertyFilters = (ids: number[]): AnyPropertyFilter[] =>
     ids.map((id) => ({
         type: PropertyFilterType.Cohort,
@@ -108,6 +110,30 @@ export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.
  * values and actions are passed as props because they are different
  * between fixed and embedded mode
  */
+function EmptyHeatmapBanner(): JSX.Element {
+    const { redirectDestination } = useValues(heatmapsBrowserLogic)
+    const { setDataUrl } = useActions(heatmapsBrowserLogic)
+
+    if (redirectDestination) {
+        return (
+            <LemonBanner
+                type="info"
+                className="mb-2"
+                action={{ children: 'Use the destination', onClick: () => setDataUrl(redirectDestination) }}
+            >
+                {redirectEmptyStateMessage(redirectDestination)}
+            </LemonBanner>
+        )
+    }
+
+    return (
+        <LemonBanner type="info" className="mb-2">
+            No data found. Try a different date range or URL, or lower the "Viewport accuracy" in heatmap settings. A
+            high value can hide data on pages with less traffic.
+        </LemonBanner>
+    )
+}
+
 export function FilterPanel({
     captureMethod,
     onCaptureMethodChange,
@@ -309,12 +335,7 @@ export function FilterPanel({
                 </div>
                 <ViewportChooser lockedWidth={lockedWidth} />
             </div>
-            {heatmapEmpty ? (
-                <LemonBanner type="info" className="mb-2">
-                    No data found. Try a different date range or URL, or lower the "Viewport accuracy" in heatmap
-                    settings. A high value can hide data on pages with less traffic.
-                </LemonBanner>
-            ) : null}
+            {heatmapEmpty ? <EmptyHeatmapBanner /> : null}
         </div>
     )
 }

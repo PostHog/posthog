@@ -40,11 +40,14 @@ class PreflightResult:
     blocked_by: BlockedBy | None
     http_status: int | None
     body_excerpt: str | None
+    # The page the chain ended on. Heatmap rows are keyed by the URL the SDK reported, so an entry
+    # URL that redirects holds none of them, and only the final URL says where they actually are.
+    resolved_url: str | None
 
 
 # Carries no status on purpose: the UI reads a status as the host's own answer about the page, and
 # a status from a hop that never resolved into a page is not that.
-_INCONCLUSIVE = PreflightResult("unknown", None, None, None)
+_INCONCLUSIVE = PreflightResult("unknown", None, None, None, None)
 
 
 def _effective_port(parts: SplitResult, scheme: str) -> int | None:
@@ -166,7 +169,7 @@ def _probe(url: str) -> PreflightResult:
                 )
                 if 200 <= res.status_code < 300:
                     framing, blocked_by = analyze_framing_headers(dict(res.headers))
-                    return PreflightResult(framing, blocked_by, res.status_code, None)
+                    return PreflightResult(framing, blocked_by, res.status_code, None, current)
 
                 if res.status_code in _REDIRECT_STATUSES:
                     location = res.headers.get("location")
@@ -182,7 +185,7 @@ def _probe(url: str) -> PreflightResult:
                 # The headers on any other non-2xx belong to the host's error response rather than
                 # to the page, so they say nothing about framing either way. The status is the
                 # answer worth reporting.
-                return PreflightResult("unknown", None, res.status_code, _body_excerpt(res, deadline))
+                return PreflightResult("unknown", None, res.status_code, _body_excerpt(res, deadline), current)
         except SSRFBlockedError as e:
             logger.info("heatmap_preflight.url_blocked", reason=str(e))
             return _INCONCLUSIVE
@@ -204,7 +207,7 @@ def preflight_page(url: str) -> PreflightResult:
     failure can be retried.
     """
     url = strip_userinfo(url)
-    cache_key = f"heatmap_preflight:{sha256(url.encode()).hexdigest()}"
+    cache_key = f"heatmap_preflight:v2:{sha256(url.encode()).hexdigest()}"
     cached = cache.get(cache_key)
     if isinstance(cached, PreflightResult):
         return cached

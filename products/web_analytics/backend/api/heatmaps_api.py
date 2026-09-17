@@ -1507,6 +1507,11 @@ class HeatmapPreflightResponseSerializer(serializers.Serializer):
         help_text="Short whitespace-collapsed excerpt of the response body, only present for non-2xx responses, so "
         "the user can see what their host returned. Truncated.",
     )
+    resolved_url = serializers.CharField(
+        allow_null=True,
+        help_text="The URL the page finally settled on after any redirects. When it differs from the requested URL, "
+        "heatmap interactions are recorded against this URL instead. Null when the page could not be reached.",
+    )
 
 
 # AccessControlPermission lets a collection action through on a grant over any single heatmap, which

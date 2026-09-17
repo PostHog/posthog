@@ -397,6 +397,11 @@ export interface HeatmapPreflightResponseApi {
      * @nullable
      */
     body_excerpt: string | null
+    /**
+     * The URL the page finally settled on after any redirects. When it differs from the requested URL, heatmap interactions are recorded against this URL instead. Null when the page could not be reached.
+     * @nullable
+     */
+    resolved_url: string | null
 }
 
 export interface HeatmapPrewarmRequestApi {

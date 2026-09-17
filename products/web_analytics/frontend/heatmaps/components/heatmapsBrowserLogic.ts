@@ -35,6 +35,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { hogql } from '~/queries/utils'
+import { HeatmapResponseType } from '~/toolbar/types'
 
 import { savedPreflightCreate } from 'products/web_analytics/frontend/generated/api'
 import type { HeatmapPreflightResponseApi } from 'products/web_analytics/frontend/generated/api.schemas'
@@ -97,6 +98,42 @@ export function preflightBannerMessage(preflight: PagePreflight | null): string 
     return null
 }
 
+const withoutTrailingSlash = (url: string): string => url.trim().replace(/\/+$/, '')
+
+/**
+ * Whether two URLs name the same page. Surrounding whitespace and a trailing slash do not count,
+ * which is how the heatmap queries compare a URL too.
+ */
+export const isSameHeatmapUrl = (a: string | null, b: string | null): boolean =>
+    !!a && !!b && withoutTrailingSlash(a) === withoutTrailingSlash(b)
+
+/**
+ * The page the heatmap data URL redirects to, or null when it does not redirect.
+ *
+ * Heatmap rows are keyed by the URL the SDK reported, so an entry URL that redirects holds none of
+ * them however much traffic it gets. Only the page at the end of the chain does.
+ */
+export function heatmapUrlRedirect(preflight: PagePreflight | null, dataUrl: string | null): string | null {
+    if (!preflight?.resolved_url || !dataUrl || isUrlPattern(dataUrl)) {
+        return null
+    }
+    // A host that says the destination is gone leaves nowhere to point the data URL. A 403 or 429 is
+    // bot protection answering our probe rather than the page missing, so those keep the notice.
+    if (preflight.http_status === 404 || preflight.http_status === 410) {
+        return null
+    }
+    // A verdict for some other page says nothing about where this one's interactions are.
+    if (!isSameHeatmapUrl(preflight.url, dataUrl)) {
+        return null
+    }
+    return isSameHeatmapUrl(preflight.resolved_url, preflight.url) ? null : preflight.resolved_url
+}
+
+export const redirectEmptyStateMessage = (destination: string): string =>
+    `This page redirects to ${destination}, and interactions are recorded against the page people land on, so this ` +
+    `URL holds no data. Point the heatmap data URL at the destination, or add a wildcard to it if the destination ` +
+    `differs per visitor.`
+
 // Helper function to detect if a URL contains regex pattern characters
 export const isUrlPattern = (url: string): boolean => {
     return /[*+?^${}()|[\]\\]/.test(url)
@@ -155,10 +192,11 @@ export interface heatmapsBrowserLogicValues {
     isBrowserUrlValid: boolean
     loadTimeoutBanner: IFrameBanner | null
     loading: boolean
-    noPageviews: boolean
+    noHeatmapUrls: boolean
     pagePreflight: PagePreflight | null
     pagePreflightLoading: boolean
     preflightMessage: string | null
+    redirectDestination: string | null
     replayIframeData: ReplayIframeData | null
     topUrls:
         | {
@@ -178,6 +216,17 @@ export interface heatmapsBrowserLogicValues {
 export interface heatmapsBrowserLogicActions {
     loadHeatmap: () => {
         value: true
+    } // heatmapDataLogic
+    loadHeatmapSuccess: (
+        rawHeatmap: HeatmapResponseType | null,
+        payload?: {
+            value: true
+        }
+    ) => {
+        rawHeatmap: HeatmapResponseType | null
+        payload?: {
+            value: true
+        }
     } // heatmapDataLogic
     patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => {
         filters: Partial<HeatmapFilters>
@@ -319,6 +368,7 @@ export interface heatmapsBrowserLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         currentPagePreflight: (pagePreflight: PagePreflight | null, displayUrl: string | null) => PagePreflight | null
         preflightMessage: (currentPagePreflight: PagePreflight | null) => string | null
+        redirectDestination: (currentPagePreflight: PagePreflight | null, dataUrl: string | null) => string | null
         iframeBanner: (preflightMessage: string | null, loadTimeoutBanner: IFrameBanner | null) => IFrameBanner | null
         browserUrlSearchOptions: (
             browserSearchResults: string[] | null,
@@ -342,7 +392,7 @@ export interface heatmapsBrowserLogicMeta {
             max: number
             min: number
         }
-        noPageviews: (
+        noHeatmapUrls: (
             topUrlsLoading: boolean,
             topUrls:
                 | {
@@ -393,6 +443,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             heatmapDataLogic({ context: 'in-app' }),
             [
                 'loadHeatmap',
+                'loadHeatmapSuccess',
                 'setHref',
                 'setHrefMatchType',
                 'setWindowWidthOverride',
@@ -455,13 +506,15 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             null as { url: string; count: number }[] | null,
             {
                 loadTopUrls: async () => {
+                    // Ranked on heatmap rows, not pageviews. A page the user is redirected away from
+                    // fires a pageview but collects no interaction, so ranking on pageviews puts a URL
+                    // that can never hold heatmap data at the top of the suggestions.
                     const query = hogql`
-                        SELECT properties.$current_url AS url, count() as count
-                        FROM events
+                        SELECT current_url AS url, count() as count
+                        FROM heatmaps
                         WHERE timestamp >= now() - INTERVAL 7 DAY
-                        AND event in ('$pageview', '$autocapture')
                         AND timestamp <= now()
-                        GROUP BY properties.$current_url
+                        GROUP BY current_url
                         ORDER BY count DESC
                         LIMIT 10`
 
@@ -571,11 +624,16 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         currentPagePreflight: [
             (s) => [s.pagePreflight, s.displayUrl],
             (pagePreflight: PagePreflight | null, displayUrl: string | null): PagePreflight | null =>
-                pagePreflight?.url === displayUrl ? pagePreflight : null,
+                isSameHeatmapUrl(pagePreflight?.url ?? null, displayUrl) ? pagePreflight : null,
         ],
         preflightMessage: [
             (s) => [s.currentPagePreflight],
             (currentPagePreflight: PagePreflight | null): string | null => preflightBannerMessage(currentPagePreflight),
+        ],
+        redirectDestination: [
+            (s) => [s.currentPagePreflight, s.dataUrl],
+            (currentPagePreflight: PagePreflight | null, dataUrl: string | null): string | null =>
+                heatmapUrlRedirect(currentPagePreflight, dataUrl),
         ],
         // Derived rather than pushed into loadTimeoutBanner, because stopTrackingLoading nulls that
         // banner as soon as the iframe fires onload, which a blocked frame does immediately.
@@ -638,7 +696,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             },
         ],
 
-        noPageviews: [
+        noHeatmapUrls: [
             (s) => [s.topUrlsLoading, s.topUrls],
             (
                 topUrlsLoading: boolean,
@@ -721,6 +779,15 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 inapp_heatmap_color_palette: values.heatmapColorPalette,
                 inapp_heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
             })
+        },
+
+        // An empty heatmap is the only moment the redirect matters, and probing the page costs an
+        // outbound request, so the probe waits for it rather than running on every URL change.
+        loadHeatmapSuccess: () => {
+            const url = values.displayUrl?.trim()
+            if (values.heatmapEmpty && url && !isUrlPattern(url)) {
+                actions.checkPagePreflight(url)
+            }
         },
 
         maybeLoadTopUrls: () => {

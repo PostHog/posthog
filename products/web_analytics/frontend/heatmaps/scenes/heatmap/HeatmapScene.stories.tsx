@@ -121,6 +121,37 @@ export const IframeExample: Story = {
     ],
 }
 
+// An entry URL that redirects collects pageviews but no interactions, so the heatmap is empty for a
+// reason the generic empty state never names.
+export const IframeExampleRedirected: Story = {
+    parameters: {
+        pageUrl: urls.heatmap('hm_iframe'),
+        testOptions: {
+            waitForLoadersToDisappear: true,
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/saved/hm_iframe/': () => [200, makeIframeSaved()],
+                '/api/projects/:team_id/heatmaps/': () => [200, { results: [], count: 0, next: null, previous: null }],
+            },
+            post: {
+                '/api/projects/:team_id/saved/preflight/': () => [
+                    200,
+                    {
+                        framing: 'allowed',
+                        blocked_by: null,
+                        http_status: 200,
+                        body_excerpt: null,
+                        resolved_url: 'https://example.com/app/home',
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
 export const IframeExampleWithEventFilter: Story = {
     parameters: {
         ...IframeExample.parameters,

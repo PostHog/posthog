@@ -95,7 +95,9 @@ const queryMock =
     async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
         const body = (await request.json()) as { query?: { query?: string } }
         const query = body.query?.query ?? ''
-        return query.includes('FROM heatmaps')
+        // The top-URL suggestions read the heatmaps table too, so the count query is told apart by
+        // its aggregate rather than by its table.
+        return query.includes('SELECT count() FROM heatmaps')
             ? [200, { results: [[matchingCount]] }]
             : [200, { results: [['https://example.com/pricing', 120]] }]
     }
@@ -159,6 +161,25 @@ export const NoMatchingData: Story = {
             mocks: {
                 post: {
                     '/api/environments/:team_id/query/:kind': queryMock(0),
+                },
+            },
+        },
+    },
+}
+
+export const NoMatchingDataBecauseOfRedirect: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/:kind': queryMock(0),
+                    '/api/projects/:team_id/saved/preflight/': {
+                        framing: 'allowed',
+                        blocked_by: null,
+                        http_status: 200,
+                        body_excerpt: null,
+                        resolved_url: 'https://example.com/app/home',
+                    },
                 },
             },
         },

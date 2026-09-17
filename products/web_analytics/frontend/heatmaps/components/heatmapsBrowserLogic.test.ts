@@ -8,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 
 import {
     PagePreflight,
+    heatmapUrlRedirect,
     heatmapsBrowserLogic,
     normalizeHeatmapDataUrl,
     preflightBannerMessage,
@@ -31,6 +32,61 @@ describe('heatmapsBrowserLogic', () => {
         })
     })
 
+    describe('heatmapUrlRedirect', () => {
+        const preflight = (resolved_url: string | null): PagePreflight => ({
+            url: 'https://example.com/',
+            framing: 'allowed',
+            blocked_by: null,
+            http_status: 200,
+            body_excerpt: null,
+            resolved_url,
+        })
+
+        it.each([
+            [
+                'names the page the entry URL redirects to',
+                'https://example.com/app/home',
+                'https://example.com/',
+                'https://example.com/app/home',
+            ],
+            [
+                'treats a trailing slash as the same page',
+                'https://example.com/pricing/',
+                'https://example.com/pricing',
+                null,
+            ],
+            ['stays silent when the page does not redirect', 'https://example.com/', 'https://example.com/', null],
+            ['stays silent when the probe reached nothing', null, 'https://example.com/', null],
+        ] as const)('%s', (_name, resolvedUrl, dataUrl, expected) => {
+            expect(heatmapUrlRedirect(preflight(resolvedUrl), dataUrl)).toBe(expected)
+        })
+
+        // A wildcard data URL can already cover the destination, so calling it a redirect would send
+        // the user to change a URL that is not the problem.
+        it('stays silent for a wildcard data URL', () => {
+            expect(heatmapUrlRedirect(preflight('https://example.com/app/home'), 'https://example.com/*')).toBeNull()
+        })
+
+        // Pointing the data URL at a destination the host says is gone would only produce another
+        // empty heatmap, so the notice has nothing useful to offer there.
+        it.each([404, 410])('stays silent when the destination is gone (%s)', (httpStatus) => {
+            expect(
+                heatmapUrlRedirect(
+                    { ...preflight('https://example.com/app/home'), http_status: httpStatus },
+                    'https://example.com/'
+                )
+            ).toBeNull()
+        })
+
+        // The probe follows the page URL, which the user can point away from the data URL. Reading that
+        // verdict against the data URL would announce a redirect the data URL does not have.
+        it('stays silent when the probed page is not the data URL', () => {
+            expect(
+                heatmapUrlRedirect(preflight('https://example.com/app/home'), 'https://example.com/other')
+            ).toBeNull()
+        })
+    })
+
     describe('preflightBannerMessage', () => {
         const base: PagePreflight = {
             url: 'https://shop.example.com/p',
@@ -38,6 +94,7 @@ describe('heatmapsBrowserLogic', () => {
             blocked_by: null,
             http_status: 200,
             body_excerpt: null,
+            resolved_url: 'https://shop.example.com/p',
         }
 
         it.each([
@@ -182,6 +239,70 @@ describe('heatmapsBrowserLogic', () => {
         })
     })
 
+    describe('redirect destination', () => {
+        beforeEach(() => {
+            initKeaTests()
+            jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        // The reported failure: the picker steers the user to an entry URL that redirects, the heatmap
+        // comes back empty, and the empty state blames the date range instead of the redirect.
+        it('probes an empty page and names where its interactions actually are', async () => {
+            const logic = heatmapsBrowserLogic({ iframeRef: { current: null } })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setDisplayUrl('https://example.com/')
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                heatmapDataLogic({ context: 'in-app' }).actions.loadHeatmapSuccess({ results: [] } as any)
+            }).toDispatchActions(['checkPagePreflight'])
+
+            logic.actions.checkPagePreflightSuccess({
+                url: 'https://example.com/',
+                framing: 'allowed',
+                blocked_by: null,
+                http_status: 200,
+                body_excerpt: null,
+                resolved_url: 'https://example.com/app/home',
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.redirectDestination).toBe('https://example.com/app/home')
+        })
+
+        // A pasted page URL can carry whitespace, and the probe runs on the trimmed URL, so a
+        // verdict matched against the raw one would be thrown away as stale.
+        it('reads the verdict when the page URL carries whitespace', async () => {
+            const logic = heatmapsBrowserLogic({ iframeRef: { current: null } })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setDisplayUrl('https://example.com/pricing ')
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                heatmapDataLogic({ context: 'in-app' }).actions.loadHeatmapSuccess({ results: [] } as any)
+            }).toDispatchActions(['checkPagePreflight'])
+
+            logic.actions.checkPagePreflightSuccess({
+                url: 'https://example.com/pricing',
+                framing: 'allowed',
+                blocked_by: null,
+                http_status: 200,
+                body_excerpt: null,
+                resolved_url: 'https://example.com/app/pricing',
+            })
+
+            expect(logic.values.redirectDestination).toBe('https://example.com/app/pricing')
+        })
+    })
+
     describe('iframeBanner', () => {
         beforeEach(() => {
             initKeaTests()
@@ -238,6 +359,7 @@ describe('heatmapsBrowserLogic', () => {
                 blocked_by: 'x_frame_options',
                 http_status: 200,
                 body_excerpt: null,
+                resolved_url: 'https://shop.example.com/p',
             })
             logic.actions.onIframeLoad()
             await expectLogic(logic).toFinishAllListeners()
