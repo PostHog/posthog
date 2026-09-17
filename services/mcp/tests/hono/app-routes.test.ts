@@ -227,6 +227,13 @@ describe('Hono App Routes', () => {
                 'Bearer resource_metadata="https://mcp.us.posthog.com/.well-known/oauth-protected-resource/mcp?region=us"'
             )
         })
+
+        it('does not change the host in the SSE redirect, and keeps the forwarded protocol', async () => {
+            const { app } = createApp(mockRedis)
+            const res = await app.request(new Request('http://mcp.us.posthog.com/sse', { headers }))
+            expect(res.status).toBe(308)
+            expect(res.headers.get('location')).toBe('https://mcp.us.posthog.com/mcp?_deprecated=sse')
+        })
     })
 
     describe('MCP auth on /mcp', () => {
