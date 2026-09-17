@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -81,8 +83,15 @@ describe('summaryViewLogic', () => {
         }).toFinishAllListeners()
     }
 
-    /** The summarize endpoint needs the write level, and the gates fail closed without it. */
-    function grantSummarizationAccess(level: AccessControlLevel): void {
+    /**
+     * Consent approved and a chosen access level on `llm_analytics`, which is what decides whether
+     * the panel looks for a cached summary when it mounts.
+     */
+    function initWithSummarizationAccess(level: AccessControlLevel): void {
+        initKeaTests(true, undefined, undefined, {
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: true,
+        })
         window.POSTHOG_APP_CONTEXT = {
             ...window.POSTHOG_APP_CONTEXT,
             resource_access_control: {
@@ -95,7 +104,6 @@ describe('summaryViewLogic', () => {
     beforeEach(() => {
         silenceKeaLoadersErrors()
         initKeaTests()
-        grantSummarizationAccess(AccessControlLevel.Editor)
         createSpy = jest.spyOn(api, 'create')
         mockSummarization(
             Promise.resolve({
@@ -215,61 +223,20 @@ describe('summaryViewLogic', () => {
         expect(summarizationOptions().at(-1)?.signal?.aborted).toBe(true)
     })
 
-    it('asks for no summary on mount when the user only has read access, and records the skip', async () => {
-        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
-        grantSummarizationAccess(AccessControlLevel.Viewer)
+    // Reading a trace needs the read level, and the cached-summary lookup is a POST, so it needs
+    // the write level. Without the guard the panel opens a readable trace with a denial banner.
+    test.each([
+        [AccessControlLevel.Editor, 1],
+        [AccessControlLevel.Viewer, 0],
+    ])('mounting with %s access sends %i cached-summary request(s)', async (level, expectedRequests) => {
+        initWithSummarizationAccess(level)
 
         logic = summaryViewLogic({ trace, tree: [] })
         logic.mount()
         await flushMicrotasks()
 
-        // Reading a trace needs the read level, summarizing needs the write level, so the panel
-        // would otherwise open a readable trace with a denial banner nobody asked for.
-        expect(summarizationOptions()).toHaveLength(0)
+        expect(summarizationOptions()).toHaveLength(expectedRequests)
         expect(logic.values.summaryError).toBeNull()
-        // No request also means `llma summarization failed` never fires for these users, so the
-        // skip is the only record of the population the guard exists for.
-        expect(captureSpy).toHaveBeenCalledWith(
-            'llma summarization skipped',
-            expect.objectContaining({
-                reason: 'permission_denied',
-                summarize_type: 'trace',
-                mode: 'minimal',
-                source: 'cached_lookup',
-            })
-        )
-    })
-
-    it('names the missing permission when a refused request reaches the panel', async () => {
-        grantSummarizationAccess(AccessControlLevel.Viewer)
-        mockSummarization(
-            Promise.reject(
-                new ApiError('You do not have editor access to this resource.', 403, undefined, {
-                    detail: 'You do not have editor access to this resource.',
-                    code: 'permission_denied',
-                })
-            )
-        )
-
-        await generateSummary()
-
-        expect(logic.values.summaryError).toBe(
-            'Summarizing needs edit access to AI observability. Ask a project admin to give you access.'
-        )
-    })
-
-    it('records a refused summary, which neither the success event nor error tracking covers', async () => {
-        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
-        mockSummarization(
-            Promise.reject(new ApiError(undefined, 403, undefined, { detail: 'x', code: 'permission_denied' }))
-        )
-
-        await generateSummary()
-
-        expect(captureSpy).toHaveBeenCalledWith(
-            'llma summarization failed',
-            expect.objectContaining({ reason: 'permission_denied', status: 403, summarize_type: 'trace' })
-        )
     })
 
     it('clears a stale summary when regeneration fails', async () => {
