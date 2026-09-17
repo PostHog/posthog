@@ -17,7 +17,7 @@ This is the source for the PostHog desktop and mobile apps and the agent framewo
 ### Prerequisites
 
 - Node.js 22+
-- pnpm 10.23.0
+- pnpm 10.29.3
 
 ### Setup
 
