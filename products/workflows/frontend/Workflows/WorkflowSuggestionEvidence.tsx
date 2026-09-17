@@ -55,7 +55,7 @@ export function WorkflowSuggestionEvidence({ evidence }: { evidence: Record<stri
                 )}
                 {evidenceDisagrees(evidence, measured) && (
                     <span className="text-warning">
-                        The scout reported {current ?? 'no value'}
+                        This suggestion claimed {current ?? 'no value'}
                         {sample !== null ? ` on ${sample}` : ''}, which is not what PostHog measured. Read its reasoning
                         with that in mind.
                     </span>
