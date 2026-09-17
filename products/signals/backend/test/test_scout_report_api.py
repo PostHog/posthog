@@ -1617,6 +1617,45 @@ class TestScoutReportAPI(APIBaseTest):
         assert stored["alice"]["source_skill"] == run.skill_name
         assert stored["dave"]["source_skill"] == run.skill_name
 
+    def test_edit_report_keeps_legacy_reviewer_with_oversized_reasons(self) -> None:
+        # Reviewer reasons stored before the length cap must not cost a re-picked reviewer their
+        # commit evidence and display name. The row is written raw because the schema now rejects
+        # these lengths on write.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps(
+                [
+                    {
+                        "github_login": "alice",
+                        "github_name": "Alice A.",
+                        "reason": "x" * 501,
+                        "relevant_commits": [
+                            {"sha": "abc123f", "url": "https://example.com/c/abc123f", "reason": "y" * 501}
+                        ],
+                    }
+                ]
+            ),
+        )
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "suggested_reviewers": [{"github_login": "alice"}]},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        artefact = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
+        assert artefact is not None
+        stored = json.loads(artefact.content)[0]
+        assert stored["github_name"] == "Alice A."
+        assert stored["reason"] is None
+        assert stored["relevant_commits"] == [{"sha": "abc123f", "url": "https://example.com/c/abc123f", "reason": ""}]
+
     def test_edit_uses_scout_picks_verbatim_and_stamps_owners_on_any_report(self) -> None:
         # No injection: an edit replaces reviewers with the scout's picks in order, even on a report
         # the skill didn't author. But a picked *owner* is stamped `is_skill_owner=True` on any report
