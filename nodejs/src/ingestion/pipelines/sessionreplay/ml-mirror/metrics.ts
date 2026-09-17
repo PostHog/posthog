@@ -26,6 +26,7 @@ export type MlKeyRequest =
     | 'kms_wait'
     | 'dynamodb_read'
     | 'dynamodb_put'
+    | 'dynamodb_put_batch'
     | 'dynamodb_put_if_absent'
 export type MlImageSourceKind = 'inline' | 'url'
 

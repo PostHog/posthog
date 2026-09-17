@@ -544,6 +544,46 @@ export const MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {
     productKey: ProductKey.MARKETING_ANALYTICS,
 }
 
+const tagQueryNode = <T extends QuerySchema>(node: T, presetId: string): T => {
+    // Only extend tags that are already there. Nodes without them were left untagged on purpose,
+    // and creating one would change what the query log attributes to web analytics. Tags can sit
+    // on the wrapper, the source, or both (WebVitalsQuery tags the wrapper), so the node's own
+    // tags are stamped before recursing rather than instead of it.
+    const tags = (node as { tags?: QueryLogTags }).tags
+    const tagged = tags ? { ...node, tags: { ...tags, presetId } } : node
+    const source = (tagged as { source?: QuerySchema }).source
+    if (source) {
+        return { ...tagged, source: tagQueryNode(source, presetId) }
+    }
+    return tagged
+}
+
+/**
+ * Stamp the applied filter preset's short id onto every tile query, so the warming job can find the
+ * shapes a preset actually produces. `tags` is stripped from both the query cache key and the
+ * warmer's shape key, so this never fragments either.
+ */
+export const withPresetTag = (tiles: WebAnalyticsTile[], presetId: string | null): WebAnalyticsTile[] => {
+    if (!presetId) {
+        return tiles
+    }
+    return tiles.map((tile): WebAnalyticsTile => {
+        switch (tile.kind) {
+            case 'query':
+            case 'error_tracking':
+                return { ...tile, query: tagQueryNode(tile.query, presetId) }
+            case 'tabs':
+                return { ...tile, tabs: tile.tabs.map((tab) => ({ ...tab, query: tagQueryNode(tab.query, presetId) })) }
+            case 'section':
+                return { ...tile, tiles: withPresetTag(tile.tiles, presetId) }
+            case 'replay':
+                return tile
+            default:
+                throw new UnexpectedNeverError(tile)
+        }
+    })
+}
+
 export const checkCustomEventConversionGoalHasSessionIdsHelper = async (
     conversionGoal: WebAnalyticsConversionGoal | null,
     breakpoint: BreakPointFunction | undefined,
