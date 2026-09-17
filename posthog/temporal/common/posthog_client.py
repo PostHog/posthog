@@ -33,12 +33,16 @@ logger = get_write_only_logger()
 # expected control flow, not a defect.
 # "AIFeaturesCloudOnly" is raised by the AI observability guard on non-cloud deployments (see
 # posthog/temporal/ai_observability/llm_endpoint.py). It reflects the deployment, not a defect.
+# "ManagedWarehouseTrinoTargetNotReady" is raised by the view translation readiness guard (see
+# products/managed_warehouse/backend/view_translation_status.py). The control plane provisions an
+# organization's Trino target asynchronously, so it reflects that timing, not a defect.
 EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
     {
         "trace_not_settled",
         "TransientRepartitionError",
         "EmbeddingServiceUnavailable",
         "AIFeaturesCloudOnly",
+        "ManagedWarehouseTrinoTargetNotReady",
         "SandboxRateLimitedError",
         "SandboxControlPlaneUnavailableError",
     }

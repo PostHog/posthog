@@ -26,7 +26,11 @@ from products.managed_warehouse.backend.models import (
     ManagedWarehouseViewTranslationResult,
 )
 from products.managed_warehouse.backend.trino_compiler import get_ready_trino_catalog_name
-from products.managed_warehouse.backend.view_translation_status import source_query_hash
+from products.managed_warehouse.backend.view_translation_status import (
+    TRINO_TARGET_NOT_READY_ERROR_TYPE,
+    TRINO_TARGET_NOT_READY_MESSAGE,
+    source_query_hash,
+)
 
 
 @frozen
@@ -51,7 +55,11 @@ def prepare_managed_warehouse_view_translation_activity(job_id: str) -> ViewTran
     if not DuckgresServer.objects.filter(organization_id=organization_id).exists():
         raise ApplicationError("The organization does not have a provisioned managed warehouse", non_retryable=True)
     if get_ready_trino_catalog_name(organization_id) is None:
-        raise ApplicationError("The organization's Trino target is not ready", non_retryable=True)
+        raise ApplicationError(
+            TRINO_TARGET_NOT_READY_MESSAGE,
+            type=TRINO_TARGET_NOT_READY_ERROR_TYPE,
+            non_retryable=True,
+        )
 
     memberships = list_org_team_memberships(organization_id, use_cache=False)
     if memberships is None:
