@@ -8,6 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -608,15 +609,15 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
                 targetTypeFilter: values.targetTypeFilter,
                 page: values.page,
             }
-            const pathname = router.values.location.pathname
-            if (pathname !== urls.subscriptions()) {
+            const routerPathname = router.values.location.pathname
+            if (removeProjectIdIfPresent(routerPathname) !== urls.subscriptions()) {
                 return
             }
             if (subscriptionRouterSearchParamsEqual(router.values.searchParams, subscriptionValues)) {
                 return
             }
             const next = mergeSubscriptionRouterSearchParams(router.values.searchParams, subscriptionValues)
-            return [pathname, next, router.values.hashParams, { replace }] as const
+            return [routerPathname, next, router.values.hashParams, { replace }] as const
         }
         return {
             setSearch: () => syncUrl(true),

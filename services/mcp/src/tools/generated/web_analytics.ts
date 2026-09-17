@@ -497,7 +497,13 @@ const WebAnalyticsConversionGoal = z.union([ActionConversionGoal, CustomEventCon
 
 const AssistantDateRange = z.object({
     date_from: z.string().describe('ISO8601 date string.'),
-    date_to: z.string().nullable().describe('ISO8601 date string.').optional(),
+    date_to: z
+        .string()
+        .nullable()
+        .describe(
+            'ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.'
+        )
+        .optional(),
 })
 
 const AssistantDurationRange = z.object({

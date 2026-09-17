@@ -64,6 +64,24 @@ query ParentSpaces($limit: Int!, $after: String) {
 }
 """
 
+_PARENT_POST_REACTIONS_QUERY = """
+query ParentPostReactions($limit: Int!, $after: String) {
+  posts(limit: $limit, after: $after) {
+    pageInfo {
+      endCursor
+      hasNextPage
+    }
+    nodes {
+      id
+      reactions {
+        reaction
+        count
+      }
+    }
+  }
+}
+"""
+
 
 class BettermodeRetryableError(Exception):
     pass
@@ -85,6 +103,9 @@ class BettermodeResumeConfig:
     post_id: str | None = None
     # Same bookmark for space-scoped fan-outs (`space_members`, `space_post_types`).
     space_id: str | None = None
+    # Reaction key currently being processed for the bookmarked post in the reaction
+    # participants fan-out. None for the other endpoints.
+    reaction: str | None = None
 
 
 def _base_url(region: str) -> str:
@@ -396,6 +417,70 @@ def _get_space_scoped_rows(
     yield from _fan_out_rows(execute, config, parent_ids, "spaceId", "space_id", resumable_source_manager, logger)
 
 
+def _get_post_reaction_participant_rows(
+    execute: Any,
+    config: BettermodeEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[BettermodeResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out one `postReactionParticipants(postId, reaction)` connection per (post, reaction) pair.
+
+    The root query requires both a post and a reaction key, so the fan-out is two levels deep: a
+    cheap posts walk carries each post's reaction summary, and every reaction with a positive count
+    becomes a pair to enumerate. A participant node exposes only its member, so the post id and
+    reaction key are injected from the pair to complete the row. The bookmark is the (post, reaction)
+    pair (stable ids, not positions) so pairs added or removed between a crash and the retry can't
+    resume us into the wrong pair.
+    """
+    pairs: list[tuple[str, str]] = []
+    for nodes, _ in _iter_connection(execute, _PARENT_POST_REACTIONS_QUERY, "posts", {}, PARENT_PAGE_SIZE, None):
+        for node in nodes:
+            post_id = node["id"]
+            for detail in node.get("reactions") or []:
+                reaction = detail.get("reaction")
+                if reaction and (detail.get("count") or 0) > 0:
+                    pairs.append((post_id, reaction))
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    remaining = pairs
+    resume_after: str | None = None
+    if resume is not None and resume.post_id is not None and resume.reaction is not None:
+        bookmark = (resume.post_id, resume.reaction)
+        if bookmark in pairs:
+            remaining = pairs[pairs.index(bookmark) :]
+            resume_after = resume.after
+            logger.debug(f"Bettermode: resuming postReactionParticipants from {bookmark}")
+
+    query = _build_query(config)
+    for index, (post_id, reaction) in enumerate(remaining):
+        variables = {"postId": post_id, "reaction": reaction}
+        for nodes, next_cursor in _iter_connection(
+            execute, query, config.query_field, variables, config.page_size, resume_after
+        ):
+            rows = []
+            for node in nodes:
+                member_id = (node.get("participant") or {}).get("id")
+                # A participant whose member is no longer readable carries no usable key.
+                if member_id:
+                    rows.append({"postId": post_id, "reaction": reaction, "memberId": member_id})
+            if rows:
+                yield rows
+            # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last
+            # page rather than skipping it. Merge dedupes on the primary key.
+            if next_cursor:
+                resumable_source_manager.save_state(
+                    BettermodeResumeConfig(after=next_cursor, post_id=post_id, reaction=reaction)
+                )
+        resume_after = None
+
+        # Advance the bookmark so a crash between pairs resumes at the next one.
+        if index + 1 < len(remaining):
+            next_post_id, next_reaction = remaining[index + 1]
+            resumable_source_manager.save_state(
+                BettermodeResumeConfig(after=None, post_id=next_post_id, reaction=next_reaction)
+            )
+
+
 def get_rows(
     region: str,
     client_id: str,
@@ -425,6 +510,10 @@ def get_rows(
 
     if config.fan_out_spaces:
         yield from _get_space_scoped_rows(execute, config, resumable_source_manager, logger)
+        return
+
+    if config.fan_out_post_reactions:
+        yield from _get_post_reaction_participant_rows(execute, config, resumable_source_manager, logger)
         return
 
     base_variables: dict[str, Any] = dict(config.base_variables)

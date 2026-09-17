@@ -4,6 +4,25 @@ import { z } from 'zod'
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
 
+export const CanvasStateReadLimitSchema = z.number().int().min(1).max(100).default(20)
+export const CanvasStateKeysOnlySchema = z.boolean().default(true)
+export const WikiPageReadLimitSchema = z.number().int().min(1).max(12000).default(12000)
+
+// Mirrors the Django serializer's `validate` rule so a continuation without the revision
+// fails here instead of at the API with a 400.
+export function validateCanvasStateValueContinuation(
+    data: { offset?: number | undefined; revision?: string | undefined },
+    ctx: z.RefinementCtx
+): void {
+    if ((data.offset ?? 0) > 0 && !data.revision) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['revision'],
+            message: 'Read the first chunk and pass its revision to continue.',
+        })
+    }
+}
+
 export const ChannelInstructionsBaseVersionSchema = z
     .number()
     .int()
@@ -384,14 +403,22 @@ export const SavedMetricsAttachSchema = z
         "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics."
     )
 
-export const ExperimentResultsGetSchema = z.object({
-    id: z.number().describe('The ID of the experiment to get comprehensive results for'),
-    refresh: z
-        .boolean()
-        .optional()
-        .default(false)
-        .describe('Force refresh of results instead of using cached values. Defaults to false.'),
-})
+// Agents reach for `experimentId` / `experiment_id` here as often as `id` — the same
+// alias set the generated experiment tools accept via their tools.yaml overrides.
+export const ExperimentResultsGetSchema = z.preprocess(
+    normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+    z.object({
+        id: z.preprocess(
+            castStringToInt,
+            z.number().describe('The ID of the experiment to get comprehensive results for')
+        ),
+        refresh: z
+            .boolean()
+            .optional()
+            .default(false)
+            .describe('Force refresh of results instead of using cached values. Defaults to false.'),
+    })
+)
 
 // Accept the identifier under the aliases agents reach for (`insight-get` &
 // friends return the insight under `id`; UI URLs surface `short_id`), and
@@ -645,6 +672,24 @@ export const PathCleaningRulesUpdateSchema = z.object({
 export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
 })
+
+export const TaskAgentCreateSchema = z
+    .object({
+        title: z.string().max(255).optional(),
+        description: z.string().min(1).describe('Instructions for the agent.'),
+        repository: z.string().nullish().describe('Repository in organization/repo format.'),
+        branch: z.string().min(1).max(255).nullish().describe('Base branch for the run.'),
+    })
+    .transform((input) => ({ ...input, start_run: true as const }))
+
+export const TaskAgentRunCreateSchema = z
+    .object({
+        id: z.string().uuid().describe('Task ID.'),
+        branch: z.string().max(255).nullish().describe('Git branch to check out in the sandbox.'),
+        resume_from_run_id: z.string().uuid().optional().describe('ID of a previous run to resume from.'),
+        pending_user_message: z.string().optional().describe('Initial or follow-up message for the run.'),
+    })
+    .transform((input) => ({ ...input, mode: 'background' as const, run_source: 'agent' as const }))
 
 // Debug MCP UI Apps
 export const DebugMcpUiAppsSchema = z.object({

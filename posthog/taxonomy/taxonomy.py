@@ -1969,8 +1969,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["com.posthog.app"],
         },
         "version": {
-            "label": "App version",
-            "description": "The version of the app",
+            "label": "App version (app lifecycle)",
+            "description": "The version of the app. Mobile SDKs send this on app lifecycle events only. Most events carry App version ($app_version) instead.",
             "examples": ["1.0.0"],
         },
         "previous_version": {
@@ -1979,8 +1979,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["1.0.0"],
         },
         "build": {
-            "label": "App build",
-            "description": "The build number for the app",
+            "label": "App build (app lifecycle)",
+            "description": "The build number for the app. Mobile SDKs send this on app lifecycle events only. Most events carry App build ($app_build) instead.",
             "examples": ["1"],
         },
         "previous_build": {
