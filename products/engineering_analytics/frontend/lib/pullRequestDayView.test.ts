@@ -69,8 +69,16 @@ describe('pullRequestDayView', () => {
         expect(groups[3].rows[0].highlightKind).toBe(Kind.WaitingForReview)
     })
 
+    // Without the p90 pick the 1000-hour row would push the axis to the 14-day cap. The bound is 2
+    // rather than 1 because the row origin is the local 06:00 at or before the start, which sits up
+    // to 23 hours earlier depending on the timezone Jest runs in.
+    it('one outlier does not stretch the axis', () => {
+        const lengths = [5, 6, 7, 8, 9, 10, 11, 12, 13, 1000]
+        const items = lengths.map((length, index) => pr(index, [[Kind.CiRunning, 0, length]], { merged: true }))
+        expect(axisDays(items, 'days')).toBeLessThanOrEqual(2)
+    })
+
     it.each([
-        ['one outlier does not stretch the axis', 'days', [5, 6, 7, 8, 9, 10, 11, 12, 13, 1000], 1],
         ['weeks round up to a whole week', 'weeks', [5, 20, 30], 7],
         ['long waits cap at two weeks', 'days', [400, 500, 600], 14],
     ] as const)('%s', (_name, alignment, lengths, expectedDays) => {

@@ -1,3 +1,7 @@
+// A scope-against-repo card: one author's or one team's figure next to the same figure over the whole
+// repository. The question is "is this unusual here", so the graphic is two labeled bars on a shared
+// zero-based scale. Use WindowComparisonCard when the question is this window against the previous one.
+
 import { ReactNode } from 'react'
 
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
