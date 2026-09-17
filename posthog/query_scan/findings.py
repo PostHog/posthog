@@ -154,8 +154,8 @@ _NO_EVENT_FILTER_SQL_BY_CAUSE: dict[FindingCause, _Copy] = {
     FindingCause.EVENT_COMPARED_TO_COLUMN: _Copy(
         lead=(
             "Queries are fastest when they compare `event` to fixed names. {subject} compares `event` to another "
-            "column or a subquery, so that filter cannot be used and it still reads a large share of the events "
-            "in its date range, which is slow."
+            "column, so that filter cannot be used and it still reads a large share of the events in its date "
+            "range, which is slow."
         ),
         advice="Compare `event` to fixed names.",
         fix=(

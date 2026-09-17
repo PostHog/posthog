@@ -48,8 +48,18 @@ _NOT_PRUNED_OPS = frozenset(
 
 @frozen(eq=False)
 class EventFilterOutcome:
+    """``hidden_from_plan`` marks a usable filter that compares ``event`` to a subquery. The scan
+    takes that comparison out before it asks for the plan, because EXPLAIN would run the subquery,
+    so the plan cannot say whether ClickHouse pruned on it and the tree's verdict stands.
+    """
+
     classification: EventFilterClass
     reason: EventFilterReason | None = None
+    hidden_from_plan: bool = False
+
+
+def _verdict(outcome: EventFilterOutcome) -> tuple[EventFilterClass, EventFilterReason | None, bool]:
+    return outcome.classification, outcome.reason, outcome.hidden_from_plan
 
 
 def classify_event_filter(tree: ast.AST) -> EventFilterOutcome | None:
@@ -63,7 +73,7 @@ def classify_event_filter(tree: ast.AST) -> EventFilterOutcome | None:
 
     outcomes = [_classify_read(read, collect_conditions(tree, read)) for read in reads]
     first = outcomes[0]
-    if any((other.classification, other.reason) != (first.classification, first.reason) for other in outcomes[1:]):
+    if any(_verdict(other) != _verdict(first) for other in outcomes[1:]):
         return None
     return first
 
@@ -71,14 +81,15 @@ def classify_event_filter(tree: ast.AST) -> EventFilterOutcome | None:
 def combine_event_filter(outcome: EventFilterOutcome, plan: QueryPlan | None) -> EventFilterOutcome:
     """Fold the plan's key use into the tree's verdict. The plan overrules the tree, except that a
     negation enters the key condition yet prunes almost nothing, so ``negated`` stands. A key the plan
-    did not use with a tree verdict of usable is ``not_pruned``. The plan's side is its heaviest events
-    read, the one the advice is about.
+    did not use with a tree verdict of usable is ``not_pruned``, unless the filter is hidden from the
+    plan, where the plan has nothing to say. The plan's side is its heaviest events read, the one the
+    advice is about.
     """
     heaviest = plan.heaviest_events_read() if plan is not None else None
     key_used = heaviest.uses_event_key() if heaviest is not None else None
     if key_used is True and outcome.reason != "negated":
         return EventFilterOutcome(classification="usable")
-    if key_used is False and outcome.classification == "usable":
+    if key_used is False and outcome.classification == "usable" and not outcome.hidden_from_plan:
         return EventFilterOutcome(classification="not_used", reason="not_pruned")
     return outcome
 
@@ -135,7 +146,8 @@ def _classify_or(term: ast.Or, read: EventsRead) -> EventFilterOutcome | None:
         return None
     if all(branch is not None and branch.classification == "usable" for branch in branches):
         # Every branch names events, so the OR is still a list of event names.
-        return EventFilterOutcome(classification="usable")
+        hidden = any(branch is not None and branch.hidden_from_plan for branch in branches)
+        return EventFilterOutcome(classification="usable", hidden_from_plan=hidden)
     return EventFilterOutcome(classification="not_used", reason="in_or")
 
 
@@ -153,6 +165,9 @@ def _classify_event_compare(node: ast.CompareOperation, value_side: ast.Expr) ->
         return EventFilterOutcome(classification="not_used", reason="negated")
     if node.op in _EQUALITY_OPS and _is_constant(value_side):
         return EventFilterOutcome(classification="usable")
+    if node.op in _EQUALITY_OPS and isinstance(strip_aliases(value_side), ast.SelectQuery | ast.SelectSetQuery):
+        # ClickHouse runs the subquery first and seeks on the names it returns, as it does on a written list.
+        return EventFilterOutcome(classification="usable", hidden_from_plan=True)
     if node.op in _PATTERN_OPS and _is_constant(value_side):
         pattern = next(_iter_string_constants(value_side), None)
         if node.op in _PRUNABLE_PATTERN_OPS and pattern is not None and not pattern.startswith("%"):
@@ -160,17 +175,11 @@ def _classify_event_compare(node: ast.CompareOperation, value_side: ast.Expr) ->
         # A leading wildcard leaves no prefix for the sort order to seek on, and an ILIKE pattern
         # has no case-sensitive prefix at all.
         return EventFilterOutcome(classification="not_used", reason="not_pruned")
-    if node.op not in _NOT_PRUNED_OPS and _is_data(value_side):
-        # `dynamic` tells the person their filter compares `event` to a column or a subquery, so
-        # only that shape may take it.
+    if node.op not in _NOT_PRUNED_OPS and isinstance(strip_aliases(value_side), ast.Field):
+        # `dynamic` tells the person their filter compares `event` to a column, so only that shape
+        # may take it.
         return EventFilterOutcome(classification="not_used", reason="dynamic")
     return EventFilterOutcome(classification="not_used", reason="not_pruned")
-
-
-def _is_data(expr: ast.Expr) -> bool:
-    """Whether the other side of the comparison is read from the data rather than written out."""
-    expr = strip_aliases(expr)
-    return isinstance(expr, ast.Field | ast.SelectQuery | ast.SelectSetQuery)
 
 
 def _is_constant(expr: ast.Expr) -> bool:

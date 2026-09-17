@@ -51,6 +51,16 @@ class TestTreeFacts(BaseTest):
                 _facts(timestamp_bound=True),
             ),
             (
+                "a start from a subquery",
+                "SELECT count() FROM events WHERE event = 'a' AND timestamp >= (SELECT now() - interval 7 day)",
+                _facts(timestamp_bound=True, start_date_hidden_from_plan=True),
+            ),
+            (
+                "an end from a subquery is not a start",
+                "SELECT count() FROM events WHERE event = 'a' AND timestamp < (SELECT now())",
+                _facts(),
+            ),
+            (
                 "a bound on the wrapped timestamp",
                 "SELECT count() FROM events WHERE event = 'a' AND toDate(timestamp) >= today() - 7",
                 _facts(timestamp_bound=True),

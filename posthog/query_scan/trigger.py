@@ -260,7 +260,7 @@ def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict
         return "too_large"
 
 
-def _event_filter_verdict(tree: ast.Expr) -> dict[str, str | None] | None:
+def _event_filter_verdict(tree: ast.Expr) -> dict[str, str | bool | None] | None:
     """The tree's event-filter classification, JSON-safe, for the job to combine with the plan.
 
     A classifier failure ships None rather than dropping the execution, because the plan-only
@@ -273,7 +273,11 @@ def _event_filter_verdict(tree: ast.Expr) -> dict[str, str | None] | None:
         return None
     if outcome is None:
         return None
-    return {"classification": outcome.classification, "reason": outcome.reason}
+    return {
+        "classification": outcome.classification,
+        "reason": outcome.reason,
+        "hidden_from_plan": outcome.hidden_from_plan,
+    }
 
 
 def _tree_facts_payload(tree: ast.Expr) -> dict[str, Any] | None:

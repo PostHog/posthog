@@ -230,6 +230,12 @@ class TestAnalyze(SimpleTestCase):
                 [("no_start_date/bound_not_used", True)],
             ),
             (
+                "a start date the plan never saw",
+                "plan_no_date_bound",
+                {"tree": facts(timestamp_bound=True, start_date_hidden_from_plan=True)},
+                [],
+            ),
+            (
                 "a first-ever computation in sql",
                 "plan_no_date_bound",
                 {"tree": facts(all_history=True, timestamp_bound=True)},
@@ -440,6 +446,16 @@ class TestAnalyze(SimpleTestCase):
         assert result.range_share is not None and result.project_share is not None
         self.assertAlmostEqual(result.range_share, 0.329267, places=5)
         self.assertAlmostEqual(result.project_share, 0.0329267, places=6)
+
+    def test_a_filter_the_plan_never_saw_gets_no_share_and_no_finding(self) -> None:
+        result = analyze_fixture(
+            "plan_no_event_filter",
+            team_granules=10_000_000,
+            range_granules=1_000_000,
+            event_filter=EventFilterOutcome(classification="usable", hidden_from_plan=True),
+        )
+
+        self.assertEqual((result.range_share, result.project_share, result.findings), (None, None, []))
 
     def test_a_subquery_finding_names_the_subquery(self) -> None:
         result = analyze_fixture("plan_event_filter_used", subqueries=("plan_no_event_filter",))

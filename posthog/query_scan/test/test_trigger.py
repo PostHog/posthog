@@ -271,7 +271,11 @@ class TestQueryScanTrigger(SimpleTestCase):
 
         assert result is None
         enqueued = self.delay.call_args.kwargs["executions"]
-        assert enqueued[0]["event_filter"] == {"classification": "usable", "reason": None}
+        assert enqueued[0]["event_filter"] == {
+            "classification": "usable",
+            "reason": None,
+            "hidden_from_plan": False,
+        }
         assert enqueued[0]["tree"] == facts.to_payload()
         # The job groups the analytics event by the error kind, so it travels on the payload.
         assert self.delay.call_args.kwargs["error_type"] == "ClickHouseQueryTimeOut"

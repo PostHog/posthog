@@ -66,9 +66,13 @@ class TreeFacts:
     counts_any_event: bool
     # The saved view every events read sits inside, when they all sit inside the same one.
     view_name: str | None
+    # Every events read carries a lower bound and one of them compares `timestamp` to a subquery, so a
+    # read the plan shows with no start is that bound: the scan takes it out before it asks for the plan.
+    start_date_hidden_from_plan: bool = False
 
     def to_payload(self) -> dict[str, Any]:
         return {
+            "start_date_hidden_from_plan": self.start_date_hidden_from_plan,
             "timestamp_bound": self.timestamp_bound,
             "property_filter": self.property_filter,
             "all_history": self.all_history,
@@ -90,12 +94,14 @@ class TreeFacts:
             groups_by_event=payload.get("groups_by_event") is True,
             counts_any_event=payload.get("counts_any_event") is True,
             view_name=view_name if isinstance(view_name, str) and view_name else None,
+            start_date_hidden_from_plan=payload.get("start_date_hidden_from_plan") is True,
         )
 
 
 @frozen
 class _ReadFacts:
     timestamp_bound: bool
+    subquery_bound: bool
     event_condition: bool
     property_condition: bool
     all_history: bool
@@ -123,17 +129,20 @@ def tree_facts(tree: ast.AST) -> TreeFacts | None:
         groups_by_event=bool(unfiltered) and all(read.groups_by_event for read in unfiltered),
         counts_any_event=bool(unfiltered) and all(read.counts_any_event for read in unfiltered),
         view_name=next(iter(view_names)) if len(view_names) == 1 else None,
+        start_date_hidden_from_plan=not unbounded and any(read.subquery_bound for read in facts),
     )
 
 
 def _read_facts(read: EventsRead, conditions: list[ast.Expr], parents: _ParentSelects) -> _ReadFacts:
-    timestamp_bound = any(_is_lower_bound(term, read) for term in conditions)
+    lower_bounds = [term for term in conditions if _is_lower_bound(term, read)]
+    timestamp_bound = bool(lower_bounds)
     select = read.select
     aggregates = _Aggregates(read)
     aggregates.visit_exprs(select.select)
     per_actor = any(_names_actor(expr, read) for expr in _group_by(select))
     return _ReadFacts(
         timestamp_bound=timestamp_bound,
+        subquery_bound=any(_holds_subquery(term) for term in lower_bounds),
         event_condition=any(contains_column_of(term, read, _EVENT) for term in conditions),
         property_condition=any(
             contains_column_of(term, read, column) for term in conditions for column in _PROPERTY_COLUMNS
@@ -160,6 +169,12 @@ def _is_lower_bound(term: ast.Expr, read: EventsRead) -> bool:
     if term.op in _LOWER_BOUND_ON_LEFT and contains_column_of(term.left, read, _TIMESTAMP):
         return True
     return term.op in _LOWER_BOUND_ON_RIGHT and contains_column_of(term.right, read, _TIMESTAMP)
+
+
+def _holds_subquery(term: ast.Expr) -> bool:
+    finder = _SubqueryFinder()
+    finder.visit(term)
+    return finder.found
 
 
 def _group_by(select: ast.SelectQuery) -> list[ast.Expr]:
@@ -226,6 +241,18 @@ class _Aggregates(TraversingVisitor):
                 elif any(_names_actor(expr, self.read) for expr in window.partition_by or []):
                     self.last_by_window = True
         super().visit_window_function(node)
+
+
+class _SubqueryFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.found = True
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        self.found = True
 
 
 class _ActorColumnFinder(TraversingVisitor):

@@ -91,6 +91,8 @@ def analyze(
 
     outer_events = plans.outer.heaviest_events_read()
     numerator = outer_events.selected_granules() if outer_events is not None else None
+    if _plan_overstates_the_read(run, event_filter):
+        numerator = None
     range_share = _share(numerator, plans.range_granules)
     project_share = _share(numerator, plans.team_granules)
 
@@ -163,6 +165,8 @@ def _findings_for_plan(
     # one click to change, so it is reported at any size.
     chose_all_time = run.all_time and subquery_index is None
     unbounded = next((read for read in plan.events_reads() if read.timestamp_bounds().lower is None), None)
+    if tree is not None and tree.start_date_hidden_from_plan:
+        unbounded = None
     reads_all_history = chose_all_time or (
         unbounded is not None and _passes_start_date_gate(unbounded, team_granules, flag.start_date_ratio)
     )
@@ -234,6 +238,15 @@ def _findings_for_plan(
         )
 
     return findings
+
+
+def _plan_overstates_the_read(run: RunFacts, event_filter: EventFilterOutcome | None) -> bool:
+    """Whether the scan took a filter on `event` or `timestamp` out before it asked for the plan,
+    because the filter holds a subquery that EXPLAIN would run. The plan's granules are then the
+    read without that filter, so no share can be taken from them."""
+    hidden_event_filter = event_filter is not None and event_filter.hidden_from_plan
+    hidden_start_date = run.tree is not None and run.tree.start_date_hidden_from_plan
+    return hidden_event_filter or hidden_start_date
 
 
 def _all_history_by_design(run: RunFacts, *, believe_shape: bool) -> bool:

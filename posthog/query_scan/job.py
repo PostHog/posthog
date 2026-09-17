@@ -206,6 +206,7 @@ def _combined_event_filter(execution: Execution, outer: QueryPlan | None) -> Eve
     outcome = EventFilterOutcome(
         classification=classification,
         reason=reason if reason in _EVENT_FILTER_REASONS else None,
+        hidden_from_plan=payload.get("hidden_from_plan") is True,
     )
     return combine_event_filter(outcome, outer)
 
