@@ -47,7 +47,7 @@ from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
-from posthog.models import Team, User
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
@@ -249,26 +249,18 @@ class AutoProjectMiddleware:
                 and path_parts[0] == "project"
                 and (path_parts[1].startswith("phc_") or path_parts[1] in self.token_allowlist)
             ):
+                new_team = Team.objects.filter(api_token=path_parts[1]).first()
 
-                def do_redirect():
+                if new_team is not None and self.switch_team_if_allowed(new_team, request):
+                    path_parts[1] = str(new_team.pk)
                     new_path = "/".join(path_parts)
                     search_params = request.GET.urlencode()
-
                     return redirect(f"/{new_path}?{search_params}" if search_params else f"/{new_path}")
 
-                try:
-                    new_team = Team.objects.get(api_token=path_parts[1])
-
-                    if not self.can_switch_to_team(new_team, request):
-                        raise Team.DoesNotExist
-
-                    path_parts[1] = str(new_team.pk)
-                    return do_redirect()
-
-                except Team.DoesNotExist:
-                    if user.team:
-                        path_parts[1] = str(user.team.pk)
-                        return do_redirect()
+                # The token names no project the person can open. The address keeps the token,
+                # which tells them nothing about the project behind it.
+                if user.team:
+                    request.project_access_denied = path_parts[1]  # type: ignore
 
             if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].isdigit():
                 project_id_in_url = int(path_parts[1])
@@ -282,11 +274,16 @@ class AutoProjectMiddleware:
                 project_id_in_url = int(path_parts[2])
 
             if project_id_in_url and user.team and user.team.pk != project_id_in_url:
+                switched = False
                 try:
                     new_team = Team.objects.get(pk=project_id_in_url)
-                    self.switch_team_if_allowed(new_team, request)
+                    switched = self.switch_team_if_allowed(new_team, request)
                 except Team.DoesNotExist:
                     pass
+                if not switched and path_parts[0] == "project":
+                    # We keep serving the user's own team here, so the app must say so instead of
+                    # rendering that team under another project's address.
+                    request.project_access_denied = path_parts[1]  # type: ignore
                 return self.get_response(request)
 
             target_queryset = self.get_target_queryset(request)
@@ -336,11 +333,11 @@ class AutoProjectMiddleware:
             if actual_item is not None:
                 self.switch_team_if_allowed(actual_item.team, request)
 
-    def switch_team_if_allowed(self, new_team: Team, request: HttpRequest):
+    def switch_team_if_allowed(self, new_team: Team, request: HttpRequest) -> bool:
         user = cast(User, request.user)
 
         if not self.can_switch_to_team(new_team, request):
-            return
+            return False
 
         old_team_id = user.current_team_id
         user.team = new_team
@@ -349,6 +346,7 @@ class AutoProjectMiddleware:
         user.save()
         # Information for POSTHOG_APP_CONTEXT
         request.switched_team = old_team_id  # type: ignore
+        return True
 
     def can_switch_to_team(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
@@ -1282,6 +1280,12 @@ class CSPMiddleware:
                 "style-src 'self' 'unsafe-inline'",
                 f"script-src 'self' 'nonce-{nonce}' '{django_loginas_inline_script_hash}'",
                 "font-src data: https://fonts.gstatic.com",
+                # Without this the directive falls back to `default-src 'self'`, which drops the
+                # `data:` icons Django admin and our own admin pages render, and the `blob:` images
+                # the admin tools build client-side. Neither can execute, and this policy is
+                # enforced for every staff member rather than flag-gated, so the fallback was
+                # breaking admin pages outright.
+                "img-src 'self' data: blob:",
                 "worker-src 'none'",
                 "child-src 'none'",
                 "object-src 'none'",
@@ -1332,14 +1336,23 @@ class CSPMiddleware:
                 # can. Session replay decompresses snapshots with snappy-wasm and the HogQL editor
                 # parses with a WebAssembly build, so both break without it.
                 #
-                # Stripe and Turnstile are the two scripts we cannot serve ourselves: both vendors
-                # require the file to load from their own origin, so the flag-font trick of shipping
+                # Stripe, Turnstile and Unlayer are the scripts we cannot serve ourselves: each vendor
+                # requires the file to load from their own origin, so the flag-font trick of shipping
                 # a copy does not apply. `loadStripe` injects js.stripe.com for the payment entry
-                # modal, and the signup captcha loads the Turnstile API. `frame-src 'self' https:`
-                # already admits the iframes each one opens, and neither produced a connect-src
+                # modal, the signup captcha loads the Turnstile API, and `react-email-editor` injects
+                # editor.unlayer.com/embed.js for the email templater. `frame-src 'self' https:`
+                # already admits the iframes each one opens, and none produced a connect-src
                 # violation while this policy was report-only, so their API calls run inside those
-                # frames rather than from our page.
-                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com",
+                # frames rather than from our page. Unlayer bears that out: embed.js is the only
+                # unlayer URL this policy has ever reported, because the editor itself runs in a
+                # frame that carries its own policy rather than ours.
+                #
+                # Unlayer is pinned to a path rather than the host, because react-email-editor
+                # hardcodes that one URL and we do not pass its `scriptUrl` prop. A source path is
+                # matched against the URL path alone, so the `?2` the library appends does not
+                # defeat it. The cost is that a version bump which moves the file needs this line
+                # updated, or the editor stops loading.
+                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com/embed.js",
                 # A data: font cannot execute script, and this directive governs font loading only,
                 # so the token widens nothing else. It also carries nothing out: a data: URL makes
                 # no request, which is what the CSS-injection attacks on this directive need. The
@@ -1379,7 +1392,11 @@ class CSPMiddleware:
                 # Do not promote this to an enforced header as-is. An open `img-src` is an
                 # exfiltration channel: an attacker who injects markup but cannot run script still
                 # gets a beacon out through an image URL.
-                f"img-src 'self' data: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
+                # `blob:` is not part of that exfiltration surface: only script already running on
+                # the page can mint a blob URL, and an image cannot execute, so it grants strictly
+                # less than the `worker-src blob:` note below. Image upload previews, replay and the
+                # SQL editor all render blob URLs, so they lose their images without it.
+                f"img-src 'self' data: blob: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 frame_ancestors,
                 f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
@@ -1388,20 +1405,44 @@ class CSPMiddleware:
                 "manifest-src 'self'",
                 "base-uri 'self'",
                 # form-action has no default-src fallback, so leaving it unset lets an injected
-                # form post anywhere. Every form we serve targets a same-origin path.
-                "form-action 'self'",
+                # form post anywhere. Every form we serve targets a same-origin path, but Chromium
+                # judges each hop of the redirect chain too, and reports the original action rather
+                # than the hop that failed. Exiting impersonation posts to /logout, which redirects
+                # into /admin/, and AdminOAuth2Middleware sends that on to Google because
+                # restore_original_login() flushes the session holding the admin verification. So
+                # without this origin a staff logout is cancelled with nothing shown to the user.
+                "form-action 'self' https://accounts.google.com",
             ]
 
-            report_uri = csp_report_endpoint(sample_rate="0.1")
+            # Both values are read inside one narrowed block, so nothing below re-checks `user`.
+            user = getattr(request, "user", None)
+            if user is not None and user.is_authenticated:
+                is_staff = bool(getattr(user, "is_staff", False))
+                distinct_id = getattr(user, "distinct_id", None)
+            else:
+                is_staff = False
+                distinct_id = None
+
+            # Staff get the policy enforced ahead of everyone else, so each violation they report is
+            # something already broken for a colleague rather than one sample of a trend. At 0.1 we
+            # would see one breakage in ten, which is the opposite of what the staff rollout is for.
+            # The endpoint does the sampling, so browsers already send every report and taking staff
+            # to 1 costs ingestion rather than client traffic.
+            #
+            # This keys on is_staff rather than on the enforcement flag, which would otherwise track
+            # the enforced population exactly. The flag widens until it covers everyone, and would
+            # silently take the whole fleet to unsampled reporting; staff stays bounded.
+            sample_rate = "1" if is_staff else "0.1"
+
+            report_uri = csp_report_endpoint(sample_rate=sample_rate)
             if report_uri:
                 csp_parts += [f"report-uri {report_uri}", "report-to posthog"]
                 report_endpoint = report_uri
-                user = getattr(request, "user", None)
-                if user is not None and user.is_authenticated and getattr(user, "distinct_id", None):
+                if distinct_id:
                     # Crash reports arrive after the tab already died, so the report body is the
                     # only chance to attribute them; carrying the distinct_id in the endpoint URL
                     # ties the event to the person instead of a random per-report id.
-                    report_endpoint = csp_report_endpoint(sample_rate="0.1", distinct_id=user.distinct_id)
+                    report_endpoint = csp_report_endpoint(sample_rate=sample_rate, distinct_id=distinct_id)
                 # Browsers only deliver crash reports to the endpoint named `default`; the CSP
                 # `report-to posthog` directive keeps routing violations to `posthog`.
                 response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
@@ -1473,9 +1514,43 @@ class SocialAuthExceptionMiddleware:
         return error_detail
 
 
-class ActiveOrganizationMiddleware:
+# Page prefixes kept per block, keyed by the page that explains it. An invite targets the inviting
+# organization, which this check never judges. Settling the balance is how a member lifts a
+# deactivation; no payment restores a pending deletion. `organizationLogic` holds the same table.
+ALLOWED_WHILE_BLOCKED: dict[str, tuple[str, ...]] = {
+    "/organization-pending-deletion": ("/organization-pending-deletion", "/signup/"),
+    "/organization-deactivated": (
+        "/organization-deactivated",
+        "/signup/",
+        "/organization/billing",
+        "/billing/authorization_status",
+    ),
+}
+
+
+def organization_block_page(organization: Organization) -> Optional[str]:
+    """The page explaining why this organization is closed to its members, or None when it is open.
+
+    Only an explicit `False` deactivates. `is_active` is nullable, but the migration that added it
+    backfilled every row to `True` and operators write `False` explicitly, so a null means "never
+    deactivated".
     """
-    Middleware to verify that the current authenticated session is attached to an active organization (is_active = None or True)
+    if organization.is_pending_deletion:
+        return "/organization-pending-deletion"
+    if organization.is_active is False:
+        return "/organization-deactivated"
+    return None
+
+
+class ActiveOrganizationMiddleware:
+    """Keep members out of an organization that is deactivated or pending deletion.
+
+    Runs after `AutoProjectMiddleware`, which switches the user into the organization a
+    `/project/<id>` URL names, so this middleware needs no path parsing of its own.
+    `test_middleware.py` pins the order.
+
+    This is UX, not enforcement: every `/api` path is skipped, and `ActiveOrganizationPermission`
+    is what holds the API.
     """
 
     _IGNORED_PATHS = ("/logout", "/api", "/admin")
@@ -1492,26 +1567,21 @@ class ActiveOrganizationMiddleware:
             return self.get_response(request)
 
         user = cast(User, request.user)
+        organization = user.current_organization
 
-        if user.current_organization is None:
+        if organization is None:
             return self.get_response(request)
 
-        # Check pending deletion first — takes priority over is_active
-        if user.current_organization.is_pending_deletion:
-            return (
-                self.get_response(request)
-                if request.path == "/organization-pending-deletion"
-                else redirect("/organization-pending-deletion")
-            )
+        block_page = organization_block_page(organization)
 
-        if user.current_organization.is_active is not False:
-            return redirect("/") if request.path == "/organization-deactivated" else self.get_response(request)
+        if block_page is None:
+            # A member sitting on a block page has been let back in.
+            return redirect("/") if request.path in ALLOWED_WHILE_BLOCKED else self.get_response(request)
 
-        return (
-            self.get_response(request)
-            if request.path == "/organization-deactivated"
-            else redirect("/organization-deactivated")
-        )
+        if any(request.path.startswith(allowed) for allowed in ALLOWED_WHILE_BLOCKED[block_page]):
+            return self.get_response(request)
+
+        return redirect(block_page)
 
 
 # Session key used to mark an impersonation session as read-only

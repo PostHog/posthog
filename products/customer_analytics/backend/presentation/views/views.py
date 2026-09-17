@@ -65,6 +65,7 @@ from products.customer_analytics.backend.facade.constants import (
     CUSTOMER_ANALYTICS_TRACK_RULES_FLAG,
 )
 from products.customer_analytics.backend.presentation.views.serializers import (
+    AccountByExternalIdQuerySerializer,
     AccountChannelSummarySerializer,
     AccountEmailThreadMessageSerializer,
     AccountEmailThreadSerializer,
@@ -117,6 +118,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     UserCustomerAnalyticsConfigUpdateSerializer,
 )
 from products.notebooks.backend.facade.content import build_markdown_notebook_content
+from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded, NotebookContentNotConvertible
 
 # Object-level access levels for the resource ViewSets, matching what
 # ``AccessControlPermission._get_required_access_level`` derives for these scope objects:
@@ -1722,6 +1724,31 @@ class AccountViewSet(
             raise PermissionDenied()
         return Response(AccountSerializer(instance=account).data)
 
+    @validated_request(
+        query_serializer=AccountByExternalIdQuerySerializer,
+        operation_id="accounts_by_external_id_retrieve",
+        responses={200: OpenApiResponse(response=AccountSerializer)},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        pagination_class=None,
+        required_scopes=["account:read"],
+    )
+    def by_external_id(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        try:
+            account = api.get_account_for_view_by_external_id(
+                team_id=self.team_id,
+                external_id=request.validated_query_data["external_id"],
+                user_access_control=self.user_access_control,
+                required_level=_object_required_level(request, write=False),
+            )
+        except api.Account_DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        except api.ResourceForbiddenError:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountSerializer(instance=account).data)
+
     @extend_schema(
         parameters=[_ACCOUNT_ID_PARAM],
         request=None,
@@ -2119,19 +2146,22 @@ class AccountNotebookViewSet(
         serializer = AccountNotebookSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        notebook = api.create_account_notebook(
-            team_id=self.team_id,
-            team=self.team,
-            account_id=self.parents_query_dict["account_id"],
-            input=contracts.CreateAccountNotebookInput(
-                title=data.title,
-                content=data.content,
-                text_content=data.text_content,
-                synthesized_content=_synthesize_notebook_content(data.text_content, data.content),
-            ),
-            user=cast(User, request.user),
-            user_access_control=self.user_access_control,
-        )
+        try:
+            notebook = api.create_account_notebook(
+                team_id=self.team_id,
+                team=self.team,
+                account_id=self.parents_query_dict["account_id"],
+                input=contracts.CreateAccountNotebookInput(
+                    title=data.title,
+                    content=data.content,
+                    text_content=data.text_content,
+                    synthesized_content=_synthesize_notebook_content(data.text_content, data.content),
+                ),
+                user=cast(User, request.user),
+                user_access_control=self.user_access_control,
+            )
+        except (NotebookContentNotConvertible, NotebookCellLimitExceeded) as err:
+            raise ValidationError({"content": str(err)})
         if notebook is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountNotebookSerializer(instance=notebook).data, status=status.HTTP_201_CREATED)

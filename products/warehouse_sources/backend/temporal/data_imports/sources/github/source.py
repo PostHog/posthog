@@ -7,9 +7,10 @@ from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-from posthog.schema import (
+from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -19,9 +20,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
-from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
-
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
@@ -187,7 +185,7 @@ class GithubSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GITHUB,
+            name=ExternalDataSourceType.GITHUB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             featured=True,
             label="GitHub",
@@ -660,11 +658,15 @@ If automatic creation failed with a permissions error, the fix depends on how yo
     ) -> tuple[bool, str | None]:
         try:
             access_token = self._get_access_token(config, team_id)
+            egress_identity = self._egress_identity(config, team_id)
             repositories = self.effective_repositories(config)
             failures: list[str] = []
             for repository in repositories[: self.MAX_VALIDATED_REPOSITORIES]:
                 is_valid, message = validate_github_credentials(
-                    access_token, repository, api_version=self.resolve_api_version(api_version)
+                    access_token,
+                    repository,
+                    egress_identity=egress_identity,
+                    api_version=self.resolve_api_version(api_version),
                 )
                 if is_valid:
                     continue

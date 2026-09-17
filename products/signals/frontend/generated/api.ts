@@ -19,8 +19,11 @@ import type {
     FleetFindingsSummaryApi,
     ForgetRequestApi,
     ForgetResponseApi,
+    LighthouseAuditRequestApi,
+    LighthouseAuditResponseApi,
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportArtefactListApi,
+    PaginatedSignalReportCheckListApi,
     PaginatedSignalReportListListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedPullRequestReviewCommentUpdateApi,
@@ -62,6 +65,8 @@ import type {
     SignalReportArtefactWriteResponseApi,
     SignalReportBulkStateRequestApi,
     SignalReportBulkStateResponseApi,
+    SignalReportCheckApi,
+    SignalReportCheckWriteApi,
     SignalReportClaimApi,
     SignalReportFeedbackRequestApi,
     SignalReportFeedbackResponseApi,
@@ -85,6 +90,7 @@ import type {
     SignalUserAutonomyConfigCreateApi,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
+    SignalsReportChecksListParams,
     SignalsReportPrChecksParams,
     SignalsReportPrCommentsParams,
     SignalsReportPrReviewCommentDestroyParams,
@@ -822,6 +828,110 @@ export const signalsReportArtefactsDiff = async (
     })
 }
 
+export const getSignalsReportChecksListUrl = (
+    projectId: string,
+    reportId: string,
+    params?: SignalsReportChecksListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${reportId}/checks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${reportId}/checks/`
+}
+
+/**
+ * List the forward-looking checks on a report. A check says what must stay true after the report was acted on, and the coordinator records each verdict as a `check_result` artefact on the report.
+ * @summary List a report's checks
+ */
+export const signalsReportChecksList = async (
+    projectId: string,
+    reportId: string,
+    params?: SignalsReportChecksListParams,
+    options?: RequestInit
+): Promise<PaginatedSignalReportCheckListApi> => {
+    return apiMutator<PaginatedSignalReportCheckListApi>(getSignalsReportChecksListUrl(projectId, reportId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportChecksCreateUrl = (projectId: string, reportId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/checks/`
+}
+
+/**
+ * Schedule a re-measurement of the report's claim. A `metric_threshold` check runs one bounded Trends query and compares the result, so it needs no agent run.
+ * @summary Create a check on a report
+ */
+export const signalsReportChecksCreate = async (
+    projectId: string,
+    reportId: string,
+    signalReportCheckWriteApi: SignalReportCheckWriteApi,
+    options?: RequestInit
+): Promise<SignalReportCheckApi> => {
+    return apiMutator<SignalReportCheckApi>(getSignalsReportChecksCreateUrl(projectId, reportId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportCheckWriteApi),
+    })
+}
+
+export const getSignalsReportChecksRetrieveUrl = (projectId: string, reportId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/checks/${id}/`
+}
+
+/**
+ * Checks attached to a signal report: read, create, and cancel.
+ *
+ * There is no update: a check is a claim about the future, and editing its threshold after a
+ * result would make the recorded verdict unreadable. Cancel it and write a new one.
+ *
+ * Writes are attributed the same way artefact writes are — to the task named by the
+ * `X-PostHog-Task-Id` header when present, else to the requesting user.
+ * @summary Get a single check
+ */
+export const signalsReportChecksRetrieve = async (
+    projectId: string,
+    reportId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportCheckApi> => {
+    return apiMutator<SignalReportCheckApi>(getSignalsReportChecksRetrieveUrl(projectId, reportId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportChecksDestroyUrl = (projectId: string, reportId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/checks/${id}/`
+}
+
+/**
+ * Stop an active check. Its recorded results stay on the report.
+ * @summary Cancel a check
+ */
+export const signalsReportChecksDestroy = async (
+    projectId: string,
+    reportId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportCheckApi> => {
+    return apiMutator<SignalReportCheckApi>(getSignalsReportChecksDestroyUrl(projectId, reportId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getSignalsReportsBulkStateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/reports/bulk-state/`
 }
@@ -923,7 +1033,7 @@ export const getSignalsScoutCreateUrl = (projectId: string) => {
 }
 
 /**
- * Create a scout skill and its runnable config atomically. Any valid skill name works — the config row is what makes the skill a scout. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
+ * Create a scout skill and its runnable config atomically. Give it a `display_name` — the label people read, kept exactly as written — and the scout's permanent skill name is generated from it, with a numeric suffix when that name is taken, so two scouts may share a label without sharing an identity. Pass `name` instead to pick that identifier yourself; any valid skill name works, since the config row is what makes a skill a scout. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing an explicit `name` for a different definition returns 409.
  * @summary Create a scout
  */
 export const signalsScoutCreate = async (
@@ -977,7 +1087,7 @@ export const getSignalsScoutConfigListUrl = (projectId: string, params?: Signals
 }
 
 /**
- * List the per-(team, skill) scout configs for this project. Each row includes its schedule (rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, `emit` posture, and `tags`. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick. Pass `tags` to narrow the fleet to the scouts carrying at least one of the given labels.
+ * List the per-(team, skill) scout configs for this project. Each row includes its `display_name` (the label people read), its `skill_name` (the permanent identifier), its schedule (rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, `emit` posture, and `tags`. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick. Pass `tags` to narrow the fleet to the scouts carrying at least one of the given labels, and `search` to narrow it to the scouts matching a substring of either name.
  * @summary List scout configs
  */
 export const signalsScoutConfigList = async (
@@ -1039,7 +1149,7 @@ export const getSignalsScoutConfigDestroyUrl = (projectId: string, id: string) =
 }
 
 /**
- * Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row outright. The point is cleaning up an orphaned config whose skill was archived or deleted — it lingers in `list` with an empty `description`, never runs (the coordinator skips it and the skill can't load), but can't otherwise be removed over the API. Deletion is activity-logged. Note: auto-registration only scans live `signals-scout-*` skills, so a config deleted for one of those is back on the coordinator's next tick. A scout under any other name does not come back on its own: its config stays deleted until you re-register it, and its skill still reads as a scout meanwhile. To retire a live scout, archive its skill (or set `enabled=false` to make it inert) rather than deleting the config.
+ * Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row outright. The point is cleaning up an orphaned config whose skill was archived or deleted — it lingers in `list` with an empty `description`, never runs (the coordinator skips it and the skill can't load), but can't otherwise be removed over the API. Deletion is activity-logged. Note: auto-registration only scans live `signals-scout-*` skills, so a config deleted for one of those is back on the coordinator's next tick. A scout under any other name does not come back on its own: its config stays deleted until you re-register it, and its skill still reads as a scout meanwhile. To retire a live scout, archive its skill (or set `enabled=false` to make it inert) rather than deleting the config. A scout whose `scout_role` is `operational` cannot be deleted: it is part of the self-driving system rather than the project's own fleet.
  * @summary Delete a scout config
  */
 export const signalsScoutConfigDestroy = async (
@@ -1239,7 +1349,7 @@ export const getSignalsScoutProjectProfileGetUrl = (
 }
 
 /**
- * Return the team's deterministic project profile. For the internal scout token the response reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache miss); `force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read callers (session auth or a `signal_scout:read` PAK) get the newest cached profile, or 404 if none has been built yet — they never trigger a rebuild. Read this at the start of a run to orient on the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface.
+ * Return the team's deterministic project profile. The response opens with a compact `summary` envelope carrying the emit gate and the inbox report counts, then the full `payload`. The inventory runs to tens of kilobytes, so a client that truncates a long tool result still keeps the gate. Pass `summary_only=true` to omit `payload` entirely. For the internal scout token the response reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache miss); `force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read callers (session auth or a `signal_scout:read` PAK) get the newest cached profile, or 404 if none has been built yet — they never trigger a rebuild. Read this at the start of a run to orient on the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface.
  * @summary Get the current project profile
  */
 export const signalsScoutProjectProfileGet = async (
@@ -1404,6 +1514,28 @@ export const signalsScoutEmitSignal = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emitFindingRequestApi),
+    })
+}
+
+export const getSignalsScoutLighthouseAuditUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/lighthouse-audit/`
+}
+
+/**
+ * Load one page in a real browser and return what makes it slow — most usefully the element the browser chose as the Largest Contentful Paint, and where the LCP time went. Field data says a route is slow; this says which element and why, so a finding can name it instead of guessing from source. Restricted to public PostHog pages: the browser signs in to nothing, so a page behind a login would report the login screen's numbers. One throttled cold load is not a p75 over real users — corroborate a field finding with it, never replace one. Capped at 5 audits per run.
+ * @summary Run a Lighthouse audit for a run
+ */
+export const signalsScoutLighthouseAudit = async (
+    projectId: string,
+    runId: string,
+    lighthouseAuditRequestApi: LighthouseAuditRequestApi,
+    options?: RequestInit
+): Promise<LighthouseAuditResponseApi> => {
+    return apiMutator<LighthouseAuditResponseApi>(getSignalsScoutLighthouseAuditUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lighthouseAuditRequestApi),
     })
 }
 

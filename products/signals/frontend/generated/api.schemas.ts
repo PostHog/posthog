@@ -810,6 +810,18 @@ export interface PullRequestChecksResponseApi {
 }
 
 /**
+ * Response when the GitHub App cannot read pull request checks.
+ */
+export interface PullRequestChecksPermissionErrorApi {
+    /** Stable code for a missing GitHub Checks permission. */
+    readonly code: string
+    /** What the GitHub App permission prevents. */
+    readonly error: string
+    /** Project integrations settings where a project admin can reconnect GitHub. */
+    readonly remediation_url: string
+}
+
+/**
  * * `conversation` - conversation
  * * `review` - review
  */
@@ -2097,6 +2109,7 @@ export interface SignalReportStateRequestApi {
  * * `work_claim` - Work Claim
  * * `work_release` - Work Release
  * * `pull_request` - Pull Request
+ * * `check_result` - Check Result
  */
 export type SignalReportArtefactArtefactTypeEnumApi =
     (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
@@ -2122,6 +2135,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     WorkClaim: 'work_claim',
     WorkRelease: 'work_release',
     PullRequest: 'pull_request',
+    CheckResult: 'check_result',
 } as const
 
 export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
@@ -2234,6 +2248,212 @@ export interface CommitDiffResponseApi {
     readonly diff: string
     /** True when the diff was too large to return in full and has been truncated. */
     readonly truncated: boolean
+}
+
+/**
+ * * `metric_threshold` - Metric Threshold
+ */
+export type SignalReportCheckKindEnumApi =
+    (typeof SignalReportCheckKindEnumApi)[keyof typeof SignalReportCheckKindEnumApi]
+
+export const SignalReportCheckKindEnumApi = {
+    MetricThreshold: 'metric_threshold',
+} as const
+
+/**
+ * * `active` - Active
+ * * `passed` - Passed
+ * * `failed` - Failed
+ * * `errored` - Errored
+ * * `expired` - Expired
+ * * `cancelled` - Cancelled
+ */
+export type SignalReportCheckStatusEnumApi =
+    (typeof SignalReportCheckStatusEnumApi)[keyof typeof SignalReportCheckStatusEnumApi]
+
+export const SignalReportCheckStatusEnumApi = {
+    Active: 'active',
+    Passed: 'passed',
+    Failed: 'failed',
+    Errored: 'errored',
+    Expired: 'expired',
+    Cancelled: 'cancelled',
+} as const
+
+export type CheckComparisonOperatorEnumApi =
+    (typeof CheckComparisonOperatorEnumApi)[keyof typeof CheckComparisonOperatorEnumApi]
+
+export const CheckComparisonOperatorEnumApi = {
+    Lte: 'lte',
+    Gte: 'gte',
+    Between: 'between',
+} as const
+
+export interface CheckThresholdBoundsApi {
+    lower: number
+    upper: number
+}
+
+/**
+ * What the measured value must satisfy for the check to pass.
+ *
+ * The operators are the ones the shared alerts comparator expresses exactly. Strict `lt` / `gt`
+ * would need a second comparison engine for a distinction a soak window does not make, so they are
+ * not offered: "stays at or below 10 a day" is the same expectation.
+ */
+export interface CheckComparisonApi {
+    /** `lte`, `gte`, or `between`. */
+    operator: CheckComparisonOperatorEnumApi
+    /** The bound for `lte` and `gte`; unused by `between`. */
+    value?: number | null
+    /** The inclusive range for `between`; unused by `lte` and `gte`. */
+    bounds?: CheckThresholdBoundsApi | null
+}
+
+/**
+ * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created.
+ */
+export type MetricThresholdConfigApiQuery = { [key: string]: unknown } | null
+
+/**
+ * A deterministic check: measure one number, compare it, record the verdict.
+ *
+ * The number comes either from a metric the report already shows (``metric_id``) or from a query
+ * the author supplies. Both end up in the same runner, so a supplied query must satisfy the live
+ * metric contract — the node allowlist, the bounded window, and the single-output-series rule.
+ *
+ * A caller names one source. When it names a metric, the create path copies that metric's query
+ * into ``query`` before the row is stored, so the check keeps measuring what its author saw even if
+ * the report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.
+ *
+ * Unknown keys are refused rather than ignored, so a misspelled field name is reported instead of
+ * being dropped in silence and stored as it arrived.
+ */
+export interface MetricThresholdConfigApi {
+    /** Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created. */
+    metric_id?: string | null
+    /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. */
+    query?: MetricThresholdConfigApiQuery
+    /** What the measured value must satisfy to pass. */
+    comparison: CheckComparisonApi
+    /** The value observed when the check was written, recorded on each result for context. */
+    baseline_value?: number | null
+}
+
+export type SignalReportCheckConfigApi = MetricThresholdConfigApi
+
+/**
+ * * `passed` - Passed
+ * * `failed` - Failed
+ * * `errored` - Errored
+ */
+export type SignalReportCheckOutcomeEnumApi =
+    (typeof SignalReportCheckOutcomeEnumApi)[keyof typeof SignalReportCheckOutcomeEnumApi]
+
+export const SignalReportCheckOutcomeEnumApi = {
+    Passed: 'passed',
+    Failed: 'failed',
+    Errored: 'errored',
+} as const
+
+export interface SignalReportCheckApi {
+    readonly id: string
+    /** Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`. */
+    readonly title: string
+    /** Why the author set the check. */
+    readonly rationale: string
+    /** How the check is evaluated.
+     *
+     * * `metric_threshold` - Metric Threshold */
+    readonly kind: SignalReportCheckKindEnumApi
+    /** `active` while the check still runs; every other value is terminal.
+     *
+     * * `active` - Active
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored
+     * * `expired` - Expired
+     * * `cancelled` - Cancelled */
+    readonly status: SignalReportCheckStatusEnumApi
+    /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
+    config: SignalReportCheckConfigApi
+    /** When the coordinator next evaluates the check. */
+    readonly next_run_at: string
+    /**
+     * Gap between runs for a recurring check; null for a one-shot.
+     * @nullable
+     */
+    readonly run_interval_minutes: number | null
+    /** Evaluations still owed before the check retires as passed. */
+    readonly runs_remaining: number
+    /** Horizon after which the check retires without running again. */
+    readonly expires_at: string
+    /**
+     * When the check last ran; null before its first run.
+     * @nullable
+     */
+    readonly last_run_at: string | null
+    /** Verdict of the most recent run.
+     *
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored */
+    readonly last_outcome: SignalReportCheckOutcomeEnumApi | null
+    /** Runs that could not be measured since the last clean one. */
+    readonly consecutive_errors: number
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedSignalReportCheckListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SignalReportCheckApi[]
+}
+
+/**
+ * Request body for creating a check on a report.
+ *
+ * The schedule is the check's own: `next_run_at` says when to look, rather than the system
+ * deriving a soak window from a merged pull request that many fixes never have.
+ */
+export interface SignalReportCheckWriteApi {
+    /**
+     * Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.
+     * @maxLength 200
+     */
+    title: string
+    /**
+     * Why the check is worth running.
+     * @maxLength 2000
+     */
+    rationale?: string
+    /** How the check is evaluated.
+     *
+     * * `metric_threshold` - Metric Threshold */
+    kind: SignalReportCheckKindEnumApi
+    /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
+    config: SignalReportCheckConfigApi
+    /** When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now. */
+    next_run_at?: string
+    /**
+     * Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.
+     * @minimum 360
+     * @maximum 129600
+     * @nullable
+     */
+    run_interval_minutes?: number | null
+    /**
+     * How many times to evaluate the check, at most 10. Defaults to 1.
+     * @minimum 1
+     * @maximum 10
+     */
+    runs_remaining?: number
+    /** Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first. */
+    expires_at?: string
 }
 
 export interface SignalReportBulkStateRequestApi {
@@ -2481,8 +2701,8 @@ export interface SignalScoutConfigOptionsApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 7
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 8
      */
     write_scopes?: string[]
     /** Whether this scout runs on its schedule. Defaults to true. */
@@ -2517,10 +2737,15 @@ export interface SignalScoutConfigOptionsApi {
  */
 export interface SignalScoutCreateApi {
     /**
-     * Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.
+     * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+     * @maxLength 200
+     */
+    display_name?: string
+    /**
+     * Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.
      * @maxLength 64
      */
-    name: string
+    name?: string
     /**
      * Short description of the signal or behavior this scout investigates.
      * @maxLength 1024
@@ -2557,6 +2782,13 @@ export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutO
 export const ScoutOriginEnumApi = {
     Canonical: 'canonical',
     Custom: 'custom',
+} as const
+
+export type ScoutRoleEnumApi = (typeof ScoutRoleEnumApi)[keyof typeof ScoutRoleEnumApi]
+
+export const ScoutRoleEnumApi = {
+    Specialist: 'specialist',
+    Operational: 'operational',
 } as const
 
 /**
@@ -2671,6 +2903,8 @@ export interface SignalScoutConfigApi {
     display_name?: string
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin: ScoutOriginEnumApi
+    /** What this scout is to the harness: `specialist` for one that watches a product surface, or `operational` for one PostHog ships to watch the self-driving system itself. An operational scout is exempt from the inactivity sweep and from the enabled-scout cap, and is not a scout a project should delete. Always `specialist` for a custom scout. */
+    readonly scout_role: ScoutRoleEnumApi
     /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
     readonly owners: readonly UserBasicApi[]
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
@@ -2730,8 +2964,8 @@ export interface SignalScoutConfigApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 7
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 8
      */
     readonly write_scopes: readonly string[]
     /**
@@ -2843,8 +3077,8 @@ export interface SignalScoutConfigCreateApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 7
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 8
      */
     write_scopes?: string[]
     /** Whether this scout runs on its schedule. Defaults to true. */
@@ -2872,6 +3106,11 @@ export interface SignalScoutConfigCreateApi {
      * @nullable
      */
     run_cron_schedule?: string | null
+    /**
+     * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+     * @maxLength 200
+     */
+    display_name?: string
     /**
      * The skill to register a config for. Any valid skill name works — the config row is what makes a skill a scout. The skill must already exist on this project — author it via the skills store first.
      * @maxLength 200
@@ -2922,7 +3161,7 @@ export interface SignalScoutOutputDestinationsUpdateApi {
  */
 export interface PatchedSignalScoutConfigUpdateApi {
     /**
-     * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+     * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
      * @maxLength 200
      */
     display_name?: string
@@ -2979,8 +3218,8 @@ export interface PatchedSignalScoutConfigUpdateApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 7
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 8
      */
     write_scopes?: string[]
 }
@@ -3125,6 +3364,60 @@ export interface ScoutNoteCreateRequestApi {
 }
 
 /**
+ * `inventory.emit_eligibility` — whether scout findings can reach the inbox for this team.
+ */
+export interface EmitEligibilityApi {
+    /** Whether the organization has approved AI data processing (an org-level gate on all scout emits). */
+    ai_processing_approved: boolean
+    /** Whether the `signals_scout` signal source is enabled for this team. */
+    source_enabled: boolean
+    /** True only when both team/org-level gates pass, so scout findings (signal and report channels alike) actually reach the inbox. When False, every emit is silently dropped — quick-close instead of doing throwaway investigation. Does not account for a scout's own dry-run `emit` toggle, which is per-config, not team-wide. */
+    can_emit: boolean
+    /**
+     * One-line next step to unblock emits when `can_emit` is False; null when emits can flow.
+     * @nullable
+     */
+    remediation: string | null
+}
+
+/**
+ * One bucket in `inventory.existing_inbox_reports.by_status`.
+ */
+export interface InboxReportStatusBucketApi {
+    /** Report status (e.g. `potential`, `candidate`, `ready`). */
+    status: string
+    /** Number of reports in this status (excludes deleted/suppressed). */
+    count: number
+}
+
+/**
+ * `inventory.existing_inbox_reports` — what's already been surfaced to the inbox.
+ */
+export interface ExistingInboxReportsApi {
+    /** Total non-deleted, non-suppressed reports for this team. */
+    total: number
+    /** Per-status breakdown of inbox reports. */
+    by_status: InboxReportStatusBucketApi[]
+}
+
+/**
+ * The compact envelope returned ahead of the verbose `payload`.
+ *
+ * Both sections are repeated from `payload.inventory`. They lead the response because a
+ * client that truncates a long tool result keeps the prefix, and these are the two things a
+ * scout has to know before it does anything: whether its output can reach the inbox at all,
+ * and what is already there. Read `summary` rather than digging for the same keys inside
+ * `payload.inventory`, because it is the same data and it is guaranteed to be in the part you
+ * received.
+ */
+export interface ProjectProfileSummaryApi {
+    /** The delivery gate: whether scout findings can reach the inbox for this team, with a one-line `remediation` when they cannot. Check `can_emit` before investigating anything, because when it is False every emit is silently dropped. Null only for a stored profile built before this section existed, which the caller should treat as unknown rather than as permission to emit. */
+    emit_eligibility: EmitEligibilityApi | null
+    /** Counts of reports already in the inbox, grouped by status, which is what a new finding would be deduped against. Null for a stored profile built before this section existed. */
+    existing_inbox_reports: ExistingInboxReportsApi | null
+}
+
+/**
  * `inventory.project_context` — free-form orientation about the project's product.
  */
 export interface ProjectContextApi {
@@ -3216,23 +3509,6 @@ export interface SignalSourceConfigsBucketsApi {
 }
 
 /**
- * `inventory.emit_eligibility` — whether scout findings can reach the inbox for this team.
- */
-export interface EmitEligibilityApi {
-    /** Whether the organization has approved AI data processing (an org-level gate on all scout emits). */
-    ai_processing_approved: boolean
-    /** Whether the `signals_scout` signal source is enabled for this team. */
-    source_enabled: boolean
-    /** True only when both team/org-level gates pass, so scout findings (signal and report channels alike) actually reach the inbox. When False, every emit is silently dropped — quick-close instead of doing throwaway investigation. Does not account for a scout's own dry-run `emit` toggle, which is per-config, not team-wide. */
-    can_emit: boolean
-    /**
-     * One-line next step to unblock emits when `can_emit` is False; null when emits can flow.
-     * @nullable
-     */
-    remediation: string | null
-}
-
-/**
  * One scout in either bucket of `inventory.scout_fleet`.
  */
 export interface ScoutFleetEntryApi {
@@ -3279,26 +3555,6 @@ export interface ScoutFleetApi {
     disabled: ScoutFleetEntryApi[]
     /** The window `last_emitted_at` was resolved over, so a null reads as 'quiet', not 'never'. */
     emitted_lookback_days: number
-}
-
-/**
- * One bucket in `inventory.existing_inbox_reports.by_status`.
- */
-export interface InboxReportStatusBucketApi {
-    /** Report status (e.g. `potential`, `candidate`, `ready`). */
-    status: string
-    /** Number of reports in this status (excludes deleted/suppressed). */
-    count: number
-}
-
-/**
- * `inventory.existing_inbox_reports` — what's already been surfaced to the inbox.
- */
-export interface ExistingInboxReportsApi {
-    /** Total non-deleted, non-suppressed reports for this team. */
-    total: number
-    /** Per-status breakdown of inbox reports. */
-    by_status: InboxReportStatusBucketApi[]
 }
 
 /**
@@ -3775,8 +4031,14 @@ export interface ProjectProfilePayloadApi {
  * is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
  * latest cached profile or a freshly-built one if the cache was stale or the caller passed
  * `force_refresh=true`.
+ *
+ * `summary` leads the response and `payload` trails it: the inventory runs to tens of
+ * kilobytes, so a client that truncates a long tool result would otherwise cut off the emit
+ * gate the scout has to read before doing any work.
  */
 export interface ProjectProfileApi {
+    /** Compact envelope repeating the emit gate and the inbox report counts from `payload.inventory`. Declared first so it survives a truncated response. */
+    summary: ProjectProfileSummaryApi
     /** UUID of the `SignalProjectProfile` row. */
     profile_id: string
     /** ISO-8601 timestamp the profile was built. */
@@ -3785,8 +4047,8 @@ export interface ProjectProfileApi {
     expires_at: string
     /** Schema version of the inventory builder. Bumps invalidate older cached rows. */
     source_version: string
-    /** Structured profile content. v1 has `inventory` only. */
-    payload: ProjectProfilePayloadApi
+    /** Structured profile content. v1 has `inventory` only. Omitted when `summary_only=true`. */
+    payload?: ProjectProfilePayloadApi
 }
 
 export type SignalScoutRunSummaryApiMetadataDerived = {
@@ -4523,6 +4785,133 @@ export interface EmitFindingResponseApi {
      * @nullable
      */
     remediation: string | null
+}
+
+/**
+ * * `desktop` - desktop
+ * * `mobile` - mobile
+ */
+export type FormFactorEnumApi = (typeof FormFactorEnumApi)[keyof typeof FormFactorEnumApi]
+
+export const FormFactorEnumApi = {
+    Desktop: 'desktop',
+    Mobile: 'mobile',
+} as const
+
+/**
+ * Request body for `scout-lighthouse-audit`: one page, one device profile.
+ */
+export interface LighthouseAuditRequestApi {
+    /**
+     * The page to audit. Must be an https url on an allowed host — public PostHog pages only. Pages behind a login cannot be audited: the browser signs in to nothing, so it would measure the login screen and report its numbers as the page's.
+     * @maxLength 2000
+     */
+    url: string
+    /** Which device profile to emulate. Desktop and mobile produce different numbers, so audit the one whose field data you are explaining.
+     *
+     * * `desktop` - desktop
+     * * `mobile` - mobile */
+    form_factor?: FormFactorEnumApi
+}
+
+/**
+ * Lab metrics from this run: `lcp_ms`, `fcp_ms`, `cls`, `tbt_ms`, `speed_index_ms`, `tti_ms`. One throttled cold load, not a p75 over real users — use it to explain a field finding, never to replace one.
+ */
+export type LighthouseAuditResponseApiMetrics = { [key: string]: number }
+
+/**
+ * The element the browser chose as the Largest Contentful Paint.
+ */
+export interface LcpElementApi {
+    /**
+     * CSS selector for the element.
+     * @nullable
+     */
+    selector: string | null
+    /**
+     * The element's opening tag, truncated by Lighthouse.
+     * @nullable
+     */
+    snippet: string | null
+    /**
+     * Human-readable label, usually the alt or text.
+     * @nullable
+     */
+    node_label: string | null
+}
+
+/**
+ * One phase of the LCP timeline, which is where the time actually went.
+ */
+export interface LcpPhaseApi {
+    /** Lighthouse's own label for this subpart of the LCP, e.g. 'Time to first byte' or 'Element render delay'. Passed through verbatim, so the exact wording follows the Lighthouse version. */
+    phase: string
+    /**
+     * Milliseconds spent in this phase.
+     * @nullable
+     */
+    timing_ms: number | null
+    /**
+     * This subpart's share of the total LCP, e.g. '62%'.
+     * @nullable
+     */
+    percent: string | null
+}
+
+/**
+ * A failing check or a savings estimate from the audit.
+ */
+export interface AuditOpportunityApi {
+    /** Lighthouse audit id, for example `prioritize-lcp-image`. */
+    audit_id: string
+    /** Lighthouse's own title for the check. */
+    title: string
+    /**
+     * Estimated milliseconds this would save. Null for a pass/fail check with no estimate.
+     * @nullable
+     */
+    savings_ms: number | null
+}
+
+/**
+ * The audit, reduced to what a web vitals finding cites.
+ *
+ * The full Lighthouse report runs to a few hundred KB of detail no finding ever quotes, so the
+ * response carries the metrics, the LCP element and its phase breakdown, and the ranked
+ * opportunities, and drops the rest.
+ */
+export interface LighthouseAuditResponseApi {
+    /** The url that was audited. */
+    requested_url: string
+    /**
+     * Where the browser ended up after redirects.
+     * @nullable
+     */
+    final_url: string | null
+    /** The device profile the audit emulated. */
+    form_factor: string
+    /**
+     * The Lighthouse version that produced this report. Audit ids move between major versions, so cite it when an expected field came back empty.
+     * @nullable
+     */
+    lighthouse_version: string | null
+    /**
+     * Lighthouse performance score out of 100 for this run.
+     * @nullable
+     */
+    performance_score: number | null
+    /** Lab metrics from this run: `lcp_ms`, `fcp_ms`, `cls`, `tbt_ms`, `speed_index_ms`, `tti_ms`. One throttled cold load, not a p75 over real users — use it to explain a field finding, never to replace one. */
+    metrics: LighthouseAuditResponseApiMetrics
+    /** The element the browser chose as the LCP, or null when Lighthouse could not name one. */
+    lcp_element: LcpElementApi | null
+    /** Where the LCP time went, phase by phase. Empty when the report omits the breakdown. */
+    lcp_phases: LcpPhaseApi[]
+    /** LCP-specific checks this page failed, such as an unprioritized or lazy-loaded hero image. */
+    lcp_checks_failed: AuditOpportunityApi[]
+    /** Ranked savings estimates across the whole page, largest first. */
+    opportunities: AuditOpportunityApi[]
+    /** How many audits this run may still spend. Each run gets 5. */
+    audits_remaining: number
 }
 
 /**
@@ -5285,6 +5674,17 @@ export type SignalsReportArtefactsListParams = {
     offset?: number
 }
 
+export type SignalsReportChecksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type SignalsReportsPrCiStatusesParams = {
     /**
      * Comma-separated report UUIDs to resolve CI state for, at most 100 per request.
@@ -5293,6 +5693,11 @@ export type SignalsReportsPrCiStatusesParams = {
 }
 
 export type SignalsScoutConfigListParams = {
+    /**
+     * Case-insensitive substring filter over a scout's display name and its skill name. A scout matches on either, so a person who knows the label and a caller who knows the identifier both find it. Omit for the whole fleet.
+     * @minLength 1
+     */
+    search?: string
     /**
      * Comma-separated tags, e.g. `revenue,on-call`. Returns the scouts carrying at least one of them. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. Omit for the whole fleet.
      * @minLength 1
@@ -5369,6 +5774,10 @@ export type SignalsScoutProjectProfileGetParams = {
      * When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Honored only for the internal scout token — public read callers get the cached profile regardless. Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request.
      */
     force_refresh?: boolean
+    /**
+     * When true, respond with the cache metadata and the `summary` envelope only, and omit `payload` entirely. Use it when you need the emit gate and the inbox counts but not the full inventory. The full profile runs to tens of kilobytes, which a client can truncate. Costs nothing extra: the profile is read or built the same way either way.
+     */
+    summary_only?: boolean
 }
 
 export type SignalsScoutRunsListParams = {

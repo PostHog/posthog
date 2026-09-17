@@ -125,9 +125,6 @@
 1 products/error_tracking/backend/temporal/weekly_digest/test/test_weekly_digest_temporal.py
 1 products/experiments/backend/hogql_queries/metric_source.py
 1 products/experiments/backend/running_time_calculator.py
-1 products/experiments/stats/bayesian/method.py
-1 products/experiments/stats/bayesian/priors.py
-1 products/experiments/stats/bayesian/tests.py
 1 products/experiments/stats/frequentist/method.py
 1 products/experiments/stats/frequentist/tests.py
 1 products/exports/backend/models/subscription.py
@@ -372,7 +369,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/capsule_crm/capsule_crm.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/capsule_crm/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/care_quality_commission/care_quality_commission.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/care_quality_commission/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cast_ai/cast_ai.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cast_ai/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/census/census.py

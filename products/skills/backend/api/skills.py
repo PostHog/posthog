@@ -1,5 +1,6 @@
 import hashlib
 from collections.abc import Sequence
+from difflib import get_close_matches
 from typing import Any, cast
 from urllib.parse import urlencode
 from uuid import UUID
@@ -38,7 +39,7 @@ from posthog.event_usage import report_user_action
 from posthog.git import get_git_commit_short
 from posthog.models import User
 from posthog.models.utils import execute_with_timeout
-from posthog.permissions import AccessControlPermission, get_authenticator_scopes, posthog_feature_flag_value
+from posthog.permissions import AccessControlPermission, is_scout_sandbox_request, posthog_feature_flag_value
 from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrottle, SustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
 
@@ -132,7 +133,6 @@ from .skill_services import (
     delete_skill_file,
     duplicate_skill,
     get_active_skill_queryset,
-    get_latest_skills_queryset,
     get_skill_by_name_from_db,
     publish_skill_version,
     rename_skill,
@@ -163,6 +163,11 @@ SKILL_SEARCH_RESULT_LIMIT = 10
 SKILL_SEARCH_MATCH_LIMIT = 2
 SKILL_SEARCH_EXCERPT_LENGTH = 300
 SKILL_SEARCH_TIMEOUT_MS = 5_000
+# A 404 offers a few near-miss names, not a listing: `skill-list` is still the way to browse.
+MAX_SKILL_NAME_SUGGESTIONS = 3
+SKILL_NAME_SUGGESTION_CUTOFF = 0.6
+# Ceiling on the names one miss compares against, so a large store cannot make a 404 expensive.
+MAX_SKILL_NAME_MATCH_CANDIDATES = 500
 
 
 def _content_search_match(content: str, query: str, *, matched_field: str, path: str) -> dict[str, Any] | None:
@@ -499,9 +504,49 @@ class LLMSkillViewSet(
             )
         return None
 
-    def _skill_not_found_response(self, skill_name: str) -> Response:
+    def _skill_not_found_response(self, skill_name: str, version: int | None = None) -> Response:
+        """A 404 that answers from the same rows `list` returns.
+
+        An agent that lists a skill and then cannot read it concludes the store is inconsistent
+        and abandons the skill, so a miss has to say which of the two lookups it is: an unknown
+        name (near-miss names the caller can actually read) or a known name at an absent version
+        (the versions it does hold).
+        """
+        visible = self._visible_skills_queryset()
+        if version is not None:
+            available_versions = list(
+                visible.filter(name=skill_name).order_by("version").values_list("version", flat=True)
+            )
+            if available_versions:
+                return Response(
+                    {
+                        "detail": (
+                            f"Skill with name '{skill_name}' has no version {version}. "
+                            f"Available versions: {', '.join(str(v) for v in available_versions)}."
+                        ),
+                        "type": "skill_version_not_found",
+                        "skill_name": skill_name,
+                        "available_versions": available_versions,
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        suggestions = get_close_matches(
+            skill_name,
+            visible.filter(is_latest=True).values_list("name", flat=True)[:MAX_SKILL_NAME_MATCH_CANDIDATES],
+            n=MAX_SKILL_NAME_SUGGESTIONS,
+            cutoff=SKILL_NAME_SUGGESTION_CUTOFF,
+        )
+        detail = f"Skill with name '{skill_name}' not found."
+        if suggestions:
+            detail += " Did you mean " + ", ".join(f"'{name}'" for name in suggestions) + "?"
         return Response(
-            {"detail": f"Skill with name '{skill_name}' not found."},
+            {
+                "detail": detail,
+                "type": "skill_not_found",
+                "skill_name": skill_name,
+                "suggestions": suggestions,
+            },
             status=status.HTTP_404_NOT_FOUND,
         )
 
@@ -565,14 +610,7 @@ class LLMSkillViewSet(
         return None
 
     def _is_scout_sandbox_caller(self) -> bool:
-        """Whether the request is authenticated with a Signals scout sandbox token.
-
-        The scout harness's sandbox token is the only issuer of `signal_scout_internal:*`
-        scopes, so their presence identifies a scout run. Session auth and ordinary API
-        keys never carry them.
-        """
-        scopes = get_authenticator_scopes(getattr(self.request, "successful_authenticator", None))
-        return scopes is not None and any(scope.startswith("signal_scout_internal:") for scope in scopes)
+        return is_scout_sandbox_request(self.request)
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
@@ -611,12 +649,17 @@ class LLMSkillViewSet(
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
 
+    def _visible_skills_queryset(self) -> QuerySet[LLMSkill]:
+        """Every active skill row this caller may read. `list` and every by-name read share it, so
+        a name the list returned can never be denied by a read as if it did not exist."""
+        return self.user_access_control.filter_queryset_by_access_level(
+            get_active_skill_queryset(self.team), resource="llm_skill"
+        )
+
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMSkill]:
         params = self._get_list_params(request)
 
-        queryset = self.user_access_control.filter_queryset_by_access_level(
-            get_latest_skills_queryset(self.team), resource="llm_skill"
-        )
+        queryset = self._visible_skills_queryset().filter(is_latest=True)
 
         search = params.get("search", "").strip()
         if search:
@@ -813,7 +856,7 @@ class LLMSkillViewSet(
                 return redirect
 
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         # Cap the first page when the caller doesn't page explicitly, so body_next_offset is a
         # valid continuation offset even when the full body would be truncated in transit.
@@ -1028,7 +1071,7 @@ class LLMSkillViewSet(
             str(version_id) if version_id else None,
         )
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         limit = cast(int, query_params["limit"])
         offset = cast(int | None, query_params.get("offset"))
@@ -1070,7 +1113,7 @@ class LLMSkillViewSet(
         version = cast(int | None, version_params.get("version"))
         skill = self._load_skill_with_object_access(request, skill_name, version)
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         # SKILL.md never carries the bundled files, so don't load them just to render it.
         export = skill.to_export()
@@ -1096,7 +1139,7 @@ class LLMSkillViewSet(
         version = cast(int | None, version_params.get("version"))
         skill = self._load_skill_with_object_access(request, skill_name, version)
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         export = load_skill_export(skill)
         problems = _spec_problem_messages(export)
@@ -1674,7 +1717,7 @@ class LLMSkillViewSet(
         version = cast(int | None, version_params.get("version"))
         skill = self._load_skill_with_object_access(request, skill_name, version)
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         file_path = file_path.rstrip("/")
         normalized = file_path.replace("\\", "/")

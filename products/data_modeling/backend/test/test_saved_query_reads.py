@@ -9,7 +9,10 @@ from posthog.models.organization import OrganizationMembership
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade import api
+from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.edge import Edge
+from products.data_modeling.backend.models.node import Node, NodeType
 
 
 class TestSavedQueryReads(BaseTest):
@@ -69,3 +72,31 @@ class TestSavedQueryReads(BaseTest):
         assert api.allowed_saved_query_ids(self.team.id, admin, required_level=required_level) == frozenset(
             {readable.id, editable.id, ungranted.id, owned.id}
         )
+
+    def test_dependent_saved_query_ids_follows_every_node_of_the_source(self) -> None:
+        source = DataWarehouseSavedQuery.objects.create(team=self.team, name="source")
+        near = DataWarehouseSavedQuery.objects.create(team=self.team, name="near")
+        far = DataWarehouseSavedQuery.objects.create(team=self.team, name="far")
+        gone = DataWarehouseSavedQuery.objects.create(team=self.team, name="gone", deleted=True)
+        first_dag = DAG.objects.create(team=self.team, name="Default")
+        second_dag = DAG.objects.create(team=self.team, name="Other")
+        source_in_first = Node.objects.create(
+            team=self.team, dag=first_dag, name="source", saved_query=source, type=NodeType.VIEW
+        )
+        source_in_second = Node.objects.create(
+            team=self.team, dag=second_dag, name="source", saved_query=source, type=NodeType.VIEW
+        )
+        for dag, node_source, saved_query in [
+            (first_dag, source_in_first, near),
+            (second_dag, source_in_second, far),
+            (first_dag, source_in_first, gone),
+        ]:
+            target = Node.objects.create(
+                team=self.team, dag=dag, name=saved_query.name, saved_query=saved_query, type=NodeType.VIEW
+            )
+            Edge.objects.create(team=self.team, dag=dag, source=node_source, target=target)
+
+        assert api.dependent_saved_query_ids(self.team.id, [source.id, near.id]) == {
+            source.id: frozenset({near.id, far.id}),
+            near.id: frozenset(),
+        }

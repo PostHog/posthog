@@ -56,7 +56,7 @@ misbehaving collector is cut off, not merely slow. Per tick:
 
 | collector | interval | cost | notes |
 |---|---|---|---|
-| `activity_samples`, `activity_sessions` | 10s | one `pg_stat_activity` scan each | `pg_blocking_pids()` only for lock waiters |
+| `activity_samples`, `activity_sessions` | 10s | one `pg_stat_activity` scan each, plus a regexp over each active backend's query text for query tags | `pg_blocking_pids()` only for lock waiters |
 | `lock_waits` | 10s | `pg_stat_activity` scan; `pg_blocking_pids()` per lock waiter only | empty unless something is blocked |
 | `query_stats` | 60s | `pg_stat_statements(false)` (no text); text for ≤500 new ids per tick | no query text on the hot path |
 | `database_stats`, `bgwriter`, `wal`, `replication*`, `vacuum_progress`, `aurora_system_waits`, `aurora_db_latency`, `aurora_replica_status` | 60s | shared-memory counter reads | negligible |
@@ -101,7 +101,13 @@ for the values. Key points:
 ## 3. Logs (statement durations, plans, autovacuum, checkpoints, errors)
 
 The `logs` collector reads the Postgres log and writes typed rows —
-`ts_query_durations` is where **real per-query latency quantiles** come from.
+`ts_query_latency` is where **real per-query latency quantiles** come from: one row
+per statement fingerprint and minute holding log-spaced histograms of the sampled
+and of the always-logged durations (20 buckets per decade from 0.01 ms to 100 s),
+with the sample rate they were collected under, so a statement's cost is
+independent of how often it runs and the weighting survives a settings change. Durations at or above `sample_rows_over_ms`
+(default 100) also keep their own `ts_query_durations` row for the slowest-samples
+view; the statement text itself is stored once per fingerprint in `cur_query_texts`.
 On Aurora the log is already exported to CloudWatch Logs
 (`enabled_cloudwatch_logs_exports = ["postgresql"]`), one group per cluster,
 one stream per instance:

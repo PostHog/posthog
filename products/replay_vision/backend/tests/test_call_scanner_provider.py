@@ -27,13 +27,16 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     _step_config,
 )
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
+from products.replay_vision.backend.temporal.events_tool import events_tool
 from products.replay_vision.backend.temporal.metrics import REPLAY_VISION_VERIFICATION_OUTCOMES
 from products.replay_vision.backend.temporal.scanners.base import MissionStep, SignalFinding, SignalsResponse
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorOutput, MonitorScanner
 from products.replay_vision.backend.temporal.types import ScannerSnapshot, VerificationRecord
+from products.replay_vision.backend.temporal.video_clock import VideoClock
 
 _LABELS = {"provider": "gemini", "model": "gemini-3-flash-preview", "scanner_type": "monitor"}
 # The driver treats the video part opaquely (just appended to the conversation), so a sentinel is fine.
+_IDENTITY_CLOCK = VideoClock(spans=())
 _VIDEO: Any = "VIDEO"
 
 
@@ -80,15 +83,22 @@ def _fc(name: str, args: dict[str, Any]) -> Any:
     return type("FC", (), {"name": name, "args": args})()
 
 
-async def _run(client: _FakeClient, steps: list[MissionStep], dispatch: Any = lambda c: {}, cache_name=None):
+async def _run(
+    client: _FakeClient,
+    steps: list[MissionStep],
+    dispatch: Any = lambda c: {},
+    cache_name=None,
+    model: str = "models/gemini-3-flash-preview",
+):
     return await _run_steps(
         client=client,
-        model="models/gemini-3-flash-preview",
+        model=model,
         steps=steps,
         video_part=_VIDEO,
         preamble_text="PRE",
         cache_name=cache_name,
         dispatch=dispatch,
+        tools=[events_tool()],
         team_id=1,
         metric_labels=_LABELS,
         trace_id="trace-1",
@@ -127,6 +137,7 @@ async def test_scanner_generations_include_team_attribution() -> None:
             scanner=scanner,
             snapshot=snapshot,
             video_part=_VIDEO,
+            video_clock=_IDENTITY_CLOCK,
             preamble_text="PRE",
             team_id=42,
             llm_inputs=MagicMock(),
@@ -184,17 +195,21 @@ async def test_step_runs_a_tool_call_then_answers() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_budget_exhaustion_forces_a_final_tool_free_answer() -> None:
+@pytest.mark.parametrize(
+    "model,budget",
+    [("models/gemini-3-flash-preview", 6), ("models/gemini-3.8-flash", 3)],
+)
+async def test_tool_budget_exhaustion_forces_a_final_tool_free_answer(model: str, budget: int) -> None:
     # The model keeps calling the tool until the budget is gone; instead of hard-failing, the step forces one final
     # turn with tools removed and the model answers from what it has already seen.
     steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
-    # initial generate + 6 tool iterations = 7 function-call responses, then the forced tool-free answer.
-    responses = [_Resp(function_call=_fc("get_events_around", {"rec_t": 5})) for _ in range(7)]
+    # initial generate + `budget` tool iterations = budget + 1 function-call responses, then the forced answer.
+    responses = [_Resp(function_call=_fc("get_events_around", {"rec_t": 5})) for _ in range(budget + 1)]
     responses.append(_Resp(text='{"verdict":"yes"}'))
     client = _FakeClient(responses)
-    out = await _run(client, steps, dispatch=lambda fc: {"events": []})
+    out = await _run(client, steps, dispatch=lambda fc: {"events": []}, model=model)
     assert out["core"].verdict == "yes"
-    assert len(client.models.calls) == 8  # 7 tool turns + 1 forced answer
+    assert len(client.models.calls) == budget + 2  # tool turns + 1 forced answer
     assert client.models.calls[0]["config"].tools is not None  # tool offered during the loop
     assert client.models.calls[-1]["config"].tools is None  # tools removed on the forced turn
 
@@ -318,6 +333,7 @@ async def test_signal_timestamps_use_recording_duration(
             scanner=scanner,
             snapshot=snapshot,
             video_part=_VIDEO,
+            video_clock=_IDENTITY_CLOCK,
             preamble_text="PRE",
             team_id=1,
             llm_inputs=MagicMock(metadata=MagicMock(duration_seconds=duration_seconds)),
@@ -568,6 +584,7 @@ class TestVerifyPositives:
                 scanner=scanner,
                 snapshot=snapshot,
                 video_part=_VIDEO,
+                video_clock=_IDENTITY_CLOCK,
                 preamble_text="PRE",
                 team_id=1,
                 llm_inputs=MagicMock(),
@@ -714,14 +731,20 @@ class TestVerifyPositives:
 
 class TestStepConfig:
     def test_inline_path_carries_tools_and_no_cache(self) -> None:
-        config = _step_config(MissionStep(name="core", instruction="c", response_model=_Core), cache_name=None)
+        config = _step_config(
+            MissionStep(name="core", instruction="c", response_model=_Core), cache_name=None, tools=[events_tool()]
+        )
         assert config.tools is not None
         assert config.cached_content is None
         assert config.response_json_schema is not None
         assert config.thinking_config is not None and config.thinking_config.include_thoughts is True
 
     def test_cached_path_references_the_cache_and_omits_tools(self) -> None:
-        config = _step_config(MissionStep(name="core", instruction="c", response_model=_Core), cache_name="caches/abc")
+        config = _step_config(
+            MissionStep(name="core", instruction="c", response_model=_Core),
+            cache_name="caches/abc",
+            tools=[events_tool()],
+        )
         # Tools live in the cache; re-declaring them in the config alongside cached_content is rejected by Gemini.
         assert config.tools is None
         assert config.cached_content == "caches/abc"
@@ -750,5 +773,7 @@ async def test_video_cache_creation_is_best_effort() -> None:
         aio = type("Aio", (), {"caches": _BoomCaches()})()
 
     # A cache that can't be created (e.g. too-short video) degrades to None, not an error.
-    result = await _maybe_create_video_cache(cast(Any, _BoomClient()), "models/gemini-3-flash-preview", _VIDEO, "PRE")
+    result = await _maybe_create_video_cache(
+        cast(Any, _BoomClient()), "models/gemini-3-flash-preview", _VIDEO, "PRE", tools=[events_tool()]
+    )
     assert result is None

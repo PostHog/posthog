@@ -1810,8 +1810,8 @@ export interface SignalScoutConfigOptionsApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 7
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 8
      */
     write_scopes?: string[]
     /** Whether this scout runs on its schedule. Defaults to true. */
@@ -1850,10 +1850,15 @@ export interface SignalScoutConfigOptionsApi {
  */
 export interface ScannerScoutCreateApi {
     /**
-     * Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.
+     * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+     * @maxLength 200
+     */
+    display_name?: string
+    /**
+     * Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.
      * @maxLength 64
      */
-    name: string
+    name?: string
     /**
      * Short description of the signal or behavior this scout investigates.
      * @maxLength 1024
@@ -1874,6 +1879,13 @@ export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutO
 export const ScoutOriginEnumApi = {
     Canonical: 'canonical',
     Custom: 'custom',
+} as const
+
+export type ScoutRoleEnumApi = (typeof ScoutRoleEnumApi)[keyof typeof ScoutRoleEnumApi]
+
+export const ScoutRoleEnumApi = {
+    Specialist: 'specialist',
+    Operational: 'operational',
 } as const
 
 /**
@@ -1931,6 +1943,8 @@ export interface SignalScoutConfigApi {
     display_name?: string
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin: ScoutOriginEnumApi
+    /** What this scout is to the harness: `specialist` for one that watches a product surface, or `operational` for one PostHog ships to watch the self-driving system itself. An operational scout is exempt from the inactivity sweep and from the enabled-scout cap, and is not a scout a project should delete. Always `specialist` for a custom scout. */
+    readonly scout_role: ScoutRoleEnumApi
     /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
     readonly owners: readonly UserBasicApi[]
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
@@ -1990,8 +2004,8 @@ export interface SignalScoutConfigApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 7
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 8
      */
     readonly write_scopes: readonly string[]
     /**
@@ -2310,6 +2324,7 @@ export interface SuggestTagsResponseApi {
 /**
  * * `signal_emitted` - Signal Emitted
  * * `unusual_verdict` - Unusual Verdict
+ * * `notable` - Notable
  * * `verdict_yes` - Verdict Yes
  * * `outlier_score` - Outlier Score
  * * `rare_tag` - Rare Tag
@@ -2323,6 +2338,7 @@ export type WatchFeedReasonEnumApi = (typeof WatchFeedReasonEnumApi)[keyof typeo
 export const WatchFeedReasonEnumApi = {
     SignalEmitted: 'signal_emitted',
     UnusualVerdict: 'unusual_verdict',
+    Notable: 'notable',
     VerdictYes: 'verdict_yes',
     OutlierScore: 'outlier_score',
     RareTag: 'rare_tag',
@@ -2336,10 +2352,11 @@ export const WatchFeedReasonEnumApi = {
  * Machine-readable reason an observation made the feed; the frontend renders the copy.
  */
 export interface WatchFeedReasonApi {
-    /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+    /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
      *
      * * `signal_emitted` - Signal Emitted
      * * `unusual_verdict` - Unusual Verdict
+     * * `notable` - Notable
      * * `verdict_yes` - Verdict Yes
      * * `outlier_score` - Outlier Score
      * * `rare_tag` - Rare Tag
@@ -2363,6 +2380,16 @@ export interface WatchFeedReasonApi {
      * @nullable
      */
     verdict_share?: number | null
+    /**
+     * The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.
+     * @nullable
+     */
+    notability?: number | null
+    /**
+     * The scan's own sentence naming why the session is worth watching. Present only on the `notable` reason kind, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
+     * @nullable
+     */
+    notability_reason?: string | null
     /**
      * The observation's score, for `outlier_score`.
      * @nullable
@@ -2399,7 +2426,7 @@ export interface WatchFeedItemApi {
  * Response of GET /vision/scanners/watch_feed/.
  */
 export interface WatchFeedResponseApi {
-    /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then newest. */
+    /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then the scan's own notability judgment, then prose that reads as friction, then newest. */
     results: WatchFeedItemApi[]
 }
 
@@ -2868,6 +2895,16 @@ export type VisionScannersWatchFeedRetrieveParams = {
      * @minLength 1
      */
     scanner_type?: VisionScannersWatchFeedRetrieveScannerType
+    /**
+     * Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the notability sentence) and the scanner's name. Applied before ranking, so it searches the whole window rather than the items that would have surfaced without it.
+     * @minLength 1
+     */
+    search?: string
+    /**
+     * Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.
+     * @minLength 1
+     */
+    tags?: string
 }
 
 export type VisionScannersWatchFeedRetrieveScannerType =
