@@ -1327,13 +1327,13 @@ Note: Chameleon's published OpenAPI at developers.chameleon.io/api-reference/ope
 
 ## Chargedesk — gaps
 
-Today (4): `charges`, `customers`, `products`, `subscriptions`
+Today (7): `activity_log`, `charge_items`, `charges`, `customers`, `products`, `subscription_cancellations`, `subscriptions`
 
 Diffed against: <https://chargedesk.com/api-docs>
 
-- [ ] `GET /v1/charges/{CHARGE_ID}/items` — charge line items - the product/quantity breakdown behind every charge we already sync (high)
-- [ ] `GET /v1/log/cancellations` — subscription cancellation log with reasons and timestamps, the core churn dataset (high)
-- [ ] `GET /v1/log/activity` — the account-wide activity/state-change history across charges, customers and subscriptions (high)
+- [x] `GET /v1/charges/{CHARGE_ID}/items` — charge line items - the product/quantity breakdown behind every charge we already sync (high)
+- [x] `GET /v1/log/cancellations` — subscription cancellation log with reasons and timestamps, the core churn dataset (high)
+- [x] `GET /v1/log/activity` — the account-wide activity/state-change history across charges, customers and subscriptions (high)
 
 Note: Full endpoint list extracted from the single-page api-docs HTML. Only three additional GET-listable analytical resources exist; agents are POST/DELETE only (no list endpoint), /v1/customers/grouped is just an aggregated view of customers we already sync, and gateway/\* plus webhooks are actions and plumbing.
 
