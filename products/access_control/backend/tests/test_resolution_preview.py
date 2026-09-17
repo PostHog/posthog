@@ -271,7 +271,7 @@ class TestResolutionPreviewAPI(BaseUserAccessControlTest):
         assert log.activity == "updated"
         assert log.detail is not None
         assert any(
-            change["field"] == "uses_most_specific_access_resolution" and change["after"] is True
+            change["field"] == "most-specific access resolution" and change["after"] is True
             for change in log.detail["changes"]
         )
 
