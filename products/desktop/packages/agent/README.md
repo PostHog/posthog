@@ -269,3 +269,23 @@ ACP defines standard methods like `session/prompt`, `session/update`, and `sessi
 **Debug** — operational visibility without polluting the ACP conversation.
 
 - `_posthog/console` — `{ sessionId, level, message }` — structured debug/info/warn/error log from the agent internals
+
+## Releasing
+
+Releases are automatic. There is no manual version bump: `package.json` stays at `0.0.0-dev` and the release workflow sets the version from the tag.
+
+1. A merge to `master` that changes a file in this package runs `.github/workflows/desktop-agent-tag.yml`.
+2. It pushes the tag `agent-vX.Y.Z`. `Z` is the number of commits to this package since the base tag `agent-vX.Y`.
+3. The tag push runs `.github/workflows/desktop-agent-release.yml`, which builds, tests and publishes to npm with provenance, then rebuilds the sandbox base images.
+
+A merge that changes nothing in this package does not release, even when it changes the release workflow itself.
+
+The publish job runs in the `npm-posthog-agent` GitHub environment, which only deploys from `agent-v*` tags.
+A tag ruleset protects `agent-v*` tags. The Releaser GitHub App pushes release tags, and only a repository admin can push a base tag.
+
+To start a new minor or major version, a repository admin pushes a base tag:
+
+```bash
+git tag agent-v2.5
+git push origin agent-v2.5
+```
