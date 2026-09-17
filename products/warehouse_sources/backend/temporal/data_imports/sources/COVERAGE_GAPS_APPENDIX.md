@@ -1399,13 +1399,13 @@ Note: No machine-readable spec is published; I enumerated the full /reference/\*
 
 ## Chatwoot — gaps
 
-Today (8): `agents`, `contacts`, `conversations`, `custom_attribute_definitions`, `inboxes`, `labels`, `messages`, `teams`
+Today (11): `agents`, `contacts`, `conversations`, `custom_attribute_definitions`, `inbox_members`, `inboxes`, `labels`, `messages`, `reporting_events`, `team_members`, `teams`
 
 Diffed against: <https://raw.githubusercontent.com/chatwoot/chatwoot/develop/swagger/swagger.json>
 
-- [ ] `/api/v1/accounts/{account_id}/reporting_events (and .../conversations/{conversation_id}/reporting_events)` — the per-conversation event stream (first_response, conversation_resolved, reply_time) that every support SLA metric is computed from (high)
-- [ ] `/api/v1/accounts/{account_id}/teams/{team_id}/team_members` — lookup join table resolving which agents belong to which of the already-synced teams (high)
-- [ ] `/api/v1/accounts/{account_id}/inbox_members/{inbox_id}` — lookup join table resolving agent-to-inbox assignment for routing and load analysis (high)
+- [x] `/api/v1/accounts/{account_id}/reporting_events (and .../conversations/{conversation_id}/reporting_events)` — the per-conversation event stream (first_response, conversation_resolved, reply_time) that every support SLA metric is computed from (high)
+- [x] `/api/v1/accounts/{account_id}/teams/{team_id}/team_members` — lookup join table resolving which agents belong to which of the already-synced teams (high)
+- [x] `/api/v1/accounts/{account_id}/inbox_members/{inbox_id}` — lookup join table resolving agent-to-inbox assignment for routing and load analysis (high)
 - [ ] `/api/v2/accounts/{account_id}/summary_reports/agent | inbox | team | channel` — vendor-computed agent/inbox/team performance rollups (resolution counts, response times) (medium)
 - [ ] `/api/v2/accounts/{account_id}/reports/conversations and /reports/summary` — conversation volume and first-response-time timeseries, the product's headline dashboard numbers (medium)
 - [ ] `/api/v1/accounts/{account_id}/conversations/{conversation_id}/labels and /contacts/{id}/labels` — the label-to-conversation and label-to-contact join tables; the labels table alone cannot be joined to anything (medium)
