@@ -1,7 +1,9 @@
+import hashlib
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
 
+import orjson
 from requests import Request, Response
 from requests.auth import HTTPBasicAuth
 from structlog.types import FilteringBoundLogger
@@ -15,7 +17,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    IncrementalConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -34,6 +43,9 @@ class ChargedeskResumeConfig:
     # watermark); "full" is the first/full-refresh scan. Tracking the phase lets a resume pick up the right
     # pass instead of restarting the whole sync.
     phase: str = "full"
+    # Opaque per-parent checkpoint for a fan-out endpoint, whose pagination is the parent walk rather
+    # than an offset of its own. Round-tripped into the framework's `initial_paginator_state`.
+    fanout_state: dict[str, Any] | None = None
 
 
 class ChargedeskOffsetWindowPaginator(BasePaginator):
@@ -149,6 +161,44 @@ class ChargedeskOffsetWindowPaginator(BasePaginator):
         return f"ChargedeskOffsetWindowPaginator(offset={self.offset}, window_max={self.window_max})"
 
 
+def _client_config(api_key: str, paginator: Optional[BasePaginator] = None) -> ClientConfig:
+    config: ClientConfig = {
+        "base_url": CHARGEDESK_BASE_URL,
+        # HTTP Basic with the secret key as the username and an empty password.
+        "auth": {"type": "http_basic", "username": api_key, "password": ""},
+    }
+    if paginator is not None:
+        config["paginator"] = paginator
+    return config
+
+
+def _with_synthetic_ids(pages: Iterator[list[dict[str, Any]]], column: str) -> Iterator[list[dict[str, Any]]]:
+    """Key rows that carry no identifier by a hash of their own contents.
+
+    The log endpoints return no id, so a row re-read at a window boundary would land as a second
+    row. Hashing the whole row makes that re-read merge onto itself, and collapses the
+    indistinguishable duplicates one page can hold.
+    """
+    for page in pages:
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for raw_row in page:
+            row = {key: value for key, value in raw_row.items() if key != column}
+            row_id = hashlib.sha256(orjson.dumps(row, option=orjson.OPT_SORT_KEYS, default=str)).hexdigest()
+            if row_id in seen:
+                continue
+            seen.add(row_id)
+            row[column] = row_id
+            rows.append(row)
+        yield rows
+
+
+def _no_child_window(_incremental_field: str) -> Optional[IncrementalConfig]:
+    # A fan-out child endpoint takes no params of its own, so its cursor is bound by the window on
+    # the parent walk instead of by a filter on the child request.
+    return None
+
+
 def _run_pass(
     api_key: str,
     cfg: ChargedeskEndpointConfig,
@@ -173,12 +223,7 @@ def _run_pass(
         params[f"{cfg.filter_param}[min]"] = min_value
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": CHARGEDESK_BASE_URL,
-            # HTTP Basic with the secret key as the username and an empty password.
-            "auth": {"type": "http_basic", "username": api_key, "password": ""},
-            "paginator": ChargedeskOffsetWindowPaginator(cfg, logger=logger),
-        },
+        "client": _client_config(api_key, ChargedeskOffsetWindowPaginator(cfg, logger=logger)),
         "resources": [
             {
                 "name": cfg.name,
@@ -211,6 +256,62 @@ def _run_pass(
     yield from resource
 
 
+def _run_fanout_pass(
+    api_key: str,
+    cfg: ChargedeskEndpointConfig,
+    team_id: int,
+    job_id: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: "ResumableSourceManager[ChargedeskResumeConfig]",
+    *,
+    phase: str,
+    min_value: int | None,
+    window_max: int | None,
+    start_state: dict[str, Any] | None,
+    incremental: bool,
+) -> Iterator[list[dict[str, Any]]]:
+    """Run a single pass over an endpoint reached by fanning out across its parent list endpoint.
+
+    The child endpoint accepts no parameters, so the pass is windowed on the parent walk: the
+    parent's own `[min]`/`[max]` filters and offset cap decide which parents get a child request.
+    Resume state here is the framework's per-parent checkpoint, so a resumed pass skips the parents
+    it already fetched rather than paying for them again.
+    """
+    assert cfg.fanout is not None
+    parent_cfg = CHARGEDESK_ENDPOINTS[cfg.fanout.parent_name]
+
+    fanout = cfg.fanout
+    if min_value is not None:
+        fanout = dataclasses.replace(fanout, parent_params={f"{parent_cfg.filter_param}[min]": min_value})
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(ChargedeskResumeConfig(phase=phase, fanout_state=dict(state)))
+
+    yield from build_dependent_resource(
+        endpoint_configs=CHARGEDESK_ENDPOINTS,
+        child_endpoint=cfg.name,
+        fanout=fanout,
+        client_config=_client_config(api_key),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        should_use_incremental_field=incremental,
+        incremental_field=cfg.default_incremental_field,
+        incremental_config_factory=_no_child_window,
+        # `count` and `offset` come from the parent's paginator; the child endpoint documents neither.
+        page_size_param=None,
+        parent_endpoint_extra={
+            "paginator": ChargedeskOffsetWindowPaginator(parent_cfg, logger=logger, window_max=window_max),
+            "data_selector": "data",
+        },
+        child_endpoint_extra={"paginator": "single_page", "data_selector": "items"},
+        resume_hook=save_checkpoint,
+        initial_paginator_state=start_state,
+    )
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -229,61 +330,50 @@ def get_rows(
     incremental = should_use_incremental_field and cfg.supports_incremental
     no_watermark = db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
 
+    def run_pass(*, phase: str, min_value: int | None, window_max: int | None) -> Iterator[list[dict[str, Any]]]:
+        resumed = resume if resume is not None and resume.phase == phase else None
+        if cfg.fanout is not None:
+            pages = _run_fanout_pass(
+                api_key,
+                cfg,
+                team_id,
+                job_id,
+                logger,
+                resumable_source_manager,
+                phase=phase,
+                min_value=min_value,
+                window_max=window_max,
+                start_state=resumed.fanout_state if resumed is not None else None,
+                incremental=incremental,
+            )
+        else:
+            pages = _run_pass(
+                api_key,
+                cfg,
+                team_id,
+                job_id,
+                logger,
+                resumable_source_manager,
+                phase=phase,
+                min_value=min_value,
+                start_offset=resumed.offset if resumed is not None else 0,
+                start_window_max=resumed.window_max if resumed is not None else window_max,
+            )
+        if cfg.synthetic_id_column is not None:
+            pages = _with_synthetic_ids(pages, cfg.synthetic_id_column)
+        return pages
+
     if not incremental or no_watermark:
-        start_offset, window_max = (
-            (resume.offset, resume.window_max) if resume and resume.phase == "full" else (0, None)
-        )
-        yield from _run_pass(
-            api_key,
-            cfg,
-            team_id,
-            job_id,
-            logger,
-            resumable_source_manager,
-            phase="full",
-            min_value=None,
-            start_offset=start_offset,
-            start_window_max=window_max,
-        )
+        yield from run_pass(phase="full", min_value=None, window_max=None)
     else:
         # Newest-first incremental: first walk older rows we don't have yet (bounded by the earliest value
         # we've synced), then the rows newer than our watermark. Skip the earliest pass entirely if a resume
         # tells us we already finished it.
         if db_incremental_field_earliest_value is not None and (resume is None or resume.phase == "earliest"):
-            if resume is not None and resume.phase == "earliest":
-                start_offset, window_max = resume.offset, resume.window_max
-            else:
-                start_offset, window_max = 0, int(db_incremental_field_earliest_value)
-            yield from _run_pass(
-                api_key,
-                cfg,
-                team_id,
-                job_id,
-                logger,
-                resumable_source_manager,
-                phase="earliest",
-                min_value=None,
-                start_offset=start_offset,
-                start_window_max=window_max,
-            )
+            yield from run_pass(phase="earliest", min_value=None, window_max=int(db_incremental_field_earliest_value))
 
         if db_incremental_field_last_value is not None:
-            if resume is not None and resume.phase == "latest":
-                start_offset, window_max = resume.offset, resume.window_max
-            else:
-                start_offset, window_max = 0, None
-            yield from _run_pass(
-                api_key,
-                cfg,
-                team_id,
-                job_id,
-                logger,
-                resumable_source_manager,
-                phase="latest",
-                min_value=int(db_incremental_field_last_value),
-                start_offset=start_offset,
-                start_window_max=window_max,
-            )
+            yield from run_pass(phase="latest", min_value=int(db_incremental_field_last_value), window_max=None)
 
 
 def chargedesk_source(
