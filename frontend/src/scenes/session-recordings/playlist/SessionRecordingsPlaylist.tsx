@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useRef } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 
 import * as directorPng from '@posthog/brand/hoggies/png/director'
 
@@ -7,13 +7,11 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { TAILWIND_BREAKPOINTS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
 import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
-
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -22,6 +20,12 @@ import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 const HedgehogDirector = pngHoggie(directorPng)
+
+/** Narrower than this and the list stacks over the player instead of sitting beside it. */
+const HORIZONTAL_LAYOUT_MIN_WIDTH = TAILWIND_BREAKPOINTS.xl
+/** Stays below half of HORIZONTAL_LAYOUT_MIN_WIDTH so the list column's 50% cap always wins. */
+const LIST_MIN_WIDTH = 240
+const LIST_DEFAULT_WIDTH = 320
 
 type SessionRecordingsPlaylistProps = SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
@@ -38,21 +42,43 @@ export function SessionRecordingsPlaylist({ ...props }: SessionRecordingsPlaylis
         onlyPinned: props.type === 'collection',
     }
 
-    const { sidePanelWidth } = useValues(panelLayoutLogic)
-    const { isWindowLessThan } = useWindowSize({ widthOffset: sidePanelWidth })
-    const windowSaysVertical = isWindowLessThan('xl')
+    // The nav sidebar, a tab column, a notebook node and a side panel all take width the window knows
+    // nothing about, so measure the container the playlist actually gets.
+    const containerRef = useRef<HTMLDivElement>(null)
+    const [containerWidth, setContainerWidth] = useState<number | null>(null)
+
+    useLayoutEffect(() => {
+        const container = containerRef.current
+        if (!container) {
+            return
+        }
+        // Read before the first paint so the layout mounts once — re-mounting restarts snapshot loading.
+        setContainerWidth(container.clientWidth)
+        const observer = new ResizeObserver(() => setContainerWidth(container.clientWidth))
+        observer.observe(container)
+        return () => observer.disconnect()
+    }, [])
+
+    const containerSaysVertical = containerWidth !== null && containerWidth < HORIZONTAL_LAYOUT_MIN_WIDTH
 
     // Don't switch layout while in fullscreen — it would unmount the fullscreen element
-    const layoutRef = useRef(windowSaysVertical)
+    const layoutRef = useRef(containerSaysVertical)
     if (!document.fullscreenElement) {
-        layoutRef.current = windowSaysVertical
+        layoutRef.current = containerSaysVertical
     }
     const isVerticalLayout = layoutRef.current
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <div className={cn('w-full h-full flex', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')}>
-                {isVerticalLayout ? <VerticalLayout {...props} /> : <HorizontalLayout {...props} />}
+            <div
+                ref={containerRef}
+                className={cn('w-full h-full flex', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')}
+            >
+                {containerWidth === null ? null : isVerticalLayout ? (
+                    <VerticalLayout {...props} />
+                ) : (
+                    <HorizontalLayout {...props} />
+                )}
             </div>
         </BindLogic>
     )
@@ -87,9 +113,9 @@ function HorizontalLayout({ ...props }: SessionRecordingsPlaylistProps): JSX.Ele
                     isPlaylistCollapsed
                         ? {}
                         : {
-                              width: desiredSize ?? 320,
-                              minWidth: 'min-content',
-                              maxWidth: '50%',
+                              // min-width beats max-width in CSS, so a separate minWidth let the column
+                              // outgrow its own cap. Nested, the cap holds.
+                              width: `min(max(${desiredSize ?? LIST_DEFAULT_WIDTH}px, ${LIST_MIN_WIDTH}px), 50%)`,
                           }
                 }
             >
