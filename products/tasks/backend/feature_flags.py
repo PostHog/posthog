@@ -1,4 +1,5 @@
 import logging
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 
@@ -17,6 +18,10 @@ from products.tasks.backend.constants import (
     WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG,
     get_required_model_flag,
 )
+
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
+    from posthog.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -151,20 +156,18 @@ def is_agent_otel_telemetry_enabled(*, distinct_id: str, organization_id: str) -
         return False
 
 
-def is_pi_cloud_runtime_enabled(*, distinct_id: str | None, organization_id: str | None) -> bool:
+def pi_cloud_runtime_enabled(team: "Team", user: "User") -> bool:
     """Whether this user may run the Pi harness in the cloud; fail-closed when evaluation fails.
 
     Lives here rather than in the facade so the run-defaults service can gate a stored Pi
     preference without importing the facade, which imports this module's own callers.
     """
-    if not distinct_id or not organization_id:
-        return False
-
+    organization_id = str(team.organization_id)
     try:
         return bool(
             posthoganalytics.feature_enabled(
                 PI_CLOUD_RUNTIME_FEATURE_FLAG,
-                distinct_id,
+                user.distinct_id or f"user_{user.id}",
                 groups={"organization": organization_id},
                 group_properties={"organization": {"id": organization_id}},
                 only_evaluate_locally=False,

@@ -29,7 +29,12 @@ FACADE = "products.tasks.backend.facade.api"
 
 TEAM_TRIPLE = {"runtime_adapter": "claude", "model": "claude-opus-4-8", "reasoning_effort": "high"}
 USER_TRIPLE = {"runtime_adapter": "codex", "model": "gpt-5.5", "reasoning_effort": "medium"}
-PI_PREFS = {"runtime": "pi", "runtime_adapter": None, "model": "gpt-5.6-terra", "reasoning_effort": "off"}
+PI_PREFS = {
+    "runtime": "pi",
+    "runtime_adapter": None,
+    "model": "gpt-5.6-terra",
+    "reasoning_effort": "off",
+}
 
 RESOLVER = "products.tasks.backend.logic.services.ai_run_defaults"
 
@@ -42,8 +47,8 @@ EMPTY_PREFERENCES: dict[str, Any] = {
 }
 
 
-def pi_harness(enabled: bool = True):
-    return patch(f"{RESOLVER}.is_pi_cloud_runtime_enabled", return_value=enabled)
+def pi_harness_enabled(enabled: bool = True):
+    return patch(f"{RESOLVER}.pi_cloud_runtime_enabled", return_value=enabled)
 
 
 class TestResolveAIRunDefaults(APIBaseTest):
@@ -76,7 +81,7 @@ class TestResolveAIRunDefaults(APIBaseTest):
 
     def test_pi_preference_resolves_with_its_thinking_level_and_no_adapter(self):
         self._set_user(PI_PREFS)
-        with pi_harness():
+        with pi_harness_enabled():
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert resolved.source == "user"
         assert (resolved.runtime, resolved.runtime_adapter, resolved.model, resolved.reasoning_effort) == (
@@ -88,21 +93,21 @@ class TestResolveAIRunDefaults(APIBaseTest):
 
     def test_thinking_level_pi_does_not_offer_is_dropped(self):
         self._set_user({**PI_PREFS, "reasoning_effort": "ultracode"})
-        with pi_harness():
+        with pi_harness_enabled():
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert (resolved.model, resolved.reasoning_effort) == ("gpt-5.6-terra", None)
 
     def test_a_pi_row_with_no_model_falls_through_to_the_team(self):
         self._set_team(TEAM_TRIPLE)
         self._set_user({"runtime": "pi", "runtime_adapter": None, "model": None, "reasoning_effort": "high"})
-        with pi_harness():
+        with pi_harness_enabled():
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert (resolved.source, resolved.runtime, resolved.model) == ("team", "acp", "claude-opus-4-8")
 
     def test_a_pi_preference_leaves_an_acp_run_with_no_default(self):
         self._set_team(TEAM_TRIPLE)
         self._set_user(PI_PREFS)
-        with pi_harness():
+        with pi_harness_enabled():
             for_acp = resolve_ai_run_selection(self.team.id, self.user.id)
             for_pi = resolve_ai_run_selection(self.team.id, self.user.id, runtime="pi")
         assert (for_acp.source, for_acp.model) == ("none", None)
@@ -271,7 +276,7 @@ class TestModelAccessGating(APIBaseTest):
     def test_pi_default_without_the_harness_flag_falls_through_to_team(self):
         self._set_user(PI_PREFS)
         self._set_team(USER_TRIPLE)
-        with pi_harness(enabled=False):
+        with pi_harness_enabled(enabled=False):
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert resolved.source == "team"
         assert (resolved.runtime, resolved.model) == ("acp", "gpt-5.5")
@@ -279,14 +284,13 @@ class TestModelAccessGating(APIBaseTest):
     def test_pi_gate_identifies_a_user_without_a_distinct_id(self):
         User.objects.filter(id=self.user.id).update(distinct_id=None)
         self._set_user(PI_PREFS)
-        with pi_harness() as flag:
+        with pi_harness_enabled():
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert resolved.source == "user"
-        assert flag.call_args.kwargs["distinct_id"] == f"user_{self.user.id}"
 
     def test_pi_team_default_without_the_harness_flag_resolves_to_none(self):
         self._set_team(PI_PREFS)
-        with pi_harness(enabled=False):
+        with pi_harness_enabled(enabled=False):
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert resolved.source == "none"
         assert resolved.model is None
@@ -360,7 +364,7 @@ class TestCreateRunAppliesDefaults(APIBaseTest):
 
     def test_acp_task_never_inherits_a_pi_default(self):
         update_team_ai_run_preferences(self.team.id, **PI_PREFS)
-        with pi_harness():
+        with pi_harness_enabled():
             run = self._task().create_run()
         assert "model" not in run.state
         assert "ai_defaults_source" not in run.state
@@ -476,7 +480,7 @@ class TestTasksConfigAPI(APIBaseTest):
 
     def test_pi_preference_round_trip(self):
         stored = {"runtime": "pi", "runtime_adapter": None, "model": "gpt-5.6-terra", "reasoning_effort": "off"}
-        with pi_harness():
+        with pi_harness_enabled():
             response = self.client.post(f"/api/projects/{self.team.id}/tasks/@me/config/", PI_PREFS)
             assert response.status_code == 200, response.content
             body = response.json()

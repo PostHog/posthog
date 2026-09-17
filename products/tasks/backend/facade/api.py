@@ -81,8 +81,8 @@ from products.tasks.backend.constants import (
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
-    is_pi_cloud_runtime_enabled,
     is_workflow_dispatch_shadow_enabled,
+    pi_cloud_runtime_enabled,
 )
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
@@ -5346,13 +5346,6 @@ def get_conversation_task_dtos(
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
     )
     return {task.id: _task_detail_to_dto(task, include_latest_run=False) for task in tasks}
-
-
-def pi_cloud_runtime_enabled(team: Team, user: User) -> bool:
-    return is_pi_cloud_runtime_enabled(
-        distinct_id=user.distinct_id or f"user_{user.id}",
-        organization_id=str(team.organization_id),
-    )
 
 
 def task_analysis_enabled(team: Team, user: User) -> bool:

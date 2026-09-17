@@ -43,9 +43,7 @@ class TestRunDefaultsCardRouting(APIBaseTest):
         update_team_ai_run_preferences(
             self.team.id, runtime_adapter=None, model="gpt-5.6-terra", reasoning_effort=None, runtime="pi"
         )
-        with patch(
-            "products.tasks.backend.logic.services.ai_run_defaults.is_pi_cloud_runtime_enabled", return_value=True
-        ):
+        with patch("products.tasks.backend.logic.services.ai_run_defaults.pi_cloud_runtime_enabled", return_value=True):
             state = _resolve_run_defaults_state(self.int_b, "U1", accessible=[self.int_a])
         assert state.model is None
         assert state.applies is False

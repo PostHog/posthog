@@ -25,6 +25,7 @@ stored default can never launch a model the run paths would refuse.
 """
 
 from dataclasses import dataclass
+from functools import cache
 from typing import Any, Literal
 
 from django.core.exceptions import ValidationError
@@ -39,7 +40,7 @@ from products.tasks.backend.constants import PI_THINKING_LEVEL_CHOICES
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
     get_required_model_flag,
-    is_pi_cloud_runtime_enabled,
+    pi_cloud_runtime_enabled,
 )
 from products.tasks.backend.logic.services.model_catalogue import filter_unsupported_effort
 from products.tasks.backend.models import Task, TeamTasksConfig, UserTasksConfig
@@ -152,34 +153,23 @@ def resolve_ai_run_defaults(
     """
     canonical_team_id = _canonical_team_id(team_id)
 
-    # Entitlement gating is lazy: the distinct_id lookup only happens when a level
-    # actually resolves to a flag-gated model, which keeps the per-run-creation
-    # hot path free of an extra query in the common case.
-    acting_distinct_id: str | None = None
-    acting_distinct_id_loaded = False
-
-    def _distinct_id() -> str | None:
-        nonlocal acting_distinct_id, acting_distinct_id_loaded
-        if not acting_distinct_id_loaded:
-            acting_distinct_id_loaded = True
-            if user_id is not None:
-                acting_distinct_id = User.objects.filter(id=user_id).values_list("distinct_id", flat=True).first()
-        return acting_distinct_id
+    # Entitlement gating is lazy: the acting user is only read when a level actually
+    # resolves to a gated model, which keeps the per-run-creation hot path free of an
+    # extra query in the common case.
+    @cache
+    def _acting_user() -> User | None:
+        return User.objects.filter(id=user_id).first() if user_id is not None else None
 
     def _level_usable(resolved: ResolvedAIRunConfig) -> bool:
         """Whether the acting user may launch what this level stores."""
+        user = _acting_user()
         if resolved.runtime == PI:
-            organization_id = (
-                Team.objects.filter(id=canonical_team_id).values_list("organization_id", flat=True).first()
-            )
-            pi_distinct_id = _distinct_id() or (f"user_{user_id}" if user_id is not None else None)
-            if not is_pi_cloud_runtime_enabled(
-                distinct_id=pi_distinct_id, organization_id=str(organization_id) if organization_id else None
-            ):
+            team = Team.objects.filter(id=canonical_team_id).first()
+            if not (user and team and pi_cloud_runtime_enabled(team, user)):
                 return False
         if get_required_model_flag(resolved.model) is None:
             return True
-        return get_model_access_error(resolved.model, distinct_id=_distinct_id()) is None
+        return get_model_access_error(resolved.model, distinct_id=user.distinct_id if user else None) is None
 
     if user_preferences is None and user_id is not None:
         user_preferences = (
