@@ -4,10 +4,27 @@ import structlog
 
 from posthog.github.installations import installation_team_ids
 
+from products.signals.backend.implementation_pr import report_ids_for_implementation_pr
+from products.signals.backend.models import SignalReport
 from products.signals.backend.report_assignments import update_assignments_for_pull_request
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 
 logger = structlog.get_logger(__name__)
+
+
+def stamp_pull_request_activity(payload: dict, *, human: bool) -> None:
+    repository = (payload.get("repository") or {}).get("full_name")
+    number = (payload.get("pull_request") or {}).get("number")
+    if not repository or number is None:
+        return
+    try:
+        for team_id in installation_team_ids(payload):
+            for report_id in report_ids_for_implementation_pr(
+                team_id=team_id, repository=repository, pr_number=int(number)
+            ):
+                SignalReport.stamp_activity(team_id=team_id, report_id=report_id, human=human)
+    except Exception:
+        logger.exception("github_pr_webhook_signal_report_stamp_failed")
 
 
 def resolve_github_login_distinct_id(login: str, team_id: int) -> str | None:

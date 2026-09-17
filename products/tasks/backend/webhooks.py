@@ -11,7 +11,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.facade.github import update_pull_request_assignments
+from products.signals.backend.facade.github import stamp_pull_request_activity, update_pull_request_assignments
 from products.tasks.backend.constants import PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
@@ -274,6 +274,7 @@ def handle_pull_request_event(payload: dict) -> None:
         _record_run_pr_state(task_run, pr_state)
 
     update_pull_request_assignments(payload, pr_state)
+    stamp_pull_request_activity(payload, human=False)
 
     if analytics_event is not None:
         _capture_task_pr_event(payload, task_run, analytics_event)
@@ -323,6 +324,8 @@ def handle_pull_request_review_event(payload: dict) -> None:
     )
 
     _capture_task_pr_event(payload, task_run, "pr_reviewed")
+
+    stamp_pull_request_activity(payload, human=True)
 
     logger.info(
         "github_pr_review_webhook_processed",

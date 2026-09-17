@@ -397,6 +397,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "github_issue_writeback_enabled",
             "reports_generated_today",
             "daily_report_limit_reached",
+            "stale_report_sweep_enabled",
             "created_at",
             "updated_at",
         ]
@@ -414,6 +415,15 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
                     "Default Slack channel for this team's signal inbox notifications, in the same "
                     "`channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). "
                     "Null means no team-level default; per-user channels still apply."
+                )
+            },
+            "stale_report_sweep_enabled": {
+                "help_text": (
+                    "Whether the daily sweep may archive reports that stopped moving, closing any open "
+                    "PR with them. A report is archived after 14 days with nothing happening on it, or "
+                    "after 21 days without a person touching it when a scout keeps revising it. "
+                    "Restoring an archived report brings it back. Null leaves it on, except for teams "
+                    "that already existed when this shipped, which start opted out."
                 )
             },
         }

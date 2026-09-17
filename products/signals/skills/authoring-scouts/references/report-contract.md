@@ -287,6 +287,16 @@ The call still succeeds, and `corroboration_collapsed` in the response tells you
 
 A replacement request that cannot bind verified predecessor PRs, or whose report changes during verification, fails without saving the edit. Retry the same edit to resolve the context again.
 
+### A report you filed may be archived
+
+Reports that stop moving are archived automatically: 14 days with nothing happening, or 21 days without a person looking when a scout keeps revising it.
+Any open PR closes with the report, and the archive carries a `stale` dismissal reason.
+`inbox-reports-retrieve` shows it as `status: suppressed`.
+
+Do not re-file the finding — a fresh report is a duplicate and gets archived on the same rule.
+Editing the archived report still works, but only a person restoring it brings it back to the inbox.
+Treat the archive as feedback that nobody acted on it, and re-file only when something material changed.
+
 ## Finding "the report I made last time"
 
 There is no scout-specific report search — use the **vanilla inbox tools** the scout already has.

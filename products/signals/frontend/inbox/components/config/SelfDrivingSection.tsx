@@ -739,6 +739,27 @@ function PullRequestGenerationRow(): JSX.Element {
     )
 }
 
+function StaleReportSweep(): JSX.Element {
+    const { staleReportSweepEnabled, teamConfigUpdating } = useValues(signalTeamConfigLogic)
+    const { patchTeamConfig } = useActions(signalTeamConfigLogic)
+
+    return (
+        <AutonomySettingRow
+            title="Archive stale reports"
+            description="After 14 days with no activity, or 21 days with nobody looking. Any open PR closes too, and you can restore the report."
+            control={
+                <LemonSwitch
+                    checked={staleReportSweepEnabled}
+                    loading={teamConfigUpdating}
+                    onChange={(enabled) => patchTeamConfig({ stale_report_sweep_enabled: enabled })}
+                    aria-label="Archive stale reports"
+                    data-attr="signals-stale-report-sweep"
+                />
+            }
+        />
+    )
+}
+
 /**
  * The Autonomy settings: what agents do on their own for this project, the current user's personal
  * overrides, and the daily report cap. Rows group by scope so a setting does not have to say who it
@@ -778,6 +799,7 @@ export function SelfDrivingSection(): JSX.Element {
             </AutonomySettingGroup>
             <AutonomySettingGroup title="Reports" description="Applies to everyone in this project.">
                 <DailyReportLimitRow />
+                <StaleReportSweep />
             </AutonomySettingGroup>
         </div>
     )

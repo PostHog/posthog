@@ -521,6 +521,15 @@ A report that autostarted has an open draft pull request built from the summary 
 Use `append_note` for new information, recovery details, or observations that exceed the evidence cap. These notes always remain in the work log. For a confirmation with nothing new to add, also set `corroboration_only: true`. Only these confirmations count towards the four-entry cap; later confirmations increase the corroboration count and set `corroboration_collapsed` in the response. Notes never spend a content revision."""
 
 
+_ARCHIVED_REPORTS = """# A report you filed may be archived
+
+Reports that stop moving are archived automatically, and a report a scout keeps revising is archived once nobody has looked at it for three weeks. When `inbox-reports-retrieve` comes back with `status: suppressed`, that is what happened, and any open pull request closed with it.
+
+- **Do not file the same finding again.** A fresh report is a duplicate, and it will be archived on the same rule. Leave the pointer in your scratchpad and move on.
+- **Nothing you can do brings it back.** Only a person restoring the report does. Edits still land, on a report nobody is being shown.
+- **Take it as feedback.** Nobody acted on it, so re-file only when something material changed: new evidence, wider blast radius, a different owner who would act."""
+
+
 # Heading matches the cross-reference in the authoring sections exactly; "not a copy" lives in the
 # body, which is where the rule it names is actually stated.
 _REPORT_SCRATCHPAD_POINTER = """# The `report:` scratchpad entry is a pointer
@@ -1033,6 +1042,7 @@ def _report_tail_sections(
         channel_sections = [
             _AUTHORING_VS_EDITING_REPORT_BOTH,
             _REVISING_A_REPORT,
+            _ARCHIVED_REPORTS,
             _REPORT_SCRATCHPAD_POINTER,
             _SUGGESTED_REVIEWERS_REPORT,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
@@ -1045,6 +1055,7 @@ def _report_tail_sections(
         how_a_run_works = f"{_HOW_A_RUN_WORKS}\n{_REPORT_STEPS_EMIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
             _AUTHORING_REPORT_EMIT_ONLY,
+            _ARCHIVED_REPORTS,
             _REPORT_SCRATCHPAD_POINTER,
             _SUGGESTED_REVIEWERS_REPORT,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
@@ -1058,6 +1069,7 @@ def _report_tail_sections(
         channel_sections = [
             _EDITING_REPORT_EDIT_ONLY,
             _REVISING_A_REPORT,
+            _ARCHIVED_REPORTS,
             _REPORT_SCRATCHPAD_POINTER,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
             _REPORT_METRICS,

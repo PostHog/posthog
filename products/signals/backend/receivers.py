@@ -296,7 +296,12 @@ def _pr_close_reason(
         return None
 
     if instance.status == SignalReport.Status.SUPPRESSED:
-        return "suppressed"
+        # An archive can carry its own reason, set on the instance by whoever performed it (the
+        # staleness sweep is the only one today). The comment left on the PR is the only place the
+        # difference shows: "nobody came back to this" and "somebody dismissed this" read very
+        # differently to whoever finds the closed PR.
+        hint = getattr(instance, "_pr_close_reason_hint", None)
+        return "stale" if hint == "stale" else "suppressed"
 
     if instance.status == SignalReport.Status.POTENTIAL and prior_status in _SNOOZE_SOURCE_STATUSES:
         return "snoozed"
