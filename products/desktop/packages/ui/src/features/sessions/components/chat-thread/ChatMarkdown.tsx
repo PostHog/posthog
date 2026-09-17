@@ -10,6 +10,7 @@ import {
   TableRow,
   Text,
 } from "@posthog/quill";
+import { buildImageDataUrl } from "@posthog/shared";
 import { useWorkspaceFileAsBase64 } from "@posthog/ui/features/code-editor/hooks/useFileContent";
 import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
 import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
@@ -147,7 +148,7 @@ function LocalMarkdownImage({
   }
   return (
     <img
-      src={image.data}
+      src={buildImageDataUrl(localImage.mimeType, image.data)}
       alt={alt ?? ""}
       className="max-h-[32rem] max-w-full rounded-md border border-border object-contain"
     />
