@@ -222,9 +222,9 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
 )
 
 # The product areas that the scope pickers use to group objects, in display order. Each
-# object in `API_SCOPE_OBJECTS` is in exactly one group. This includes internal and hidden
-# objects, so a picker does not have to handle an object that has no group. A test in
-# test_scopes.py checks this.
+# object in `API_SCOPE_OBJECTS` is in exactly one group, so a picker does not have to handle
+# an object that has no group. Internal, hidden and privileged objects are all in the last
+# group, "Internal tools". Tests in test_scopes.py check both rules.
 API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
     (
         "Product analytics",
@@ -241,6 +241,7 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "annotation",
             "export",
             "sharing_configuration",
+            "engineering_analytics",
         ),
     ),
     (
@@ -306,7 +307,6 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "llm_provider_key",
             "llm_skill",
             "llm_playground",
-            "llm_gateway",
             "dataset",
             "evaluation",
             "tagger",
@@ -339,19 +339,10 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
         (
             "conversation",
             "business_knowledge",
-            "context_layer_internal",
-            "mcp_builtin_agent",
             "mcp_registry",
             "task",
             "loop",
-            "loop_context_internal",
             "signal_scout",
-            "signal_scout_internal",
-            "signal_scout_report",
-            "signal_scratchpad_internal",
-            "internal_run",
-            "interactive_run",
-            "slack_run",
             "review_hog",
             "approvals",
             "autoresearch",
@@ -378,7 +369,6 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
             "ingestion_warning",
             "health_issue",
             "product_enablement",
-            "wizard_session",
             "integration",
             "organization_integration",
             "uploaded_media",
@@ -403,12 +393,22 @@ API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
     (
         "Internal tools",
         (
-            "engineering_analytics",
+            "batch_import_support",
+            "clickhouse_test_cluster_perf",
+            "context_layer_internal",
+            "interactive_run",
+            "internal_run",
+            "llm_gateway",
+            "loop_context_internal",
+            "mcp_builtin_agent",
+            "query_performance",
+            "signal_scout_internal",
+            "signal_scout_report",
+            "signal_scratchpad_internal",
+            "slack_run",
             "stamphog",
             "visual_review",
-            "query_performance",
-            "clickhouse_test_cluster_perf",
-            "batch_import_support",
+            "wizard_session",
         ),
     ),
 )
