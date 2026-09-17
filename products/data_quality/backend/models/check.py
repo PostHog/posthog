@@ -152,6 +152,7 @@ class DataQualityCheck(
     posthog_table = models.CharField(
         max_length=64,
         blank=True,
+        default="",
         help_text="Name of the PostHog table this check audits, such as events. Exclusive with every subject FK.",
     )
     subject_name = models.CharField(
