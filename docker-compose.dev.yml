@@ -62,7 +62,9 @@ services:
 
                     @capture-logs {
                         path /i/v1/logs
+                        path /i/v1/logs/*
                         path /i/v1/traces
+                        path /i/v1/traces/*
                     }
 
                     @capture-apm-metrics {
