@@ -809,6 +809,29 @@ class TestMetricNodeAPI(APIBaseTest):
         self.metric_node.refresh_from_db()
         self.assertEqual(self.metric_node.type, NodeType.METRIC)
 
+    @parameterized.expand(["name", "description", "dag_id"])
+    def test_a_metric_node_cannot_be_updated_through_the_api(self, field):
+        payload = (
+            {"dag": str(DAG.objects.create(team=self.team, name="other").id)}
+            if field == "dag_id"
+            else {field: "changed"}
+        )
+        before = getattr(self.metric_node, field)
+
+        response = self.client.patch(f"{self.url}{self.metric_node.id}/", data=payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.metric_node.refresh_from_db()
+        self.assertEqual(getattr(self.metric_node, field), before)
+
+    def test_an_edge_into_a_metric_node_cannot_be_deleted_through_the_api(self):
+        edge = Edge.objects.get(target=self.metric_node)
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Edge.objects.filter(id=edge.id).exists())
+
     @parameterized.expand(["post", "patch"])
     def test_only_table_nodes_can_be_written_through_the_api(self, method):
         if method == "post":

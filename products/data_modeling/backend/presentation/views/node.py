@@ -213,6 +213,8 @@ class NodeSerializer(serializers.ModelSerializer):
         target_dag = attrs.get("dag")
         if target_dag is not None and target_dag.is_managed:
             raise serializers.ValidationError("Nodes cannot be created in or moved into a system-managed DAG.")
+        if self.instance is not None and self.instance.type == NodeType.METRIC:
+            raise serializers.ValidationError("Metric nodes are maintained by the data catalog.")
         node_type = attrs.get("type")
         if node_type is not None:
             # A full PUT round-trips the node's own type, so a type equal to the current one is

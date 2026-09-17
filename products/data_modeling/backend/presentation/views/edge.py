@@ -6,8 +6,14 @@ from rest_framework.pagination import PageNumberPagination
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_modeling.backend.facade.models import Edge
+from products.data_modeling.backend.facade.models import Edge, NodeType
 from products.data_modeling.backend.presentation.views.metric_visibility import MetricNodeVisibilityMixin
+
+_METRIC_EDGE_REFUSAL = "Edges that connect a metric are maintained by the data catalog."
+
+
+def _connects_a_metric(edge: Edge) -> bool:
+    return NodeType.METRIC in (edge.source.type, edge.target.type)
 
 
 class EdgeSerializer(serializers.ModelSerializer):
@@ -46,6 +52,8 @@ class EdgeSerializer(serializers.ModelSerializer):
         target_dag = attrs.get("dag")
         if target_dag is not None and target_dag.is_managed:
             raise serializers.ValidationError("Edges cannot be created in or moved into a system-managed DAG.")
+        if self.instance is not None and _connects_a_metric(self.instance):
+            raise serializers.ValidationError(_METRIC_EDGE_REFUSAL)
         return attrs
 
 
@@ -68,6 +76,8 @@ class EdgeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
     def perform_destroy(self, instance: Edge) -> None:
         if instance.dag.is_managed:
             raise serializers.ValidationError("Edges belonging to a system-managed DAG cannot be deleted.")
+        if _connects_a_metric(instance):
+            raise serializers.ValidationError(_METRIC_EDGE_REFUSAL)
         instance.delete()
 
     def safely_get_queryset(self, queryset):
