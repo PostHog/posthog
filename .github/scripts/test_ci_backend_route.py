@@ -74,13 +74,16 @@ def check(run_id: int, status: str, conclusion: str | None, pr_number: int = 124
     "check_runs,expected",
     [
         ([check(1, "completed", "success"), check(2, "queued", None)], "success"),
-        ([check(1, "completed", "success"), check(2, "completed", "skipped")], "skipped"),
+        ([check(1, "completed", "success"), check(2, "completed", "cancelled")], "success"),
+        ([check(1, "completed", "success"), check(2, "completed", "skipped")], "success"),
+        ([check(1, "completed", "skipped"), check(2, "completed", "cancelled")], "skipped"),
+        ([check(1, "completed", "cancelled"), check(2, "completed", "failure")], "failure"),
         ([check(1, "completed", "success", pr_number=125)], None),
         ([{"id": 1, "status": "completed", "conclusion": "success", "pull_requests": []}], None),
         ([], None),
     ],
 )
-def test_handoff_conclusion_is_the_newest_concluded_for_this_pull_request(
+def test_handoff_conclusion_keeps_the_engine_that_already_ran_this_pull_request(
     check_runs: list[dict[str, Any]], expected: str | None
 ) -> None:
     assert route.handoff_conclusion(check_runs, 124) == expected

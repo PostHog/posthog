@@ -52,20 +52,24 @@ def parse_percent(raw: str | None) -> int:
 
 
 def handoff_conclusion(check_runs: list[dict], pr_number: int) -> str | None:
-    """Conclusion of the newest concluded hand-off check on this commit for this pull request.
+    """The hand-off conclusion that already committed an engine to this commit for this pull request.
 
-    GitHub queues a fresh check for every attempt, so only concluded ones count, and the
-    API lists every pull request's checks for a head SHA, so only this one's count.
+    A `success` means Depot ran the tests and a `skipped` means GitHub Actions did, and
+    neither is undone by a later attempt that was cancelled or re-routed, so the first
+    of those found wins over anything newer. GitHub queues a fresh check for every
+    attempt, so only concluded ones count, and the API lists every pull request's checks
+    for a head SHA, so only this one's count.
     """
-    concluded = [
-        run
-        for run in check_runs
+    conclusions = [
+        run.get("conclusion")
+        for run in sorted(check_runs, key=lambda run: run["id"], reverse=True)
         if run.get("status") == "completed"
         and any(pr.get("number") == pr_number for pr in run.get("pull_requests") or [])
     ]
-    if not concluded:
-        return None
-    return max(concluded, key=lambda run: run["id"]).get("conclusion")
+    for committed in ENGINE_BY_HANDOFF_CONCLUSION:
+        if committed in conclusions:
+            return committed
+    return conclusions[0] if conclusions else None
 
 
 def decide(
