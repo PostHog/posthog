@@ -9,7 +9,9 @@ import { mswDecorator } from '~/mocks/browser'
 import type { CustomPropertyValueWriteApi, AccountRelationshipWriteApi } from '../../generated/api.schemas'
 
 const ACCOUNT_ID = '11111111-2222-4333-8444-555555555555'
+const EXTERNAL_ACCOUNT_ID = 'spaces %2F slash / ? # + Unicode 漢字'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
+const ACCOUNT_BY_EXTERNAL_ID_ENDPOINT = 'api/projects/:team_id/accounts/by_external_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
 const ACCOUNT_PRESENCE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/presence/'
 const ACCOUNT_ICON_ENDPOINT = 'api/projects/:team_id/accounts/icon/'
@@ -22,7 +24,7 @@ const RELATIONSHIP_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/account_relatio
 const account = {
     id: ACCOUNT_ID,
     name: 'Example Labs',
-    external_id: 'example_labs_42',
+    external_id: EXTERNAL_ACCOUNT_ID,
     properties: {
         website_domain: 'example.com',
         email_domains: ['example.com'],
@@ -90,6 +92,10 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 [ACCOUNT_RETRIEVE_ENDPOINT]: account,
+                [ACCOUNT_BY_EXTERNAL_ID_ENDPOINT]: ({ request }) =>
+                    new URL(request.url).searchParams.get('external_id') === EXTERNAL_ACCOUNT_ID
+                        ? account
+                        : [400, null],
                 [ACCOUNT_NOTEBOOKS_ENDPOINT]: notebooks,
                 [ACCOUNT_ICON_ENDPOINT]: () =>
                     new Response(
@@ -154,6 +160,17 @@ type Story = StoryObj<{}>
 
 export const Default: Story = {
     render: () => <App />,
+}
+
+export const ExternalId: Story = {
+    render: () => <App />,
+    parameters: {
+        pageUrl: urls.customerAnalyticsAccountByExternalId(EXTERNAL_ACCOUNT_ID, 'usage'),
+        testOptions: {
+            waitForSelector: ['[data-attr="customer-analytics-account-scene"]', '.ProfileBubbles'],
+            viewport: { width: 1280, height: 900 },
+        },
+    },
 }
 
 export const Narrow: Story = {

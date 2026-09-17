@@ -2737,10 +2737,15 @@ export interface SignalScoutConfigOptionsApi {
  */
 export interface SignalScoutCreateApi {
     /**
-     * Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.
+     * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+     * @maxLength 200
+     */
+    display_name?: string
+    /**
+     * Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.
      * @maxLength 64
      */
-    name: string
+    name?: string
     /**
      * Short description of the signal or behavior this scout investigates.
      * @maxLength 1024
@@ -3102,6 +3107,11 @@ export interface SignalScoutConfigCreateApi {
      */
     run_cron_schedule?: string | null
     /**
+     * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+     * @maxLength 200
+     */
+    display_name?: string
+    /**
      * The skill to register a config for. Any valid skill name works — the config row is what makes a skill a scout. The skill must already exist on this project — author it via the skills store first.
      * @maxLength 200
      */
@@ -3151,7 +3161,7 @@ export interface SignalScoutOutputDestinationsUpdateApi {
  */
 export interface PatchedSignalScoutConfigUpdateApi {
     /**
-     * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+     * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
      * @maxLength 200
      */
     display_name?: string
@@ -4778,6 +4788,133 @@ export interface EmitFindingResponseApi {
 }
 
 /**
+ * * `desktop` - desktop
+ * * `mobile` - mobile
+ */
+export type FormFactorEnumApi = (typeof FormFactorEnumApi)[keyof typeof FormFactorEnumApi]
+
+export const FormFactorEnumApi = {
+    Desktop: 'desktop',
+    Mobile: 'mobile',
+} as const
+
+/**
+ * Request body for `scout-lighthouse-audit`: one page, one device profile.
+ */
+export interface LighthouseAuditRequestApi {
+    /**
+     * The page to audit. Must be an https url on an allowed host — public PostHog pages only. Pages behind a login cannot be audited: the browser signs in to nothing, so it would measure the login screen and report its numbers as the page's.
+     * @maxLength 2000
+     */
+    url: string
+    /** Which device profile to emulate. Desktop and mobile produce different numbers, so audit the one whose field data you are explaining.
+     *
+     * * `desktop` - desktop
+     * * `mobile` - mobile */
+    form_factor?: FormFactorEnumApi
+}
+
+/**
+ * Lab metrics from this run: `lcp_ms`, `fcp_ms`, `cls`, `tbt_ms`, `speed_index_ms`, `tti_ms`. One throttled cold load, not a p75 over real users — use it to explain a field finding, never to replace one.
+ */
+export type LighthouseAuditResponseApiMetrics = { [key: string]: number }
+
+/**
+ * The element the browser chose as the Largest Contentful Paint.
+ */
+export interface LcpElementApi {
+    /**
+     * CSS selector for the element.
+     * @nullable
+     */
+    selector: string | null
+    /**
+     * The element's opening tag, truncated by Lighthouse.
+     * @nullable
+     */
+    snippet: string | null
+    /**
+     * Human-readable label, usually the alt or text.
+     * @nullable
+     */
+    node_label: string | null
+}
+
+/**
+ * One phase of the LCP timeline, which is where the time actually went.
+ */
+export interface LcpPhaseApi {
+    /** Lighthouse's own label for this subpart of the LCP, e.g. 'Time to first byte' or 'Element render delay'. Passed through verbatim, so the exact wording follows the Lighthouse version. */
+    phase: string
+    /**
+     * Milliseconds spent in this phase.
+     * @nullable
+     */
+    timing_ms: number | null
+    /**
+     * This subpart's share of the total LCP, e.g. '62%'.
+     * @nullable
+     */
+    percent: string | null
+}
+
+/**
+ * A failing check or a savings estimate from the audit.
+ */
+export interface AuditOpportunityApi {
+    /** Lighthouse audit id, for example `prioritize-lcp-image`. */
+    audit_id: string
+    /** Lighthouse's own title for the check. */
+    title: string
+    /**
+     * Estimated milliseconds this would save. Null for a pass/fail check with no estimate.
+     * @nullable
+     */
+    savings_ms: number | null
+}
+
+/**
+ * The audit, reduced to what a web vitals finding cites.
+ *
+ * The full Lighthouse report runs to a few hundred KB of detail no finding ever quotes, so the
+ * response carries the metrics, the LCP element and its phase breakdown, and the ranked
+ * opportunities, and drops the rest.
+ */
+export interface LighthouseAuditResponseApi {
+    /** The url that was audited. */
+    requested_url: string
+    /**
+     * Where the browser ended up after redirects.
+     * @nullable
+     */
+    final_url: string | null
+    /** The device profile the audit emulated. */
+    form_factor: string
+    /**
+     * The Lighthouse version that produced this report. Audit ids move between major versions, so cite it when an expected field came back empty.
+     * @nullable
+     */
+    lighthouse_version: string | null
+    /**
+     * Lighthouse performance score out of 100 for this run.
+     * @nullable
+     */
+    performance_score: number | null
+    /** Lab metrics from this run: `lcp_ms`, `fcp_ms`, `cls`, `tbt_ms`, `speed_index_ms`, `tti_ms`. One throttled cold load, not a p75 over real users — use it to explain a field finding, never to replace one. */
+    metrics: LighthouseAuditResponseApiMetrics
+    /** The element the browser chose as the LCP, or null when Lighthouse could not name one. */
+    lcp_element: LcpElementApi | null
+    /** Where the LCP time went, phase by phase. Empty when the report omits the breakdown. */
+    lcp_phases: LcpPhaseApi[]
+    /** LCP-specific checks this page failed, such as an unprioritized or lazy-loaded hero image. */
+    lcp_checks_failed: AuditOpportunityApi[]
+    /** Ranked savings estimates across the whole page, largest first. */
+    opportunities: AuditOpportunityApi[]
+    /** How many audits this run may still spend. Each run gets 5. */
+    audits_remaining: number
+}
+
+/**
  * The record itself, as a JSON object. Must validate against the scout config's `structured_output_schema` (shown in the run prompt); any invalid record fails the whole call with nothing written.
  */
 export type StructuredOutputRecordApiPayload = { [key: string]: unknown }
@@ -5556,6 +5693,11 @@ export type SignalsReportsPrCiStatusesParams = {
 }
 
 export type SignalsScoutConfigListParams = {
+    /**
+     * Case-insensitive substring filter over a scout's display name and its skill name. A scout matches on either, so a person who knows the label and a caller who knows the identifier both find it. Omit for the whole fleet.
+     * @minLength 1
+     */
+    search?: string
     /**
      * Comma-separated tags, e.g. `revenue,on-call`. Returns the scouts carrying at least one of them. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. Omit for the whole fleet.
      * @minLength 1

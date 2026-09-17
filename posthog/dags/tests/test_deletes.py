@@ -288,6 +288,19 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
     cluster.any_host(insert_plugin_log_entries).result()
     cluster.any_host(insert_person_distinct_id2).result()
 
+    # One embedded document for a deleted team and one for a kept team; the team's documents go with the team.
+    def insert_documents(client: Client) -> None:
+        client.execute(
+            """INSERT INTO writable_posthog_document_embeddings_text_embedding_3_large_3072
+               (team_id, product, document_type, rendering, document_id, timestamp, inserted_at, content, embedding) VALUES""",
+            [
+                (team_id, "test", "doc", "text", str(UUID(int=team_id)), timestamp, timestamp, "text", [0.0] * 3072)
+                for team_id in (0, delete_count)
+            ],
+        )
+
+    cluster.any_host(insert_documents).result()
+
     def get_by_team(table: str, client: Client) -> dict[int, int]:
         result = client.execute(f"SELECT team_id, count(1) FROM {table} GROUP BY team_id")
         if not isinstance(result, list):
@@ -349,6 +362,14 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
     # Check postconditions
     final_events = cluster.any_host(partial(get_by_team, "writable_events")).result()
     assert len(final_events) == event_count - delete_count, f"expected events data was not deleted"
+
+    final_documents = cluster.any_host(
+        partial(get_by_team, "distributed_posthog_document_embeddings_text_embedding_3_large_3072")
+    ).result()
+    # Other tests leave documents for their own teams in this table, so only the two inserted above are judged.
+    assert {team for team in final_documents if team in (0, delete_count)} == {delete_count}, (
+        "the deleted team's embedded documents survived"
+    )
 
     final_persons = cluster.any_host(partial(get_by_team, "person")).result()
     assert len(final_persons) == event_count - delete_count, f"expected person data was not deleted"
@@ -498,6 +519,59 @@ def test_full_job_adhoc_event_deletes(cluster: ClickhouseCluster):
     # Verify the temporary tables were cleaned up
     deletes_dict = AdhocEventDeletesDictionary(source=AdhocEventDeletesTable())
     assert not any(cluster.map_all_hosts(deletes_dict.exists).result().values())
+
+
+@pytest.mark.django_db
+def test_full_job_deletes_events_queued_in_postgres(cluster: ClickhouseCluster):
+    timestamp = (datetime.now() + timedelta(days=31)).replace(microsecond=0)
+    events = [(9000 + i, f"distinct_id_{i}", UUID(int=9000 + i), timestamp) for i in range(20)]
+    queued, kept = events[:5], events[5:]
+
+    def insert_events(client: Client) -> None:
+        client.execute("INSERT INTO writable_events (team_id, distinct_id, uuid, timestamp) VALUES", events)
+
+    def surviving_uuids(client: Client) -> set[UUID]:
+        result = client.execute("SELECT uuid FROM writable_events WHERE team_id >= 9000 AND team_id < 9020")
+        return {row[0] for row in result} if isinstance(result, list) else set()
+
+    # The embedded text of an event lives under its uuid as document_id, and goes with the event. Each team
+    # also holds a document for an event nobody queued, which an arm that matched on team alone would take.
+    def insert_documents(client: Client) -> None:
+        client.execute(
+            """INSERT INTO writable_posthog_document_embeddings_text_embedding_3_large_3072
+               (team_id, product, document_type, rendering, document_id, timestamp, inserted_at, content, embedding) VALUES""",
+            [
+                (team_id, "test", "doc", "text", document_id, timestamp, timestamp, "text", [0.0] * 3072)
+                for team_id, _, uuid, _ in events
+                for document_id in (str(uuid), f"unqueued-{uuid}")
+            ],
+        )
+
+    def surviving_document_ids(client: Client) -> set[str]:
+        result = client.execute(
+            "SELECT document_id FROM distributed_posthog_document_embeddings_text_embedding_3_large_3072 WHERE team_id >= 9000 AND team_id < 9020"
+        )
+        return {row[0] for row in result} if isinstance(result, list) else set()
+
+    cluster.any_host(insert_events).result()
+    cluster.any_host(insert_documents).result()
+    for team_id, _, uuid, _ in queued:
+        deletion = AsyncDeletion.objects.create(team_id=team_id, deletion_type=DeletionType.Event, key=str(uuid))
+        # The sweep only covers rows ingested before the request, so the request has to postdate the insert.
+        deletion.created_at = timestamp
+        deletion.save()
+
+    deletes_job.execute_in_process(
+        run_config={"ops": {"create_pending_deletions_table": {"config": {"timestamp": timestamp.isoformat()}}}},
+        resources={"cluster": cluster},
+    )
+
+    surviving = cluster.any_host(surviving_uuids).result()
+    assert surviving == {event[2] for event in kept}
+    assert cluster.any_host(surviving_document_ids).result() == {str(event[2]) for event in kept} | {
+        f"unqueued-{event[2]}" for event in events
+    }
+    assert not AsyncDeletion.objects.filter(deletion_type=DeletionType.Event, delete_verified_at__isnull=True).exists()
 
 
 @pytest.mark.django_db

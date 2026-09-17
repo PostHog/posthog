@@ -134,7 +134,6 @@ tools:
                 aliases:
                     - experimentId
                     - experiment_id
-        feature_flag: experiment-flag-cleanup-pr
         response:
             exclude:
                 - can_view_task

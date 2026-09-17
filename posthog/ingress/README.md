@@ -18,6 +18,29 @@ All four lanes are **provider-generic**; each third party is an incarnation unde
 Each provider has a `README.md` in its folder, which holds its headers, its scheme, its apps and secrets, its quirks and its consumers.
 Adding a provider is another `<provider>/` folder, not a change to the mechanisms.
 
+## The lanes one request runs through
+
+`build_webhook_view()` runs the same lanes for every provider, in this order:
+
+1. **Method** — anything but `POST` is 405, before any secret is read.
+2. **Throttle** — `provider.throttle_class`, when the provider sets one. A refusal is 429 with a `Retry-After`.
+3. **Verify** — `provider.verify(request)` over the raw body, answering a `Verification`. A bad signature never reaches a consumer.
+4. **Parse** — `provider.parse(request)`, which decodes the verified body. The default is JSON; an `InvalidPayload` is 400.
+5. **Handshake** — `provider.pre_dispatch_response(request, payload)`, for a challenge the protocol demands.
+6. **Dispatch** — `provider.deliveries(request, payload, facts)`, then ownership, the forward and the consumers, all inside one wall-clock budget.
+
+Parse belongs to the provider because not every third party posts JSON: Slack's interactivity payloads and Mailgun's events are form-encoded.
+It stays **after** verification, and must: a `parse` that reads `request.POST` consumes the request stream under ASGI, which leaves the signature check without the raw bytes it signs over.
+
+The throttle sits **in front of** verification, because on a provider that signs with a JWT the verification is the expensive half.
+An unsigned request buys a signing-key lookup, so the cap has to be reached first or it caps nothing worth capping.
+`throttle_class` takes a DRF throttle from `posthog.rate_limit`, which is where every other rate belongs.
+A provider whose verification is a local HMAC leaves it at `None`.
+
+A `Verification` carries the outcome and `facts`, a mapping of what the check proved on the way.
+A scheme that validates a signed token knows who sent the delivery before the body is read, and `facts` is how those claims reach `deliveries`, so an incarnation can cross-check the body against what was actually signed rather than trusting a field of the body that claims the same thing.
+An HMAC over raw bytes proves only the signature, so its `facts` are empty and `deliveries` ignores the argument.
+
 ## Endpoints
 
 | Provider     | Path                                                    | App          | Consumers                                                                                                                                   | Product code                                                            |
@@ -30,11 +53,13 @@ Adding a provider is another `<provider>/` folder, not a change to the mechanism
 | `sns`        | `/webhooks/workflows/ses-events`                        | `default`    | `workflows_ses_events`                                                                                                                      | `products/workflows/backend/webhook_consumers.py`                       |
 | `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none         | none, it is the DRF adapter path                                                                                                            | `products/messaging/backend/api/customerio_webhook.py`                  |
 
-The GitHub endpoints and the SES one are declared in `posthog/urls.py`.
-The others are declared by the product that owns them.
-See [`url-routing.md`](../../docs/internal/url-routing.md) for the routing rules those declarations follow, and [`github-webhooks.md`](../../docs/internal/github-webhooks.md) for the GitHub specifics.
+The owner of the third-party App registration owns the route.
+The customer-facing GitHub App is shared across products, so its two endpoints are declared in `posthog/urls.py`.
+Every other endpoint is declared by the product that registered the App, in its own `routes.py`.
+The SES endpoint is the exception for now, because its view still lives in `backend/api/` rather than behind the ingress builders.
 
-The Vapi endpoint sits behind a per-IP throttle the product owns, because ingress has no throttle lane and the endpoint is public.
+The Vapi endpoint sits behind a per-IP throttle the product owns, from before ingress had a throttle lane.
+It moves onto `throttle_class` next.
 
 ## Non-goals
 
@@ -55,6 +80,7 @@ A consumer that wants asynchronous work enqueues its own task and answers immedi
 The HTTP response is a transport receipt: the verification result, the method, and the payload decide the status, and consumer return values are ignored.
 A consumer that fails must not turn a verified delivery into a 500 the provider will replay against every other consumer too.
 If a provider's protocol needs the response body to say something, the incarnation answers that handshake before dispatch.
+The one exception is a failed forward to the owning region, which is a transport failure rather than a consumer outcome — see [Regional forwarding](#regional-forwarding).
 
 **Ingress does not promise an order.**
 Consumers are independent by construction; anything that depends on another consumer's result belongs in one consumer.
@@ -117,20 +143,54 @@ Both controls exist because the incidents on the GitHub webhook path came from u
 The fixes that worked bounded the queries: [#83852](https://github.com/PostHog/posthog/pull/83852) scoped the run lookup to the installation's teams and put a statement timeout on the attribution lookup, and [#87779](https://github.com/PostHog/posthog/pull/87779) added the indexes it needed.
 Ingress carries both as general controls, so the next endpoint gets them without rediscovering the same failure.
 
+## Regional forwarding
+
+A third party holds one callback URL, which points at the primary region (EU), so a delivery about a resource the other region (US) owns still arrives here first.
+Ingress owns the forward, because what is replayed is the signed body — a consumer only ever sees the parsed mapping.
+
+A consumer whose resources are split by region declares `ownership`, a callable that takes the delivery and answers a `DeliveryOwnership`:
+
+- `LOCAL` — this region holds the resource. Nothing changes: local dispatch always runs.
+- `ELSEWHERE` — the other region holds it. The request is forwarded.
+- `UNDECIDED` — nothing in the delivery says, so nothing is forwarded.
+
+Every delivery in the request is assessed first, and the request is then forwarded **once**, when any consumer answered `ELSEWHERE`.
+One forward per request rather than per delivery, because the unit being replayed is the HTTP request.
+Local dispatch runs either way: a consumer that answered `ELSEWHERE` no-ops on its own, and the other consumers on the endpoint are unaffected.
+Only the primary region forwards; on the secondary region an `ELSEWHERE` answer is logged as `ingress_delivery_unowned_here`, because a local miss there is that consumer's unresolved routing rather than proof that no region owns the delivery.
+The replay carries the signed bytes and the provider's own headers, but never the headers that name the host this region answered on: `Host`, `X-Forwarded-Host`, `X-Forwarded-Port`, `X-Forwarded-Proto` and `Forwarded`.
+The receiving region reads which region it is off the connection it receives, so a forwarded host would make it forward the delivery on again.
+
+The ownership lookup runs inside the request, before dispatch, and inside the same wall-clock budget.
+A lookup that reads the database must be bounded with `bounded_statement_timeout(ms, models=...)`.
+A lookup that raises is logged, captured, counted as `failed` and treated as `UNDECIDED`, so one consumer cannot cost the delivery the receipt it earned by signing.
+
+A failed forward keeps the receipt by default.
+A provider that redelivers on a non-2xx (Slack does, GitHub does not) sets `forward_failure_status` on its incarnation, and the view answers that status with outcome `forward_failed` instead — so the provider sends the delivery again rather than losing it.
+That is the transport deciding the response, not a consumer.
+
 ## Adding a provider
 
 Add a `<provider>/` subpackage with a `provider.py` holding three things (see `github/` for the full shape, `vapi/` for a small one):
 
 - `SPECS` — one `ProviderSpec` per app, naming the event types the app is subscribed to. The registry validates consumers against these.
-- A `WebhookProvider` subclass — its `scheme()` (from `verify/`), its `deliveries()` (how to read event type, delivery id and context off the request), and any status codes its protocol fixes. The defaults are 403 on a bad signature, 500 when unconfigured, and 202 on success, with a short body naming the reason on the two rejections. An incarnation that answers 404 to withhold the endpoint's existence sets `explains_rejections = False` so the body stays empty as well.
+- A `WebhookProvider` subclass — its `scheme()` (from `verify/`), its `deliveries()` (how to read event type, delivery id and context off the request), and any status codes its protocol fixes. The defaults are 403 on a bad signature, 500 when unconfigured, and 202 on success, with a short body naming the reason on the two rejections. An incarnation that answers 404 to withhold the endpoint's existence sets `explains_rejections = False` so the body stays empty as well. Two more hooks are optional: `parse()`, which decodes the body, and `throttle_class`, which caps request volume. See [The lanes one request runs through](#the-lanes-one-request-runs-through).
 - A `build_<provider>_provider(...)` function returning that provider, which the URLconf hands to `build_webhook_view()`.
 
 Add the module to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, so the registry finds its specs and any core consumers.
-Then register the URL as usual:
+
+Then mount the URL where the App registration lives.
+A product that registered the App declares the path in its own `products/<product>/backend/routes.py`, under a `webhooks/<product>/` prefix:
 
 ```python
-path("webhooks/github/", build_webhook_view(build_github_provider("posthog")))
+urlpatterns: list[URLPattern] = [
+    opt_slash_path("webhooks/stamphog/github", build_webhook_view(build_github_provider("stamphog"))),
+]
 ```
+
+An App several products consume has no single owner, so it stays in `posthog/urls.py`.
+The customer-facing GitHub App is the only one today.
+[docs/internal/url-routing.md](../../docs/internal/url-routing.md) has the slot and the prefix rule.
 
 Secrets and verifiers that belong to a product are **passed into the builder**.
 Nothing under `posthog/ingress/` imports a product.
@@ -158,8 +218,11 @@ A provider that sends no delivery id skips dedup entirely, and its own README sa
 
 ## Observability
 
-- **`posthog_ingress_deliveries_total{provider,app,outcome}`** — what the transport answered: `accepted`, `method_not_allowed`, `not_configured`, `invalid_signature`, `invalid_payload`. A consumer failure is not here, because a failing consumer still gets a 2xx receipt.
+- **`posthog_ingress_deliveries_total{provider,app,outcome}`** — what the transport answered: `accepted`, `method_not_allowed`, `throttled`, `not_configured`, `invalid_signature`, `invalid_payload`, `forward_failed`. A consumer failure is not here, because a failing consumer still gets a 2xx receipt.
 - **`posthog_ingress_consumer_runs_total{provider,consumer,outcome}`** — `succeeded`, `failed`, `deduped`, `budget_exceeded`.
 - **`posthog_ingress_consumer_duration_seconds{provider,consumer}`** — where a delivery's budget actually went.
+- **`posthog_ingress_ownership_total{provider,consumer,outcome}`** — what a consumer answered when asked which region owns the delivery: `local`, `elsewhere`, `undecided`, `failed`.
+- **`posthog_ingress_forwards_total{provider,app,outcome}`** — what the owning region answered a forwarded request: `forwarded`, `rejected`, `failed`.
+- **`ingress_delivery_invalid_payload`** — a warning log with the parser error text for a verified delivery whose body did not parse. The counter above cannot carry that text.
 
 A secret in a URL or header is the credential and never becomes a metric label.

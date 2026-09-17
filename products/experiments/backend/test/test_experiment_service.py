@@ -4408,6 +4408,10 @@ class TestExperimentService(APIBaseTest):
         assert reset.conclusion is None
         assert reset.conclusion_comment is None
         assert reset.flag_cleanup_task_id is None
+        assert (
+            ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.pk)).latest("created_at").activity
+            == "reset"
+        )
 
     def test_reset_experiment_leaves_feature_flag_unchanged(self):
         experiment = self._create_running_experiment(name="Reset Flag", feature_flag_key="reset-flag-unchanged")

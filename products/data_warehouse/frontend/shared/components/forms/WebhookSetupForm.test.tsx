@@ -2,21 +2,21 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
+import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { WebhookSetupForm } from './WebhookSetupForm'
 
 const FAILED_RESULT = { success: false, webhook_url: 'https://example.com/hook', error: 'Store rejected the request' }
 
 function renderFallback(
-    sourceConfig: Partial<SourceConfig>,
+    sourceConfig: Partial<SourceConfigResponseApi>,
     onCreateWebhook: () => void = jest.fn(),
     autoCreationBlockedReason?: string
 ): void {
     render(
         <WebhookSetupForm
             sourceName="WooCommerce"
-            sourceConfig={{ name: 'WooCommerce', fields: [], ...sourceConfig } as unknown as SourceConfig}
+            sourceConfig={{ name: 'WooCommerce', fields: [], ...sourceConfig } as unknown as SourceConfigResponseApi}
             webhookResult={FAILED_RESULT}
             webhookCreating={false}
             autoCreationBlockedReason={autoCreationBlockedReason}
