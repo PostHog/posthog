@@ -29,6 +29,10 @@ EVENTS_TABLE_NAME = "events"
 
 class LineageSyncOutcome(StrEnum):
     SYNCED = "synced"
+    # The node is written and its other edges are in place, but a dependency name matched no node,
+    # so the metric is missing that edge and carries the unresolved marker. A later write to the
+    # metric, or the backfill, links it once the missing node exists.
+    UNRESOLVED = "unresolved"
     REMOVED = "removed"
     DEGRADED = "degraded"
 
@@ -72,8 +76,10 @@ def sync_metric_lineage(metric: "Metric", database: Database | None = None) -> L
         if metric.deleted or not has_executable_definition(metric):
             delete_metric_node(metric.team, metric.id)
             return LineageSyncOutcome.REMOVED
-        sync_metric_to_dag(metric.team, metric.id, metric.name, dependency_names(metric), database=database)
-        return LineageSyncOutcome.SYNCED
+        unresolved = sync_metric_to_dag(
+            metric.team, metric.id, metric.name, dependency_names(metric), database=database
+        )
+        return LineageSyncOutcome.UNRESOLVED if unresolved else LineageSyncOutcome.SYNCED
     except Exception as error:
         capture_exception(error)
         logger.exception("Failed to sync metric lineage", metric_id=str(metric.id), team_id=metric.team_id)

@@ -233,17 +233,20 @@ class TestBackfillMetricLineage(BaseTest):
 
         assert not Node.objects.filter(team=self.team, type=NodeType.METRIC).exists()
 
-    def test_backfill_reports_a_failed_sync_as_degraded_not_synced(self) -> None:
+    @parameterized.expand(
+        [
+            ("a_failed_sync", {"side_effect": RuntimeError("schema build blew up")}, "1 degraded"),
+            ("a_missing_dependency_node", {"return_value": ["accounts_view"]}, "1 unresolved"),
+        ]
+    )
+    def test_backfill_reports_what_the_sync_reported_not_a_success(self, _name, patched, expected) -> None:
         self._upsert("mrr", definition=_HOGQL_EVENTS)
         output = StringIO()
 
-        with patch(
-            "products.data_catalog.backend.logic.lineage.sync_metric_to_dag",
-            side_effect=RuntimeError("schema build blew up"),
-        ):
+        with patch("products.data_catalog.backend.logic.lineage.sync_metric_to_dag", **patched):
             call_command("backfill_metric_lineage", "--team-id", str(self.team.pk), stdout=output)
 
-        assert "1 degraded" in output.getvalue()
+        assert expected in output.getvalue()
         assert "0 synced" in output.getvalue()
 
     def _child_environment(self) -> Team:
