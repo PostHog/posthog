@@ -158,6 +158,7 @@ export function TaskAgentMyPreferenceSettings(): JSX.Element {
         useValues(taskAgentDefaultsLogic)
     const { catalogue } = useValues(modelCatalogueLogic)
     const { setMyDraft, submitMyDraft, resetMyPreference } = useActions(taskAgentDefaultsLogic)
+    const isPiDefault = resolvedDefaults?.runtime === TaskRuntimeEnumApi.Pi
 
     return (
         <div className="flex flex-col gap-2">
@@ -174,19 +175,21 @@ export function TaskAgentMyPreferenceSettings(): JSX.Element {
             <p className="text-secondary mb-0">
                 {resolvedDefaults?.model ? (
                     <>
-                        Runs you start without picking a model will use{' '}
+                        {isPiDefault ? 'Runs you start in PostHog Desktop' : 'Runs you start'} without picking a model
+                        will use{' '}
                         <strong>
-                            {resolvedDefaults.runtime === TaskRuntimeEnumApi.Pi ? `${PI_HARNESS_LABEL} · ` : ''}
+                            {isPiDefault ? `${PI_HARNESS_LABEL} · ` : ''}
                             {getModelLabel(catalogue, resolvedDefaults.model)}
                         </strong>
                         {resolvedDefaults.reasoning_effort ? (
                             <>
                                 {' '}
                                 ({getEffortLabel(resolvedDefaults.reasoning_effort)}{' '}
-                                {resolvedDefaults.runtime === TaskRuntimeEnumApi.Pi ? 'thinking' : 'effort'})
+                                {isPiDefault ? 'thinking' : 'effort'})
                             </>
                         ) : null}{' '}
                         from {resolvedDefaults.source === 'user' ? 'your default above' : 'the project default'}.
+                        {isPiDefault ? ' Runs you start elsewhere use their built-in model.' : ''}
                     </>
                 ) : (
                     <>No default is set. Runs use each surface's built-in model.</>
