@@ -800,6 +800,15 @@ class TestMetricNodeAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertTrue(Node.objects.filter(id=self.metric_node.id).exists())
 
+    def test_a_metric_node_cannot_be_retyped_to_table(self):
+        # metric_id is read-only, so a retype to table would leave it set and reach
+        # node_backing_reference_matches_type as an uncaught IntegrityError.
+        response = self.client.patch(f"{self.url}{self.metric_node.id}/", data={"type": NodeType.TABLE}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.metric_node.refresh_from_db()
+        self.assertEqual(self.metric_node.type, NodeType.METRIC)
+
     @parameterized.expand(["post", "patch"])
     def test_only_table_nodes_can_be_written_through_the_api(self, method):
         if method == "post":
