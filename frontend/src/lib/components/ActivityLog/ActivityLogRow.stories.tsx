@@ -64,6 +64,13 @@ const logItems = humanize(dashboardEvents, () => dashboardActivityDescriber, tru
 const meta: Meta<typeof ActivityLogRow> = {
     title: 'Components/ActivityLogRow',
     component: ActivityLogRow,
+    decorators: [
+        (Story) => (
+            <div className="w-[calc(100vw-2rem)] max-w-3xl">
+                <Story />
+            </div>
+        ),
+    ],
     parameters: { mockDate: '2026-09-14T12:00:00Z' },
 }
 export default meta
