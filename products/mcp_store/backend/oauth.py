@@ -17,7 +17,11 @@ from posthog.dataclasses import frozen
 from posthog.security.url_validation import is_url_allowed
 
 from .models import MCPServerInstallation, MCPServerTemplate, TemplateOAuthCredentials
-from .oauth_credentials import resolve_oauth_credentials_source, validate_oauth_credentials_source_metadata
+from .oauth_credentials import (
+    oauth_credentials_source_is_allowed,
+    resolve_oauth_credentials_source,
+    validate_oauth_credentials_source_metadata,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -501,6 +505,8 @@ def resolve_installation_oauth_context(installation: MCPServerInstallation) -> I
 
     template = installation.template
     if template is not None:
+        if not oauth_credentials_source_is_allowed(template.oauth_credentials_source, installation.team_id):
+            raise ValueError("OAuth app is not available for this project")
         credentials = resolve_template_oauth_credentials(template)
         shared_client_id = credentials.get("client_id", "")
         if shared_client_id:

@@ -25,6 +25,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.mcp_store.backend.agents import create_gateway_agent_token, sync_built_in_agents
+from products.mcp_store.backend.catalog import MCP_SERVER_CATALOG
+from products.mcp_store.backend.catalog_sync import sync_mcp_catalog
 from products.mcp_store.backend.models import (
     MCPAuditEvent,
     MCPGatewayServer,
@@ -196,6 +198,14 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Inactive templates must not be in the listing (check by name not presence of hidden)
         inactive_names = set(MCPServerTemplate.objects.filter(is_active=False).values_list("name", flat=True))
         assert inactive_names.isdisjoint(names)
+
+    @parameterized.expand([True, False])
+    def test_slack_dev_template_is_only_listed_for_allowed_projects(self, allowed: bool) -> None:
+        template = self._create_active_template(oauth_credentials_source="slack_dev_app")
+        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)] if allowed else []):
+            response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")
+        assert response.status_code == status.HTTP_200_OK
+        assert (str(template.id) in {entry["id"] for entry in response.json()["results"]}) is allowed
 
     def test_list_servers_entries_match_serializer_schema(self):
         self._create_active_template()
@@ -3858,6 +3868,38 @@ class TestMCPAuthorizePosthogCodeResponse(APIBaseTest):
 
 
 class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    @parameterized.expand(["slack_app", "slack_dev_app"])
+    def test_catalog_preserves_oauth_app_for_existing_installations(self, source: str) -> None:
+        entry = next(entry for entry in MCP_SERVER_CATALOG if entry.oauth_credentials_source == "slack_app")
+        template = self._template(url=entry.url, oauth_credentials_source=source)
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            url=template.url,
+            auth_type="oauth",
+            sensitive_configuration={"access_token": "existing-token"},
+        )
+        allowed_teams = [str(self.team.id)] if source == "slack_app" else []
+        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=allowed_teams):
+            counts = sync_mcp_catalog(entries=[entry])
+        template.refresh_from_db()
+        installation.refresh_from_db()
+        assert template.oauth_credentials_source == source
+        assert installation.sensitive_configuration == {"access_token": "existing-token"}
+        if source == "slack_app":
+            assert counts.failed == 1
+            assert template.is_active
+        else:
+            assert counts.failed == 0
+            assert not template.is_active
+            installation.delete()
+            with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[]):
+                sync_mcp_catalog(entries=[entry])
+            template.refresh_from_db()
+            assert template.oauth_credentials_source == "slack_app"
+            assert not template.is_active
+
     def _template(self, **overrides) -> MCPServerTemplate:
         import uuid as _uuid
 
@@ -3901,9 +3943,10 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         installation = MCPServerInstallation.objects.get(url=template.url, user=self.user)
         assert installation.template_id == template.id
 
-    def test_install_template_oauth_uses_instance_credential_source(self):
+    @parameterized.expand([("slack_app", "SLACK_APP"), ("slack_dev_app", "SLACK_DEV_APP")])
+    def test_install_template_oauth_uses_instance_credential_source(self, source: str, prefix: str) -> None:
         template = self._template(
-            oauth_credentials_source="slack_app",
+            oauth_credentials_source=source,
             oauth_credentials={},
             oauth_metadata={
                 "issuer": "https://mcp.slack.com",
@@ -3914,8 +3957,9 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
 
         with (
-            override_instance_config("SLACK_APP_CLIENT_ID", "slack-client"),
-            override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
+            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)]),
+            override_instance_config(f"{prefix}_CLIENT_ID", "slack-client"),
+            override_instance_config(f"{prefix}_CLIENT_SECRET", "slack-secret"),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
@@ -3927,6 +3971,30 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         params = parse_qs(urlparse(response.json()["redirect_url"]).query)
         assert params["client_id"] == ["slack-client"]
         assert MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
+
+    @parameterized.expand(["install", "authorize", "gateway"])
+    def test_slack_dev_template_cannot_be_used_by_another_project(self, action: str) -> None:
+        template = self._template(oauth_credentials_source="slack_dev_app")
+        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id + 1)]):
+            if action == "install":
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+                    data={"template_id": str(template.id)},
+                    format="json",
+                )
+            elif action == "authorize":
+                response = self.client.get(
+                    f"/api/environments/{self.team.id}/mcp_server_installations/authorize/",
+                    data={"template_id": str(template.id)},
+                )
+            else:
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/mcp_gateway_servers/set_template_enabled/",
+                    data={"template_id": str(template.id), "enabled": True},
+                    format="json",
+                )
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
+        assert not MCPServerInstallation.objects.filter(template=template).exists()
 
     def test_install_template_oauth_fails_closed_when_instance_credentials_are_missing(self):
         template = self._template(

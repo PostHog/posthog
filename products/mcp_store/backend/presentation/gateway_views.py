@@ -1136,7 +1136,7 @@ class MCPGatewayServerViewSet(
         self._require_project_admin()
         data = request.validated_data
         try:
-            template = MCPServerTemplate.objects.get(id=data["template_id"], is_active=True)
+            template = MCPServerTemplate.available_for_team(self.team_id).get(id=data["template_id"])
         except MCPServerTemplate.DoesNotExist:
             raise NotFound("Template not found.")
 
