@@ -14,6 +14,15 @@ interface FindControllerLike extends importedEditor.IEditorContribution {
     getState(): FindReplaceStateLike
 }
 
+// Monaco escapes the selection into a regex before it seeds the find input, so every
+// metacharacter arrives as a backslash pair. A cut inside a pair leaves a dangling backslash,
+// which the browser rejects as an invalid pattern.
+function cutToCap(searchString: string): string {
+    const cut = searchString.slice(0, MAX_FIND_SEARCH_STRING_LENGTH)
+    const trailingBackslashes = cut.match(/\\*$/)?.[0].length ?? 0
+    return trailingBackslashes % 2 === 0 ? cut : cut.slice(0, -1)
+}
+
 export function limitFindSearchString(codeEditor: importedEditor.IStandaloneCodeEditor): IDisposable {
     const findController = codeEditor.getContribution<FindControllerLike>('editor.contrib.findController')
     const state = typeof findController?.getState === 'function' ? findController.getState() : null
@@ -27,7 +36,7 @@ export function limitFindSearchString(codeEditor: importedEditor.IStandaloneCode
     state.change = (newState, moveCursor, updateHistory): void => {
         const searchString = newState.searchString
         if (typeof searchString === 'string' && searchString.length > MAX_FIND_SEARCH_STRING_LENGTH) {
-            newState = { ...newState, searchString: searchString.slice(0, MAX_FIND_SEARCH_STRING_LENGTH) }
+            newState = { ...newState, searchString: cutToCap(searchString) }
         }
         originalChange(newState, moveCursor, updateHistory)
     }

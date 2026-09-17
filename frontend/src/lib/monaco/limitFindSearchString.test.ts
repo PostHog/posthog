@@ -34,6 +34,29 @@ describe('limitFindSearchString', () => {
         expect(changes[0].moveCursor).toBe(false)
     })
 
+    it.each([
+        [
+            'a cut inside an escape pair drops the dangling backslash',
+            `${'a'.repeat(MAX_FIND_SEARCH_STRING_LENGTH - 1)}\\.`,
+            MAX_FIND_SEARCH_STRING_LENGTH - 1,
+        ],
+        [
+            'a cut after a complete escape pair keeps both characters',
+            `${'a'.repeat(MAX_FIND_SEARCH_STRING_LENGTH - 2)}\\\\ab`,
+            MAX_FIND_SEARCH_STRING_LENGTH,
+        ],
+    ])('%s', (_name, seeded, expectedLength) => {
+        const { editor, changes } = buildEditor()
+
+        limitFindSearchString(editor)
+        editor.getContribution().getState().change({ searchString: seeded }, false)
+
+        const searchString = changes[0].newState.searchString
+        expect(searchString).toHaveLength(expectedLength)
+        expect(seeded.startsWith(searchString)).toBe(true)
+        expect(() => new RegExp(searchString)).not.toThrow()
+    })
+
     it('leaves a change without a search string untouched', () => {
         const { editor, changes } = buildEditor()
 
