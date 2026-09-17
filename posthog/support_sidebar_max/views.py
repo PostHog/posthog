@@ -23,8 +23,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.models import User
-
-from ee.support_sidebar_max.prompt import get_system_prompt
+from posthog.support_sidebar_max.prompt import get_system_prompt
 
 from .max_search_tool import max_search_tool
 from .sidebar_max_ai import ConversationHistory, RateLimitType, max_search_tool_tool

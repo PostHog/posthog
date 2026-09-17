@@ -9,5 +9,3 @@ rules:
       owners: team-self-driving
     - match: '/session_recordings/'
       owners: team-replay
-    - match: '/support_sidebar_max/'
-      owners: team-self-driving

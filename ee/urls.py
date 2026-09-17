@@ -21,7 +21,6 @@ from products.cdp.backend.api import hooks
 from ee.api import integration
 from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
-from ee.support_sidebar_max.views import MaxChatViewSet
 
 from .api import authentication, billing, conversation, core_memory, license, subscription
 from .api.scim import views as scim_views
@@ -216,7 +215,6 @@ else:
 
 urlpatterns: list[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
-    path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
     re_path(r"^login/vercel/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
     re_path(r"^login/vercel/continue/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
     re_path(

@@ -25,6 +25,8 @@ rules:
       owners: team-analytics-platform
     - match: '/rbac/'
       owners: team-platform-features
+    - match: '/support_sidebar_max/'
+      owners: team-self-driving
     - match: '/taxonomy/'
       owners: team-product-analytics
     - match: '/templates/surveys/'

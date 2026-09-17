@@ -38,6 +38,7 @@ from posthog.ingress.github.provider import build_github_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.product_urls import ProductRootRoutes
+from posthog.support_sidebar_max.views import MaxChatViewSet
 from posthog.temporal.codec_server import decode_payloads
 from posthog.web_bot_auth import http_message_signatures_directory
 
@@ -210,6 +211,7 @@ urlpatterns = [
         "api/public_source_configs",
         PublicSourceConfigViewSet.as_view({"get": "list"}),
     ),
+    path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
     # Internal agent-proxy side-effect callback (auth: sandbox event ingest JWT)
     path(
         "internal/tasks/runs/<str:run_id>/agent-proxy-callback/",
