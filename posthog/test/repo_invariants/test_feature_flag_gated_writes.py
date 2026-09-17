@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+BASELINE = Path(__file__).with_name("feature_flag_gated_writes_baseline.txt")
 SCANNED_ROOTS = ("common", "ee", "posthog", "products")
 SKIPPED_PARTS = {"test", "tests", "migrations", "__snapshots__"}
 
@@ -13,42 +14,47 @@ GATED_FIELDS = {"active", "filters"}
 FLAG_NAME = re.compile(r"(?i)(flag|^ff$|^ff_|_ff$)")
 ORM_WRITE_METHODS = {"create", "bulk_create", "get_or_create", "update_or_create", "update", "bulk_update"}
 
-# The approval gate sits on FeatureFlagSerializer. These files are that gated path, so they may
-# drive the serializer directly.
+# The approval gate sits on FeatureFlagSerializer. These files are that gated path, so their
+# serializer writes are exempt. Every other write in them is still scanned.
 GATED_PATH = {
     "products/feature_flags/backend/facade/api.py",
     "products/approvals/backend/actions/feature_flags.py",
     "products/approvals/backend/scheduled_changes.py",
 }
 
-# Writes to a flag's gated fields that do not go through products/feature_flags/backend/facade/api.py.
-# Each count is exact, so a new write in a listed file fails too. Shrink this dict, never grow it:
-# move a write to the facade and lower its count in the same PR.
-ALLOWED: dict[str, tuple[int, str]] = {
+# Why each file in the baseline may still write a flag's gated fields outside the facade.
+# The baseline lists every write. Shrink both, never grow them: move a write to create_flag,
+# update_flag or set_flag_active and regenerate the baseline in the same PR.
+ALLOWED_REASONS: dict[str, str] = {
     # Drive FeatureFlagSerializer directly instead of the facade. The approval gate still runs.
-    "ee/clickhouse/views/experiment_holdouts.py": (2, "holdout edit and delete"),
-    "products/feature_flags/backend/api/organization_feature_flag.py": (2, "copy a flag to other projects"),
-    "products/feature_flags/backend/max_tools.py": (1, "PostHog AI flag creation"),
-    "products/feature_flags/backend/models/feature_flag.py": (1, "scheduled change execution"),
-    "products/surveys/backend/api/survey.py": (4, "targeting flag writes (2), start/stop mirror of active (2)"),
+    "ee/clickhouse/views/experiment_holdouts.py": "holdout edit and delete",
+    "products/feature_flags/backend/api/organization_feature_flag.py": "copy a flag to other projects",
+    "products/feature_flags/backend/max_tools.py": "PostHog AI flag creation",
+    "products/feature_flags/backend/models/feature_flag.py": "scheduled change execution",
+    "products/surveys/backend/api/survey.py": "targeting flag writes and the start/stop mirror of active",
     # Raw writes that skip validation and the approval gate.
-    "posthog/api/file_system/registrations.py": (2, "file-system trash and restore flip active"),
-    "products/early_access_features/backend/api.py": (1, "never-fail cleanup when stored filters fail validation"),
+    "posthog/api/file_system/registrations.py": "file-system trash and restore flip active",
+    "products/early_access_features/backend/api.py": "never-fail cleanup when stored filters fail validation",
     # Operator tooling, local setup, demo data and eval seeders. No request reaches them.
-    "posthog/management/commands/fix_invalid_flag_property_types.py": (2, "data repair command"),
-    "posthog/management/commands/generate_random_product_tours.py": (1, "local data generator"),
-    "posthog/management/commands/reencrypt_flag_payloads.py": (1, "payload re-encryption command"),
-    "posthog/management/commands/sync_feature_flags.py": (2, "local dev flag sync"),
-    "posthog/management/commands/sync_feature_flags_from_api.py": (3, "local dev flag sync"),
-    "products/demo/backend/logic/matrix/matrix.py": (1, "demo data"),
-    "products/demo/backend/logic/products/hedgebox/matrix.py": (2, "demo data"),
-    "products/feature_flags/evals/seeders.py": (3, "eval seeders"),
-    "products/marketing_analytics/backend/demo/config.py": (1, "demo data"),
-    "products/posthog_ai/eval_harness/seeders/survey.py": (2, "eval seeders"),
-    "products/posthog_ai/evals/experiments/seeders.py": (4, "eval seeders"),
-    "products/tasks/backend/management/commands/setup_background_agents.py": (2, "local setup command"),
-    "products/tasks/scripts/run_agent_in_docker.py": (2, "local agent script"),
+    "posthog/management/commands/fix_invalid_flag_property_types.py": "data repair command",
+    "posthog/management/commands/generate_random_product_tours.py": "local data generator",
+    "posthog/management/commands/reencrypt_flag_payloads.py": "payload re-encryption command",
+    "posthog/management/commands/sync_feature_flags.py": "local dev flag sync",
+    "posthog/management/commands/sync_feature_flags_from_api.py": "local dev flag sync",
+    "products/demo/backend/logic/matrix/matrix.py": "demo data",
+    "products/demo/backend/logic/products/hedgebox/matrix.py": "demo data",
+    "products/feature_flags/evals/seeders.py": "eval seeders",
+    "products/marketing_analytics/backend/demo/config.py": "demo data",
+    "products/posthog_ai/eval_harness/seeders/survey.py": "eval seeders",
+    "products/posthog_ai/evals/experiments/seeders.py": "eval seeders",
+    "products/tasks/backend/management/commands/setup_background_agents.py": "local setup command",
+    "products/tasks/scripts/run_agent_in_docker.py": "local agent script",
 }
+
+REGENERATE = (
+    "Regenerate it with: python -c \"import sys; sys.path.insert(0, 'posthog/test/repo_invariants'); "
+    'import test_feature_flag_gated_writes as t; t.write_baseline()"'
+)
 
 
 def _terminal_name(node: ast.expr) -> str | None:
@@ -71,18 +77,14 @@ def _chain_root(node: ast.expr) -> ast.expr:
             return node
 
 
-def _names_gated_field(values: list[ast.expr]) -> bool:
-    return any(isinstance(v, ast.Constant) and v.value in GATED_FIELDS for v in values)
-
-
 def _is_feature_flag_query(node: ast.expr) -> bool:
     root = _chain_root(node)
     return isinstance(root, ast.Name) and root.id == "FeatureFlag"
 
 
-def _names_bound_to_flags(tree: ast.Module) -> set[str]:
-    # Catches flags held in variables whose name does not say "flag", such as
-    # `existing = FeatureFlag.objects.filter(...).first()`.
+def _names_bound_to_flags(tree: ast.AST) -> set[str]:
+    # Catches flags and querysets held in variables whose name does not say "flag", such as
+    # `existing = FeatureFlag.objects.filter(...).first()` or `row, _ = FeatureFlag.objects.get_or_create(...)`.
     names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and _is_feature_flag_query(node.value):
@@ -91,7 +93,8 @@ def _names_bound_to_flags(tree: ast.Module) -> set[str]:
             targets = [node.target]
         else:
             continue
-        names.update(t.id for t in targets if isinstance(t, ast.Name))
+        for target in targets:
+            names.update(sub.id for sub in ast.walk(target) if isinstance(sub, ast.Name))
     return names
 
 
@@ -102,37 +105,73 @@ def _is_flag(owner: ast.expr, flag_names: set[str]) -> bool:
     return FLAG_NAME.search(name) is not None or (isinstance(owner, ast.Name) and name in flag_names)
 
 
-def _is_gated_write(node: ast.AST, flag_names: set[str]) -> bool:
+def _names_gated_field(values: list[ast.expr]) -> bool:
+    # A non-literal entry could name a gated field, so it counts as one.
+    return any(not isinstance(v, ast.Constant) or v.value in GATED_FIELDS for v in values)
+
+
+def _write_target(node: ast.AST, flag_names: set[str], *, serializer_exempt: bool) -> str | None:
+    """Describe the gated write at `node`, or return None when `node` is not one."""
     if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-        return any(
-            isinstance(t, ast.Attribute) and t.attr in GATED_FIELDS and _is_flag(t.value, flag_names) for t in targets
-        )
+        for target in targets:
+            if isinstance(target, ast.Attribute) and target.attr in GATED_FIELDS and _is_flag(target.value, flag_names):
+                return f"{ast.unparse(target)} ="
+        return None
 
     if not isinstance(node, ast.Call):
-        return False
+        return None
 
     if _terminal_name(node.func) == "FeatureFlagSerializer":
-        return any(kw.arg == "data" for kw in node.keywords)
+        # Positional data or **kwargs cannot be resolved, so they count as a write.
+        is_write = len(node.args) > 1 or any(kw.arg in (None, "data") for kw in node.keywords)
+        if not is_write or serializer_exempt:
+            return None
+        instance = ast.unparse(node.args[0]) if node.args else ""
+        return f"FeatureFlagSerializer({instance})"
 
     if not isinstance(node.func, ast.Attribute) or node.func.attr not in ORM_WRITE_METHODS:
-        return False
-    if not _is_feature_flag_query(node.func):
-        return False
+        return None
+    root = _chain_root(node.func)
+    if not _is_feature_flag_query(node.func) and not (isinstance(root, ast.Name) and root.id in flag_names):
+        return None
     method = node.func.attr
-    if method == "update":
-        return any(kw.arg in GATED_FIELDS for kw in node.keywords)
+    if method == "update" and not any(kw.arg is None or kw.arg in GATED_FIELDS for kw in node.keywords):
+        return None
     if method == "bulk_update":
         fields = (
             node.args[1] if len(node.args) > 1 else next((kw.value for kw in node.keywords if kw.arg == "fields"), None)
         )
-        return isinstance(fields, (ast.List, ast.Tuple, ast.Set)) and _names_gated_field(list(fields.elts))
+        if isinstance(fields, (ast.List, ast.Tuple, ast.Set)) and not _names_gated_field(list(fields.elts)):
+            return None
     # A raw create sets `active` too: the model default is True, so the flag is born enabled.
-    return True
+    return f"{ast.unparse(node.func)}()"
+
+
+def gated_writes(tree: ast.AST, *, serializer_exempt: bool = False) -> list[str]:
+    """List every gated write in `tree` as `<enclosing scope>::<write>`.
+
+    The enclosing scope keeps an entry stable when lines move, so the baseline changes only when
+    a write is added or removed.
+    """
+    flag_names = _names_bound_to_flags(tree)
+    found: list[str] = []
+
+    def visit(node: ast.AST, scope: str) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            scope = f"{scope}.{node.name}" if scope else node.name
+        target = _write_target(node, flag_names, serializer_exempt=serializer_exempt)
+        if target is not None:
+            found.append(f"{scope or '<module>'}::{target}")
+        for child in ast.iter_child_nodes(node):
+            visit(child, scope)
+
+    visit(tree, "")
+    return found
 
 
 def _scan() -> Counter[str]:
-    offenders: Counter[str] = Counter()
+    found: Counter[str] = Counter()
     for root in SCANNED_ROOTS:
         for path in (REPO_ROOT / root).rglob("*.py"):
             relative = path.relative_to(REPO_ROOT)
@@ -142,9 +181,6 @@ def _scan() -> Counter[str]:
                 or relative.name == "conftest.py"
             ):
                 continue
-            key = relative.as_posix()
-            if key in GATED_PATH:
-                continue
             source = path.read_text(errors="ignore")
             if "FeatureFlag" not in source and not FLAG_NAME.search(source):
                 continue
@@ -152,33 +188,43 @@ def _scan() -> Counter[str]:
                 tree = ast.parse(source)
             except SyntaxError:
                 continue
-            flag_names = _names_bound_to_flags(tree)
-            count = sum(1 for node in ast.walk(tree) if _is_gated_write(node, flag_names))
-            if count:
-                offenders[key] = count
-    return offenders
+            key = relative.as_posix()
+            for write in gated_writes(tree, serializer_exempt=key in GATED_PATH):
+                found[f"{key}::{write}"] += 1
+    return found
+
+
+def _read_baseline() -> Counter[str]:
+    lines = BASELINE.read_text().splitlines() if BASELINE.exists() else []
+    return Counter(line for line in lines if line and not line.startswith("#"))
+
+
+def write_baseline() -> None:
+    header = "# Generated by write_baseline() in test_feature_flag_gated_writes.py. Shrink it, never grow it.\n"
+    BASELINE.write_text(header + "".join(f"{entry}\n" for entry in sorted(_scan().elements())))
 
 
 def test_feature_flag_gated_fields_are_written_through_the_facade() -> None:
     # The approval gate checks writes to a flag's `active` and `filters`. A write that skips
     # FeatureFlagSerializer skips the gate, so every new write must call create_flag, update_flag
     # or set_flag_active in products/feature_flags/backend/facade/api.py.
-    offenders = _scan()
-    expected = {path: count for path, (count, _) in ALLOWED.items()}
+    found = _scan()
+    baseline = _read_baseline()
 
-    new = {path: count for path, count in offenders.items() if count > expected.get(path, 0)}
+    new = sorted((found - baseline).elements())
     assert not new, (
         f"New writes to FeatureFlag.active or FeatureFlag.filters outside the gated facade: {new}. "
         "Call create_flag, update_flag or set_flag_active from "
         "products/feature_flags/backend/facade/api.py instead."
     )
 
-    fixed = {
-        path: (offenders.get(path, 0), count) for path, count in expected.items() if offenders.get(path, 0) < count
-    }
-    assert not fixed, (
-        f"These files now write fewer gated flag fields than ALLOWED records, as (found, allowed): {fixed}. "
-        "Lower or remove their entries in ALLOWED so the baseline cannot grow back."
+    removed = sorted((baseline - found).elements())
+    assert not removed, f"The baseline lists writes that no longer exist: {removed}. {REGENERATE}"
+
+    baseline_files = {entry.split("::", 1)[0] for entry in baseline}
+    assert baseline_files == ALLOWED_REASONS.keys(), (
+        f"ALLOWED_REASONS and the baseline disagree. Without a reason: {sorted(baseline_files - ALLOWED_REASONS.keys())}. "
+        f"Without baseline writes: {sorted(ALLOWED_REASONS.keys() - baseline_files)}."
     )
 
 
@@ -188,11 +234,17 @@ def test_feature_flag_gated_fields_are_written_through_the_facade() -> None:
         ("feature_flag.active = False", 1),
         ("survey.targeting_flag.filters = {}", 1),
         ("existing = FeatureFlag.objects.filter(key='k').first()\nexisting.active = True", 1),
+        ("row, _ = FeatureFlag.objects.get_or_create(key='k')\nrow.filters = {}", 2),
         ("for f in FeatureFlag.objects.all():\n    f.active = False", 1),
+        ("rows = FeatureFlag.objects.filter(team=team)\nrows.update(active=False)", 1),
         ("FeatureFlag.objects.create(team=team, key='k')", 1),
         ("FeatureFlag.objects.filter(pk=1).update(active=False)", 1),
+        ("FeatureFlag.objects.filter(pk=1).update(**payload)", 1),
         ("FeatureFlag.objects.bulk_update(flags, ['filters'])", 1),
+        ("FeatureFlag.objects.bulk_update(flags, fields)", 1),
         ("FeatureFlagSerializer(flag, data={'active': True}, partial=True)", 1),
+        ("FeatureFlagSerializer(flag, payload, partial=True)", 1),
+        ("FeatureFlagSerializer(flag, **kwargs)", 1),
         ("FeatureFlag.objects.filter(pk=1).update(last_called_at=now)", 0),
         ("FeatureFlag.objects.bulk_update(flags, ['last_called_at'])", 0),
         ("FeatureFlagSerializer(flags, many=True)", 0),
@@ -201,6 +253,15 @@ def test_feature_flag_gated_fields_are_written_through_the_facade() -> None:
     ],
 )
 def test_scanner_detects_gated_writes(snippet: str, expected: int) -> None:
-    tree = ast.parse(snippet)
-    flag_names = _names_bound_to_flags(tree)
-    assert sum(1 for node in ast.walk(tree) if _is_gated_write(node, flag_names)) == expected
+    assert len(gated_writes(ast.parse(snippet))) == expected
+
+
+def test_gated_path_exempts_only_serializer_writes() -> None:
+    tree = ast.parse("def apply(flag):\n    FeatureFlagSerializer(flag, data={})\n    flag.active = True")
+    assert gated_writes(tree, serializer_exempt=True) == ["apply::flag.active ="]
+
+
+def test_swapping_an_allowed_write_for_another_is_a_new_write() -> None:
+    before = Counter(gated_writes(ast.parse("def sync(flag):\n    flag.active = True")))
+    after = Counter(gated_writes(ast.parse("def sync(flag):\n    flag.filters = {}")))
+    assert sorted((after - before).elements()) == ["sync::flag.filters ="]
