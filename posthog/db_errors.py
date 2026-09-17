@@ -12,7 +12,9 @@ _DROPPED_CONNECTION_MARKERS = (
     # a genuine protocol violation is a driver bug that must keep reaching error tracking, so
     # match the message. Also reaches us wrapped in pgbouncer's cached-login message below.
     "server conn crashed",
-    # Django's report when code reuses a connection a previous failure already closed.
+    # Reuse of a connection a previous failure already closed. psycopg 3 and psycopg 2 word this
+    # differently, and the Django postgresql backend picks whichever driver is installed.
+    "the connection is closed",
     "connection already closed",
 )
 

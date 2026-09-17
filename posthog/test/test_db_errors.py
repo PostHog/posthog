@@ -17,6 +17,7 @@ class _WithSqlstate(Exception):
         (ValueError("query_wait_timeout"), False),
         (OperationalError("query_wait_timeout"), True),
         (OperationalError("server closed the connection unexpectedly"), True),
+        (OperationalError("the connection is closed"), True),
         (InterfaceError("connection reset by peer"), True),
         (OperationalError("the database system is starting up"), True),
         (OperationalError("the database system is shutting down"), True),
@@ -69,6 +70,9 @@ def test_is_transient_db_error_by_sqlstate(error_cls: type[Exception], sqlstate:
     "error,expected",
     [
         (OperationalError("server closed the connection unexpectedly"), True),
+        # Both driver wordings for reuse of an already-closed connection: psycopg 3 first, then
+        # psycopg 2.
+        (OperationalError("the connection is closed"), True),
         (InterfaceError("connection already closed"), True),
         (OperationalError("server conn crashed?"), True),
         (ValueError("server closed the connection unexpectedly"), False),
