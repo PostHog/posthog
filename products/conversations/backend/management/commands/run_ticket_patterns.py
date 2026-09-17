@@ -38,9 +38,9 @@ class Command(BaseCommand):
             raise CommandError("Ticket spike detection is off for this team")
 
         eligible = EligibleTeam(team_id=team.id, settings=_read_settings(team.conversations_settings or {}))
-        result = asyncio.run(_detect(eligible, report=not options["dry_run"]))
+        result = asyncio.run(_detect(eligible, report=not options["dry_run"], check_flag=False))
 
-        self.stdout.write(f"Scanned {result.candidate_count} tickets")
+        self.stdout.write(f"Scanned {result.candidate_count} tickets (the rollout flag is not checked here)")
         for cluster in result.clusters:
             self.stdout.write(
                 self.style.SUCCESS(

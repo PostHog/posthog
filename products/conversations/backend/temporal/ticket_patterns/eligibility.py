@@ -41,11 +41,13 @@ def is_master_flag_enabled(team: Team) -> bool:
         return False
 
 
-def is_team_eligible(team: Team) -> bool:
+def is_team_eligible(team: Team, *, check_flag: bool = True) -> bool:
+    """``check_flag=False`` is for the management command: the flag is a production rollout
+    lever, and a local run has no flag definition to read."""
     if not team.conversations_enabled:
         return False
     if not (team.conversations_settings or {}).get("ticket_patterns_enabled"):
         return False
     if not team.organization.is_ai_data_processing_approved:
         return False
-    return is_master_flag_enabled(team)
+    return is_master_flag_enabled(team) if check_flag else True

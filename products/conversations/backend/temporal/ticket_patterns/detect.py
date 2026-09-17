@@ -185,12 +185,12 @@ def _report(team: Team, clusters: list[DetectedCluster], lookback_minutes: int) 
         mark_reported(team.id, cluster.ticket_ids)
 
 
-async def _detect(team: EligibleTeam, *, report: bool = True) -> DetectOutput:
+async def _detect(team: EligibleTeam, *, report: bool = True, check_flag: bool = True) -> DetectOutput:
     # An activity can retry minutes after the coordinator gated it, so recheck consent before any
     # ticket text leaves the project.
     def load_if_still_eligible() -> tuple[Team, list[TicketCandidate], dict[str, str]] | None:
         row = Team.objects.select_related("organization").get(id=team.team_id)
-        if not is_team_eligible(row):
+        if not is_team_eligible(row, check_flag=check_flag):
             return None
         candidates, requesters = _load_candidates(team.team_id, team.settings)
         return row, candidates, requesters
