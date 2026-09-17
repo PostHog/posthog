@@ -396,7 +396,7 @@ class CanonicalPlacer:
     # --- current layout cost + diff -------------------------------------
 
     def build(self) -> CanonicalPlan:
-        entries = self.resolver.parsed_ownership_files()  # the single parse pass
+        entries = self.resolver.effective_ownership_files()  # the single parse pass
         pinned, frozen, alias = self._classify(entries)
         # One definition of "a carrier file already exists here": the _classify one.
         pinned_dirs = set(pinned) | set(frozen)

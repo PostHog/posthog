@@ -167,7 +167,7 @@ def _is_valid_slack(raw: object) -> TypeGuard[str | bool]:
 def _validate_producer_map(
     value: dict[object, object], where: str, key: str, producers: frozenset[str] | None, errors: list[str]
 ) -> dict[str, str | bool]:
-    """The producers a ``notifications:`` mapping names, without the entries it rejects."""
+    """The producers a ``notifications:`` mapping names, or nothing when any entry is rejected."""
     if key != "notifications":
         errors.append(f"{where}: '{key}' takes a single channel, not a per-producer mapping")
         return {}
@@ -175,17 +175,23 @@ def _validate_producer_map(
         errors.append(f"{where}: '{key}' mapping names no producer")
         return {}
     declared: dict[str, str | bool] = {}
+    readable = True
     for producer, raw in value.items():
         if not isinstance(producer, str) or not producer:
             errors.append(f"{where}: producer names must be non-empty strings, got {producer!r}")
+            readable = False
         elif producers is not None and producer not in producers:
             known = ", ".join(sorted(producers))
             errors.append(f"{where}: unknown producer '{producer}' (declared in 'producers': {known})")
+            readable = False
         elif _is_valid_slack(raw):
             declared[producer] = raw
         else:
             errors.append(f"{where}: '{producer}' must be a string starting with '#' or false")
-    return declared
+            readable = False
+    # One rejected entry makes the whole mapping unreadable, which the caller turns into `false`:
+    # keeping the rest would route the rejected producer to the team's people channel.
+    return declared if readable else {}
 
 
 def _validate_teams(value: object, producers: frozenset[str] | None, errors: list[str]) -> dict[str, TeamEntry]:
@@ -288,8 +294,9 @@ def _validate_settings(data: dict[object, object], errors: list[str]) -> RepoSet
 
     alias_files: list[str] = []
     for name in _validate_string_list(data["alias_files"], "alias_files", errors) if "alias_files" in data else []:
-        if "/" in name:
-            errors.append(f"alias_files: '{name}' must be a bare file name, without '/'")
+        # A separator or a dot entry would let a name reach outside the directory it is read in.
+        if "/" in name or "\\" in name or name in {".", ".."}:
+            errors.append(f"alias_files: '{name}' must be a bare file name, without a path separator")
             continue
         if name == OWNERS_FILENAME:
             errors.append(f"alias_files: '{OWNERS_FILENAME}' is the ownership file, not an alias")

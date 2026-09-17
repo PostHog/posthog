@@ -201,7 +201,7 @@ web/app.ts ['team-platform']
 ```
 
 A source that pays per read, such as one that fetches over the network, can also implement `read_all(paths)`.
-`map()` calls it once with the whole batch's ownership files before it reads any of them, so the source can fetch them together.
+`map()` calls it twice before it reads any file: once for the root `owners.yaml`, which names the alias files, then once for the whole batch's ownership files.
 To prefetch yourself instead, ask `ownership_file_paths(paths)` for the same list.
 
 ### Export to CODEOWNERS

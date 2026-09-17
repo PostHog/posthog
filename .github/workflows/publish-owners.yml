@@ -73,8 +73,14 @@ jobs:
               run: |
                   tag_version="${TAG_REF#owners-v}"
                   uv venv /tmp/owners-smoke
-                  uv pip install --python /tmp/owners-smoke/bin/python --find-links dist "owners-yaml==$tag_version"
-                  /tmp/owners-smoke/bin/owners --version
+                  # By path, never by name: the step must test the wheel this run built, not
+                  # whatever the public index happens to serve under that name and version.
+                  uv pip install --python /tmp/owners-smoke/bin/python dist/*.whl
+                  installed=$(/tmp/owners-smoke/bin/owners --version | tr -d '[:space:]')
+                  if [[ "$installed" != *"$tag_version" ]]; then
+                      echo "::error::installed version ($installed) does not match the tag ($tag_version)"
+                      exit 1
+                  fi
                   /tmp/owners-smoke/bin/owners-yaml --version
                   /tmp/owners-smoke/bin/owners lint --repo-root .
 
@@ -86,7 +92,9 @@ jobs:
                       dist/*.tar.gz
 
             - name: Publish to PyPI
-              run: uv publish dist/*.whl dist/*.tar.gz
+              # --check-url skips a file the index already holds, so a re-dispatch after a failed
+              # release step gets past the publish instead of dying on the immutable duplicate.
+              run: uv publish --check-url https://pypi.org/simple/ dist/*.whl dist/*.tar.gz
 
             - name: Create GitHub Release
               uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0

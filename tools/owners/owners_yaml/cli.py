@@ -285,7 +285,9 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
 
         if entry.is_alias:
             # Only flags a conflict. A host that scaffolds the alias file validates its owners itself.
-            if directory in owners_yaml_dirs:
+            # A file without a usable `owners:` list counts as absent (SPEC section 6), so it is
+            # not a conflict: any repo naming a general manifest as an alias holds plenty of them.
+            if parsed is not None and directory in owners_yaml_dirs:
                 errors.append(f"{directory or '<root>'}: has both {entry.name} (with owners) and owners.yaml")
             if parsed and parsed.owners:
                 owners_by_file[rel].update(normalize_owners(parsed.owners))

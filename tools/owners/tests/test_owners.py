@@ -165,6 +165,8 @@ def test_json_schema_accepts_the_same_top_level_keys_as_the_parser() -> None:
         ("producers: bot\n", "'producers' must be a list"),
         ("reserved_dirs: ['a***b']\n", "reserved_dirs: invalid pattern"),
         ("alias_files: ['pkg/product.yaml']\n", "must be a bare file name"),
+        ("alias_files: ['..\\..\\outside.yaml']\n", "must be a bare file name"),
+        ("alias_files: ['..']\n", "must be a bare file name"),
         ("alias_files: [owners.yaml]\n", "is the ownership file, not an alias"),
         ("alias_files: [a, b, c, d, e, f, g, h, i]\n", "at most 8 names"),
         ("codeowners:\n  jest_dir: web\n", "codeowners: unknown field 'jest_dir'"),
@@ -254,12 +256,18 @@ def test_team_channel_derives_for_an_unregistered_slug() -> None:
     )
 
 
-def test_an_unreadable_producer_map_registers_as_silence(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "notifications_yaml",
+    [
+        "      stamphogg: false\n",
+        "      stamphog: '#a-bots'\n      stamphogg: false\n",
+    ],
+    ids=["only-entry-rejected", "one-of-two-entries-rejected"],
+)
+def test_an_unreadable_producer_map_registers_as_silence(tmp_path: Path, notifications_yaml: str) -> None:
     # Dropping the key instead would fall through to the derived channel, so a typo in a repo our
     # lint never reads would post the digest the team asked to be left out of.
-    text = (
-        "version: 1\nowners: []\nproducers: [stamphog]\nteams:\n  team-a:\n    notifications:\n      stamphogg: false\n"
-    )
+    text = "version: 1\nowners: []\nproducers: [stamphog]\nteams:\n  team-a:\n    notifications:\n" + notifications_yaml
     file, errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
     assert any("unknown producer" in e for e in errors)
     assert file is not None and file.teams == {"team-a": TeamEntry(notifications=False)}
@@ -393,17 +401,28 @@ def test_fmt_never_exiles_singleton_rules_on_overflow(tmp_path: Path, monkeypatc
     assert plan.creations == []
 
 
-def test_fmt_product_yaml_is_a_free_carrier(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "extra_files,alias_setting",
+    [
+        ({}, "[product.yaml]"),
+        # The second alias sorts after the first in tracked order, so a formatter that takes the
+        # last one models a directory the resolver never reads, and the proof fails.
+        ({"products/foo/zz.yaml": "owners:\n  - team-other\n"}, "[product.yaml, zz.yaml]"),
+    ],
+    ids=["one-alias", "two-aliases-in-one-dir"],
+)
+def test_fmt_product_yaml_is_a_free_carrier(tmp_path: Path, extra_files: dict[str, str], alias_setting: str) -> None:
     # The product manifest already declares ownership, so no dedicated owners.yaml is
     # proposed and nothing is added — a single-statement product is not flagged.
     plan = _fmt_plan(
         tmp_path,
         {
-            "owners.yaml": "version: 1\nowners: []\nalias_files: [product.yaml]\n",
+            "owners.yaml": f"version: 1\nowners: []\nalias_files: {alias_setting}\n",
             "products/foo/product.yaml": "name: Foo\nowners:\n  - team-foo\n",
             "products/foo/x.py": "x",
             "r1.py": "x",
             "r2.py": "x",
+            **extra_files,
         },
     )
     assert plan.is_canonical
@@ -707,10 +726,15 @@ def test_map_prefetches_a_batch_through_read_all_before_the_per_path_reads(
     resolver = OwnersResolver(source=BatchDictSource())
     resolver.map(["a/b/x.py"])
 
-    # The root file is read on its own first, because it names the alias files the batch needs.
-    assert calls[0] == ("read", "owners.yaml")
-    assert calls[1] == ("read_all", expected_prefetch)
-    assert all(c[0] == "read" for c in calls[2:])
+    # The root file is prefetched on its own first, because it names the alias files the batch
+    # needs. A source that only serves what read_all fetched must never see a read before that.
+    assert [argument for kind, argument in calls if kind == "read_all"] == [["owners.yaml"], expected_prefetch]
+    fetched: set[str] = set()
+    for kind, argument in calls:
+        if kind == "read_all":
+            fetched.update(argument)  # type: ignore[arg-type]
+        else:
+            assert argument in fetched, f"read {argument!r} before a read_all covering it"
 
 
 def test_census_counts_test_files_per_team_and_folds_gaps_into_unowned(tmp_path: Path) -> None:
@@ -903,6 +927,21 @@ def test_projection_drops_a_spelling_two_teams_would_both_claim(projection_repo:
     assert _codeowners_lookup(rendered, "src/solo.test.ts") == ["@PostHog/team-web"]
     assert _codeowners_lookup(rendered, "frontend/src/shared.test.ts") == ["@PostHog/team-web"]
     assert _codeowners_lookup(rendered, "nodejs/src/shared.test.ts") == ["@PostHog/team-pipeline"]
+
+
+def test_cli_lint_reports_no_alias_conflict_the_resolver_does_not_see(tmp_path: Path) -> None:
+    # An alias in the root never applies, and a manifest without an owners list counts as absent —
+    # so neither is a conflict with the owners.yaml next to it.
+    _write(tmp_path, "owners.yaml", "version: 1\nowners: [team-a]\nalias_files: [package.yaml]\n")
+    _write(tmp_path, "package.yaml", "name: root\nowners:\n  - team-root-manifest\n")
+    _write(tmp_path, "web/owners.yaml", "version: 1\nowners: [team-web]\n")
+    _write(tmp_path, "web/package.yaml", "name: web\nversion: 2.0.0\n")
+    _write(tmp_path, "web/app.ts", "")
+
+    result = CliRunner().invoke(main, ["lint", "--repo-root", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "has both" not in result.output
 
 
 def test_cli_lints_a_tree_that_is_not_a_git_worktree(registry_repo: Path) -> None:

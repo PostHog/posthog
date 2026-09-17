@@ -198,7 +198,7 @@ Only the root file MAY carry these fields. A tool MUST report them as errors in 
 2. `false` means the team has no channel for that purpose.
 3. A key of `teams` MUST be a team slug. It MUST NOT be a person handle.
 4. When the root file declares `producers`, each key of a `notifications` mapping MUST be in that list. When it does not, any non-empty name is valid.
-5. A tool that cannot read a `notifications` mapping SHOULD treat it as `false`, so a typo silences automation instead of posting to an unwanted channel.
+5. A tool that cannot read a `notifications` mapping SHOULD treat it as `false`, so a typo silences automation instead of posting to an unwanted channel. One rejected entry makes the whole mapping unreadable: keeping the other entries would send the rejected producer to the `slack` channel.
 
 To find the channel for a team slug `T`, a purpose, and an optional producer:
 
@@ -217,7 +217,7 @@ When the primary owner is a person handle, the path has no channel.
 An alias file is a file with another name that a tool reads as an ownership file, such as a package manifest that already lists owners.
 The root file declares the alias files in `alias_files` (section 5).
 
-1. Each entry of `alias_files` MUST be a bare file name. It MUST NOT contain `/`.
+1. Each entry of `alias_files` MUST be a bare file name. It MUST NOT contain `/` or `\`, and it MUST NOT be `.` or `..`.
 2. An entry MUST NOT be `owners.yaml`.
 3. `alias_files` MUST NOT hold more than 8 entries. A tool MUST ignore the whole list when it does.
 4. A tool MUST NOT read a file as an ownership file unless the file is named `owners.yaml` or the root file declares its name in `alias_files`.

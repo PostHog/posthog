@@ -196,7 +196,10 @@ class OwnershipSource(Protocol):
 @runtime_checkable
 class BatchOwnershipSource(OwnershipSource, Protocol):
     """A source that pays per read, such as one that fetches over a network. ``read_all`` hands it
-    every file a batch can need before the resolver reads any, so it can fetch them together."""
+    every file a batch can need before the resolver reads any, so it can fetch them together.
+
+    ``map`` calls it twice: once for the root ``owners.yaml`` alone, which names the alias files,
+    then once for the whole batch. No file is read before a ``read_all`` that covers it."""
 
     def read_all(self, paths: list[str]) -> None: ...
 
@@ -409,6 +412,9 @@ class OwnersResolver:
 
     def map(self, paths: list[str]) -> dict[str, Resolution]:
         if isinstance(self.source, BatchOwnershipSource):
+            # Two fetches, because the root file names the alias files the batch needs. A source
+            # whose read() only serves what read_all fetched has nothing to answer with otherwise.
+            self.source.read_all([OWNERS_FILENAME])
             self.source.read_all(self.ownership_file_paths(paths))
         return {p: self.resolve(p) for p in paths}
 
@@ -447,8 +453,12 @@ class OwnersResolver:
             name = rel.rsplit("/", 1)[-1]
             if name not in filenames:
                 continue
-            abs_path = self.repo_root / rel
             rel_dir = rel.rsplit("/", 1)[0] if "/" in rel else ""
+            # No alias applies in the root directory (see _load_dir_file), so listing one would
+            # hand consumers a file resolution never reads.
+            if not rel_dir and name != OWNERS_FILENAME:
+                continue
+            abs_path = self.repo_root / rel
             if name != OWNERS_FILENAME:
                 parsed = parse_alias_file_as_owners(abs_path.read_text(), path=abs_path, directory=rel_dir)
                 errors: list[str] = []
@@ -457,3 +467,21 @@ class OwnersResolver:
             entries.append(ParsedOwnershipFile(path=abs_path, rel_dir=rel_dir, name=name, parsed=parsed, errors=errors))
         self._parsed_ownership = entries
         return entries
+
+    def effective_ownership_files(self) -> list[ParsedOwnershipFile]:
+        """The one file per directory that ``resolve`` reads there, ordered by directory.
+
+        ``parsed_ownership_files`` lists every tracked ownership file, including the ones a
+        directory's ``owners.yaml`` or an earlier alias shadows. A consumer that models resolution
+        must see the same precedence, or it models a file the resolver never reads. Lint is the
+        exception: reporting the shadowed file is its job.
+        """
+        rank = {name: index for index, name in enumerate(self.ownership_filenames())}
+        chosen: dict[str, ParsedOwnershipFile] = {}
+        for entry in self.parsed_ownership_files():
+            if entry.parsed is None:
+                continue
+            current = chosen.get(entry.rel_dir)
+            if current is None or rank[entry.name] < rank[current.name]:
+                chosen[entry.rel_dir] = entry
+        return [chosen[directory] for directory in sorted(chosen)]

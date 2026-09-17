@@ -23,7 +23,7 @@ First release on PyPI, as `owners-yaml`. The package was developed in the monore
 - A tree that is not a git worktree is read from disk, so the CLI works on an export or a scratch copy.
 - `owners_yaml.github.GitHubOrg` validates team slugs and handles without any host tooling.
 - An `owners-yaml` console script, so `uvx owners-yaml` works without `--from`.
-- `BatchOwnershipSource`, a source that fetches a batch's ownership files together. `OwnersResolver.map()` calls its `read_all` before it reads any file.
+- `BatchOwnershipSource`, a source that fetches a batch's ownership files together. `OwnersResolver.map()` calls its `read_all` before it reads any file: first for the root `owners.yaml`, then for the batch.
 - The top-level `owners_yaml` package exports the full public API, so consumers do not import submodules.
 - `py.typed`, so type checkers read the package's annotations.
 

@@ -553,3 +553,25 @@ cases:
               status: active
               source: owners.yaml
               slack: null
+
+    - name: a notifications mapping with one undeclared producer silences the declared ones too
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-a
+              producers: [review-bot]
+              teams:
+                team-a:
+                  slack: '#a-people'
+                  notifications:
+                    review-bot: '#a-reviews'
+                    review-bott: '#a-typo'
+      purpose: notifications
+      producer: review-bot
+      expect:
+          x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: null

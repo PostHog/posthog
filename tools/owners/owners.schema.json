@@ -44,7 +44,7 @@
         "alias_files": {
             "type": "array",
             "maxItems": 8,
-            "items": { "type": "string", "minLength": 1, "not": { "pattern": "/" } },
+            "items": { "type": "string", "minLength": 1, "not": { "pattern": "[/\\\\]|^\\.{1,2}$" } },
             "description": "Repository settings: other bare file names that count as ownership files."
         },
         "codeowners": {
