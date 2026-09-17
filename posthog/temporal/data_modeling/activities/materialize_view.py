@@ -145,11 +145,13 @@ def _reject_duplicate_output_columns(columns: list[_DescribedColumn]) -> None:
     # unwritable as a literal repeat. Left to the write, that pair costs a full scan first.
     first_spelling: dict[str, str] = {}
     duplicates: list[str] = []
+    seen_duplicates: set[str] = set()
     for column in columns:
         folded = column.name.lower()
         if folded in first_spelling:
             for spelling in (first_spelling[folded], column.name):
-                if spelling not in duplicates:
+                if spelling not in seen_duplicates:
+                    seen_duplicates.add(spelling)
                     duplicates.append(spelling)
         else:
             first_spelling[folded] = column.name
@@ -189,7 +191,7 @@ class DuplicateOutputColumnError(NonReportableError):
     list from it, and the arrow transform looks it up on the batch. Neither can say which of two
     same-named columns is meant, so the repeat is refused rather than resolved arbitrarily."""
 
-    def __init__(self, duplicates: list[str]):
+    def __init__(self, duplicates: list[str]) -> None:
         names = ", ".join(f'"{name}"' for name in duplicates)
         super().__init__(
             f"The query returns more than one column named {names}. "
