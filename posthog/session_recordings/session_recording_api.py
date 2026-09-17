@@ -98,7 +98,6 @@ from posthog.session_recordings.queries.session_replay_events import (
     SessionReplayEvents,
     get_latest_session_event_properties,
 )
-from posthog.session_recordings.recordings import recording_s3_client
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 from posthog.session_recordings.session_recording_v2_service import list_blocks, list_blocks_async
@@ -158,12 +157,6 @@ FETCH_BLOCKS_HISTOGRAM = Histogram(
     "session_snapshots_fetch_blocks_seconds",
     "Time taken to fetch recording blocks from storage",
     labelnames=["decompress"],
-)
-
-LOADING_V2_LTS_COUNTER = Counter(
-    "session_snapshots_loading_v2_lts_counter",
-    "Count of times we loaded a v2 recording from the lts path",
-    labelnames=["auth_type"],
 )
 
 SESSION_RECORDING_THROTTLED = Counter(
@@ -478,13 +471,12 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
 
     def validate(self, data):
         source = data.get("source")
-        blob_key = data.get("blob_key")
         start_blob_key = data.get("start_blob_key")
         end_blob_key = data.get("end_blob_key")
         is_personal_api_key = self.context.get("is_personal_api_key")
 
-        if source not in ["blob_v2", "blob_v2_lts", None]:
-            raise exceptions.ValidationError("Invalid source must be one of [blob_v2, blob_v2_ts, None]")
+        if source not in ["blob_v2", None]:
+            raise exceptions.ValidationError("Invalid source must be one of [blob_v2, None]")
 
         # Validate blob_v2 parameters
         if source == "blob_v2":
@@ -500,10 +492,6 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
             max_blobs_allowed = 20 if is_personal_api_key else 100
             if int(end_blob_key) - int(start_blob_key) > max_blobs_allowed:
                 raise serializers.ValidationError(f"Cannot request more than {max_blobs_allowed} blob keys at once")
-
-        if source == "blob_v2_lts":
-            if not blob_key:
-                raise serializers.ValidationError("Must provide a blob key")
 
         return data
 
@@ -1370,9 +1358,7 @@ class SessionRecordingViewSet(
 
         decompress: bool = validated_data.get("decompress", True)
 
-        if not recording.full_recording_v2_path and not SessionReplayEvents().exists(
-            session_id=str(recording.session_id), team=self.team
-        ):
+        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
         SNAPSHOT_SOURCE_REQUESTED.labels(
@@ -1408,21 +1394,6 @@ class SessionRecordingViewSet(
                     max_blob_key=validated_data["max_blob_key"],
                     decompress=decompress,
                 )
-            elif source == "blob_v2_lts" and "blob_key" in validated_data:
-                if not recording.full_recording_v2_path:
-                    raise exceptions.NotFound("Recording not found")
-                expected_blob_key = urlparse(recording.full_recording_v2_path).path.lstrip("/")
-                provided_blob_key = validated_data["blob_key"].lstrip("/")
-                if provided_blob_key != expected_blob_key:
-                    logger.warning(
-                        "blob_key_mismatch_for_lts_recording",
-                        team_id=self.team_id,
-                        session_id=recording.session_id,
-                        provided_blob_key=provided_blob_key,
-                        expected_blob_key=expected_blob_key,
-                    )
-                    raise exceptions.NotFound("Recording not found")
-                response = self._stream_lts_blob_v2_to_client(blob_key=provided_blob_key, decompress=decompress)
             else:
                 response = self._gather_session_recording_sources(recording, timer, auth_type=auth_type)
 
@@ -1521,31 +1492,18 @@ class SessionRecordingViewSet(
         sources: list[dict] = []
 
         with _OTEL_PLAYBACK.timed_histogram_twin(GATHER_RECORDING_SOURCES_HISTOGRAM, {"blob_version": "v2"}):
-            if recording.full_recording_v2_path:
-                # Parse S3 URL to extract prefix (path without query parameters)
-                # Example: s3://bucket/path?range=bytes=0-1372588 -> path
-                # s3:/the_bucket/the_session_recordings_lts_prefix/{uuid}?range=bytes=0-14468
-                # for now we can ignore that v2 is in a different bucket and just use the path
+            with timer("list_blocks__gather_session_recording_sources"):
+                blocks = list_blocks(recording)
+
+            for i, block in enumerate(blocks):
                 sources.append(
                     {
-                        "source": "blob_v2_lts",
-                        "blob_key": urlparse(recording.full_recording_v2_path).path.lstrip("/"),
+                        "source": "blob_v2",
+                        "start_timestamp": block.start_timestamp,
+                        "end_timestamp": block.end_timestamp,
+                        "blob_key": str(i),
                     }
                 )
-                LOADING_V2_LTS_COUNTER.labels(auth_type=auth_type).inc()
-            else:
-                with timer("list_blocks__gather_session_recording_sources"):
-                    blocks = list_blocks(recording)
-
-                for i, block in enumerate(blocks):
-                    sources.append(
-                        {
-                            "source": "blob_v2",
-                            "start_timestamp": block.start_timestamp,
-                            "end_timestamp": block.end_timestamp,
-                            "blob_key": str(i),
-                        }
-                    )
 
             with timer("serialize_data__gather_session_recording_sources"):
                 serializer = SessionRecordingSourcesSerializer(
@@ -1569,34 +1527,6 @@ class SessionRecordingViewSet(
                 return "anonymous"
         except:
             return "unknown"
-
-    async def _stream_lts_blob_v2_to_client_async(
-        self,
-        blob_key: str,
-        decompress: bool = True,
-    ) -> HttpResponse:
-        with _OTEL_PLAYBACK.timed_histogram_twin(
-            STREAM_RESPONSE_TO_CLIENT_HISTOGRAM, {"blob_version": "v2", "decompress": str(decompress)}
-        ):
-            with (
-                tracer.start_as_current_span("list_blocks__stream_lts_blob_v2_to_client_async"),
-            ):
-                posthoganalytics.tag("lts_v2_blob_key", blob_key)
-                storage_client = recording_s3_client.recording_s3_client()
-                content: str | bytes
-                if decompress:
-                    content = await asyncio.to_thread(storage_client.download_file_decompressed, blob_key)
-                else:
-                    content = await asyncio.to_thread(storage_client.download_file, blob_key)
-
-            twenty_four_hours_in_seconds = 60 * 60 * 24
-            response = HttpResponse(
-                content=content,
-                content_type="application/jsonl" if decompress else "application/octet-stream",
-            )
-            response["Cache-Control"] = f"max-age={twenty_four_hours_in_seconds}"
-            response["Content-Disposition"] = "inline"
-            return response
 
     async def _fetch_and_validate_blocks(
         self,
@@ -1746,17 +1676,6 @@ class SessionRecordingViewSet(
 
         return asyncio.run(_run())
 
-    def _stream_lts_blob_v2_to_client(
-        self,
-        blob_key: str,
-        decompress: bool = True,
-    ) -> HttpResponse:
-        return asyncio.run(self._stream_lts_blob_v2_to_client_async(blob_key, decompress))
-
-    @extend_schema(
-        exclude=True,
-        description="Generate regex patterns using AI. This is in development and likely to change, you should not depend on this API.",
-    )
     @action(methods=["POST"], detail=False, url_path="ai/regex")
     def ai_regex(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not request.user.is_authenticated:
@@ -1833,12 +1752,6 @@ def _load_recording_if_matches_filters(
     if not ch_query_result.results:
         return None
 
-    s3_persisted_recording = (
-        SessionRecording.objects.filter(team=team, session_id=session_id).exclude(full_recording_v2_path=None).first()
-    )
-    if s3_persisted_recording:
-        return s3_persisted_recording
-
     prepend_recordings = SessionRecording.get_or_build_from_clickhouse(team, ch_query_result.results)
     if prepend_recordings:
         return prepend_recordings[0]
@@ -1872,15 +1785,9 @@ def list_recordings_from_query(
     bypass_date_window_for_session_ids: bool = False,
 ) -> RecordingsListingResult:
     """
-    As we can store recordings in S3 or in Clickhouse we need to do a few things here
+    Loads the listing from ClickHouse, then overlays any Postgres row (pins, shares) onto each result.
 
-    A. If filter.session_ids is specified:
-      1. We first try to load them directly from Postgres if they have been persisted to S3 (they might have fell out of CH)
-      2. Any that couldn't be found are then loaded from Clickhouse
-    B. Otherwise we just load all values from Clickhouse
-      2. Once loaded we convert them to SessionRecording objects in case we have any other persisted data
-
-      In the context of an API call we'll always have user, but from Celery we might be processing arbitrary filters for a team and there won't be a user
+    In the context of an API call we'll always have user, but from Celery we might be processing arbitrary filters for a team and there won't be a user
     """
     all_session_ids = query.session_ids
     session_recording_id_to_prepend = query.session_recording_id
@@ -1893,9 +1800,7 @@ def list_recordings_from_query(
     timer = ServerTimingsGathered()
 
     # An explicitly requested recording gets the same treatment whatever else the query asks for.
-    # Folding it into session_ids instead would load it straight from Postgres by id, which skips
-    # both the match check (so it is never flagged) and, for a recording not yet persisted to S3,
-    # the guarantee that it comes back at all.
+    # Folding it into session_ids instead would skip the match check, so it is never flagged.
     if session_recording_id_to_prepend:
         with timer("load_prepend_recording"):
             prepend_recording = _load_recording_if_matches_filters(
@@ -1912,75 +1817,43 @@ def list_recordings_from_query(
             if prepend_recording:
                 recordings.append(prepend_recording)
 
-    if all_session_ids and query.experiment_exposure is not None:
-        # The exposure filter only exists as a join in the ClickHouse query, so the persisted
-        # Postgres shortcut below would return these sessions unfiltered and skip the
-        # experiment access check with them. Route every requested id through ClickHouse
-        # instead; a persisted recording that has left ClickHouse can't be verified as an
-        # exposed person's and so stays out of the list.
-        remaining_session_ids = list(all_session_ids)
-    elif all_session_ids:
-        with timer("load_persisted_recordings"), tracer.start_as_current_span("load_persisted_recordings"):
-            # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
-            sorted_session_ids = sorted(all_session_ids)
+    with (
+        timer("load_recordings_from_hogql"),
+        posthoganalytics.new_context(),
+        tracer.start_as_current_span("load_recordings_from_hogql"),
+    ):
+        # Create a copy of the query without session_recording_id for the main query
+        # We've already handled session_recording_id separately above
+        query_for_list = query.model_copy(update={"session_recording_id": None})
 
-            persisted_recordings_queryset = SessionRecording.objects.filter(
-                team=team, session_id__in=sorted_session_ids
-            ).exclude(full_recording_v2_path=None)
+        # Resolve the "hide viewed recordings" filter into a server-side exclusion set, so pagination
+        # and the cursor operate on the filtered set. Skip when explicit session_ids are requested
+        # (pinned recordings, comment search) since those are intentional and shouldn't be hidden.
+        session_ids_to_exclude: list[str] = []
+        if query_for_list.session_ids is None:
+            with timer("load_viewed_recordings_to_exclude"):
+                session_ids_to_exclude = _viewed_session_ids_to_exclude(
+                    query_for_list.hide_viewed_recordings, user, team
+                )
 
-            persisted_recordings = persisted_recordings_queryset.all()
+        query_result = SessionRecordingListFromQuery(
+            query=query_for_list,
+            team=team,
+            user=user,
+            hogql_query_modifiers=None,
+            allow_event_property_expansion=allow_event_property_expansion,
+            session_ids_to_exclude=session_ids_to_exclude,
+            bypass_date_window_for_session_ids=bypass_date_window_for_session_ids,
+        ).run()
+        ch_session_recordings = query_result.results
 
-            recordings = recordings + list(persisted_recordings)
+        more_recordings_available = query_result.has_more_recording
+        hogql_timings = query_result.timings
+        next_cursor = query_result.next_cursor
 
-            remaining_session_ids = list(set(all_session_ids) - {x.session_id for x in persisted_recordings})
-    else:
-        remaining_session_ids = None
-
-    # Determine if we need to query ClickHouse
-    should_query_clickhouse = (all_session_ids and remaining_session_ids) or not all_session_ids
-
-    if should_query_clickhouse:
-        with (
-            timer("load_recordings_from_hogql"),
-            posthoganalytics.new_context(),
-            tracer.start_as_current_span("load_recordings_from_hogql"),
-        ):
-            # Create a copy of the query without session_recording_id for the main query
-            # We've already handled session_recording_id separately above
-            query_updates: dict[str, Any] = {"session_recording_id": None}
-            if remaining_session_ids is not None:
-                query_updates["session_ids"] = remaining_session_ids
-
-            query_for_list = query.model_copy(update=query_updates)
-
-            # Resolve the "hide viewed recordings" filter into a server-side exclusion set, so pagination
-            # and the cursor operate on the filtered set. Skip when explicit session_ids are requested
-            # (pinned recordings, comment search) since those are intentional and shouldn't be hidden.
-            session_ids_to_exclude: list[str] = []
-            if query_for_list.session_ids is None:
-                with timer("load_viewed_recordings_to_exclude"):
-                    session_ids_to_exclude = _viewed_session_ids_to_exclude(
-                        query_for_list.hide_viewed_recordings, user, team
-                    )
-
-            query_result = SessionRecordingListFromQuery(
-                query=query_for_list,
-                team=team,
-                user=user,
-                hogql_query_modifiers=None,
-                allow_event_property_expansion=allow_event_property_expansion,
-                session_ids_to_exclude=session_ids_to_exclude,
-                bypass_date_window_for_session_ids=bypass_date_window_for_session_ids,
-            ).run()
-            ch_session_recordings = query_result.results
-
-            more_recordings_available = query_result.has_more_recording
-            hogql_timings = query_result.timings
-            next_cursor = query_result.next_cursor
-
-        with timer("build_recordings"), tracer.start_as_current_span("build_recordings"):
-            recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
-            recordings = recordings + recordings_from_clickhouse
+    with timer("build_recordings"), tracer.start_as_current_span("build_recordings"):
+        recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
+        recordings = recordings + recordings_from_clickhouse
 
     # If we have specified session_ids we need to sort them by the order they were specified. This sits
     # outside the ClickHouse branch because a request whose ids are all already persisted skips that

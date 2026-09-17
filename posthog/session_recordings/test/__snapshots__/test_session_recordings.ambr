@@ -178,8 +178,6 @@
          "posthog_sessionrecording"."team_id",
          "posthog_sessionrecording"."created_at",
          "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
          "posthog_sessionrecording"."distinct_id",
          "posthog_sessionrecording"."duration",
          "posthog_sessionrecording"."active_seconds",
@@ -193,7 +191,6 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
          "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('middle_session',
@@ -839,8 +836,6 @@
          "posthog_sessionrecording"."team_id",
          "posthog_sessionrecording"."created_at",
          "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
          "posthog_sessionrecording"."distinct_id",
          "posthog_sessionrecording"."duration",
          "posthog_sessionrecording"."active_seconds",
@@ -854,7 +849,6 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
          "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('session1',
@@ -1497,8 +1491,6 @@
          "posthog_sessionrecording"."team_id",
          "posthog_sessionrecording"."created_at",
          "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
          "posthog_sessionrecording"."distinct_id",
          "posthog_sessionrecording"."duration",
          "posthog_sessionrecording"."active_seconds",
@@ -1512,7 +1504,6 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
          "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('session_with_duration')
@@ -2152,8 +2143,6 @@
          "posthog_sessionrecording"."team_id",
          "posthog_sessionrecording"."created_at",
          "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
          "posthog_sessionrecording"."distinct_id",
          "posthog_sessionrecording"."duration",
          "posthog_sessionrecording"."active_seconds",
@@ -2167,7 +2156,6 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
          "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('session_many_ids')
@@ -2807,8 +2795,6 @@
          "posthog_sessionrecording"."team_id",
          "posthog_sessionrecording"."created_at",
          "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
          "posthog_sessionrecording"."distinct_id",
          "posthog_sessionrecording"."duration",
          "posthog_sessionrecording"."active_seconds",
@@ -2822,7 +2808,6 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
          "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('at_base_time',
@@ -3465,8 +3450,6 @@
          "posthog_sessionrecording"."team_id",
          "posthog_sessionrecording"."created_at",
          "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
          "posthog_sessionrecording"."distinct_id",
          "posthog_sessionrecording"."duration",
          "posthog_sessionrecording"."active_seconds",
@@ -3480,7 +3463,6 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
          "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('at_base_time',
@@ -4123,8 +4105,6 @@
          "posthog_sessionrecording"."team_id",
          "posthog_sessionrecording"."created_at",
          "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
          "posthog_sessionrecording"."distinct_id",
          "posthog_sessionrecording"."duration",
          "posthog_sessionrecording"."active_seconds",
@@ -4138,7 +4118,6 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
          "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('at_base_time',
@@ -5371,8 +5350,6 @@
          "posthog_sessionrecording"."team_id",
          "posthog_sessionrecording"."created_at",
          "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
          "posthog_sessionrecording"."distinct_id",
          "posthog_sessionrecording"."duration",
          "posthog_sessionrecording"."active_seconds",
@@ -5386,7 +5363,6 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
          "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
@@ -6077,8 +6053,6 @@
          "posthog_sessionrecording"."team_id",
          "posthog_sessionrecording"."created_at",
          "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
          "posthog_sessionrecording"."distinct_id",
          "posthog_sessionrecording"."duration",
          "posthog_sessionrecording"."active_seconds",
@@ -6092,7 +6066,6 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
          "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
@@ -6928,8 +6901,6 @@
          "posthog_sessionrecording"."team_id",
          "posthog_sessionrecording"."created_at",
          "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
          "posthog_sessionrecording"."distinct_id",
          "posthog_sessionrecording"."duration",
          "posthog_sessionrecording"."active_seconds",
@@ -6943,7 +6914,6 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
          "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
@@ -7649,8 +7619,6 @@
          "posthog_sessionrecording"."team_id",
          "posthog_sessionrecording"."created_at",
          "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
          "posthog_sessionrecording"."distinct_id",
          "posthog_sessionrecording"."duration",
          "posthog_sessionrecording"."active_seconds",
@@ -7664,7 +7632,6 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
          "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
@@ -8171,8 +8138,6 @@
          "posthog_sessionrecording"."team_id",
          "posthog_sessionrecording"."created_at",
          "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
          "posthog_sessionrecording"."distinct_id",
          "posthog_sessionrecording"."duration",
          "posthog_sessionrecording"."active_seconds",
@@ -8186,7 +8151,6 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
          "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1')
@@ -8868,8 +8832,6 @@
          "posthog_sessionrecording"."team_id",
          "posthog_sessionrecording"."created_at",
          "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
          "posthog_sessionrecording"."distinct_id",
          "posthog_sessionrecording"."duration",
          "posthog_sessionrecording"."active_seconds",
@@ -8883,7 +8845,6 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
          "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
@@ -9589,8 +9550,6 @@
          "posthog_sessionrecording"."team_id",
          "posthog_sessionrecording"."created_at",
          "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
          "posthog_sessionrecording"."distinct_id",
          "posthog_sessionrecording"."duration",
          "posthog_sessionrecording"."active_seconds",
@@ -9604,7 +9563,6 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
          "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
@@ -10292,8 +10250,6 @@
          "posthog_sessionrecording"."team_id",
          "posthog_sessionrecording"."created_at",
          "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
          "posthog_sessionrecording"."distinct_id",
          "posthog_sessionrecording"."duration",
          "posthog_sessionrecording"."active_seconds",
@@ -10307,7 +10263,6 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
          "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
@@ -11044,8 +10999,6 @@
          "posthog_sessionrecording"."team_id",
          "posthog_sessionrecording"."created_at",
          "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
          "posthog_sessionrecording"."distinct_id",
          "posthog_sessionrecording"."duration",
          "posthog_sessionrecording"."active_seconds",
@@ -11059,7 +11012,6 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
          "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',
@@ -11731,8 +11683,6 @@
          "posthog_sessionrecording"."team_id",
          "posthog_sessionrecording"."created_at",
          "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
          "posthog_sessionrecording"."distinct_id",
          "posthog_sessionrecording"."duration",
          "posthog_sessionrecording"."active_seconds",
@@ -11746,7 +11696,6 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
          "posthog_sessionrecording"."retention_period_days"
   FROM "posthog_sessionrecording"
   WHERE ("posthog_sessionrecording"."session_id" IN ('1',

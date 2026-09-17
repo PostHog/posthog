@@ -240,24 +240,6 @@ class SessionReplayEvents:
 
         return results
 
-    def is_deleted(self, session_id: str, team: Team) -> bool:
-        """Whether a deletion tombstone exists for the session, ignoring retention.
-
-        A recording kept in long-term storage outlives its retention window, so the metadata and
-        existence queries, which both drop expired sessions, cannot answer this for it.
-        """
-        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
-        result = sync_execute(
-            """
-            SELECT max(is_deleted)
-            FROM session_replay_events
-            PREWHERE team_id = %(team_id)s AND session_id = %(session_id)s
-            """,
-            {"team_id": team.pk, "session_id": session_id},
-            team_id=team.pk,
-        )
-        return bool(result and result[0][0])
-
     @staticmethod
     def _check_exists(session_id: str, team: Team) -> bool:
         date_from = uuidv7_session_lower_bound(session_id)

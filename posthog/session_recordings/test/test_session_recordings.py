@@ -536,20 +536,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         any_user = self.client.get(f"/api/projects/{self.team.id}/session_recordings?hide_viewed_recordings=any-user")
         assert self._result_ids(any_user) == ["unviewed"]
 
-    @parameterized.expand([("from_clickhouse", False), ("persisted_to_s3", True)])
-    def test_session_ids_results_follow_the_requested_order(self, _name: str, persisted: bool):
+    def test_session_ids_results_follow_the_requested_order(self):
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
         for index, session_id in enumerate(["alpha", "beta", "gamma"]):
             self.produce_replay_summary("user1", session_id, base_time + relativedelta(seconds=index * 10))
-            if persisted:
-                SessionRecording.objects.create(
-                    team=self.team, session_id=session_id, full_recording_v2_path=f"s3://bucket/{session_id}"
-                )
 
         # Pinned collections and the experiment tab's session buckets both rely on the response
-        # keeping the order they asked for, which is not the list's own recency ordering. Once every
-        # requested recording is persisted there is nothing left to look up in ClickHouse, so the
-        # ordering has to survive skipping that branch.
+        # keeping the order they asked for, which is not the list's own recency ordering.
         requested = ["gamma", "alpha", "beta"]
         response = self.client.get(
             f"/api/projects/{self.team.id}/session_recordings?session_ids={json.dumps(requested)}"
@@ -735,43 +728,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"viewed": True},
         )
         assert update_response.status_code == 404
-
-    @parameterized.expand([("deleted", True, status.HTTP_404_NOT_FOUND), ("live", False, status.HTTP_200_OK)])
-    def test_persisted_recording_past_retention(self, _name: str, deleted: bool, expected_status: int):
-        # Started well past the team's retention, so the metadata query no longer returns it and the
-        # persisted row is the only source of its counters.
-        session_recording_id = str(uuid7())
-        base_time = (now() - relativedelta(days=200)).replace(microsecond=0)
-        produce_replay_summary(
-            session_id=session_recording_id,
-            team_id=self.team.pk,
-            first_timestamp=base_time.isoformat(),
-            last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
-            distinct_id="d1",
-            retention_period_days=30,
-        )
-        if deleted:
-            produce_replay_summary(
-                session_id=session_recording_id,
-                team_id=self.team.pk,
-                first_timestamp=now().isoformat(),
-                is_deleted=True,
-            )
-        SessionRecording.objects.create(
-            team=self.team,
-            session_id=session_recording_id,
-            start_time=base_time,
-            end_time=base_time + relativedelta(seconds=30),
-            duration=30,
-            click_count=7,
-            full_recording_v2_path=f"s3://bucket/{session_recording_id}",
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
-
-        assert response.status_code == expected_status
-        if not deleted:
-            assert response.json()["click_count"] == 7
 
     @time_machine.travel("2023-01-01T12:00:00.000Z", tick=False)
     def test_get_single_session_recording_metadata(self):

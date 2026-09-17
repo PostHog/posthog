@@ -52,8 +52,6 @@ class SessionRecording(UUIDTModel):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     deleted = models.BooleanField(null=True, blank=True)
-    object_storage_path = models.CharField(max_length=200, null=True, blank=True)
-    full_recording_v2_path = models.CharField(max_length=1000, null=True, blank=True)
 
     distinct_id = models.CharField(max_length=400, null=True, blank=True)
 
@@ -72,8 +70,6 @@ class SessionRecording(UUIDTModel):
     console_error_count = models.IntegerField(blank=True, null=True)
 
     start_url = models.CharField(blank=True, null=True, max_length=512)
-
-    storage_version = models.CharField(blank=True, null=True, max_length=20)
 
     retention_period_days = models.IntegerField(blank=True, null=True)
 
@@ -103,11 +99,6 @@ class SessionRecording(UUIDTModel):
         # Deferred: session_replay_events pulls the HogQL/schema layer, and this model
         # loads at django.setup() in every process.
         from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents  # noqa: PLC0415
-
-        if self.full_recording_v2_path:
-            # The row holds the counters of a recording kept past its retention, which the metadata
-            # query would drop as expired; only the deletion tombstone lives in ClickHouse alone.
-            return not SessionReplayEvents().is_deleted(session_id=self.session_id, team=self.team)
 
         metadata = SessionReplayEvents().get_metadata(
             team=self.team,

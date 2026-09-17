@@ -1476,18 +1476,12 @@ export type RecordingSnapshot = _RecordingSnapshot
 export type SessionRecordingSnapshotSource = _SessionRecordingSnapshotSource
 export type SessionRecordingSnapshotSourceResponse = _SessionRecordingSnapshotSourceResponse
 
-export type SessionRecordingSnapshotParams = (
-    | {
-          source: 'blob_v2_lts'
-          blob_key?: string
-      }
-    | {
-          source: 'blob_v2'
-          start_blob_key?: string
-          end_blob_key?: string
-          blob_key?: string
-      }
-) & {
+export type SessionRecordingSnapshotParams = {
+    source: 'blob_v2'
+    start_blob_key?: string
+    end_blob_key?: string
+    blob_key?: string
+} & {
     decompress?: false
 }
 
