@@ -67,21 +67,32 @@ const linkToDashboard = (dashboard: BareDashboardLink): JSX.Element => (
     </div>
 )
 
+function describeInsightRename(
+    change?: ActivityChange,
+    logItem?: ActivityLogItem,
+    asNotification?: boolean
+): ChangeMapping {
+    return {
+        description: [
+            <>
+                renamed {asNotification && 'the insight '}"{change?.before}" to{' '}
+                <strong>"{nameOrLinkToInsight(logItem?.detail.short_id, change?.after as string)}"</strong>
+            </>,
+        ],
+        summary: [
+            <>
+                renamed "{change?.before}" to "{change?.after}"
+            </>,
+        ],
+        suffix: <></>,
+    }
+}
+
 const insightActionsMapping: Record<
     keyof InsightModel,
     (change?: ActivityChange, logItem?: ActivityLogItem, asNotification?: boolean) => ChangeMapping | null
 > = {
-    name: function onName(change, logItem, asNotification) {
-        return {
-            description: [
-                <>
-                    renamed {asNotification && 'the insight '}"{change?.before}" to{' '}
-                    <strong>"{nameOrLinkToInsight(logItem?.detail.short_id, change?.after as string)}"</strong>
-                </>,
-            ],
-            suffix: <></>,
-        }
-    },
+    name: describeInsightRename,
     filters: function onChangedFilter(change) {
         const filtersAfter = change?.after as Partial<FilterType>
 
@@ -113,6 +124,7 @@ const insightActionsMapping: Record<
         const isDeleted = detectBoolean(change?.after)
         const describeChange = isDeleted ? 'deleted' : 'restored'
         return {
+            summary: [`${describeChange} the insight`],
             description: [
                 <>
                     {describeChange}
@@ -124,6 +136,11 @@ const insightActionsMapping: Record<
     },
     short_id: function onShortId(change, _, asNotification) {
         return {
+            summary: [
+                <>
+                    changed the short id to <strong>"{change?.after as string}"</strong>
+                </>,
+            ],
             description: [
                 <>
                     changed the short id {asNotification && ' of the insight '}to{' '}
@@ -132,27 +149,14 @@ const insightActionsMapping: Record<
             ],
         }
     },
-    derived_name: function onDerivedName(change, logItem, asNotification) {
-        return {
-            description: [
-                <>
-                    renamed {asNotification && ' the insight '}"{change?.before}" to{' '}
-                    <strong>"{nameOrLinkToInsight(logItem?.detail.short_id, change?.after as string)}"</strong>
-                </>,
-            ],
-            suffix: <></>,
-        }
-    },
+    derived_name: describeInsightRename,
     description: function onDescription(change, _, asNotification) {
-        return {
-            description: describeDescriptionChange(change, asNotification, 'insight'),
-            summary: [change?.after ? 'Changed the description' : 'Cleared the description'],
-            preview: typeof change?.after === 'string' ? change.after : undefined,
-        }
+        return describeDescriptionChange(change, asNotification, 'insight')
     },
     favorited: function onFavorited(change, logItem, asNotification) {
         const isFavoriteAfter = detectBoolean(change?.after)
         return {
+            summary: [isFavoriteAfter ? 'favorited the insight' : 'unfavorited the insight'],
             description: [
                 <>
                     <div className="highlighted-activity">
@@ -208,7 +212,7 @@ const insightActionsMapping: Record<
             summary: [
                 addedDashboards.length ? (
                     <SentenceList
-                        prefix="Added to"
+                        prefix="added to"
                         listParts={addedDashboards.map((dashboard) => (
                             <Fragment key={dashboard.id}>{linkToDashboard(dashboard)}</Fragment>
                         ))}
@@ -216,7 +220,7 @@ const insightActionsMapping: Record<
                 ) : null,
                 removedDashboards.length ? (
                     <SentenceList
-                        prefix="Removed from"
+                        prefix="removed from"
                         listParts={removedDashboards.map((dashboard) => (
                             <Fragment key={dashboard.id}>{linkToDashboard(dashboard)}</Fragment>
                         ))}

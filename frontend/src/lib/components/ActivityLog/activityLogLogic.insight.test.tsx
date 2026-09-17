@@ -337,7 +337,7 @@ describe('the activity log logic', () => {
                 'peter changed the description to "changed" on test insight'
             )
             expect(actual[0].summary?.preview).toBe('changed')
-            expect(render(<>{actual[0].summary?.action}</>).container).toHaveTextContent(/^Changed the description$/)
+            expect(render(<>{actual[0].summary?.action}</>).container).toHaveTextContent(/^added the description$/)
             expect(render(<>{actual[0].summary?.target}</>).container).toHaveTextContent('test insight')
         })
 

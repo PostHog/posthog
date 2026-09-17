@@ -1,3 +1,4 @@
+import { summarizeDescriptionChange } from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
 import { describeMappedChanges } from 'lib/components/ActivityLog/activityDescriptions/describeMappedChanges'
 import {
     ActivityChange,
@@ -24,7 +25,7 @@ const dataManagementActionsMapping: Record<
 > = {
     description: (change) => {
         return {
-            summary: [change?.after ? 'Changed the description' : 'Cleared the description'],
+            summary: summarizeDescriptionChange(change),
             preview: typeof change?.after === 'string' ? change.after : undefined,
             description: [
                 <>
@@ -64,7 +65,7 @@ const dataManagementActionsMapping: Record<
         return {
             summary: [
                 <>
-                    Marked as {verified ? 'verified' : 'unverified'} {verified && <IconVerifiedEvent />}
+                    marked as {verified ? 'verified' : 'unverified'} {verified && <IconVerifiedEvent />}
                 </>,
             ],
             description: [

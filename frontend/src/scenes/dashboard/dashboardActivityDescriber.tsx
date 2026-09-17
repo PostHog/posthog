@@ -11,6 +11,7 @@ import {
     describeDescriptionChange,
     describeTagChanges,
 } from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
+import { describeChangeMappings } from 'lib/components/ActivityLog/activityDescriptions/describeChangeMappings'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -23,7 +24,6 @@ import {
     defaultDescriber,
     detectBoolean,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     BreakdownSummary,
     DateRangeSummary,
@@ -67,7 +67,11 @@ const dashboardActionsMapping: Record<
                 </>,
             ],
             suffix: <></>,
-            summary: ['renamed the dashboard'],
+            summary: [
+                <>
+                    renamed "{change?.before}" to "{change?.after}"
+                </>,
+            ],
         }
     },
     deleted: function onSoftDelete(change, logItem, asNotification) {
@@ -85,11 +89,7 @@ const dashboardActionsMapping: Record<
         }
     },
     description: function onDescription(change, _, asNotification) {
-        return {
-            description: describeDescriptionChange(change, asNotification, 'dashboard'),
-            summary: [change?.after ? 'updated the description' : 'removed the description'],
-            preview: typeof change?.after === 'string' ? change.after : undefined,
-        }
+        return describeDescriptionChange(change, asNotification, 'dashboard')
     },
     tags: describeTagChanges,
     pinned: function onPinned(change, logItem, asNotification) {
@@ -189,78 +189,31 @@ function describeSingleChange(
     return dashboardActionsMapping[change.field](change, logItem, asNotification)
 }
 
-interface CollectedChanges {
-    description: Description[]
-    summary: Description[]
-    preview?: string
-    extendedDescription?: JSX.Element
-    suffix?: Description
-}
-
-function collectDescribedChanges(logItem: ActivityLogItem, asNotification: boolean | undefined): CollectedChanges {
-    let changes: Description[] = []
-    let summaryChanges: Description[] = []
-    let preview: string | undefined
-    let extendedDescription: JSX.Element | undefined
-    let suffix: Description | undefined
-
-    for (const change of logItem.detail.changes || []) {
-        const processedChange = describeSingleChange(change, logItem, asNotification)
-        if (processedChange === null) {
-            continue // // unexpected log from backend is indescribable
-        }
-
-        const { description, extendedDescription: _extendedDescription } = processedChange
-        if (description) {
-            changes = changes.concat(description)
-            summaryChanges = summaryChanges.concat(processedChange.summary ?? description)
-            preview = processedChange.preview ?? preview
-        }
-        if (_extendedDescription) {
-            extendedDescription = _extendedDescription
-        }
-        if (processedChange.suffix) {
-            suffix = processedChange.suffix
-        }
-    }
-
-    return { description: changes, summary: summaryChanges, preview, extendedDescription, suffix }
-}
-
 function describeUpdatedDashboard(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
-    let collected: ReturnType<typeof collectDescribedChanges>
+    const mappings: ChangeMapping[] = []
     try {
-        collected = collectDescribedChanges(logItem, asNotification)
+        for (const change of logItem.detail.changes || []) {
+            const processedChange = describeSingleChange(change, logItem, asNotification)
+            if (processedChange) {
+                mappings.push(processedChange)
+            }
+        }
     } catch (e) {
         console.error('Error while summarizing dashboard update', e)
         posthog.captureException(e)
-        return { description: null }
     }
 
-    const { description: changes, summary: summaryChanges, preview, extendedDescription, suffix } = collected
-
-    if (!changes.length) {
-        return { description: null }
-    }
-
-    return {
-        description: (
-            <SentenceList
-                listParts={changes}
-                prefix={<ActivityLogUserName logItem={logItem} />}
-                suffix={
-                    suffix ?? (
-                        <>
-                            on {asNotification && ' the dashboard '}
-                            {nameAndLink(logItem)}
-                        </>
-                    )
-                }
-            />
-        ),
-        summary: dashboardSummary(logItem, <SentenceList listParts={summaryChanges} />, preview),
-        extendedDescription,
-    }
+    return (
+        describeChangeMappings(
+            logItem,
+            mappings,
+            <>Dashboard · {nameAndLink(logItem)}</>,
+            <>
+                on {asNotification && ' the dashboard '}
+                {nameAndLink(logItem)}
+            </>
+        ) ?? defaultDescriber(logItem, asNotification, nameAndLink(logItem))
+    )
 }
 
 function describeShareLogin(logItem: ActivityLogItem, succeeded: boolean): HumanizedChange {

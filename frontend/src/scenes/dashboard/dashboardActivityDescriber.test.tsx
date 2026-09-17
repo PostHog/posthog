@@ -31,9 +31,9 @@ describe('dashboardActivityDescriber', () => {
     })
 
     it.each([
-        ['Compare completed setup checklists across new workspaces.', 'updated the description'],
-        ['', 'removed the description'],
-        [null, 'removed the description'],
+        ['Compare completed setup checklists across new workspaces.', 'added the description'],
+        ['', 'cleared the description'],
+        [null, 'cleared the description'],
     ])('separates the description preview from the action for %p', (after, action) => {
         const logItem = makeLogItem(after)
         const [item] = humanize([logItem], () => dashboardActivityDescriber, true)
@@ -58,9 +58,78 @@ describe('dashboardActivityDescriber', () => {
         const { summary } = dashboardActivityDescriber(logItem)
 
         expect(render(<>{summary?.action}</>).container).toHaveTextContent(
-            /^updated the description, and pinned the dashboard$/
+            /^added the description, and pinned the dashboard$/
         )
         expect(summary?.preview).toBe('Review workspace setup.')
+    })
+
+    it.each(['tiles', 'last_refresh', 'last_accessed_at', undefined])(
+        'keeps the fallback row when an update only changes %p',
+        (field) => {
+            const logItem = makeLogItem(null)
+            logItem.detail.changes = field
+                ? [{ type: ActivityScope.DASHBOARD, action: 'changed', field, after: null }]
+                : []
+
+            for (const asNotification of [false, true]) {
+                const [item] = humanize([logItem], () => dashboardActivityDescriber, asNotification)
+
+                expect(item).toBeTruthy()
+                expect(item.summary?.action).toBe('Updated')
+                expect(render(<>{item.description}</>).container).toHaveTextContent(
+                    'Mia Chen updated Activation overview'
+                )
+            }
+        }
+    )
+
+    it.each([false, true])('retains a row after a malformed field with prior changes: %p', (hasPriorChange) => {
+        const logItem = makeLogItem(null)
+        logItem.detail.changes = [{ type: ActivityScope.DASHBOARD, action: 'changed', field: 'filters', after: null }]
+        if (hasPriorChange) {
+            logItem.detail.changes.unshift({
+                type: ActivityScope.DASHBOARD,
+                action: 'changed',
+                field: 'pinned',
+                after: true,
+            })
+        }
+        const consoleError = jest.spyOn(console, 'error').mockImplementation()
+        try {
+            const [item] = humanize([logItem], () => dashboardActivityDescriber)
+
+            expect(item).toBeTruthy()
+            expect(render(<>{item.summary?.action}</>).container).toHaveTextContent(
+                hasPriorChange ? /^pinned the dashboard$/ : /^Updated$/
+            )
+            expect(render(<>{item.description}</>).container).toHaveTextContent(
+                hasPriorChange ? 'Mia Chen pinned Activation overview' : 'Mia Chen updated Activation overview'
+            )
+        } finally {
+            consoleError.mockRestore()
+        }
+    })
+
+    it.each([false, true])('keeps both dashboard names in the headline with notifications: %p', (asNotification) => {
+        const logItem = makeLogItem(null)
+        logItem.detail.changes = [
+            {
+                type: ActivityScope.DASHBOARD,
+                action: 'changed',
+                field: 'name',
+                before: 'Workspace setup',
+                after: 'Activation overview',
+            },
+        ]
+        const { summary } = dashboardActivityDescriber(logItem, asNotification)
+
+        expect(render(<>{summary?.action}</>).container).toHaveTextContent(
+            /^renamed "Workspace setup" to "Activation overview"$/
+        )
+        expect(render(<>{summary?.target}</>).getByText('Activation overview')).toHaveAttribute(
+            'href',
+            expect.stringContaining('/dashboard/42')
+        )
     })
 
     it.each([

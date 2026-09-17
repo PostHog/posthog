@@ -1,3 +1,4 @@
+import { summarizeDescriptionChange } from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
 import { describeMappedChanges } from 'lib/components/ActivityLog/activityDescriptions/describeMappedChanges'
 import {
     ActivityChange,
@@ -36,7 +37,7 @@ const actionActionsMapping: Record<
         const after = change?.after as string | null
         if (!before && after) {
             return {
-                summary: ['Added the description'],
+                summary: summarizeDescriptionChange(change),
                 preview: after,
                 description: [
                     <>
@@ -46,7 +47,7 @@ const actionActionsMapping: Record<
             }
         } else if (before && !after) {
             return {
-                summary: ['Removed the description'],
+                summary: summarizeDescriptionChange(change),
                 preview: before,
                 description: [
                     <>
@@ -56,7 +57,7 @@ const actionActionsMapping: Record<
             }
         }
         return {
-            summary: ['Changed the description'],
+            summary: summarizeDescriptionChange(change),
             preview: after ?? undefined,
             description: [
                 <>

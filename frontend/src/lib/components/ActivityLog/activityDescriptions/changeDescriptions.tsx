@@ -41,15 +41,26 @@ export function describeTagChanges(change?: ActivityChange): ChangeMapping {
     return describeListChanges(change, 'tag', 'tags')
 }
 
+export function summarizeDescriptionChange(change?: ActivityChange): Description[] {
+    if (!change?.after) {
+        return ['cleared the description']
+    }
+    return [change.before ? 'updated the description' : 'added the description']
+}
+
 export function describeDescriptionChange(
     change: ActivityChange | undefined,
     asNotification: boolean | undefined,
     scopeNoun: string
-): Description[] {
-    return [
-        <>
-            changed the description {asNotification && ` of the ${scopeNoun} `}to{' '}
-            <strong>"{change?.after as string}"</strong>
-        </>,
-    ]
+): ChangeMapping {
+    return {
+        summary: summarizeDescriptionChange(change),
+        preview: typeof change?.after === 'string' ? change.after : undefined,
+        description: [
+            <>
+                changed the description {asNotification && ` of the ${scopeNoun} `}to{' '}
+                <strong>"{change?.after as string}"</strong>
+            </>,
+        ],
+    }
 }

@@ -8,8 +8,12 @@ import {
     Description,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
+import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDescriber'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
+import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
+import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 
 import { ActivityScope } from '~/types'
@@ -62,7 +66,7 @@ describe('humanizeActivity', () => {
                 { field: 'description', after: '' },
                 { field: 'verified', after: true },
             ],
-            action: 'Cleared the description, and Marked as verified',
+            action: 'cleared the description, and marked as verified',
             description: 'A user changed description to "", and marked Example as verified',
             preview: '',
         },
@@ -73,7 +77,7 @@ describe('humanizeActivity', () => {
                 { field: 'description', before: null, after: 'Match sign-ups' },
                 { field: 'name', before: 'Original', after: 'Example' },
             ],
-            action: 'Added the description, and changed the name from "Original" to "Example"',
+            action: 'added the description, and changed the name from "Original" to "Example"',
             description:
                 'A user added description "Match sign-ups", and changed the name from "Original" to "Example" on action Example',
             preview: 'Match sign-ups',
@@ -101,6 +105,60 @@ describe('humanizeActivity', () => {
         expect(text(result.summary?.action)).toBe(testCase.action)
         expect(text(result.summary?.target)).toContain('Example')
         expect(result.summary?.preview).toBe(testCase.preview)
+    })
+
+    it.each([
+        ['name', 'Original', 'Example', 'renamed "Original" to "Example"'],
+        ['derived_name', 'Original', 'Example', 'renamed "Original" to "Example"'],
+        ['deleted', false, true, 'deleted the insight'],
+        ['deleted', true, false, 'restored the insight'],
+        ['short_id', 'old-id', 'new-id', 'changed the short id to "new-id"'],
+        ['favorited', false, true, 'favorited the insight'],
+        ['favorited', true, false, 'unfavorited the insight'],
+    ])('uses the same insight %s headline in the main log and side panel', (field, before, after, expected) => {
+        const logItem = makeLogItem({
+            scope: ActivityScope.INSIGHT,
+            detail: {
+                merge: null,
+                trigger: null,
+                name: 'Example',
+                changes: [{ type: ActivityScope.INSIGHT, action: 'changed', field: field as string, before, after }],
+            },
+        })
+        for (const asNotification of [false, true]) {
+            const { summary } = insightActivityDescriber(logItem, asNotification)
+
+            expect(render(<>{summary?.action}</>).container.textContent).toBe(expected)
+            expect(render(<>{summary?.target}</>).container.textContent).toBe('Example')
+        }
+    })
+
+    it.each<{ scope: ActivityScope; describer: Describer; activity?: string }>([
+        { scope: ActivityScope.DASHBOARD, describer: dashboardActivityDescriber },
+        { scope: ActivityScope.INSIGHT, describer: insightActivityDescriber },
+        { scope: ActivityScope.COHORT, describer: cohortActivityDescriber },
+        { scope: ActivityScope.SURVEY, describer: surveyActivityDescriber },
+        { scope: ActivityScope.EVENT_DEFINITION, describer: dataManagementActivityDescriber, activity: 'changed' },
+        { scope: ActivityScope.ACTION, describer: actionActivityDescriber },
+    ])('uses shared description wording for $scope', ({ scope, describer, activity }) => {
+        for (const [before, after, expected] of [
+            [null, 'Example description', 'added the description'],
+            ['Old description', 'Example description', 'updated the description'],
+            ['Old description', '', 'cleared the description'],
+        ]) {
+            const logItem = makeLogItem({
+                scope,
+                activity: activity ?? 'updated',
+                detail: {
+                    name: 'Example',
+                    merge: null,
+                    trigger: null,
+                    changes: [{ type: scope, action: 'changed', field: 'description', before, after }],
+                },
+            })
+
+            expect(render(<>{describer(logItem).summary?.action}</>).container.textContent).toBe(expected)
+        }
     })
 
     describe('userNameForLogItem', () => {

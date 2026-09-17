@@ -1,5 +1,6 @@
 import { P, match } from 'ts-pattern'
 
+import { summarizeDescriptionChange } from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -60,7 +61,7 @@ const surveyActionsMapping: Record<
     },
     description: function onDescription(change) {
         return {
-            summary: [change?.after ? 'Updated the description' : 'Cleared the description'],
+            summary: summarizeDescriptionChange(change),
             preview: typeof change?.after === 'string' ? change.after : undefined,
             description: [
                 <>

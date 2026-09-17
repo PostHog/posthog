@@ -1,3 +1,4 @@
+import { summarizeDescriptionChange } from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
 import { describeChangeMappings } from 'lib/components/ActivityLog/activityDescriptions/describeChangeMappings'
 import {
     ActivityChange,
@@ -44,12 +45,20 @@ const cohortFieldMapping: Record<string, (change?: ActivityChange) => ChangeMapp
         const before = (change?.before as string | null | undefined) || ''
         const after = (change?.after as string | null | undefined) || ''
         if (!before && after) {
-            return { description: [<>added a description</>], preview: after }
+            return {
+                description: [<>added a description</>],
+                summary: summarizeDescriptionChange(change),
+                preview: after,
+            }
         }
         if (before && !after) {
-            return { description: [<>cleared the description</>] }
+            return { description: [<>cleared the description</>], summary: summarizeDescriptionChange(change) }
         }
-        return { description: [<>updated the description</>], preview: after }
+        return {
+            description: [<>updated the description</>],
+            summary: summarizeDescriptionChange(change),
+            preview: after,
+        }
     },
     filters: function onFilters(change) {
         const before = countCohortCriteria(change?.before as CohortType['filters'])
