@@ -150,6 +150,7 @@ export interface PluginServerCapabilities {
     evaluationScheduler?: boolean
     cdpCyclotronV2Janitor?: boolean
     cdpRerunWorker?: boolean
+    cdpDlqReplay?: boolean
     cdpHogflowScheduler?: boolean
     cdpHogflowSubscriptionMatcher?: boolean
     recordingApi?: boolean
