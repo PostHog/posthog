@@ -36,12 +36,13 @@ from posthog.dags.deletes import (
     manual_deletes_job,
     mark_deletions_verified,
     monthly_old_events_cleanup_job,
+    resolve_sweep_targets,
     run_deletes_after_manual_trigger,
 )
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.deletion_targets import EVENTS, TargetPlacement
+from posthog.models.deletion_targets import EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
@@ -1034,7 +1035,7 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
 
         context = build_op_context()
         before = _count_unswept_rows(
-            context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time
+            context, cluster, PERSONAL_DATA_TARGETS, dictionary, adhoc, DeleteConfig().verification_max_execution_time
         )
         surviving = before["events"]
         assert surviving is not None and surviving >= 2, "the count cannot see rows the sweep has not removed yet"
@@ -1047,14 +1048,18 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
         for _host, mutation in cluster.map_one_host_per_shard(runner).result().items():
             cluster.map_all_hosts(mutation.wait).result()
 
-        after = _count_unswept_rows(context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time)
+        after = _count_unswept_rows(
+            context, cluster, PERSONAL_DATA_TARGETS, dictionary, adhoc, DeleteConfig().verification_max_execution_time
+        )
         assert after["events"] == 0
 
         # A row ingested after its request was created is outside that request's scope, so it
         # must fail neither the delete nor the verification: counting it would let one tenant
         # that keeps ingesting backdated events block every tenant's deletions from being marked.
         cluster.any_host_by_role(insert_late_event, NodeRole.DATA).result()
-        late = _count_unswept_rows(context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time)
+        late = _count_unswept_rows(
+            context, cluster, PERSONAL_DATA_TARGETS, dictionary, adhoc, DeleteConfig().verification_max_execution_time
+        )
         assert late["events"] == 0, "a row inserted after its request's created_at must not count as unswept"
         assert cluster.any_host_by_role(count_late_event_rows, NodeRole.DATA).result() == 1, (
             "the created_at bound, not a delete, must be what hides the late row"
@@ -1120,6 +1125,7 @@ def test_a_target_on_another_cluster_is_also_counted_on_its_storage_table(cluste
             counts = _count_unswept_rows(
                 build_op_context(),
                 cluster,
+                PERSONAL_DATA_TARGETS,
                 dictionary,
                 adhoc,
                 DeleteConfig().verification_max_execution_time,
@@ -1131,6 +1137,92 @@ def test_a_target_on_another_cluster_is_also_counted_on_its_storage_table(cluste
         cluster.any_host(dictionary.drop).result()
         cluster.any_host(adhoc.drop).result()
         cluster.any_host(table.drop).result()
+
+
+@pytest.mark.django_db
+def test_a_skipped_target_keeps_its_rows_while_the_rest_are_swept(cluster: ClickhouseCluster):
+    # Seven ops resolve the sweep, and each one that misses the resolved list puts the run back to
+    # sweeping a target the config took out. Only a dispatched mutation shows that from the
+    # outside, so this asserts the one table that is skipped still holds its rows after a run that
+    # deleted from the others.
+    timestamp = (datetime.now() + timedelta(days=31)).replace(microsecond=0)
+    queued_uuid, unqueued_uuid = 7001, 7002
+
+    events = [(i, f"distinct_id_{i}", UUID(int=i), timestamp) for i in (queued_uuid, unqueued_uuid)]
+
+    def insert_events(client: Client) -> None:
+        client.execute(
+            "INSERT INTO writable_events (team_id, distinct_id, uuid, timestamp) VALUES",
+            events,
+        )
+
+    def insert_adhoc_event_deletes(client: Client) -> None:
+        client.execute(
+            "INSERT INTO adhoc_events_deletion (team_id, uuid, created_at) VALUES",
+            [(queued_uuid, UUID(int=queued_uuid), timestamp)],
+        )
+
+    def surviving_events(client: Client) -> set[tuple[int, UUID]]:
+        result = client.execute(
+            "SELECT team_id, uuid FROM events WHERE team_id IN %(teams)s AND _row_exists = 1",
+            {"teams": [queued_uuid, unqueued_uuid]},
+        )
+        return {(row[0], row[1]) for row in result} if isinstance(result, list) else set()
+
+    cluster.any_host(insert_events).result()
+    cluster.any_host(
+        partial(
+            insert_flag_evaluations,
+            [(i, f"distinct_id_{i}", UUID(int=i), UUID(int=i), timestamp) for i in (queued_uuid, unqueued_uuid)],
+        )
+    ).result()
+    cluster.any_host(insert_adhoc_event_deletes).result()
+
+    deletes_job.execute_in_process(
+        run_config={
+            "ops": {
+                "create_pending_deletions_table": {"config": {"timestamp": timestamp.isoformat()}},
+                "resolve_sweep_targets": {"config": {"skip_targets": ["sharded_flag_evaluations"]}},
+            }
+        },
+        resources={"cluster": cluster},
+    )
+
+    surviving = cluster.any_host(surviving_events).result()
+    assert (queued_uuid, UUID(int=queued_uuid)) not in surviving, "the swept target kept a queued uuid"
+    assert (unqueued_uuid, UUID(int=unqueued_uuid)) in surviving, "the sweep removed a uuid nobody queued"
+
+    flags = cluster.any_host(surviving_flag_evaluations).result()
+    assert (queued_uuid, UUID(int=queued_uuid), UUID(int=queued_uuid)) in flags, "the skipped target was swept anyway"
+
+
+@pytest.mark.parametrize(
+    "skip_targets,expected",
+    [
+        ([], ["sharded_events", "sharded_events_json", "sharded_flag_evaluations"]),
+        (["sharded_events_json"], ["sharded_events", "sharded_flag_evaluations"]),
+        (["events_json"], ["sharded_events", "sharded_flag_evaluations"]),
+        (["events_json", "sharded_flag_evaluations"], ["sharded_events"]),
+    ],
+    ids=["nothing_skipped", "by_storage_table", "by_read_table", "two_targets"],
+)
+def test_skip_targets_drops_a_target_named_by_either_of_its_tables(skip_targets, expected) -> None:
+    # An operator reaches for this from whichever error is in front of them, which carries the
+    # storage table on a mutation and the read table on a survivor count. Accepting only one of the
+    # two would read as a working skip while the target kept being swept.
+    context = build_op_context(config={"skip_targets": skip_targets})
+
+    assert resolve_sweep_targets(context) == expected
+
+
+def test_an_unrecognised_skip_target_fails_the_run() -> None:
+    # A typo would otherwise widen the sweep back to every target, which is the dangerous
+    # direction: the run reports success having deleted from a table that was meant to be left
+    # alone, and the requests covering those rows are marked verified either way.
+    context = build_op_context(config={"skip_targets": ["sharded_event_json"]})
+
+    with pytest.raises(dagster.Failure, match="unknown skip_targets"):
+        resolve_sweep_targets(context)
 
 
 @pytest.mark.parametrize(
@@ -1147,6 +1239,7 @@ def test_marking_is_refused_when_a_count_survives_or_cannot_complete(unswept: di
         with pytest.raises(dagster.Failure) as excinfo:
             mark_deletions_verified(
                 build_op_context(),
+                [target.data_table for target in PERSONAL_DATA_TARGETS],
                 DeleteConfig(),
                 cast(ClickhouseCluster, None),
                 PendingDeletesDictionary(source=PendingDeletesTable(timestamp=datetime(2026, 9, 1))),
