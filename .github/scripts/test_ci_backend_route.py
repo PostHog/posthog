@@ -1,4 +1,5 @@
 import json
+import urllib.error
 import importlib.util
 from collections.abc import Sequence
 from pathlib import Path
@@ -85,28 +86,53 @@ def test_handoff_conclusion_is_the_newest_concluded_for_this_pull_request(
     assert route.handoff_conclusion(check_runs, 124) == expected
 
 
-def test_read_prior_handoff_fails_closed_after_three_failed_reads() -> None:
-    calls: list[int] = []
+class FakeResponse:
+    def __init__(self, payload: Any) -> None:
+        self.payload = payload
 
-    def failing() -> list[dict[str, Any]]:
-        calls.append(1)
-        raise OSError("boom")
+    def read(self) -> bytes:
+        return json.dumps(self.payload).encode()
 
-    with pytest.raises(RuntimeError):
-        route.read_prior_handoff(failing, 124, pause_seconds=0)
-    assert len(calls) == 3
+    def __enter__(self) -> "FakeResponse":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
 
 
-def test_read_prior_handoff_recovers_from_one_failed_read() -> None:
-    answers: list[Any] = [OSError("boom"), [check(1, "completed", "success")]]
+def http_error(code: int) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError("https://api.github.com", code, "boom", {}, None)  # type: ignore[arg-type]
 
-    def flaky() -> list[dict[str, Any]]:
+
+def opener_from(answers: list[Any]) -> Any:
+    def opener(request: Any, timeout: int) -> Any:
         answer = answers.pop(0)
         if isinstance(answer, Exception):
             raise answer
-        return answer
+        return FakeResponse(answer)
 
-    assert route.read_prior_handoff(flaky, 124, pause_seconds=0) == "success"
+    return opener
+
+
+def test_fetch_retries_a_server_error_then_returns_the_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(route.time, "sleep", lambda seconds: None)
+    checks = [check(1, "completed", "success")]
+    opener = opener_from([http_error(502), {"check_runs": checks}])
+    assert route.fetch_handoff_checks("PostHog/posthog", "abc", "t", opener=opener) == checks
+
+
+@pytest.mark.parametrize(
+    "answers,attempts_used",
+    [([http_error(403)], 1), ([http_error(503)] * 3, 3), ([urllib.error.URLError("down")] * 3, 3)],
+)
+def test_fetch_fails_closed_without_retrying_client_errors(
+    answers: list[Exception], attempts_used: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(route.time, "sleep", lambda seconds: None)
+    remaining = list(answers)
+    with pytest.raises(route.HandoffReadError):
+        route.fetch_handoff_checks("PostHog/posthog", "abc", "t", opener=opener_from(remaining))
+    assert len(answers) - len(remaining) == attempts_used
 
 
 @pytest.mark.parametrize(
@@ -135,7 +161,7 @@ def test_main_writes_outputs(labels: str, tmp_path: Path, monkeypatch: pytest.Mo
 
 def test_main_fails_when_the_earlier_handoff_cannot_be_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def failing(repo: str, sha: str, token: str) -> list[dict[str, Any]]:
-        raise OSError("boom")
+        raise route.HandoffReadError("boom")
 
     monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "out"))
     monkeypatch.setenv("EVENT", "pull_request")

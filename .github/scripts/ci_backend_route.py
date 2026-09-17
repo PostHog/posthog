@@ -16,8 +16,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 LABEL_FORCE_GITHUB = "ci-backend-github"
 LABEL_FORCE_DEPOT = "ci-backend-depot"
@@ -25,6 +25,13 @@ PERCENT_VARIABLE = "CI_BACKEND_DEPOT_PERCENT"
 HANDOFF_CHECK = "Hand off backend tests to Depot CI"
 GITHUB_ACTIONS_APP_ID = 15368
 ENGINE_BY_HANDOFF_CONCLUSION = {"success": "depot", "skipped": "github"}
+API_ROOT = "https://api.github.com"
+API_ATTEMPTS = 3
+API_BACKOFF_SECONDS = 5
+
+
+class HandoffReadError(RuntimeError):
+    """The durable routing record could not be read, so the event must not be routed."""
 
 
 @dataclass(frozen=True)
@@ -91,31 +98,38 @@ def decide(
     return Decision("github", f"bucket {bucket} >= {percent}%")
 
 
-def fetch_handoff_checks(repo: str, sha: str, token: str) -> list[dict]:
+def fetch_handoff_checks(repo: str, sha: str, token: str, *, opener: Any = None) -> list[dict]:
+    """GET this commit's hand-off check runs, retrying transient failures only.
+
+    5xx and network errors are worth another attempt; 4xx is not, because with an
+    empty rate-limit bucket or a missing permission a retry only spends more of it.
+    """
     query = urllib.parse.urlencode(
         {"check_name": HANDOFF_CHECK, "app_id": GITHUB_ACTIONS_APP_ID, "filter": "all", "per_page": 100}
     )
+    url = f"{API_ROOT}/repos/{repo}/commits/{sha}/check-runs?{query}"
     request = urllib.request.Request(
-        f"https://api.github.com/repos/{repo}/commits/{sha}/check-runs?{query}",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Authorization": f"Bearer {token}",
+        },
     )
-    # The scheme and host are literal; only the repo and commit come from the event.
-    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.load(response)["check_runs"]
-
-
-def read_prior_handoff(
-    fetch: Callable[[], list[dict]], pr_number: int, attempts: int = 3, pause_seconds: float = 10
-) -> str | None:
-    for attempt in range(1, attempts + 1):
+    do_open = opener or urllib.request.urlopen
+    for attempt in range(1, API_ATTEMPTS + 1):
         try:
-            return handoff_conclusion(fetch(), pr_number)
-        except (OSError, ValueError, KeyError, TypeError) as error:
-            sys.stdout.write(f"::warning::Cannot read the earlier hand-off ({attempt}/{attempts}): {error}\n")
-            if attempt < attempts:
-                time.sleep(pause_seconds)
-    raise RuntimeError("Cannot read the earlier hand-off for this commit, so this event is not routed")
+            with do_open(request, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))["check_runs"]
+        except urllib.error.HTTPError as error:
+            if error.code < 500 or attempt == API_ATTEMPTS:
+                raise HandoffReadError(f"GET {url} failed with {error.code}") from error
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError, TypeError) as error:
+            if attempt == API_ATTEMPTS:
+                raise HandoffReadError(f"GET {url} failed: {error}") from error
+        sys.stdout.write(f"::warning::Cannot read the earlier hand-off yet ({attempt}/{API_ATTEMPTS})\n")
+        time.sleep(API_BACKOFF_SECONDS * attempt)
+    raise HandoffReadError(f"GET {url} exhausted {API_ATTEMPTS} attempts")
 
 
 def main() -> int:
@@ -127,11 +141,11 @@ def main() -> int:
     prior_handoff = None
     if event == "pull_request" and pr_number is not None and not is_fork:
         try:
-            prior_handoff = read_prior_handoff(
-                lambda: fetch_handoff_checks(env["REPO"], env["SHA"], env["GH_TOKEN"]), pr_number
+            prior_handoff = handoff_conclusion(
+                fetch_handoff_checks(env["REPO"], env["SHA"], env["GH_TOKEN"]), pr_number
             )
-        except RuntimeError as error:
-            sys.stdout.write(f"::error::{error}\n")
+        except HandoffReadError as error:
+            sys.stdout.write(f"::error::Cannot read the earlier hand-off, so this event is not routed: {error}\n")
             return 1
         sys.stdout.write(f"::notice::Earlier hand-off on this commit: {prior_handoff or 'none'}\n")
     decision = decide(
