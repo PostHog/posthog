@@ -623,6 +623,9 @@ ignore_imports = [
     # SharingConfiguration, which §5 forbids.
     "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.logic",
     "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.models",
+    # The webhook view still holds the request handling for the Vapi delivery, so it calls the
+    # event module directly. The line goes when the handling moves off the request path.
+    "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.vapi_events",
     # logs presentation isolation (temporary): the moved viewsets still reach in-product
     # internals directly. Removed by the follow-up that thins each viewset to go through
     # the facade.
