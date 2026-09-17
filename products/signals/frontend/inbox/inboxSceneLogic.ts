@@ -201,6 +201,30 @@ function clearScratchpadSearch(): void {
     }
 }
 
+/**
+ * `Inbox report opened` calls an open a deep-link only when this visit never saw an inbox list URL.
+ * The flag has to outlive the page, because a reload, a bundle update, or a row opened in a new tab
+ * all start a fresh logic. Session storage is that scope: it survives a reload and is copied into a
+ * tab opened from a link, so only a genuinely cold arrival reads as a deep-link.
+ */
+const INBOX_LIST_VISITED_STORAGE_KEY = 'posthog.inbox.listVisited'
+
+function markInboxListVisited(): void {
+    try {
+        window.sessionStorage.setItem(INBOX_LIST_VISITED_STORAGE_KEY, '1')
+    } catch {
+        return
+    }
+}
+
+function hasVisitedInboxList(): boolean {
+    try {
+        return window.sessionStorage.getItem(INBOX_LIST_VISITED_STORAGE_KEY) === '1'
+    } catch {
+        return false
+    }
+}
+
 function mountedReportLists(): ReturnType<typeof reportListLogic.build>[] {
     return (Object.keys(INBOX_REPORT_SECTION_LIST_PARAMS) as InboxReportSectionKey[]).flatMap((sectionKey) => {
         const mounted = reportListLogic.findMounted({
@@ -282,6 +306,75 @@ function findReportRank(
 }
 
 /**
+ * Whether the lists `findReportRank` reads have answered: one of them holds rows and none is still
+ * fetching. Until that holds, a missing rank means "the list has not loaded yet", not "the report is
+ * not in the list".
+ */
+function reportListsSettled(): boolean {
+    const mounted = INBOX_REPORT_SECTION_KEYS.map((sectionKey) =>
+        reportListLogic.findMounted({ sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] })
+    ).filter((logic) => !!logic)
+    return (
+        mounted.some((logic) => logic.values.isLoaded) && mounted.every((logic) => !logic.values.reportsResponseLoading)
+    )
+}
+
+/** How long an open waits for its lists to answer before it reports a null rank, and how often it retries. */
+const OPEN_RANK_WAIT_MS = 5000
+const OPEN_RANK_POLL_MS = 250
+
+/**
+ * Fire `Inbox report opened`, waiting for the report's rank while its lists are still loading. A cold
+ * load answers the single-report fetch long before the lists, so a lookup at open time sees no list
+ * and sends a null rank. Such a row joins to no impression, and the inbox ranking dataset learns
+ * nothing from it. Retry until the lists settle, then send whatever the lookup gives.
+ */
+function captureOpenWhenRanked(
+    cache: Record<string, any>,
+    tracking: InboxOpenTracking,
+    openMethod: InboxReportOpenMethod,
+    flatList: boolean
+): void {
+    const previousReportId = cache.previousReportId ?? null
+    const deadline = Date.now() + OPEN_RANK_WAIT_MS
+
+    const fire = (resolved: ReturnType<typeof findReportRank>): void => {
+        cache.pendingOpenCapture = undefined
+        cache.disposables.dispose('openRank')
+        captureInboxReportOpened({
+            report: tracking.report,
+            openMethod,
+            previousReportId,
+            rank: resolved.rank,
+            listSize: resolved.listSize,
+            section: resolved.section,
+        })
+    }
+    const fireWhenReady = (): void => {
+        const resolved = findReportRank(tracking.report.id, flatList)
+        if (resolved.rank !== null || Date.now() >= deadline || reportListsSettled()) {
+            fire(resolved)
+        }
+    }
+
+    cache.pendingOpenCapture = () => fire(findReportRank(tracking.report.id, flatList))
+    fireWhenReady()
+    if (!cache.pendingOpenCapture) {
+        return
+    }
+    cache.disposables.add(() => {
+        const interval = setInterval(fireWhenReady, OPEN_RANK_POLL_MS)
+        return () => clearInterval(interval)
+    }, 'openRank')
+}
+
+/** Send a still-waiting `Inbox report opened` now, so no close can ever precede its open. */
+function flushPendingOpen(cache: Record<string, any>): void {
+    const capture = cache.pendingOpenCapture as (() => void) | undefined
+    capture?.()
+}
+
+/**
  * The URL for whichever full-width inbox surface is open, or the list otherwise. The surfaces
  * (report, scout detail, scratchpad, findings, runs, triage) are mutually exclusive, so a fixed
  * priority order resolves them.
@@ -342,6 +435,7 @@ function flushOpenReport(
     if (!open) {
         return
     }
+    flushPendingOpen(cache)
     captureInboxReportClosed({ report: open.report, timeSpentMs: Date.now() - open.openedAt, closeMethod }, options)
     cache.openTracking = undefined
 }
@@ -877,6 +971,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             // switching straight to another report, `deselected` when returning to the list.
             const open: InboxOpenTracking | undefined = cache.openTracking
             if (open) {
+                flushPendingOpen(cache)
                 const closeMethod: InboxReportCloseMethod = id ? 'next_report' : 'deselected'
                 captureInboxReportClosed({
                     report: open.report,
@@ -926,16 +1021,14 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             if (!report || values.selectedReportId !== report.id || cache.openTracking?.report.id === report.id) {
                 return
             }
-            const { rank, listSize, section } = findReportRank(report.id, values.isRedesign)
-            captureInboxReportOpened({
-                report,
-                openMethod: (cache.pendingOpenMethod as InboxReportOpenMethod | undefined) ?? 'unknown',
-                previousReportId: cache.previousReportId ?? null,
-                rank,
-                listSize,
-                section,
-            })
-            cache.openTracking = { report, openedAt: Date.now(), scrolled: false }
+            const tracking: InboxOpenTracking = { report, openedAt: Date.now(), scrolled: false }
+            cache.openTracking = tracking
+            captureOpenWhenRanked(
+                cache,
+                tracking,
+                (cache.pendingOpenMethod as InboxReportOpenMethod | undefined) ?? 'unknown',
+                values.isRedesign
+            )
             cache.pendingOpenMethod = undefined
             // Best-effort server-side view record: consumption evidence that keeps the authoring
             // scout from being auto-paused as ignored. The analytics event above stays the rich
@@ -1152,7 +1245,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         ],
     })),
 
-    urlToAction(({ actions, values, cache }) => {
+    urlToAction(({ actions, values }) => {
         const closeAllSurfaces = (): void => {
             if (values.selectedReportId !== null) {
                 actions.setSelectedReportId(null)
@@ -1215,13 +1308,13 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     redirectForLayout(urls.inbox('reports'), searchParams, hashParams)
                     return
                 }
-                cache.inboxListVisited = true
+                markInboxListVisited()
                 if (!values.isTriageOpen) {
                     actions.setTriageOpen(true)
                 }
             },
             [urls.inbox()]: (_, __, hashParams) => {
-                cache.inboxListVisited = true
+                markInboxListVisited()
                 consumeScoutTemplateHash(actions, hashParams)
                 closeAllSurfaces()
             },
@@ -1240,7 +1333,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     router.actions.replace(urls.inboxReport('reports', tab), searchParams, hashParams)
                     return
                 }
-                cache.inboxListVisited = true
+                markInboxListVisited()
                 consumeScoutTemplateHash(actions, hashParams)
                 // Staff-only tabs (Not actionable): bounce non-staff to the default tab. Under the
                 // redesign that list is a section the Reports tab hides from non-staff instead.
@@ -1337,7 +1430,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                         typeof searchParams.back === 'string' && searchParams.back.startsWith(urls.inboxTriage())
                     actions.setSelectedReportId(
                         reportId,
-                        fromTriage ? 'triage' : cache.inboxListVisited ? 'click' : 'deeplink'
+                        fromTriage ? 'triage' : hasVisitedInboxList() ? 'click' : 'deeplink'
                     )
                 }
             },
