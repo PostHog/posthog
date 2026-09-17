@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconBook, IconPencil, IconPlusSmall, IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -30,8 +30,10 @@ export const scene: SceneExport = {
 
 export function BusinessKnowledgeScene(): JSX.Element {
     const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
-    const { sources, sourcesLoading, readyCount, totalChunks, refreshingIds } = useValues(businessKnowledgeLogic)
-    const { openCreateModal, openEditModal, deleteSource, refreshSource } = useActions(businessKnowledgeLogic)
+    const { sources, sourcesLoading, readyCount, totalChunks, refreshingIds, searchTerm, sourceTypeFilter } =
+        useValues(businessKnowledgeLogic)
+    const { openCreateModal, openEditModal, deleteSource, refreshSource, setSearchTerm, setSourceTypeFilter } =
+        useActions(businessKnowledgeLogic)
 
     if (!isEnabled) {
         return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
@@ -57,9 +59,30 @@ export function BusinessKnowledgeScene(): JSX.Element {
                 <span>{totalChunks.toLocaleString()} chunks indexed</span>
             </div>
 
+            <div className="flex gap-2 items-center mb-2">
+                <LemonInput
+                    type="search"
+                    placeholder="Search by name or URL"
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    className="max-w-80"
+                />
+                <LemonSelect
+                    value={sourceTypeFilter}
+                    onChange={setSourceTypeFilter}
+                    options={[
+                        { value: 'all', label: 'All types' },
+                        { value: 'text', label: 'Text' },
+                        { value: 'url', label: 'URL' },
+                        { value: 'file', label: 'File' },
+                    ]}
+                />
+            </div>
+
             <LemonTable<KnowledgeSource>
                 dataSource={sources}
                 loading={sourcesLoading}
+                pagination={{ pageSize: 20 }}
                 rowKey={(row) => row.id}
                 onRow={(row) => ({
                     onClick: () => openEditModal(row),
@@ -151,7 +174,11 @@ export function BusinessKnowledgeScene(): JSX.Element {
                         ),
                     },
                 ]}
-                emptyState="No knowledge sources yet. Click 'Add source' to index your first."
+                emptyState={
+                    searchTerm || sourceTypeFilter !== 'all'
+                        ? 'No sources match your search or filter.'
+                        : "No knowledge sources yet. Click 'Add source' to index your first."
+                }
             />
 
             <CreateKnowledgeSourceModal refreshIntervalOptions={REFRESH_INTERVAL_OPTIONS} />

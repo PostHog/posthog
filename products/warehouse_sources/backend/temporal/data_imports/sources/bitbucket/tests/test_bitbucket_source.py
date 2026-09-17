@@ -2,6 +2,7 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.bitbucket import BitbucketAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.settings import BITBUCKET_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.source import BitbucketSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bitbucket import (
     BitbucketAuthMethodConfig,
@@ -56,6 +57,7 @@ def test_connection_host_fields_force_secret_reentry_on_workspace_change():
         # incremental toggle would silently behave like a full refresh
         ("deployments", False),
         ("workspace_members", False),
+        ("branches", False),
     ],
 )
 def test_get_schemas_incremental_support(endpoint, supports_incremental):
@@ -141,3 +143,11 @@ def test_source_for_pipeline_plumbs_arguments(should_use_incremental, last_value
         db_incremental_field_last_value=expected_last_value,
         incremental_field="date",
     )
+
+
+@pytest.mark.parametrize("endpoint", sorted(BITBUCKET_ENDPOINTS))
+def test_canonical_descriptions_document_the_primary_key_columns(endpoint):
+    # Several key columns are injected by the transport rather than returned by Bitbucket, so
+    # the LLM fallback cannot derive them from the vendor docs at all
+    columns = BitbucketSource().get_canonical_descriptions()[endpoint]["columns"]
+    assert set(BITBUCKET_ENDPOINTS[endpoint].primary_keys) <= set(columns)

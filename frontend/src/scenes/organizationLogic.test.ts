@@ -1,6 +1,9 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -115,6 +118,64 @@ describe('organizationLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
             expect(logic.values.currentOrganization).toBeNull()
+        })
+    })
+
+    describe('redirecting away from a blocked organization', () => {
+        const mountWith = (organization: Partial<OrganizationType>): void => {
+            window.POSTHOG_APP_CONTEXT = {
+                current_user: { organization: { id: 'WXYZ', ...organization } },
+            } as unknown as AppContext
+            initKeaTests()
+            logic = organizationLogic()
+            logic.mount()
+        }
+
+        test.each([
+            ['deactivated keeps an invite link', { is_active: false }, '/signup/abc', '/signup/abc'],
+            ['deactivated keeps billing', { is_active: false }, '/organization/billing', '/organization/billing'],
+            [
+                'deactivated keeps the Stripe return route',
+                { is_active: false },
+                '/billing/authorization_status',
+                '/billing/authorization_status',
+            ],
+            ['deactivated drops the app', { is_active: false }, '/dashboard', '/organization-deactivated'],
+            ['pending deletion keeps an invite link', { is_pending_deletion: true }, '/signup/abc', '/signup/abc'],
+            [
+                'pending deletion drops billing',
+                { is_pending_deletion: true },
+                '/organization/billing',
+                '/organization-pending-deletion',
+            ],
+        ])('%s', async (_name, organization, pathname, expected) => {
+            mountWith(organization)
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+
+            router.actions.push(pathname)
+
+            await expectLogic(router).toDispatchActions(['push'])
+            // The router writes back a `/project/<id>` prefix, so compare on the route.
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(expected)
+        })
+        it("keeps a client-side link into another organization's project", async () => {
+            mountWith({ is_active: false, teams: [{ id: 1 }] } as unknown as Partial<OrganizationType>)
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+
+            router.actions.push('/project/424242/dashboard')
+
+            await expectLogic(router).toDispatchActions(['push'])
+            expect(router.values.location.pathname).toBe('/project/424242/dashboard')
+        })
+
+        it('still blocks a link into a project the organization owns', async () => {
+            mountWith({ is_active: false, teams: [{ id: 424242 }] } as unknown as Partial<OrganizationType>)
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+
+            router.actions.push('/project/424242/dashboard')
+
+            await expectLogic(router).toDispatchActions(['push'])
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/organization-deactivated')
         })
     })
 })

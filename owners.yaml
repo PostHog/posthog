@@ -61,7 +61,7 @@ rules:
     - match: '/bin/inject_mcp_intents.py'
       owners: mcp-analytics
     - match: '/.agents/skills/manage-dashboard-widgets/'
-      owners: team-analytics-platform
+      owners: team-product-analytics
     - match: '/.claude/'
       owners: team-devex
     - match: '/.claude/agents/ingestion/'
@@ -82,6 +82,19 @@ rules:
       owners: team-ingestion
     - match: '/packages/quill/'
       owners: [platform-ux, '@sampennington']
+    # The URL surface and the inbound webhook transport: shared plumbing every product
+    # lands on, so a change here reaches further than the product that prompted it.
+    - match:
+          - '/docs/internal/url-routing.md'
+          - '/posthog/api/__init__.py'
+          - '/posthog/api/rest_router.py'
+          - '/posthog/api/routing.py'
+          - '/posthog/ee_urls.py'
+          - '/posthog/frontend_views.py'
+          - '/posthog/github/'
+          - '/posthog/ingress/'
+          - '/posthog/urls.py'
+      owners: team-devex
     - match: '/posthog/helpers/email_utils.py'
       owners: team-platform-features
     - match: '/posthog/test/activity_logging/'

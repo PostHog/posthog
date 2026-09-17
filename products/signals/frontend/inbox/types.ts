@@ -89,6 +89,8 @@ export interface SignalReport {
     suggested_prompts?: string[]
     /** Count of signals at the time the latest research run kicked off. */
     signals_at_run?: number
+    /** Scout notes the work log dropped because they restate earlier ones. 0 when nothing was dropped. */
+    collapsed_note_count?: number
     /** P0–P4 from the priority judgment when the report is researched. */
     priority?: SignalReportPriority | null
     /** Actionability choice from the actionability judgment artefact. */
@@ -412,6 +414,8 @@ export interface SignalTeamConfig {
     max_reports_per_day?: number | null
     /** Whether self-driving PRs open ready for review instead of draft. A reviewer's own setting overrides it. */
     default_open_pull_request_ready?: boolean
+    /** Whether self-driving comments a link to the report back on a GitHub issue that raised it. */
+    github_issue_writeback_enabled?: boolean
     /** Read-only: reports that first became visible today (project timezone). Never send in a patch. */
     reports_generated_today?: number
     /** Read-only: whether the daily report limit is reached, pausing new report generation until local midnight. Never send in a patch. */

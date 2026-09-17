@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect } from 'react'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
@@ -11,8 +11,11 @@ import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { UnsupportedNodePlaceholder } from 'scenes/notebooks/Nodes/sharedNodeSupport'
 import { NotebookNodeAttributes, NotebookNodeProps, NotebookNodeType } from 'scenes/notebooks/types'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { prepareNotebookInsightDataframes } from '../prepareNotebookInsightDataframes'
+import { applyReusableWidgetBinding, getReusableWidgetInputBinding } from '../ReusableWidget/reusableWidgetBindings'
 import {
     formatWidgetElapsed,
     loadWidgetFrame,
@@ -27,6 +30,9 @@ import { WidgetArtifactFrame } from './WidgetArtifactFrame'
 import { DEFAULT_WIDGET_MODEL, isWidgetModel, type WidgetModel } from './widgetModels'
 
 export type NotebookNodeGeneratedWidgetAttributes = {
+    id?: string
+    version?: string
+    inputs?: Record<string, { source: string; hog?: string }>
     prompt?: string
     model?: WidgetModel
 }
@@ -70,9 +76,13 @@ function ExpandedWidget({
         projectId: currentTeamId,
         notebookShortId,
         nodeId: attributes.nodeId,
+        reusableWidgetId: typeof attributes.id === 'string' ? attributes.id : undefined,
+        reusableVersionId: typeof attributes.version === 'string' ? attributes.version : undefined,
+        inputBindings: attributes.inputs,
         prompt,
         model,
         isEditable,
+        prepareInsightDataframes: () => prepareNotebookInsightDataframes(notebookLogic),
         persistNotebook: async (): Promise<void> => {
             await notebookLogic.asyncActions.saveNotebook({
                 content: notebookLogic.values.content,
@@ -121,6 +131,54 @@ function ExpandedWidget({
         setRuntimeError,
     } = useActions(logic)
     const { trustBuild } = useActions(trustLogic)
+    const { setMenuItems } = useActions(nodeLogic)
+    const selectedBuildHash =
+        selectedVersionId === status?.current_version_id
+            ? (status?.build_hash ?? null)
+            : (selectedVersion?.build_hash ?? null)
+    const selectedSecurityReview =
+        selectedVersionId === status?.current_version_id
+            ? (status?.security_review ?? null)
+            : (selectedVersion?.security_review ?? null)
+
+    useEffect(() => {
+        setMenuItems([
+            status?.is_reusable && status.widget_id
+                ? { label: 'Open reusable widget', to: urls.reusableWidget(status.widget_id) }
+                : null,
+            selectedVersionId
+                ? {
+                      label: 'View source',
+                      onClick: openSourceModal,
+                      'data-attr': 'notebook-widget-view-source',
+                  }
+                : null,
+            selectedVersionId
+                ? {
+                      items: [],
+                      footer: (
+                          <NotebookWidgetTrustControls
+                              variant="menu"
+                              buildHash={selectedBuildHash}
+                              securityReview={selectedSecurityReview}
+                              isEditable={isEditable}
+                              onRun={() => {}}
+                              onViewSource={openSourceModal}
+                          />
+                      ),
+                  }
+                : null,
+        ])
+    }, [
+        isEditable,
+        openSourceModal,
+        selectedBuildHash,
+        selectedSecurityReview,
+        selectedVersionId,
+        setMenuItems,
+        status?.is_reusable,
+        status?.widget_id,
+    ])
 
     if (statusLoading && !status) {
         return (
@@ -146,14 +204,6 @@ function ExpandedWidget({
     const initialPrompt = prompt.trim()
     const selectedArtifactUrl =
         selectedVersionId === status?.current_version_id ? status?.artifact_url : selectedVersion?.artifact_url
-    const selectedBuildHash =
-        selectedVersionId === status?.current_version_id
-            ? (status?.build_hash ?? null)
-            : (selectedVersion?.build_hash ?? null)
-    const selectedSecurityReview =
-        selectedVersionId === status?.current_version_id
-            ? (status?.security_review ?? null)
-            : (selectedVersion?.security_review ?? null)
     const widgetTrust = getNotebookWidgetTrust({
         trustByUser,
         sessionBuildHashes,
@@ -190,7 +240,7 @@ function ExpandedWidget({
                         </div>
                     </div>
                 </EmptyState>
-                {!componentPanelState?.showEditPanel ? <NotebookWidgetSourceModal {...logicProps} /> : null}
+                {!componentPanelState ? <NotebookWidgetSourceModal {...logicProps} /> : null}
             </>
         )
     }
@@ -200,14 +250,13 @@ function ExpandedWidget({
             return (
                 <>
                     {trustControls('gate')}
-                    {!componentPanelState?.showEditPanel ? <NotebookWidgetSourceModal {...logicProps} /> : null}
+                    {!componentPanelState ? <NotebookWidgetSourceModal {...logicProps} /> : null}
                 </>
             )
         }
         return (
             <>
                 <div className="flex h-full min-h-0 w-full flex-col">
-                    {trustControls('toolbar')}
                     {isWorking && workingStatus && !componentPanelState?.showEditPanel ? (
                         <div className="flex flex-wrap items-center gap-2 border-b p-2 text-sm">
                             <span className="flex items-center gap-2" role="status" aria-live="polite">
@@ -272,12 +321,12 @@ function ExpandedWidget({
                             </div>
                         ) : null}
                         <WidgetArtifactFrame
-                            key={`${selectedBuildHash}-${frameRevision}`}
+                            key={`${selectedVersionId}-${selectedBuildHash}-${frameRevision}`}
                             artifactUrl={selectedArtifactUrl}
                             title="Widget"
                             allowedFrames={activeFrameNames}
-                            onReadFrame={(name, offset, limit, runId, signal) =>
-                                loadWidgetFrame(
+                            onReadFrame={async (name, offset, limit, runId, signal) => {
+                                const frame = await loadWidgetFrame(
                                     String(currentTeamId),
                                     notebookShortId,
                                     attributes.nodeId,
@@ -288,7 +337,15 @@ function ExpandedWidget({
                                     runId,
                                     signal
                                 )
-                            }
+                                return applyReusableWidgetBinding(
+                                    frame,
+                                    name,
+                                    getReusableWidgetInputBinding(status?.input_bindings ?? {}, name),
+                                    status?.input_contract
+                                        .find((input) => input.slot === name)
+                                        ?.columns?.map((column) => column.name) ?? []
+                                )
+                            }}
                             onArtifactUnavailable={markArtifactUnavailable}
                             onError={(message) =>
                                 setRuntimeError(
@@ -305,7 +362,7 @@ function ExpandedWidget({
                         />
                     </div>
                 </div>
-                {!componentPanelState?.showEditPanel ? <NotebookWidgetSourceModal {...logicProps} /> : null}
+                {!componentPanelState ? <NotebookWidgetSourceModal {...logicProps} /> : null}
             </>
         )
     }
@@ -409,7 +466,7 @@ function ExpandedWidget({
                         </div>
                     </div>
                 </EmptyState>
-                {!componentPanelState?.showEditPanel ? <NotebookWidgetSourceModal {...logicProps} /> : null}
+                {!componentPanelState ? <NotebookWidgetSourceModal {...logicProps} /> : null}
             </>
         )
     }
@@ -436,7 +493,7 @@ function ExpandedWidget({
                         <LemonButton onClick={openSourceModal}>View source</LemonButton>
                     </div>
                 </EmptyState>
-                {!componentPanelState?.showEditPanel ? <NotebookWidgetSourceModal {...logicProps} /> : null}
+                {!componentPanelState ? <NotebookWidgetSourceModal {...logicProps} /> : null}
             </>
         )
     }
@@ -472,6 +529,9 @@ export const NotebookNodeGeneratedWidget = createPostHogWidgetNode<NotebookNodeG
     expandable: false,
     unmountWhenOutOfView: true,
     attributes: {
+        id: {},
+        version: {},
+        inputs: {},
         prompt: { default: '' },
         model: { default: DEFAULT_WIDGET_MODEL },
     },

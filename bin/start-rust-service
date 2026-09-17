@@ -305,6 +305,8 @@ case "$RS_SVC" in
     export GRPC_ADDRESS=127.0.0.1:50055
     export PRIMARY_DATABASE_URL="${PRIMARY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}"
     export ROUTER_URL=http://127.0.0.1:50054
+    export ETCD_ENDPOINTS=http://localhost:2379
+    export ETCD_PREFIX=/personhog/
     export METRICS_PORT=9108
     ;;
 

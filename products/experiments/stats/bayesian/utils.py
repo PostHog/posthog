@@ -2,11 +2,10 @@
 Core Bayesian calculation utilities for A/B testing.
 
 This module provides fundamental Bayesian statistical calculations including
-posterior updates, credible intervals, probability calculations, and risk assessment.
+posterior updates, credible intervals, and probability calculations.
 """
 
-import numpy as np
-from scipy.stats import norm, truncnorm
+from scipy.stats import norm
 
 from ..shared.enums import DifferenceType
 from ..shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
@@ -200,81 +199,6 @@ def credible_interval(posterior_mean: float, posterior_std: float, alpha: float 
 
     bounds = norm.ppf([alpha / 2, 1 - alpha / 2], loc=posterior_mean, scale=posterior_std)
     return (float(bounds[0]), float(bounds[1]))
-
-
-def calculate_risk(posterior_mean: float, posterior_std: float) -> tuple[float, float]:
-    """
-    Calculate expected loss (risk) for each decision.
-
-    Risk represents the expected loss if we make the wrong decision:
-    - Risk of choosing control: E[θ | θ > 0] x P(θ > 0)
-    - Risk of choosing treatment: E[|θ|] x P(θ < 0)
-
-    Args:
-        posterior_mean: Posterior mean of effect size
-        posterior_std: Posterior standard deviation
-
-    Returns:
-        Tuple of (risk_control, risk_treatment)
-    """
-    if posterior_std <= 0:
-        raise StatisticError("Posterior standard deviation must be positive")
-
-    # Probability that control is better (effect < 0)
-    prob_control_better = norm.cdf(0, loc=posterior_mean, scale=posterior_std)
-
-    # Probability that treatment is better (effect > 0)
-    prob_treatment_better = 1 - prob_control_better
-
-    # Expected effect given treatment is better (truncated normal mean for θ > 0)
-    if prob_treatment_better > 1e-10:
-        expected_effect_positive = truncated_normal_mean(posterior_mean, posterior_std, 0, np.inf)
-    else:
-        expected_effect_positive = 0
-
-    # Expected absolute effect given control is better (truncated normal mean for θ < 0)
-    if prob_control_better > 1e-10:
-        expected_effect_negative = abs(truncated_normal_mean(posterior_mean, posterior_std, -np.inf, 0))
-    else:
-        expected_effect_negative = 0
-
-    # Risk calculations
-    risk_control = prob_treatment_better * expected_effect_positive
-    risk_treatment = prob_control_better * expected_effect_negative
-
-    return float(risk_control), float(risk_treatment)
-
-
-def truncated_normal_mean(mu: float, sigma: float, lower_bound: float, upper_bound: float) -> float:
-    """
-    Calculate expected value of truncated normal distribution.
-
-    For X ~ N(μ, σ²) truncated to [a, b], computes E[X | a ≤ X ≤ b].
-
-    Args:
-        mu: Original normal distribution mean
-        sigma: Original normal distribution standard deviation
-        lower_bound: Lower truncation bound (-np.inf for no lower bound)
-        upper_bound: Upper truncation bound (np.inf for no upper bound)
-
-    Returns:
-        Expected value of truncated distribution
-    """
-    if sigma <= 0:
-        raise StatisticError("Standard deviation must be positive")
-
-    # Standardize bounds
-    lower_std = (lower_bound - mu) / sigma if not np.isinf(lower_bound) else lower_bound
-    upper_std = (upper_bound - mu) / sigma if not np.isinf(upper_bound) else upper_bound
-
-    # Use scipy's truncated normal
-    try:
-        return float(truncnorm.mean(lower_std, upper_std, loc=mu, scale=sigma))
-    except Exception as e:
-        # Handle numerical issues
-        if np.isfinite(lower_bound) and np.isfinite(upper_bound):
-            return mu  # Fallback to original mean
-        raise StatisticError(f"Failed to calculate truncated normal mean: {e}")
 
 
 def validate_inputs(

@@ -674,8 +674,8 @@ def _diagnose_blocked_route(
             cause="No peer on your tailnet advertises subnet routes.",
             next_step=(
                 f"Either you are not on the '{EXPECTED_TAILNET}' tailnet (check "
-                "the name above), or your account has not been added to the "
-                f"Tailscale policy yet. See {_TAILSCALE_RUNBOOK_URL} for both, "
+                "the name above), or your account is outside `group:employees` "
+                f"in the Tailscale policy. See {_TAILSCALE_RUNBOOK_URL} for both, "
                 "then reach out to Team DevEx with the facts below."
             ),
             facts=facts,
@@ -697,9 +697,9 @@ def _diagnose_blocked_route(
         cause="TCP is blocked despite an online subnet router on your tailnet.",
         next_step=(
             "A non-Tailscale VPN or a local firewall is likely intercepting, "
-            "or the Tailscale policy does not grant your account devbox "
-            f"access. Disable other VPNs and see {_TAILSCALE_RUNBOOK_URL} to "
-            "confirm policy membership, or reach out to Team DevEx."
+            "or your account is outside `group:employees` in the Tailscale "
+            f"policy. Disable other VPNs and see {_TAILSCALE_RUNBOOK_URL}, or "
+            "reach out to Team DevEx."
         ),
         facts=facts,
     )
@@ -1283,7 +1283,7 @@ def _start_app_param(start_app: bool | None) -> dict[str, str]:
 
 def create_workspace(
     name: str,
-    disk_size: int,
+    disk_size: int | None,
     git_name: str | None = None,
     git_email: str | None = None,
     dotfiles_uri: str | None = None,
@@ -1315,10 +1315,11 @@ def create_workspace(
     ``resolve_template_preset``; pass ``NO_PRESET`` to opt out.
     """
     parameters: dict[str, str] = {
-        DISK_SIZE_PARAMETER: str(disk_size),
         "repo": repo,
         WORKSPACE_REGION_PARAMETER: region,
     }
+    if disk_size is not None:
+        parameters[DISK_SIZE_PARAMETER] = str(disk_size)
     if git_name:
         parameters[GIT_NAME_PARAMETER] = git_name
     if git_email:

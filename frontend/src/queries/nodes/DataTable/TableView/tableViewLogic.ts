@@ -1,5 +1,5 @@
 import { deepEqual as equal } from 'fast-equals'
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
@@ -17,7 +17,7 @@ import { AnyPropertyFilter, PropertyOperator } from '~/types'
 
 import { GROUPS_LIST_DEFAULT_QUERY } from 'products/groups/frontend/logics/groupsListLogic'
 import { PERSON_EVENTS_CONTEXT_KEY } from 'products/persons/frontend/logics/personsLogic'
-import { PEOPLE_LIST_CONTEXT_KEY, PEOPLE_LIST_DEFAULT_QUERY } from 'products/persons/frontend/logics/personsSceneLogic'
+import { PEOPLE_LIST_CONTEXT_KEY, isPeopleListDefaultQuery } from 'products/persons/frontend/logics/personsSceneLogic'
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import type { UserType } from '../../../../types'
@@ -89,6 +89,27 @@ function isInitialPersonEventsQuery(query: TableViewSupportedQueryType): boolean
     }
     const defaultColumns = defaultDataTableColumns(NodeKind.EventsQuery)
     return equal(query.select, defaultColumns) && !query.properties?.length && !query.event && !query.events?.length
+}
+
+// Applying a remembered view is only safe while the table still shows its default query.
+// Anywhere else it would overwrite columns the user picked, or a query that arrived in the URL.
+function isUntouchedDefaultQuery(contextKey: string, query: TableViewSupportedQueryType): boolean {
+    switch (contextKey) {
+        case PEOPLE_LIST_CONTEXT_KEY:
+            return isPeopleListDefaultQuery(query)
+        case 'group-0-list':
+        case 'group-1-list':
+        case 'group-2-list':
+        case 'group-3-list':
+        case 'group-4-list': {
+            const groupTypeIndex = parseInt(contextKey.split('-')[1])
+            return equal(query, GROUPS_LIST_DEFAULT_QUERY(groupTypeIndex).source)
+        }
+        case PERSON_EVENTS_CONTEXT_KEY:
+            return isInitialPersonEventsQuery(query)
+        default:
+            return false
+    }
 }
 
 function getQueryFromView(
@@ -415,15 +436,11 @@ export const tableViewLogic = kea<tableViewLogicType>([
             {
                 setCurrentView: (_, { view }) => view,
                 applyView: (_, { view }) => view,
-                loadViewsSuccess: (state, { views }) => {
-                    if (views.length === 0) {
-                        return null
-                    }
-                    if (!state) {
-                        return views[0] || null
-                    }
-                    return state
-                },
+                // Keep only a view this user picked, and only while the list still has it. Falling
+                // back to the first view would select the shared view a teammate created most
+                // recently, because the API lists shared views newest first.
+                loadViewsSuccess: (state, { views }) =>
+                    state && views.some((view) => view.id === state.id) ? state : null,
                 deleteViewSuccess: (state, { views }) => {
                     if (state && !views.find((v) => v.id === state.id)) {
                         return null
@@ -491,7 +508,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
         },
     })),
 
-    listeners(({ props, actions, values }) => ({
+    listeners(({ props, actions, values, cache }) => ({
         applyView: ({ view }) => {
             props.setQuery(getQueryFromView(props.query, view))
         },
@@ -527,6 +544,22 @@ export const tableViewLogic = kea<tableViewLogicType>([
             lemonToast.error('Error deleting view')
         },
 
+        loadViewsSuccess: () => {
+            // Restoring on mount would apply the columns of a view its creator has since deleted,
+            // because the pick lives in this browser's storage, and clearing the pick afterwards
+            // does not take those columns back off the table. The reducer runs before this, so
+            // currentView is already null when the list dropped the view. Restore on the first
+            // list only, so the refresh after saving a view does not apply the pick again.
+            if (cache.restoredStoredView) {
+                return
+            }
+            cache.restoredStoredView = true
+
+            if (values.currentView && isUntouchedDefaultQuery(props.contextKey, props.query)) {
+                actions.applyView(values.currentView)
+            }
+        },
+
         loadViewsFailure: (error) => {
             posthog.captureException(error)
             lemonToast.error('Error loading views')
@@ -545,33 +578,4 @@ export const tableViewLogic = kea<tableViewLogicType>([
             lemonToast.error('Error creating view')
         },
     })),
-
-    afterMount(({ values, actions, props }) => {
-        if (!values.currentView) {
-            return
-        }
-
-        switch (props.contextKey) {
-            case PEOPLE_LIST_CONTEXT_KEY:
-                if (equal(props.query, PEOPLE_LIST_DEFAULT_QUERY.source)) {
-                    actions.applyView(values.currentView)
-                }
-                break
-            case 'group-0-list':
-            case 'group-1-list':
-            case 'group-2-list':
-            case 'group-3-list':
-            case 'group-4-list':
-                const groupTypeIndex = parseInt(props.contextKey.split('-')[1])
-                if (equal(props.query, GROUPS_LIST_DEFAULT_QUERY(groupTypeIndex).source)) {
-                    actions.applyView(values.currentView)
-                }
-                break
-            case PERSON_EVENTS_CONTEXT_KEY:
-                if (isInitialPersonEventsQuery(props.query)) {
-                    actions.applyView(values.currentView)
-                }
-                break
-        }
-    }),
 ])

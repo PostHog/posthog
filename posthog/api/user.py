@@ -7,14 +7,14 @@ import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, NoReturn, Optional, cast
 
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone as django_timezone
@@ -86,6 +86,7 @@ from posthog.event_usage import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import (
+    EmailLookupHandler,
     EmailNormalizer,
     EmailValidationHelper,
     reject_plus_addressed_email,
@@ -403,16 +404,26 @@ class UserSerializer(serializers.ModelSerializer):
         return validate_display_name(value)
 
     def validate_email(self, value: str) -> str:
-        if self.instance and value.lower() == self.instance.email.lower():
-            # Unchanged — don't re-validate a legacy '+' address on an unrelated profile edit.
-            return value
+        normalized = EmailNormalizer.normalize(value)
+        if self.instance and normalized == EmailNormalizer.normalize(self.instance.email):
+            # Unchanged — don't re-validate a legacy '+' address on an unrelated profile edit. The
+            # stored string is returned as it is, because an edit of the case alone reaches no
+            # verification and so cannot rewrite the address a person signs in with.
+            return self.instance.email
         reject_plus_addressed_email(value)
         # Excluding the editor lets a legacy '+' account holder drop their own alias.
         if EmailValidationHelper.user_exists_with_stripped_alias(
             value, exclude_user_id=self.instance.pk if self.instance else None
         ):
             raise serializers.ValidationError("There is already an account with this email address.", code="unique")
-        return value
+        # The alias check above reads active accounts, so a deactivated holder of the same folded
+        # address passes it. Resolve on the fold every lookup shares, across every account.
+        holders = EmailLookupHandler.users_matching_email(normalized, User.objects.all())
+        if self.instance:
+            holders = holders.exclude(pk=self.instance.pk)
+        if holders.exists():
+            raise serializers.ValidationError("There is already an account with this email address.", code="unique")
+        return normalized
 
     def get_has_password(self, instance: User) -> bool:
         return bool(instance.password) and instance.has_usable_password()
@@ -698,9 +709,11 @@ class UserSerializer(serializers.ModelSerializer):
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization
 
+        # Fold both sides: `validate_email` hands back the stored address for an edit of the case
+        # alone, and a legacy row can hold that address in any case.
         if (
             "email" in validated_data
-            and validated_data["email"].lower() != instance.email.lower()
+            and EmailNormalizer.normalize(validated_data["email"]) != EmailNormalizer.normalize(instance.email)
             and is_email_available()
         ):
             new_email = validated_data["email"]
@@ -731,7 +744,7 @@ class UserSerializer(serializers.ModelSerializer):
                     code="sso_enforced_new_email",
                 )
             validated_data.pop("email", None)  # staged as pending_email below, not written to `email` directly
-            instance.pending_email = new_email
+            instance.pending_email = EmailNormalizer.normalize(new_email)
             instance.save(update_fields=["pending_email"])
             # The code is bound to the captured address, so a concurrent email change cannot
             # redirect this code: once a different address is staged, the code stops verifying.
@@ -912,6 +925,20 @@ class UserGithubLoginSerializer(serializers.Serializer):
     github_login = serializers.CharField(
         allow_null=True,
         help_text="The user's resolved GitHub login, or null when no GitHub identity is linked.",
+    )
+
+
+def refuse_pending_email_promotion() -> NoReturn:
+    """Refuse the change, because the address is no longer free.
+
+    The staged address stays. Clearing it would leave a verified account with nothing staged, which
+    is the state the replay shortcut in `verify_email` reads as a completed change, so the next
+    request would report success for a change that never happened. Keeping it staged also keeps
+    `cancel_email_change_request` available as the way out.
+    """
+    raise serializers.ValidationError(
+        {"email": ["Another account now uses this email address. Start the change again with a different address."]},
+        code="email_taken",
     )
 
 
@@ -1135,12 +1162,26 @@ class UserViewSet(
         # and in the verifier.
         if user.pending_email and user.is_email_verified is not False:
             old_email = user.email
-            with transaction.atomic():
-                user.email = user.pending_email
-                user.pending_email = None
-                user.save(update_fields=["email", "pending_email"])
-                # Delete social auth so the old external identity can't keep logging in.
-                UserSocialAuth.objects.filter(user=user).delete()
+            # `pending_email` holds whatever case the change was staged in.
+            new_email = EmailNormalizer.normalize(user.pending_email)
+            # Anyone can claim the address while the change waits for this code.
+            taken = (
+                EmailValidationHelper.user_exists_with_stripped_alias(new_email, exclude_user_id=user.pk)
+                or EmailLookupHandler.users_matching_email(new_email, User.objects.all()).exclude(pk=user.pk).exists()
+            )
+            if taken:
+                refuse_pending_email_promotion()
+            try:
+                with transaction.atomic():
+                    user.email = EmailNormalizer.normalize(new_email)
+                    user.pending_email = None
+                    user.save(update_fields=["email", "pending_email"])
+                    # Delete social auth so the old external identity can't keep logging in.
+                    UserSocialAuth.objects.filter(user=user).delete()
+            except IntegrityError:
+                # A row that appeared since the check above reaches this write.
+                user.refresh_from_db()
+                refuse_pending_email_promotion()
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
             revoke_other_sessions_for_request(request, user)
 

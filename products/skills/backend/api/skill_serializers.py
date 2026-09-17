@@ -26,6 +26,7 @@ from .skill_services import (
     RESERVED_SKILL_NAMES,
     SKILL_NAME_PATTERN,
     LLMSkillOwnerNotFoundError,
+    bundled_skill_name_error,
     check_allowed_tool_name,
     compute_spec_problems,
     normalize_skill_file_path,
@@ -81,6 +82,18 @@ def validate_skill_name_value(value: str) -> str:
             "Consecutive hyphens are not allowed.",
             code="invalid_name",
         )
+    return value
+
+
+def validate_new_skill_name_value(value: str) -> str:
+    """Validate a name a team is claiming for a skill: create, rename, duplicate, install, import.
+
+    Adds the bundled-name rule to `validate_skill_name_value`, which stays the looser contract for
+    a name that points at a skill the project already holds (see `bundled_skill_name_error`).
+    """
+    value = validate_skill_name_value(value)
+    if error := bundled_skill_name_error(value):
+        raise serializers.ValidationError(error, code="bundled_skill_name")
     return value
 
 
@@ -605,6 +618,9 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "first_version_created_at",
         ]
         extra_kwargs = {
+            # No bundled-name rule here: this base serves the read responses, and a project's
+            # seeded canonical skills come back under the names PostHog ships. The write
+            # serializers carry that rule.
             "name": {
                 "help_text": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters."
             },
@@ -721,7 +737,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         return data
 
     def validate_name(self, value: str) -> str:
-        return validate_skill_name_value(value)
+        return validate_new_skill_name_value(value)
 
     def validate_body(self, value: str) -> str:
         return validate_skill_body_size(value)
@@ -772,6 +788,13 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
 
     class Meta(LLMSkillSerializer.Meta):
         read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f not in ("files", "owners")]
+        extra_kwargs = {
+            **LLMSkillSerializer.Meta.extra_kwargs,
+            "name": {
+                "help_text": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters. "
+                "Cannot be the name of a skill PostHog ships."
+            },
+        }
 
     def validate_files(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return _validate_files(value)
@@ -854,28 +877,68 @@ class LLMSkillImportSerializer(serializers.Serializer):
 class LLMSkillDuplicateSerializer(serializers.Serializer):
     new_name = serializers.CharField(
         max_length=64,
-        help_text="Name for the duplicated skill. Must be unique.",
+        help_text="Name for the duplicated skill. Must be unique, and cannot be the name of a skill PostHog ships.",
     )
 
     def validate_new_name(self, value: str) -> str:
-        return validate_skill_name_value(value)
+        return validate_new_skill_name_value(value)
 
 
 class LLMSkillRenameSerializer(serializers.Serializer):
     new_name = serializers.CharField(
         max_length=MAX_SKILL_NAME_LENGTH,
-        help_text="New name for the skill. Must be unique in the project, and must not start with "
-        "'signals-scout-' or 'review-hog-'.",
+        help_text="New name for the skill. Must be unique in the project, cannot be the name of a skill "
+        "PostHog ships, and must not start with 'signals-scout-' or 'review-hog-'.",
     )
 
     def validate_new_name(self, value: str) -> str:
-        return validate_skill_name_value(value)
+        return validate_new_skill_name_value(value)
 
 
 class LLMSkillResolveResponseSerializer(serializers.Serializer):
     skill = LLMSkillSerializer()
     versions = LLMSkillVersionSummarySerializer(many=True)
     has_more = serializers.BooleanField()
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "description": {"type": "string"},
+            "license": {"type": "string"},
+            "compatibility": {"type": "string"},
+            "metadata": {"type": "object", "additionalProperties": {"type": "string"}},
+            "allowed-tools": {"type": "string"},
+        },
+        "required": ["name", "description", "metadata"],
+    }
+)
+class SkillFrontmatterField(serializers.DictField):
+    """The Agent Skills frontmatter mapping, passed through with the spec's own key names.
+
+    ``allowed-tools`` is hyphenated in the spec, so the mapping is served verbatim instead of
+    through declared fields: a client must be able to compare it to ``yaml.safe_load`` of the
+    block in ``content`` key for key.
+    """
+
+
+class LLMSkillMarkdownSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name of the skill, which is also its directory name.")
+    version = serializers.IntegerField(help_text="Version of the skill that this SKILL.md was rendered from.")
+    content = serializers.CharField(
+        help_text=(
+            "The complete SKILL.md file: the YAML frontmatter block, a blank line, then the skill body. "
+            "Serve these bytes as the file; a digest must be taken over this exact string."
+        )
+    )
+    frontmatter = SkillFrontmatterField(
+        help_text=(
+            "The frontmatter block of content as a JSON object. Equal to yaml.safe_load of that block, "
+            "so a listing can carry the same fields the file carries."
+        )
+    )
 
 
 class LLMSkillFileCreateSerializer(LLMSkillFileInputSerializer):
@@ -994,6 +1057,13 @@ class LLMSkillMarketplaceCommandSerializer(serializers.Serializer):
 
 
 class LLMSkillPublishToCommunitySerializer(serializers.Serializer):
+    expected_skill_id = serializers.UUIDField(
+        help_text="Immutable ID of the skill version that the publisher reviewed."
+    )
+    expected_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Skill version that the publisher reviewed. The request returns 409 if the latest version changed.",
+    )
     display_name = serializers.RegexField(
         DISPLAY_NAME_PATTERN,
         required=False,
@@ -1021,6 +1091,10 @@ class LLMSkillPublishToCommunitySerializer(serializers.Serializer):
             "and self-reported: it is not verified against the publisher's PostHog account."
         ),
     )
+
+
+class LLMSkillPublishConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Reason that the reviewed skill version can no longer be published.")
 
 
 class CommunitySkillPublishResultSerializer(serializers.Serializer):

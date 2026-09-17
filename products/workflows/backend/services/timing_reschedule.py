@@ -1,39 +1,36 @@
-import re
-from typing import Any, Optional
+from typing import Optional
 
 import structlog
+
+from products.workflows.backend.utils.durations import (
+    MAX_VALUE_FOR_DURATION_UNIT,
+    SECONDS_PER_DURATION_UNIT,
+    parse_duration,
+)
 
 logger = structlog.get_logger(__name__)
 
 # Steps whose parked runs a timing edit can strand: delays park up to 30 days out and time
-# windows up to a week. wait_until_condition currently re-parks on a 10-minute polling cap
-# (so a sweep is a cheap no-op re-park), but the poll is slated for removal in favor of
-# matcher wakes - after which its max-wait deadline parks for the full duration like a
-# delay and shortening it strands runs without a sweep.
+# windows up to a week. wait_until_condition re-parks on an hourly reconciliation cap, so a
+# sweep is a cheap no-op re-park for waits shorter than that; past an hour the sweep is what
+# stops a shortened max-wait stranding runs.
 TIMING_ACTION_TYPES = {"delay", "wait_until_time_window", "wait_until_condition"}
 
 # Only jobs parked on this many steps or fewer get swept; a diff touching more than this is
 # pathological (the sweep endpoint caps action_ids at 100 too).
 MAX_RESCHEDULE_ACTION_IDS = 100
 
-# Mirrors the worker's duration parsing (nodejs delay.ts calculatedScheduledAt): value like
-# "10d" / "1.5h" / "10m", with per-unit clamps applied before comparison so a 45d -> 35d edit
-# (both clamped to 30d) doesn't trigger a pointless sweep.
-_DURATION_RE = re.compile(r"^(\d*\.?\d+)([dhms])$")
-_UNIT_SECONDS = {"d": 86400, "h": 3600, "m": 60, "s": 1}
-_UNIT_MAX = {"d": 30, "h": 24, "m": 60, "s": 60}
 
 _TIME_WINDOW_CONFIG_KEYS = ("day", "time", "timezone", "use_person_timezone", "fallback_timezone")
 
 
-def parse_delay_duration_seconds(value: Any) -> Optional[float]:
-    if not isinstance(value, str):
+def parse_delay_duration_seconds(value: object) -> Optional[float]:
+    """Seconds the worker will actually wait, with the per-unit clamps applied first so a 45d -> 35d
+    edit (both clamped to 30d) does not trigger a pointless sweep."""
+    parsed = parse_duration(value)
+    if parsed is None or parsed.negative:
         return None
-    match = _DURATION_RE.match(value)
-    if not match:
-        return None
-    amount, unit = match.groups()
-    return min(float(amount), _UNIT_MAX[unit]) * _UNIT_SECONDS[unit]
+    return min(parsed.amount, MAX_VALUE_FOR_DURATION_UNIT[parsed.unit]) * SECONDS_PER_DURATION_UNIT[parsed.unit]
 
 
 def get_all_timing_action_ids(actions: Optional[list[dict]]) -> list[str]:

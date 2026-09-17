@@ -192,7 +192,7 @@ export const MaterializationSettings: StoryObj = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/warehouse_saved_queries/:id/': [200, SETTINGS_VIEW],
-                '/api/environments/:team_id/data_modeling_jobs': [200, { results: [], count: 0 }],
+                '/api/projects/:team_id/data_modeling_jobs/': [200, { results: [], count: 0, next: null }],
                 '/api/environments/:team_id/data_modeling_nodes/lineage/': [
                     200,
                     {
