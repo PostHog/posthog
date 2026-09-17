@@ -89,13 +89,19 @@ def reorder_warnings(current: ValidatedConfig, proposed: ValidatedConfig) -> tup
         for (box_before, outcome_before), (box_after, outcome_after) in product(before.settled, after.settled):
             earlier = current.rules[outcome_before.rule_index]
             later = proposed.rules[outcome_after.rule_index]
-            if (
-                outcome_before.value != outcome_after.value
-                and not (default_edited and not (outcome_before.served and outcome_after.served))
-                and earlier in unchanged
+            values_differ = outcome_before.value != outcome_after.value
+            values_comparable = not default_edited or (outcome_before.served and outcome_after.served)
+            # Only a pair present in both configs has both indexes, so this covers "unchanged" too.
+            order_flipped = (
+                earlier in unchanged
                 and later in unchanged
                 and current_index[earlier.id] < current_index[later.id]
                 and proposed_index[later.id] < proposed_index[earlier.id]
+            )
+            if (
+                values_differ
+                and values_comparable
+                and order_flipped
                 and (earlier.id, later.id) not in inversions
                 and _intersects(box_before, box_after)
             ):
@@ -103,10 +109,10 @@ def reorder_warnings(current: ValidatedConfig, proposed: ValidatedConfig) -> tup
     return tuple(
         ManagementWarning(
             code="RULE_ORDER_CHANGES_TRAFFIC",
-            detail=f"Moving rule {later} above rule {earlier} changes the value some people receive.",
+            detail=f"Moving rule {later_id} above rule {earlier_id} changes the value some people receive.",
             attr=f"filters.rules[{index}]",
         )
-        for (earlier, later), index in sorted(inversions.items(), key=lambda item: (item[1], item[0]))
+        for (earlier_id, later_id), index in sorted(inversions.items(), key=lambda item: (item[1], item[0]))
     )
 
 
@@ -124,7 +130,7 @@ def _unreachable_lower_rules(config: ValidatedConfig) -> Iterator[ManagementWarn
 
 
 def _rollout_miss_extensions(config: ValidatedConfig) -> Iterator[ManagementWarning]:
-    walks: dict[tuple[frozenset[Predicate], int], _Walk] = {}
+    walks: dict[frozenset[Predicate], _Walk] = {}
     for upper_index, upper in enumerate(config.rules):
         if not _continues_after_partial_miss(upper):
             continue
@@ -136,11 +142,14 @@ def _rollout_miss_extensions(config: ValidatedConfig) -> Iterator[ManagementWarn
             population = _overlap(upper, lower)
             if population is None:
                 continue
-            # The walk includes the lower rule, so a value it serves shows up as its own outcome.
-            key = (population, lower_index)
-            if key not in walks:
-                walks[key] = _walk(config, population, until=lower_index + 1)
-            served_by = {outcome.rule_index for _, outcome in walks[key].settled if outcome.served}
+            # A shorter walk settles a prefix of a longer one, so the filter is the `until` bound.
+            if population not in walks:
+                walks[population] = _walk(config, population)
+            served_by = {
+                outcome.rule_index
+                for _, outcome in walks[population].settled
+                if outcome.served and outcome.rule_index <= lower_index
+            }
             # Both rules must serve somebody here: an upper rule that includes nobody has no rollout to extend.
             if not {upper_index, lower_index} <= served_by:
                 continue
@@ -187,11 +196,11 @@ class _Walk:
 
 
 def _has_contradictory_presence_checks(population: frozenset[Predicate]) -> bool:
-    required = {(predicate.key, predicate.negation) for predicate in population if predicate.operator == "is_set"}
-    return any(
-        predicate.operator == "is_not_set" and (predicate.key, predicate.negation) in required
-        for predicate in population
-    )
+    presence: dict[str, set[bool]] = {}
+    for predicate in population:
+        if predicate.operator in ("is_set", "is_not_set"):
+            presence.setdefault(predicate.key, set()).add((predicate.operator == "is_set") != predicate.negation)
+    return any(len(states) > 1 for states in presence.values())
 
 
 def _walk(config: ValidatedConfig, population: frozenset[Predicate], *, until: int | None = None) -> _Walk:

@@ -12,8 +12,14 @@ import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 from parameterized import parameterized
 
+from products.feature_flags.backend import filters_validation
 from products.feature_flags.backend.api.feature_flag import calculate_filter_size_bytes
+from products.feature_flags.backend.facade import config_validation
 from products.feature_flags.backend.facade.config_validation import (
+    _COMMON_RULE_FIELDS,
+    _PROPERTY_FIELDS,
+    _ROLLOUT_RULE_FIELDS,
+    _ROOT_FIELDS,
     _UUID as UUID_PATTERN,
     ASSIGNMENT_ALGORITHM,
     MAX_PREDICATES_PER_RULE,
@@ -22,7 +28,9 @@ from products.feature_flags.backend.facade.config_validation import (
     PERSON_ASSIGNMENT,
     PROPERTY_OPERATORS,
     PROPERTY_TYPES,
+    RETURN_TYPES,
     ROLLOUT_MISS_POLICIES,
+    RULE_TYPES,
     ConfigValidationError,
     Predicate,
     ValidatedConfig,
@@ -124,7 +132,7 @@ VALID_DOCUMENTS: list[tuple[str, dict[str, Any]]] = [
     ("percentage_float_integer", config(rollout(rollout_percentage=25.0))),
     ("return_default", config(rollout(on_rollout_miss="return_default"))),
     ("explicit_person_assignment", config(rollout(assign_by=PERSON_ASSIGNMENT))),
-    ("seed_max_length", config(rollout(seed="s" * 400))),
+    ("seed_max_length", config(rollout(seed="s" * MAX_SEED_LENGTH))),
     (
         "all_operator_value_shapes",
         config(
@@ -556,7 +564,7 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
     ),
     ("missing_seed", config(without(rollout(), "seed")), [("required", "filters.rules[0].seed")]),
     ("empty_seed", config(rollout(seed="")), [("invalid", "filters.rules[0].seed")]),
-    ("seed_too_long", config(rollout(seed="s" * 401)), [("invalid", "filters.rules[0].seed")]),
+    ("seed_too_long", config(rollout(seed="s" * (MAX_SEED_LENGTH + 1))), [("invalid", "filters.rules[0].seed")]),
     ("seed_number", config(rollout(seed=123)), [("invalid", "filters.rules[0].seed")]),
     ("seed_null", config(rollout(seed=None)), [("invalid", "filters.rules[0].seed")]),
     ("group_assign_by", config(rollout(assign_by="group")), [("invalid", "filters.rules[0].assign_by")]),
@@ -585,6 +593,25 @@ class TestValidateConfig:
         assert errors_of(document) == expected
         if isinstance(document, dict | list):
             assert document == snapshot
+
+    @parameterized.expand(
+        [
+            ("metadata", lambda deep: config(targeted(metadata={"note": deep})), "filters.rules[0].metadata"),
+            (
+                "property_value",
+                lambda deep: config(targeted(targeting={"properties": [person(value=deep)]})),
+                "filters.rules[0].targeting.properties[0].value",
+            ),
+        ]
+    )
+    def test_deeply_nested_values_are_a_field_error_not_a_crash(self, _name: str, build: Any, attr: str) -> None:
+        # Nesting past the recursion limit stays a few KB, so no byte limit catches it first.
+        deep: Any = 1
+        for _ in range(2000):
+            deep = [deep]
+        assert errors_of(build(deep), ValidationLimits(max_config_bytes=64 * 1024, max_metadata_bytes=64 * 1024)) == [
+            ("invalid", attr)
+        ]
 
     def test_errors_are_collected_in_a_fixed_order(self) -> None:
         document = {**without(config(targeted(id="bad")), "default_value"), "future": 1}
@@ -675,6 +702,8 @@ class TestValidateConfig:
 
 def _contract_path(instance_path: str, expected: dict[str, Any]) -> str:
     attr = "filters" + re.sub(r"/(\d+)", r"[\1]", instance_path).replace("/", ".")
+    # Upstream writes the bare field name in `message_contains` for these two keywords, so it is
+    # the missing or unknown field's path segment. Other keywords carry prose (`2 was expected`).
     if expected["keyword"] in ("required", "additionalProperties"):
         attr += "." + expected["message_contains"]
     return attr
@@ -736,6 +765,23 @@ class TestReleasedContract:
         assert MAX_PREDICATES_PER_RULE == CONFIG_SCHEMA["$defs"]["targeting"]["properties"]["properties"]["maxItems"]
         assert MAX_SEED_LENGTH == CONFIG_SCHEMA["$defs"]["seed"]["maxLength"]
         assert UUID_PATTERN.pattern == CONFIG_SCHEMA["$defs"]["uuid"]["pattern"]
+        assert set(RETURN_TYPES) == {entry["value"] for entry in registry["return_types"]}
+        assert set(RULE_TYPES) == {entry["value"] for entry in registry["rule_types"]}
+
+    def test_field_name_sets_agree_with_the_released_schema(self) -> None:
+        defs = CONFIG_SCHEMA["$defs"]
+        assert _ROOT_FIELDS == set(CONFIG_SCHEMA["properties"])
+        assert _COMMON_RULE_FIELDS == set(defs["targetedReleaseRule"]["properties"])
+        assert _COMMON_RULE_FIELDS | _ROLLOUT_RULE_FIELDS == set(defs["percentageRolloutRule"]["properties"])
+        assert _PROPERTY_FIELDS == set(defs["propertyFilter"]["properties"])
+
+    def test_operator_tables_match_the_v1_cross_field_tier(self) -> None:
+        # Repeated rather than imported (that module is the v1 tier), so nothing else keeps them equal.
+        assert config_validation._DATE_OPERATORS == filters_validation.DATE_OPERATORS
+        assert config_validation._STRING_VALUE_OPERATORS == filters_validation.STRING_VALUE_OPERATORS
+        assert config_validation._NUMERIC_COMPARISON_OPERATORS == filters_validation.NUMERIC_COMPARISON_OPERATORS
+        assert config_validation._LIST_VALUE_OPERATORS == filters_validation.LIST_VALUE_OPERATORS
+        assert config_validation._SEMVER_OPERATORS == filters_validation.SEMVER_OPERATORS
 
     def test_size_check_measures_the_same_bytes_as_the_v1_limit(self) -> None:
         document = config(targeted(targeting={"properties": [person(value="ø")]}, metadata={"note": "x"}))

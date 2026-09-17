@@ -103,7 +103,7 @@ _SEMVER_OPERATORS = frozenset({op for op in PROPERTY_OPERATORS if op.startswith(
 _NON_PERSON_OPERATORS = frozenset({"in", "not_in", "flag_evaluates_to"})
 
 _ROOT_FIELDS = frozenset({"version", "return_type", "default_value", "rules", "aggregation_group_type_index"})
-# Final plan §5.1: v1-only top-level keys a v2 document must never carry.
+# v1-only top-level keys a v2 document must never carry.
 _V1_ONLY_ROOT_FIELDS = frozenset(
     {
         "groups",
@@ -545,5 +545,6 @@ def _encoded_size(value: object, *, allow_nan: bool = True) -> int | None:
         if not allow_nan and not _has_finite_numbers(value):
             return None
         return len(encoded.encode("utf-8"))
-    except (TypeError, ValueError):
+    # Nesting past the recursion limit in the walk above is one more shape we cannot size.
+    except (TypeError, ValueError, RecursionError):
         return None

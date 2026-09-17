@@ -48,7 +48,7 @@ The structural `ConfigV2` reader omits these fields, so it cannot serve as a uni
 ## Configuration validation and rule detectors
 
 `facade/config_validation.py` validates a complete canonical config version 2 candidate: the document a writer is about to persist, with rule ids and seeds already resolved, plus explicit `ValidationLimits` (the deployment filter byte limit and a per-rule metadata bound) from the trusted caller.
-It returns a `ValidatedConfig` or raises `ConfigValidationError` with every field error in document order, each as a stable code (`required`, `invalid`, `unknown_field`, `not_unique`, `unsupported`, `limit_exceeded`), a presentation detail and a `filters.…` path.
+It returns a `ValidatedConfig` or raises `ConfigValidationError` with every field error in a fixed order (root fields, then each rule's fields in rule order), each as a stable code (`required`, `invalid`, `unknown_field`, `not_unique`, `unsupported`, `limit_exceeded`), a presentation detail and a `filters.…` path.
 It does not read or write the database, assign ids or seeds, check permissions, or mutate the input, and a valid result is not permission to store or activate anything.
 
 The admitted family is deliberately narrower than the published schema: person-assigned boolean flags with `targeted_release` and `percentage_rollout` rules whose targeting uses person properties with the contract's canonical operators.

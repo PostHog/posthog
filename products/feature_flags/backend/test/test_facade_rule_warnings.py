@@ -11,6 +11,7 @@ from parameterized import parameterized
 from products.feature_flags.backend.facade.config_validation import (
     ConfigValidationError,
     Predicate,
+    RolloutMissPolicy,
     ValidatedConfig,
     ValidatedRule,
 )
@@ -39,6 +40,7 @@ FREE = Predicate(key="plan", operator="exact", value='"free"', negation=False)
 NORWAY = Predicate(key="country", operator="exact", value='"NO"', negation=False)
 PLAN_SET = Predicate(key="plan", operator="is_set", value="null", negation=False)
 PLAN_NOT_SET = Predicate(key="plan", operator="is_not_set", value='"ignored"', negation=False)
+PLAN_SET_NEGATED = Predicate(key="plan", operator="is_set", value="null", negation=True)
 COUNTRY_NOT_SET = Predicate(key="country", operator="is_not_set", value="null", negation=False)
 
 
@@ -52,7 +54,7 @@ def rollout(
     value: bool = True,
     *predicates: Predicate,
     seed: str = SEED,
-    miss: str = "continue",
+    miss: RolloutMissPolicy = "continue",
 ) -> ValidatedRule:
     return ValidatedRule(
         id=rule_id,
@@ -60,7 +62,7 @@ def rollout(
         predicates=frozenset(predicates),
         value=value,
         rollout_percentage=Decimal(str(percentage)),
-        on_rollout_miss=miss,  # type: ignore[arg-type]
+        on_rollout_miss=miss,
         seed=seed,
     )
 
@@ -188,6 +190,11 @@ class TestConfigWarnings:
                 cfg(rollout(A, 25), targeted(B), targeted(C)),
                 [(UNREACHABLE, "filters.rules[2]"), (EXTENDS, "filters.rules[1]")],
             ),
+            (
+                "two_rollouts_each_extend_into_the_same_lower_rule",
+                cfg(rollout(A, 25), rollout(B, 40, seed=OTHER_SEED), targeted(C)),
+                [(EXTENDS, "filters.rules[1]"), (EXTENDS, "filters.rules[2]"), (EXTENDS, "filters.rules[2]")],
+            ),
             ("lower_rule_serves_another_value", cfg(rollout(A, 25), targeted(B, False)), []),
             ("same_seed_equal_percentage_cannot_extend", cfg(rollout(A, 25), rollout(B, 25)), []),
             ("same_seed_lower_percentage_cannot_extend", cfg(rollout(A, 25), rollout(B, 10)), []),
@@ -208,6 +215,11 @@ class TestConfigWarnings:
             (
                 "impossible_lower_population_cannot_extend_rollout",
                 cfg(rollout(A, 25), targeted(B, True, PLAN_SET, PLAN_NOT_SET)),
+                [],
+            ),
+            (
+                "negated_presence_spells_the_same_impossible_population",
+                cfg(rollout(A, 25), targeted(B, True, PLAN_SET, PLAN_SET_NEGATED)),
                 [],
             ),
             (
@@ -243,10 +255,14 @@ class TestConfigWarnings:
     ) -> None:
         assert codes(config_warnings(config)) == expected
 
-    def test_rollout_miss_warning_explains_the_reach_without_the_seed(self) -> None:
-        (warning,) = config_warnings(cfg(rollout(A, "33.3"), targeted(B)))
+    # A trailing zero is the shape `Decimal.normalize()` renders as `5E+1`; 33.3 and 25 are not.
+    @parameterized.expand([("two_decimals", "33.3", "33.3%"), ("trailing_zero", 50, "50%")])
+    def test_rollout_miss_warning_explains_the_reach_without_the_seed(
+        self, _name: str, percentage: int | str, rendered: str
+    ) -> None:
+        (warning,) = config_warnings(cfg(rollout(A, percentage), targeted(B)))
         assert warning.attr == "filters.rules[1]"
-        assert A in text(warning) and B in text(warning) and "33.3%" in text(warning)
+        assert A in text(warning) and B in text(warning) and rendered in text(warning)
         assert SEED not in text(warning)
 
     @parameterized.expand(
