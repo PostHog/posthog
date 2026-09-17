@@ -41,6 +41,7 @@ import {
 } from 'scenes/session-recordings/apm/performanceEventDataLogic'
 import {
     filterInspectorListItems,
+    isContextItem,
     itemToMiniFilter,
 } from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
 import { MiniFilterKey, miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
@@ -262,6 +263,16 @@ export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicPr
     matchingEventsMatchType?: MatchingEventsMatchType
 }
 
+type SeekbarInspectorListItem =
+    | InspectorListItemEvent
+    | InspectorListItemComment
+    | InspectorListItemExperimentVariant
+    | InspectorListItemMetricEvent
+
+function isSeekbarItem(item: InspectorListItem): item is SeekbarInspectorListItem {
+    return ['events', 'comment', 'experiment-variant', 'metric-event'].includes(item.type)
+}
+
 /** Merges adjacent inactivity items into one with a combined duration. */
 function mergeAdjacentInactivity(items: InspectorListItem[]): InspectorListItem[] {
     return items.reduce((acc, item) => {
@@ -465,6 +476,7 @@ export interface playerInspectorLogicValues {
     isLoading: boolean
     isReady: boolean
     items: InspectorListItem[]
+    itemsPassingFilters: InspectorListItem[]
     matchingEvents: MatchedRecordingEvent[] | null
     matchingEventsLoading: boolean
     matchingEventsSettled: boolean
@@ -482,12 +494,7 @@ export interface playerInspectorLogicValues {
         rawConsoleLogs: RecordingConsoleLogV2[]
     }
     runtimeDoctorEvents: InspectorListItemDoctor[]
-    seekbarItems: (
-        | InspectorListItemComment
-        | InspectorListItemEvent
-        | InspectorListItemExperimentVariant
-        | InspectorListItemMetricEvent
-    )[]
+    seekbarItems: SeekbarInspectorListItem[]
     syncScrollPaused: boolean
     windowNumberForID: (windowId: number | undefined) => number | '?' | undefined
 }
@@ -744,7 +751,7 @@ export interface playerInspectorLogicMeta {
             itemsByMiniFilterKey: Record<MiniFilterKey, InspectorListItem[]>
             itemsByType: Record<FilterableInspectorListItemTypes | 'context', InspectorListItem[]>
         }
-        filteredItems: (
+        itemsPassingFilters: (
             allItems: {
                 items: InspectorListItem[]
                 itemsByMiniFilterKey: Record<MiniFilterKey, InspectorListItem[]>
@@ -758,25 +765,8 @@ export interface playerInspectorLogicMeta {
             trackedWindow: number | null,
             hasEventsToDisplay: boolean
         ) => InspectorListItem[]
-        seekbarItems: (
-            allItems: {
-                items: InspectorListItem[]
-                itemsByMiniFilterKey: Record<MiniFilterKey, InspectorListItem[]>
-                itemsByType: Record<FilterableInspectorListItemTypes | 'context', InspectorListItem[]>
-            },
-            miniFiltersByKey: {
-                [key: string]: SharedListMiniFilter
-            },
-            showOnlyMatching: boolean,
-            allowMatchingEventsFilter: boolean,
-            trackedWindow: number | null,
-            hasEventsToDisplay: boolean
-        ) => (
-            | InspectorListItemComment
-            | InspectorListItemEvent
-            | InspectorListItemExperimentVariant
-            | InspectorListItemMetricEvent
-        )[]
+        filteredItems: (itemsPassingFilters: InspectorListItem[]) => InspectorListItem[]
+        seekbarItems: (itemsPassingFilters: InspectorListItem[]) => SeekbarInspectorListItem[]
         inspectorDataState: (
             sessionEventsDataLoading: boolean,
             sessionPlayerMetaDataLoading: boolean,
@@ -1850,7 +1840,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             { resultEqualityCheck: equal },
         ],
 
-        filteredItems: [
+        itemsPassingFilters: [
             (s) => [
                 s.allItems,
                 s.miniFiltersByKey,
@@ -1872,113 +1862,40 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 allowMatchingEventsFilter: boolean,
                 trackedWindow: number | null,
                 hasEventsToDisplay: boolean
-            ): InspectorListItem[] => {
-                const filteredItems = filterInspectorListItems({
+            ): InspectorListItem[] =>
+                filterInspectorListItems({
                     allItems: allItemsData.items,
                     miniFiltersByKey,
                     allowMatchingEventsFilter,
                     showOnlyMatching,
                     trackedWindow,
                     hasEventsToDisplay,
-                })
+                }),
+            { resultEqualityCheck: equal },
+        ],
 
-                return mergeAdjacentInactivity(filteredItems)
+        filteredItems: [
+            (s) => [s.itemsPassingFilters],
+            (itemsPassingFilters: InspectorListItem[]): InspectorListItem[] => {
+                // Context items on their own say nothing, so the list shows its empty state instead
+                if (itemsPassingFilters.every(isContextItem)) {
+                    return []
+                }
+
+                return mergeAdjacentInactivity(itemsPassingFilters)
             },
             { resultEqualityCheck: equal },
         ],
 
         seekbarItems: [
-            (s) => [
-                s.allItems,
-                s.miniFiltersByKey,
-                s.showOnlyMatching,
-                s.allowMatchingEventsFilter,
-                s.trackedWindow,
-                s.hasEventsToDisplay,
-            ],
-            (
-                allItemsData: {
-                    items: InspectorListItem[]
-                    itemsByMiniFilterKey: Record<MiniFilterKey, InspectorListItem[]>
-                    itemsByType: Record<FilterableInspectorListItemTypes | 'context', InspectorListItem[]>
-                },
-                miniFiltersByKey: {
-                    [key: string]: import('scenes/session-recordings/player/inspector/miniFiltersLogic').SharedListMiniFilter
-                },
-                showOnlyMatching: boolean,
-                allowMatchingEventsFilter: boolean,
-                trackedWindow: number | null,
-                hasEventsToDisplay: boolean
-            ): (
-                | InspectorListItemEvent
-                | InspectorListItemComment
-                | InspectorListItemExperimentVariant
-                | InspectorListItemMetricEvent
-            )[] => {
-                // Pre-filter to only events, comments and experiment markers, avoiding the full filterInspectorListItems call
-                const eventAndCommentItems: (
-                    | InspectorListItemEvent
-                    | InspectorListItemComment
-                    | InspectorListItemExperimentVariant
-                    | InspectorListItemMetricEvent
-                )[] = []
-
-                for (const item of allItemsData.items) {
-                    // Only process events, comments and experiment markers
-                    if (
-                        item.type !== 'events' &&
-                        item.type !== 'comment' &&
-                        item.type !== 'experiment-variant' &&
-                        item.type !== 'metric-event'
-                    ) {
-                        continue
-                    }
-
-                    // Skip events if there are no events to display
-                    if (item.type === 'events' && !hasEventsToDisplay) {
-                        continue
-                    }
-
-                    // Apply tracking window filter early
-                    if (trackedWindow && item.windowId !== trackedWindow) {
-                        continue
-                    }
-
-                    // Type assertion since we've already checked the type
-                    const typedItem = item as
-                        | InspectorListItemEvent
-                        | InspectorListItemComment
-                        | InspectorListItemExperimentVariant
-                        | InspectorListItemMetricEvent
-
-                    // Apply event-specific filters
-                    if (item.type === 'events') {
-                        // Skip if matching events filter is active and item doesn't match
-                        if (allowMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary') {
-                            continue
-                        }
-
-                        // Apply mini-filters for events
-                        const eventKey = `events-${item.data.event}` as keyof typeof miniFiltersByKey
-                        const eventFilter = miniFiltersByKey[eventKey] || miniFiltersByKey['events-custom']
-                        if (eventFilter && !eventFilter.enabled) {
-                            continue
-                        }
-                    } else if (item.type === 'comment') {
-                        // Apply mini-filters for comments
-                        const commentFilter = miniFiltersByKey['comment']
-                        if (commentFilter && !commentFilter.enabled) {
-                            continue
-                        }
-                    }
-
-                    eventAndCommentItems.push(typedItem)
-                }
+            (s) => [s.itemsPassingFilters],
+            (itemsPassingFilters: InspectorListItem[]): SeekbarInspectorListItem[] => {
+                const seekbarItems = itemsPassingFilters.filter(isSeekbarItem)
 
                 // If we have too many items, apply priority filtering and sampling
-                if (eventAndCommentItems.length > MAX_SEEKBAR_ITEMS) {
+                if (seekbarItems.length > MAX_SEEKBAR_ITEMS) {
                     // First pass: keep only high-priority items
-                    let priorityItems = eventAndCommentItems.filter((item) => {
+                    let priorityItems = seekbarItems.filter((item) => {
                         const isPrimary = item.highlightColor === 'primary'
                         const isPageView = item.type === 'events' && item.data.event === '$pageview'
                         const isComment = item.type === 'comment'
@@ -1996,7 +1913,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     return priorityItems
                 }
 
-                return eventAndCommentItems
+                return seekbarItems
             },
             { resultEqualityCheck: equal },
         ],

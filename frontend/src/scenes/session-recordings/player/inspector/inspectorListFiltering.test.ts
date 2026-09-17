@@ -19,7 +19,7 @@ import { LogSeverityLevel } from '~/queries/schema/schema-general'
 import { PerformanceEvent } from '~/types'
 
 describe('filtering inspector list items', () => {
-    it('hides context events when no other events', () => {
+    it('keeps context events when no other events, so each caller decides what an empty result means', () => {
         expect(
             filterInspectorListItems({
                 allItems: [
@@ -39,7 +39,7 @@ describe('filtering inspector list items', () => {
                 trackedWindow: null,
                 hasEventsToDisplay: false,
             })
-        ).toHaveLength(0)
+        ).toHaveLength(2)
     })
 
     it('shows context events when other events', () => {

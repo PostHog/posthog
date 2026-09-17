@@ -70,7 +70,7 @@ function isLogEvent(item: InspectorListItem): item is InspectorListItemLog {
     return item.type === 'logs'
 }
 
-function isContextItem(item: InspectorListItem): boolean {
+export function isContextItem(item: InspectorListItem): boolean {
     return [
         'browser-visibility',
         'offline-status',
@@ -248,5 +248,5 @@ export function filterInspectorListItems({
         items.push(item)
     }
 
-    return items.every((i) => isContextItem(i)) ? [] : items
+    return items
 }

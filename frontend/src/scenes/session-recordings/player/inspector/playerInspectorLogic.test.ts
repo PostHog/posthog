@@ -4,7 +4,10 @@ import { HttpResponse } from 'msw'
 import { RecordingSnapshot } from '@posthog/replay-shared'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
+    InspectorListItem,
+    InspectorListItemEvent,
     PlayerInspectorLogicProps,
     playerInspectorLogic,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -657,8 +660,39 @@ describe('playerInspectorLogic', () => {
                 },
             })
 
+            // The list collapses a context-only result to its empty state, but the marker still belongs on the seekbar
+            expect(logic.values.filteredItems).toHaveLength(0)
             const seekbarMarkers = logic.values.seekbarItems.filter((item) => item.type === 'experiment-variant')
             expect(seekbarMarkers).toHaveLength(1)
+        })
+    })
+
+    describe('seekbar items', () => {
+        // selectedMiniFilters persists to local storage, so pin the defaults before each case
+        beforeEach(() => {
+            miniFiltersLogic.actions.resetMiniFilters()
+        })
+
+        const eventNames = (items: InspectorListItem[]): string[] =>
+            items
+                .filter((item): item is InspectorListItemEvent => item.type === 'events')
+                .map((item) => item.data.event)
+
+        it.each([
+            ['events-pageview' as const, ['$autocapture', 'blah'], ['$pageview']],
+            ['events-autocapture' as const, ['$pageview', 'blah'], ['$autocapture']],
+            ['events-custom' as const, ['$pageview', '$autocapture'], ['blah']],
+        ])('gates only the ticks %s names, and stays in step with the list', async (filterKey, kept, hidden) => {
+            logic.actions.setMiniFilter(filterKey, false)
+
+            await expectLogic(dataLogic, () => {
+                dataLogic.actions.loadSnapshots()
+            }).toDispatchActions(['loadEventsSuccess'])
+
+            const ticks = eventNames(logic.values.seekbarItems)
+            expect(ticks).toEqual(eventNames(logic.values.filteredItems))
+            kept.forEach((event) => expect(ticks).toContain(event))
+            hidden.forEach((event) => expect(ticks).not.toContain(event))
         })
     })
 
