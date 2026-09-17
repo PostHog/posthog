@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -12,30 +13,25 @@ FLAG_LAST_CALLED_AT = datetime(2026, 2, 3, 17, 45, 12, tzinfo=UTC)
 
 @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
 class TestFeatureFlagRoundTripGate(APIBaseTest):
-    def _rollout_policy(self) -> ApprovalPolicy:
-        return ApprovalPolicy.objects.create(
+    def _policy(self, action_key: str, conditions: dict[str, Any]) -> None:
+        ApprovalPolicy.objects.create(
             organization=self.organization,
             team=self.team,
-            action_key="feature_flag.update",
-            conditions={"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0},
+            action_key=action_key,
+            conditions=conditions,
             approver_config={"quorum": 1, "users": [self.user.id]},
             created_by=self.user,
         )
 
-    def _enable_policy(self) -> ApprovalPolicy:
-        return ApprovalPolicy.objects.create(
-            organization=self.organization,
-            team=self.team,
-            action_key="feature_flag.enable",
-            conditions={},
-            approver_config={"quorum": 1, "users": [self.user.id]},
-            created_by=self.user,
+    def test_patching_whole_get_body_is_gated_not_an_error(self, _mock_enabled):
+        # >0 from a zero baseline fires on any non-trivial rollout write.
+        self._policy(
+            "feature_flag.update",
+            {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0},
         )
-
-    def _evaluated_flag(self) -> FeatureFlag:
         # last_called_at must be non-null: a null one round-trips as JSON `null` and never
         # reaches the serializer as a datetime, so the flag has to look evaluated.
-        return FeatureFlag.objects.create(
+        flag = FeatureFlag.objects.create(
             team=self.team,
             key="round-trip-flag",
             filters={"groups": [{"properties": [], "rollout_percentage": 25}]},
@@ -44,10 +40,6 @@ class TestFeatureFlagRoundTripGate(APIBaseTest):
             created_at=FLAG_CREATED_AT,
             last_called_at=FLAG_LAST_CALLED_AT,
         )
-
-    def test_patching_whole_get_body_is_gated_not_an_error(self, _mock_enabled):
-        self._rollout_policy()
-        flag = self._evaluated_flag()
 
         get_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
         assert get_response.status_code == 200, get_response.content
@@ -71,7 +63,7 @@ class TestFeatureFlagRoundTripGate(APIBaseTest):
         assert flag.last_called_at == FLAG_LAST_CALLED_AT
 
     def test_creating_with_timestamp_fields_is_gated_not_an_error(self, _mock_enabled):
-        self._enable_policy()
+        self._policy("feature_flag.enable", {})
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
