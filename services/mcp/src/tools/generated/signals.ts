@@ -638,6 +638,9 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
@@ -685,6 +688,7 @@ const scoutConfigList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
+                search: params.search,
                 tags: params.tags,
             },
         })
@@ -793,6 +797,9 @@ const scoutCreate = (): ToolBase<ReturnType<typeof ScoutCreateSchema>, Schemas.S
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }
@@ -976,6 +983,36 @@ const scoutEmitSignal = (): ToolBase<ReturnType<typeof ScoutEmitSignalSchema>, S
         const result = await context.api.request<Schemas.EmitFindingResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emit-signal/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ScoutLighthouseAuditSchema = () => {
+    const SignalsScoutLighthouseAuditBody = orvalSchemas.SignalsScoutLighthouseAuditBody()
+    const SignalsScoutLighthouseAuditParams = orvalSchemas.SignalsScoutLighthouseAuditParams()
+    return SignalsScoutLighthouseAuditParams.omit({ project_id: true }).extend(SignalsScoutLighthouseAuditBody.shape)
+}
+
+const scoutLighthouseAudit = (): ToolBase<
+    ReturnType<typeof ScoutLighthouseAuditSchema>,
+    Schemas.LighthouseAuditResponse
+> => ({
+    name: 'scout-lighthouse-audit',
+    schema: ScoutLighthouseAuditSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutLighthouseAuditSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.url !== undefined) {
+            body['url'] = params.url
+        }
+        if (params.form_factor !== undefined) {
+            body['form_factor'] = params.form_factor
+        }
+        const result = await context.api.request<Schemas.LighthouseAuditResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/lighthouse-audit/`,
             body,
         })
         return result
@@ -1437,6 +1474,9 @@ const signalsScoutConfigCreate = (): ToolBase<
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
@@ -1484,6 +1524,7 @@ const signalsScoutConfigList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
+                search: params.search,
                 tags: params.tags,
             },
         })
@@ -2066,6 +2107,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-edit-report': scoutEditReport,
     'scout-emit-report': scoutEmitReport,
     'scout-emit-signal': scoutEmitSignal,
+    'scout-lighthouse-audit': scoutLighthouseAudit,
     'scout-members-list': scoutMembersList,
     'scout-metadata-get': scoutMetadataGet,
     'scout-notes-create': scoutNotesCreate,

@@ -11,6 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { resolveToolCall, useToolStreamListener } from 'products/posthog_ai/frontend/api/logics'
 
+import { prepareNotebookInsightDataframes } from '../prepareNotebookInsightDataframes'
 import { notebookNodeGeneratedWidgetLogic } from './notebookNodeGeneratedWidgetLogic'
 import { NotebookWidgetPublishModal } from './NotebookWidgetPublishModal'
 import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
@@ -55,6 +56,7 @@ function EditableNotebookGeneratedWidgetRunButton({
         prompt: typeof node.props.prompt === 'string' ? node.props.prompt : '',
         model,
         isEditable: canEditNotebook,
+        prepareInsightDataframes: () => prepareNotebookInsightDataframes(mountedNotebookLogic),
         persistNotebook: async (): Promise<void> => {
             await mountedNotebookLogic.asyncActions.saveNotebook({
                 content: mountedNotebookLogic.values.content,

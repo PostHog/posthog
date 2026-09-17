@@ -1,0 +1,106 @@
+[
+ {
+  "Plan": {
+   "Node Type": "Expression",
+   "Node Id": "Expression_30",
+   "Description": "Project names",
+   "Plans": [
+    {
+     "Node Type": "Limit",
+     "Node Id": "Limit_29",
+     "Description": "preliminary LIMIT",
+     "Plans": [
+      {
+       "Node Type": "Sorting",
+       "Node Id": "Sorting_28",
+       "Description": "Sorting for ORDER BY",
+       "Plans": [
+        {
+         "Node Type": "Expression",
+         "Node Id": "Expression_51",
+         "Description": "(Before ORDER BY + Projection)",
+         "Plans": [
+          {
+           "Node Type": "Aggregating",
+           "Node Id": "Aggregating_25",
+           "Plans": [
+            {
+             "Node Type": "Union",
+             "Node Id": "Union_47",
+             "Plans": [
+              {
+               "Node Type": "Expression",
+               "Node Id": "Expression_49",
+               "Description": "(Before GROUP BY + (Change column names to column identifiers + (Conversion before UNION + (Project names + Projection))))",
+               "Plans": [
+                {
+                 "Node Type": "Aggregating",
+                 "Node Id": "Aggregating_7",
+                 "Plans": [
+                  {
+                   "Node Type": "Expression",
+                   "Node Id": "Expression_6",
+                   "Description": "Before GROUP BY",
+                   "Plans": [
+                    {
+                     "Node Type": "Filter",
+                     "Node Id": "Filter_34",
+                     "Description": "(WHERE + (Change column names to column identifiers + (Project names + (Projection + Change column names to column identifiers))))",
+                     "Plans": [
+                      {
+                       "Node Type": "ReadFromObjectStorage",
+                       "Node Id": "ReadFromObjectStorage_0"
+                      }
+                     ]
+                    }
+                   ]
+                  }
+                 ]
+                }
+               ]
+              },
+              {
+               "Node Type": "Expression",
+               "Node Id": "Expression_50",
+               "Description": "(Before GROUP BY + (Change column names to column identifiers + (Conversion before UNION + (Project names + Projection))))",
+               "Plans": [
+                {
+                 "Node Type": "Aggregating",
+                 "Node Id": "Aggregating_17",
+                 "Plans": [
+                  {
+                   "Node Type": "Expression",
+                   "Node Id": "Expression_16",
+                   "Description": "Before GROUP BY",
+                   "Plans": [
+                    {
+                     "Node Type": "Filter",
+                     "Node Id": "Filter_40",
+                     "Description": "(WHERE + (Change column names to column identifiers + (Project names + (Projection + Change column names to column identifiers))))",
+                     "Plans": [
+                      {
+                       "Node Type": "ReadFromObjectStorage",
+                       "Node Id": "ReadFromObjectStorage_10"
+                      }
+                     ]
+                    }
+                   ]
+                  }
+                 ]
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ }
+]

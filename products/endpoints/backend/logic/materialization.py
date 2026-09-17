@@ -34,6 +34,7 @@ from products.data_modeling.backend.facade.api import (
     delete_node_from_dag,
     is_materialization_fresh,
     latest_saved_query_materialization_job,
+    link_endpoint_nodes,
     saved_query_materialized_at,
     sync_saved_query_to_dag,
 )
@@ -250,6 +251,12 @@ class EndpointMaterializationService:
             sync_error: Exception | None = None
             try:
                 sync_saved_query_to_dag(saved_query)
+                link_endpoint_nodes(
+                    team_id=saved_query.team_id,
+                    saved_query_id=saved_query.id,
+                    endpoint_name=endpoint.name,
+                    version=version.version,
+                )
             except Exception as e:
                 sync_error = e
                 logger.exception(

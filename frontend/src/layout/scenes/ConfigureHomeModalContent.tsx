@@ -1,0 +1,159 @@
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect, useState } from 'react'
+
+import { LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
+
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { sceneLogic } from '~/scenes/sceneLogic'
+import { emptySceneParams } from '~/scenes/scenes'
+import { Scene, SceneTab } from '~/scenes/sceneTypes'
+import { teamLogic } from '~/scenes/teamLogic'
+import { urls } from '~/scenes/urls'
+
+import { ConfigureHomeDashboardPicker } from './ConfigureHomeDashboardPicker'
+
+type HomepageMode = 'launchpad' | 'search' | 'default_dashboard'
+
+function getHomepageMode(
+    isUsingProjectDefault: boolean,
+    isUsingNewTabHomepage: boolean,
+    isUsingDefaultDashboard: boolean
+): HomepageMode | null {
+    if (isUsingProjectDefault) {
+        return 'launchpad'
+    }
+    if (isUsingNewTabHomepage) {
+        return 'search'
+    }
+    if (isUsingDefaultDashboard) {
+        return 'default_dashboard'
+    }
+    return null
+}
+
+export function ConfigureHomeModalContent(): JSX.Element {
+    const { homepage } = useValues(sceneLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { setHomepage } = useActions(sceneLogic)
+
+    const isUsingProjectDefault = !homepage
+    const isUsingNewTabHomepage = homepage?.sceneId === Scene.NewTab
+    const isUsingDefaultDashboard =
+        homepage?.sceneId === Scene.Dashboard && homepage?.id?.startsWith('homepage-dashboard-')
+    const [pendingMode, setPendingMode] = useState<HomepageMode | null>(null)
+    const currentMode = getHomepageMode(isUsingProjectDefault, isUsingNewTabHomepage, isUsingDefaultDashboard)
+    useEffect(() => setPendingMode(null), [currentMode])
+    const activeMode = pendingMode ?? currentMode
+    const showDashboardPicker = activeMode === 'default_dashboard'
+    const homepageDisplayTitle = homepage ? homepage.customTitle || homepage.title : 'Launchpad'
+    const homepageSubtitle = isUsingProjectDefault ? 'Default' : isUsingNewTabHomepage ? 'Search' : null
+    const homepageIcon = homepage?.iconType
+    const homepageIconElement = iconForType(
+        homepageIcon && homepageIcon !== 'loading' && homepageIcon !== 'blank'
+            ? (homepageIcon as FileSystemIconType)
+            : isUsingNewTabHomepage
+              ? ('default_icon_type' as FileSystemIconType)
+              : ('home' as FileSystemIconType)
+    )
+    const newTabHomepage: SceneTab = {
+        id: 'homepage-new-tab',
+        pathname: urls.newTab(),
+        search: '',
+        hash: '',
+        title: 'Search',
+        iconType: 'search',
+        sceneId: Scene.NewTab,
+        sceneKey: 'newTab',
+        sceneParams: emptySceneParams,
+    }
+
+    return (
+        <section className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 bg-surface-primary">
+                    <div className="flex min-w-0 items-center gap-2">
+                        <span className="shrink-0 text-lg text-muted-alt">{homepageIconElement}</span>
+                        <div className="min-w-0">
+                            <div className="truncate font-medium text-primary">{homepageDisplayTitle}</div>
+                            {homepageSubtitle && <div className="truncate text-xs text-muted">{homepageSubtitle}</div>}
+                        </div>
+                    </div>
+                    <LemonSegmentedButton
+                        size="small"
+                        value={activeMode ?? undefined}
+                        onChange={(newValue) => {
+                            posthog.capture('homepage configure set homepage', { 'homepage choice': newValue })
+                            if (newValue === 'launchpad') {
+                                setPendingMode(null)
+                                setHomepage(null)
+                            } else if (newValue === 'search') {
+                                setPendingMode(null)
+                                setHomepage(newTabHomepage)
+                            } else if (newValue === 'default_dashboard') {
+                                const dashboardId = currentTeam?.primary_dashboard
+                                if (dashboardId) {
+                                    setPendingMode(null)
+                                    setHomepage({
+                                        id: `homepage-dashboard-${dashboardId}`,
+                                        pathname: urls.dashboard(dashboardId),
+                                        search: '',
+                                        hash: '',
+                                        title: 'Default dashboard',
+                                        iconType: 'dashboard',
+                                        sceneId: Scene.Dashboard,
+                                        sceneKey: `dashboard-${dashboardId}`,
+                                        sceneParams: emptySceneParams,
+                                    })
+                                } else {
+                                    setPendingMode('default_dashboard')
+                                }
+                            }
+                        }}
+                        options={[
+                            {
+                                value: 'launchpad' as const,
+                                label: (
+                                    <>
+                                        Launchpad{' '}
+                                        <LemonTag size="small" type="highlight" className="ml-1">
+                                            New
+                                        </LemonTag>
+                                    </>
+                                ),
+                                'data-attr': 'configure-home-modal-set-launchpad',
+                                tooltip: 'An AI-powered home with quick actions and recent items',
+                            },
+                            {
+                                value: 'search' as const,
+                                label: 'Search',
+                                'data-attr': 'configure-home-modal-set-search',
+                                tooltip: 'A search page to quickly find anything in your project',
+                            },
+                            {
+                                value: 'default_dashboard' as const,
+                                label: 'Default dashboard',
+                                'data-attr': 'configure-home-modal-set-default-dashboard',
+                                tooltip: "Open your project's default dashboard when you go home",
+                            },
+                        ]}
+                    />
+                </div>
+                {showDashboardPicker && (
+                    <section className="space-y-3 bg-surface-secondary rounded-lg p-3 border">
+                        <div className="flex flex-col">
+                            <h4 className="text-base font-semibold text-primary m-0">
+                                Set default dashboard (project based)
+                            </h4>
+                            <p className="text-sm text-tertiary m-0">
+                                This dashboard opens by default for everyone who has not set a custom homepage.
+                            </p>
+                        </div>
+                        <ConfigureHomeDashboardPicker onSelect={() => setPendingMode(null)} />
+                    </section>
+                )}
+            </div>
+        </section>
+    )
+}

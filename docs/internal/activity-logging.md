@@ -121,6 +121,22 @@ The row is a system row.
 To attribute it to a job, pass a `Trigger(job_type=..., job_id=..., payload=...)` in `Detail`.
 A receiver can also read one from `get_current_trigger()` when the job wrapped its write in `ActivityTriggerContext(...)`; the receiver has to read and pass it, the context alone stores nothing.
 
+### Agent writes
+
+`OAuthAccessTokenAuthentication` records the agent's stated reason from the `x-posthog-intent` header for applications in the Desktop OAuth allowlist.
+Other OAuth applications need a server-set sandbox task binding before they can record agent attribution.
+The authentication also records the task id when the server has bound the token to a sandbox task.
+Desktop uses the signed-in user's OAuth token, so an allowlisted token does not require a sandbox task binding.
+When a row would otherwise have no trigger, `log_activity` fills it with `Trigger(job_type="agent", job_id=<task id or empty string>, payload={"intent": ...})`.
+A product that passes its own trigger keeps it, so this only fills the gap.
+
+The intent is the caller's own claim and nothing verifies it.
+Both activity views display intent without a task link and identify it as self-reported in the tooltip.
+A task link appears only when the token has a server-set task binding.
+The `X-PostHog-Task-Id` header cannot supply that binding, and the authenticated user remains the actor on the audit row.
+Session authentication and personal API keys do not use this OAuth attribution path.
+This applies to new activity rows; it does not recover intent that was discarded before the change.
+
 A model with a fail-closed manager (`TeamScopedRootMixin`, `ProductTeamModel`) raises `TeamScopeError` on any query without team context.
 The mixin's before-update read is by primary key without a team filter (`unscoped()`), so a `save()` outside a request works.
 Your own reads in the same path still need `with team_scope(team_id):` or `Model.objects.for_team(team_id)`.

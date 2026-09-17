@@ -7,6 +7,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     DeliverySummary,
     DurationDistribution,
     PRTimeline,
+    PRTimelinePush,
     PRTimelineSegment,
     PullRequestTimelines,
     ScopeRepoDistribution,
@@ -187,8 +188,24 @@ class PRTimelineSegmentSerializer(DataclassSerializer):
         }
 
 
+class PRTimelinePushSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PRTimelinePush
+        extra_kwargs = {
+            "head_sha": {"help_text": "The pushed head commit."},
+            "pushed_at": {
+                "help_text": "When the commit's first workflow run was created, which is when the commit arrived."
+            },
+        }
+
+
 class PRTimelineSerializer(DataclassSerializer):
     repo = RepoRefSerializer(help_text="The repository the pull request belongs to.")
+    pushes = PRTimelinePushSerializer(
+        many=True,
+        help_text="Distinct head commits that triggered CI, oldest first, merge-queue gate runs excluded. A PR "
+        "listed for an author or a team misses pushes from more than 30 days before the window.",
+    )
     segments = PRTimelineSegmentSerializer(
         many=True, help_text="Consecutive segments from started_at to the merge, the close, or now, with no gaps."
     )
@@ -209,7 +226,6 @@ class PRTimelineSerializer(DataclassSerializer):
                 "help_text": "Where the timeline starts: the last ready_for_review before the end, else created_at. A PR listed for an author or a team starts no earlier than 30 days before the window, because older CI is not read."
             },
             "merged_at": {"help_text": "Merge time; null when not merged.", "allow_null": True},
-            "pushes": {"help_text": "Distinct head commits that triggered CI, merge-queue gate runs excluded."},
             "estimated_cost_usd": {
                 "help_text": "Estimated CI cost over the PR's runs, in USD. Null when nothing was costable.",
                 "allow_null": True,
