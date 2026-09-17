@@ -42,6 +42,20 @@ const EMBEDDING_POLL_MS = 60_000
 
 export type { KnowledgeSource, CrawlMode, TextSourceFormValues, UrlSourceFormValues }
 
+function hasLoadedSourceText(source: KnowledgeSource | null, sourceText: { id: string }): boolean {
+    return source?.source_type !== 'text' || sourceText.id === source.id
+}
+
+function sourcePollDelayMs(source: KnowledgeSource): number | null {
+    if (source.status === 'processing') {
+        return PROCESSING_POLL_MS
+    }
+    if (source.status === 'ready' && source.embedding_status === 'pending') {
+        return EMBEDDING_POLL_MS
+    }
+    return null
+}
+
 export interface KnowledgeSourceLogicProps {
     id: string
 }
@@ -223,7 +237,7 @@ export interface knowledgeSourceLogicMeta {
                 id: string
                 text: string
             },
-            sourceTextFailed: any
+            sourceTextFailed: boolean
         ) => boolean
     }
 }
@@ -308,7 +322,7 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
         editSource: {
             defaults: { name: '', text: '', always_include: false } as TextSourceFormValues,
             errors: (vals: TextSourceFormValues) => {
-                if (values.source?.source_type === 'text') {
+                if (values.source?.source_type === 'text' && hasLoadedSourceText(values.source, values.sourceText)) {
                     return validateText(vals)
                 }
                 return {
@@ -320,11 +334,11 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
                 if (!current) {
                     return
                 }
-                const isText = current.source_type === 'text'
-                const payload: UpdateSourcePayload = { name, always_include, ...(isText && { text }) }
+                const includeText = current.source_type === 'text' && hasLoadedSourceText(current, values.sourceText)
+                const payload: UpdateSourcePayload = { name, always_include, ...(includeText && { text }) }
                 try {
                     const updated = await updateSource(props.id, payload)
-                    const msg = isText
+                    const msg = includeText
                         ? `"${updated.name}" re-indexed into ${updated.chunk_count} chunks`
                         : `"${updated.name}" renamed`
                     lemonToast.success(msg)
@@ -389,29 +403,26 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
                 if (source.source_type === 'url') {
                     actions.setEditUrlSourceValues(editUrlSourceValuesFromSource(source))
                 } else {
+                    const textReady = hasLoadedSourceText(source, values.sourceText)
                     actions.setEditSourceValues({
                         name: source.name,
-                        text: values.sourceText.id === source.id ? values.sourceText.text : '',
+                        text: textReady ? values.sourceText.text : '',
                         always_include: source.always_include ?? false,
                     })
-                    if (source.source_type === 'text' && values.sourceText.id !== source.id) {
+                    if (!textReady) {
                         actions.loadSourceText()
                     }
                 }
                 cache.formHydrated = true
             }
-            const isProcessing = source.status === 'processing'
-            const isEmbedding = source.status === 'ready' && source.embedding_status === 'pending'
-            if (isProcessing || isEmbedding) {
+            const delayMs = sourcePollDelayMs(source)
+            if (delayMs === null) {
+                cache.disposables.dispose('pollProcessing')
+            } else {
                 cache.disposables.add(() => {
-                    const id = setTimeout(
-                        () => actions.loadSource(),
-                        isProcessing ? PROCESSING_POLL_MS : EMBEDDING_POLL_MS
-                    )
+                    const id = setTimeout(() => actions.loadSource(), delayMs)
                     return () => clearTimeout(id)
                 }, 'pollProcessing')
-            } else {
-                cache.disposables.dispose('pollProcessing')
             }
         },
         loadSourceTextSuccess: ({ sourceText }) => {
@@ -471,7 +482,7 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
                 source: KnowledgeSource | null,
                 sourceText: { id: string; text: string },
                 sourceTextFailed: boolean
-            ): boolean => source?.source_type !== 'text' || sourceText.id === source.id || sourceTextFailed,
+            ): boolean => hasLoadedSourceText(source, sourceText) || sourceTextFailed,
         ],
     }),
     afterMount(({ actions }) => {

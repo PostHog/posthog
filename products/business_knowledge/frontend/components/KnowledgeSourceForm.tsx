@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -18,7 +18,8 @@ export function KnowledgeSourceForm({
 }: {
     refreshIntervalOptions: RefreshIntervalOption[]
 }): JSX.Element {
-    const { source, isSourceTextReady, editUrlSource } = useValues(knowledgeSourceLogic)
+    const { source, isSourceTextReady, sourceTextFailed, editUrlSource } = useValues(knowledgeSourceLogic)
+    const { loadSourceText } = useActions(knowledgeSourceLogic)
 
     if (source?.source_type === 'url') {
         return (
@@ -63,10 +64,15 @@ export function KnowledgeSourceForm({
 
     return (
         <Form logic={knowledgeSourceLogic} formKey="editSource" className="flex flex-col gap-2 max-w-2xl">
+            {sourceTextFailed && (
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: loadSourceText }}>
+                    Couldn't load this source's content. You can still save the name.
+                </LemonBanner>
+            )}
             <LemonField name="name" label="Name">
                 <LemonInput />
             </LemonField>
-            {source?.source_type === 'text' && (
+            {source?.source_type === 'text' && !sourceTextFailed && (
                 <LemonField name="text" label="Content">
                     <LemonTextArea minRows={12} />
                 </LemonField>
@@ -77,7 +83,7 @@ export function KnowledgeSourceForm({
                     new file.
                 </p>
             )}
-            {source?.source_type === 'text' && (
+            {source?.source_type === 'text' && !sourceTextFailed && (
                 <p className="text-xs text-muted">
                     Saving rewrites the chunks for this source. Agents won't see the change mid-conversation until they
                     refresh their prompt.

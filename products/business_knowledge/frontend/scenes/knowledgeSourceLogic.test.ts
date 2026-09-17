@@ -151,12 +151,24 @@ describe('knowledgeSourceLogic', () => {
     it('still opens the text form if content fails to load', async () => {
         logic.unmount()
         mockedApi.getSourceText.mockRejectedValue({ status: 500, detail: 'boom' })
+        mockedApi.updateSource.mockResolvedValue({ ...MOCK_SOURCE, name: 'Renamed policy', always_include: true })
         logic = knowledgeSourceLogic({ id: SOURCE_ID })
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({
             sourceTextFailed: true,
             isSourceTextReady: true,
+        })
+
+        logic.actions.setEditSourceValues({ name: 'Renamed policy', always_include: true })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitEditSource()
+        }).toFinishAllListeners()
+
+        expect(mockedApi.updateSource).toHaveBeenCalledWith(SOURCE_ID, {
+            name: 'Renamed policy',
+            always_include: true,
         })
     })
 
