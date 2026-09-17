@@ -1065,7 +1065,11 @@ describe('ingest-handler', () => {
     // Side effects: turn-complete
     // -----------------------------------------------------------------------
 
-    it('sets agent inactive and fires awaiting_input callback on turn-complete event', async () => {
+    it.each([
+        ['omitted', {}, true],
+        ['completed', { stopReason: 'end_turn' }, true],
+        ['idle_resume', { stopReason: 'idle_resume' }, false],
+    ])('sets agent inactive and reports completion for %s turn-complete', async (_name, params, turnCompleted) => {
         const fetchCalls: { url: string; body: unknown }[] = []
         const originalFetch = global.fetch
         global.fetch = vi.fn(async (url, init) => {
@@ -1078,8 +1082,9 @@ describe('ingest-handler', () => {
 
         const turnCompleteEvent = {
             type: 'notification',
-            notification: { method: '_posthog/turn_complete' },
+            notification: { method: '_posthog/turn_complete', params },
         }
+        await redisStream.setAgentActive(true)
         const ndjson = JSON.stringify({ seq: 1, event: turnCompleteEvent }) + '\n'
         const ctx = makeContext({ body: makeStringBody(ndjson) })
         const res = await handleIngest(ctx, fakeRedis as unknown as Redis, config, [] as CryptoKey[])
@@ -1094,7 +1099,11 @@ describe('ingest-handler', () => {
 
         const callbackCall = fetchCalls.find((c) => c.url.includes('agent-proxy-callback'))
         expect(callbackCall).toBeTruthy()
-        expect(callbackCall?.body).toMatchObject({ kind: 'awaiting_input', agent_active: false })
+        expect(callbackCall?.body).toMatchObject({
+            kind: 'awaiting_input',
+            agent_active: false,
+            turn_completed: turnCompleted,
+        })
 
         global.fetch = originalFetch
     })

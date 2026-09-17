@@ -393,17 +393,22 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(body["accepted"], 1)
         self.assertEqual(self._read_notification_methods(), ["session/update"])
 
+    @parameterized.expand([("omitted", None), ("completed", "end_turn"), ("idle_resume", "idle_resume")])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_turn_complete_ingest_notifies_interactive_run(self) -> None:
+    def test_turn_complete_ingest_notifies_interactive_run(self, _name: str, stop_reason: str | None) -> None:
         self.task.created_by = User.objects.create_user("ingest-push@posthog.com", None, "Ingest")
         self.task.save(update_fields=["created_by"])
         self.task_run.state = {"mode": "interactive"}
         self.task_run.save(update_fields=["state"])
         token = self._create_token()
 
-        with patch(
-            "products.tasks.backend.logic.stream.event_ingest.notify_task_run_turn_completed"
-        ) as notify_turn_completed:
+        metric = "posthog_tasks_turn_completed_suppressed_total"
+        labels = {"reason": "idle_resume"}
+        suppressed_before = REGISTRY.get_sample_value(metric, labels) or 0
+        with (
+            patch("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed") as notify_turn_completed,
+            patch.object(TaskRun, "signal_agent_turn_completed") as signal_turn_completed,
+        ):
             status, body = self._call_ingest(
                 token,
                 [
@@ -411,7 +416,10 @@ class TestTaskRunEventIngest(TestCase):
                         "seq": 1,
                         "event": {
                             "type": "notification",
-                            "notification": {"method": "_posthog/turn_complete"},
+                            "notification": {
+                                "method": "_posthog/turn_complete",
+                                "params": {"stopReason": stop_reason} if stop_reason else {},
+                            },
                         },
                     }
                 ],
@@ -419,8 +427,16 @@ class TestTaskRunEventIngest(TestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(body["accepted"], 1)
-        notify_turn_completed.assert_called_once()
-        self.assertEqual(notify_turn_completed.call_args.args[0].id, self.task_run.id)
+        signal_turn_completed.assert_called_once()
+        if stop_reason == "idle_resume":
+            notify_turn_completed.assert_not_called()
+        else:
+            notify_turn_completed.assert_called_once()
+            self.assertEqual(notify_turn_completed.call_args.args[0].id, self.task_run.id)
+        self.assertEqual(
+            (REGISTRY.get_sample_value(metric, labels) or 0) - suppressed_before,
+            int(stop_reason == "idle_resume"),
+        )
 
     @parameterized.expand(
         [
