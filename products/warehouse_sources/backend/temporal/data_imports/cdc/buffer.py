@@ -250,7 +250,8 @@ class CDCBufferWriter:
             staged = None
             if parsed.start_seq < restart_seq:
                 staged = self._stage_settled_rows(key, file_index=parsed.file_index, restart_seq=restart_seq)
-                trimmed += 1
+                if staged is not None:
+                    trimmed += 1
             # The consumer may already have deleted an applied file.
             with suppress(FileNotFoundError):
                 self._s3.rm(key)
