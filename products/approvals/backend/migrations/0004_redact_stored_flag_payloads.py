@@ -43,6 +43,39 @@ def _stored_marker(intent):
     return None
 
 
+def _read_encrypted_flag_ids(schema_editor):
+    """Every flag that keeps its payloads encrypted.
+
+    Soft-deleted flags are included: deleting a flag must not turn a withheld payload back into a
+    readable one. Raw SQL against the table `FeatureFlag.Meta` pins keeps this migration off the
+    feature flags app's migration state.
+    """
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute("SELECT id FROM posthog_featureflag WHERE has_encrypted_payloads")
+        return {row[0] for row in cursor.fetchall()}
+
+
+def _keeps_payloads_encrypted(intent, resource_id, encrypted_flag_ids):
+    """Whether one change request's payloads are secret: its own marker first, then its flag."""
+    marker = _stored_marker(intent)
+    if marker is not None:
+        return marker
+    flag_id = (intent or {}).get("flag_id") or resource_id
+    if not flag_id:
+        # A create carries no flag to ask and no stored payload to protect.
+        return False
+    try:
+        flag_id = int(flag_id)
+    except (TypeError, ValueError):
+        # A reference that cannot even be parsed errs toward clearing.
+        return True
+    # A reference that parses but matches no flag is left alone, which is deliberately not what
+    # the read path does: it redacts an unresolvable flag, so nothing is served either way, and
+    # no product path hard-deletes a flag row. Clearing on absence here would instead scrub every
+    # row of a flag this query cannot see.
+    return flag_id in encrypted_flag_ids()
+
+
 def redact_stored_flag_payloads(apps, schema_editor):
     """Clear the flag payloads that change requests captured before the gate withheld them.
 
@@ -68,42 +101,21 @@ def redact_stored_flag_payloads(apps, schema_editor):
     """
     ChangeRequest = apps.get_model("approvals", "ChangeRequest")
 
-    resolved_flag_ids = {}
+    # Read lazily and once: a database with no feature flag change requests, and a run whose rows
+    # all carry their own marker, never touch the flag table.
+    resolved = {}
 
     def encrypted_flag_ids():
-        """Every flag that keeps its payloads encrypted, read once and only when a row needs it.
-
-        Soft-deleted flags are included: deleting a flag must not turn a withheld payload back
-        into a readable one. Raw SQL against the table `FeatureFlag.Meta` pins keeps this
-        migration off the feature flags app's migration state, and reading it lazily keeps a
-        database with no change requests from touching that table at all.
-        """
-        if "ids" not in resolved_flag_ids:
-            with schema_editor.connection.cursor() as cursor:
-                cursor.execute("SELECT id FROM posthog_featureflag WHERE has_encrypted_payloads")
-                resolved_flag_ids["ids"] = {row[0] for row in cursor.fetchall()}
-        return resolved_flag_ids["ids"]
-
-    def keeps_payloads_encrypted(change_request):
-        marker = _stored_marker(change_request.intent)
-        if marker is not None:
-            return marker
-        flag_id = (change_request.intent or {}).get("flag_id") or change_request.resource_id
-        if not flag_id:
-            # A create carries no flag to ask and no stored payload to protect.
-            return False
-        try:
-            return int(flag_id) in encrypted_flag_ids()
-        except (TypeError, ValueError):
-            # An unreadable reference errs toward clearing, matching the read path.
-            return True
+        if "ids" not in resolved:
+            resolved["ids"] = _read_encrypted_flag_ids(schema_editor)
+        return resolved["ids"]
 
     for change_request in ChangeRequest.objects.filter(resource_type="feature_flag").iterator(chunk_size=500):
         intent, intent_changed = _scrub(change_request.intent or {})
         intent_display, display_changed = _scrub(change_request.intent_display or {})
         if not intent_changed and not display_changed:
             continue
-        if not keeps_payloads_encrypted(change_request):
+        if not _keeps_payloads_encrypted(change_request.intent, change_request.resource_id, encrypted_flag_ids):
             continue
 
         if change_request.state in NON_TERMINAL_STATES:

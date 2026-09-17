@@ -4,9 +4,10 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
+from products.approvals.backend.actions.feature_flags import _withhold_encrypted_payloads
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.approvals.backend.services import ChangeRequestService
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, flag_payload_codec
@@ -308,6 +309,58 @@ class TestEncryptedPayloadWithholding(APIBaseTest):
             "true": '"also-visible"',
         }
 
+    def test_a_flag_with_a_null_marker_keeps_an_ordinary_payload_visible(self, _mock_enabled):
+        # `has_encrypted_payloads` is nullable, and every other reader treats NULL as false.
+        # Resolving a NULL the same way a missing row is resolved would hide a payload that was
+        # never a secret, leaving the approver nothing to review.
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="null-marker",
+            active=False,
+            created_by=self.user,
+            is_remote_configuration=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        FeatureFlag.objects.filter(id=flag.id).update(has_encrypted_payloads=None)
+        change_request = self._markerless_change_request(flag.id, payloads={"true": '"visible"'})
+
+        assert self._served_payload_values(change_request) == ['"visible"', '"visible"']
+
+    def test_a_recorded_answer_survives_the_flag_changing_later(self, _mock_enabled):
+        # The gate records whether these payloads were secret when it captured the change. Asking
+        # the flag at read time instead would follow it: upgrading a flag to encrypted afterwards
+        # would hide a payload that was public when it was approved.
+        self._policy("feature_flag.enable")
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="public-then-secret",
+            active=False,
+            created_by=self.user,
+            is_remote_configuration=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}], "payloads": {"true": '"public"'}},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {
+                "active": True,
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "payloads": {"true": '"public"'},
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == 409, response.content
+
+        change_request = ChangeRequest.objects.get(action_key="feature_flag.enable")
+        assert change_request.intent["payloads_were_encrypted"] is False
+
+        FeatureFlag.objects.filter(id=flag.id).update(has_encrypted_payloads=True)
+
+        body = self._served(change_request).json()
+        assert body["intent"]["full_request_data"]["filters"]["payloads"] == {"true": '"public"'}
+
     def test_listing_asks_each_flag_once(self, _mock_enabled):
         # `intent` and `intent_display` both carry the payload, so redacting them independently
         # asked the same flag twice per row — two round trips per listed change request.
@@ -324,3 +377,74 @@ class TestEncryptedPayloadWithholding(APIBaseTest):
         assert listed.status_code == 200, listed.content
         assert len(listed.json()["results"]) == 2
         assert lookup.call_count == 2, "one lookup per change request, not one per response field"
+
+
+class TestWithholdEncryptedPayloads(SimpleTestCase):
+    """The sentinel stands in for a payload the client could not read, so it means something only
+    where the flag already holds ciphertext for that key. Treating it as ciphertext anywhere else
+    would save a payload map that cannot be decrypted, and one bad entry fails them all.
+
+    Filters validation refuses a new non-`true` payload key on a boolean flag, so the API cannot
+    currently build this input end to end. The helper still has to be right: the create path has
+    no stored ciphertext for any key, and nothing stops a future caller shape from reaching it.
+    """
+
+    @staticmethod
+    def _flag(stored: dict[str, str] | None, *, encrypted: bool = True) -> FeatureFlag:
+        # Unsaved on purpose: the helper reads only these two attributes, so this needs no database.
+        return FeatureFlag(
+            has_encrypted_payloads=encrypted,
+            filters={"payloads": stored} if stored is not None else {},
+        )
+
+    def _withhold(self, payloads: dict[str, str], stored: dict[str, str] | None) -> tuple[Any, Any, Any]:
+        change = {"has_encrypted_payloads": True, "filters": {"payloads": payloads}}
+        return _withhold_encrypted_payloads(change, self._flag(stored))
+
+    def test_a_sentinel_for_an_unstored_key_is_withheld_like_any_other_value(self):
+        codec = flag_payload_codec()
+        replayable, encrypted, recorded = self._withhold(
+            {"true": SECRET_PAYLOAD, "legacy": REDACTED_PAYLOAD_VALUE},
+            stored={"true": codec.encrypt(b'"old"').decode("utf-8")},
+        )
+
+        assert recorded is True
+        assert set(encrypted) == {"true", "legacy"}
+        assert codec.decrypt(encrypted["legacy"].encode("utf-8")).decode("utf-8") == REDACTED_PAYLOAD_VALUE
+        assert replayable["filters"]["payloads"] == {
+            "true": REDACTED_PAYLOAD_VALUE,
+            "legacy": REDACTED_PAYLOAD_VALUE,
+        }
+
+    def test_a_sentinel_for_a_stored_key_is_left_for_the_serializer_to_restore(self):
+        codec = flag_payload_codec()
+        _, encrypted, recorded = self._withhold(
+            {"legacy": REDACTED_PAYLOAD_VALUE},
+            stored={"legacy": codec.encrypt(b'"kept"').decode("utf-8")},
+        )
+
+        assert recorded is True
+        assert encrypted == {}, "the stored ciphertext is restored on save, so nothing is withheld"
+
+    def test_a_create_withholds_every_payload(self):
+        codec = flag_payload_codec()
+        change = {"has_encrypted_payloads": True, "filters": {"payloads": {"true": REDACTED_PAYLOAD_VALUE}}}
+
+        _, encrypted, recorded = _withhold_encrypted_payloads(change, None)
+
+        assert recorded is True
+        assert codec.decrypt(encrypted["true"].encode("utf-8")).decode("utf-8") == REDACTED_PAYLOAD_VALUE
+
+    def test_an_unencrypted_change_records_that_its_payloads_were_not_secret(self):
+        change = {"filters": {"payloads": {"true": '"public"'}}}
+
+        replayable, encrypted, recorded = _withhold_encrypted_payloads(change, self._flag(None, encrypted=False))
+
+        assert recorded is False
+        assert encrypted == {}
+        assert replayable is change, "an unencrypted change is stored exactly as it arrived"
+
+    def test_a_change_with_no_payloads_records_nothing(self):
+        _, _, recorded = _withhold_encrypted_payloads({"active": True}, self._flag(None))
+
+        assert recorded is None
