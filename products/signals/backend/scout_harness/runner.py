@@ -83,6 +83,26 @@ SIGNALS_SCOUT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
 # flip the network policy for report research and every trusted-mode scout on the team.
 SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME = "SIGNALS_SCOUT_FULL_NETWORK"
 
+
+@frozen
+class _ScoutSandboxEnv:
+    """Which internal sandbox environment one run is provisioned into, and with what egress policy.
+
+    `network_access` is the posture the run actually holds, which is what gets stamped as
+    provenance. It normally equals the config's own value, and falls back to `trusted` for the
+    degenerate custom-with-no-domains row so the stamp never claims reach the run did not have.
+
+    `allowed_domains` is set only for the `custom` posture. It rides on the run, not on the env:
+    the env stays the shared trusted one, and Tasks unions the list onto it at provisioning, so no
+    per-scout env row exists and two custom scouts cannot overwrite each other's policy.
+    """
+
+    name: str
+    level: tasks_facade.SandboxNetworkAccessLevel
+    network_access: str
+    allowed_domains: list[str] | None = None
+
+
 # Every scout `ai_stage` starts with this, so `ai_stage LIKE 'scout:%'` rolls the whole fleet
 # up as one stage even though the tag names the individual scout.
 SCOUT_AI_STAGE_PREFIX = "scout:"
@@ -678,6 +698,36 @@ async def _resolve_github_posture(
     return _GithubPosture(repositories=repositories, prompt_names_gh=names_gh and can_mint)
 
 
+def _sandbox_env_for_network_access(config: SignalScoutConfig) -> _ScoutSandboxEnv:
+    """Resolve the sandbox env a run gets from the scout's `network_access` posture.
+
+    The (name, level) pair is the env-side enforcement point. The name matters as much as the
+    level, because `upsert_internal_sandbox_env` reasserts policy on the per-team row it names,
+    so an env shared by two scouts with different levels would hand each run whichever policy
+    was written last. The per-scout list is the run-side half and never touches the env row.
+    """
+    if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
+        return _ScoutSandboxEnv(
+            name=SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME,
+            level=tasks_facade.SandboxNetworkAccessLevel.FULL,
+            network_access=SignalScoutConfig.NetworkAccess.FULL,
+        )
+    # An empty list on `custom` is only reachable through a direct database write, because the
+    # config API rejects it. Custom with nothing to add is the trusted posture, so stamp it as such.
+    if config.network_access == SignalScoutConfig.NetworkAccess.CUSTOM and config.allowed_domains:
+        return _ScoutSandboxEnv(
+            name=SIGNALS_SCOUT_SANDBOX_ENV_NAME,
+            level=tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
+            network_access=SignalScoutConfig.NetworkAccess.CUSTOM,
+            allowed_domains=list(config.allowed_domains),
+        )
+    return _ScoutSandboxEnv(
+        name=SIGNALS_SCOUT_SANDBOX_ENV_NAME,
+        level=tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
+        network_access=SignalScoutConfig.NetworkAccess.TRUSTED,
+    )
+
+
 async def _spawn_and_run(
     *,
     team: Team,
@@ -704,19 +754,18 @@ async def _spawn_and_run(
     `runtime_adapter` that serves it — the agent server derives the provider from it; all `None` keeps
     the agent-server default Claude runtime). Returns `(last_message, task_run_id)`.
     """
-    # The config's `network_access` picks the sandbox env — and with it the egress policy the
-    # provisioning layer enforces. Trusted (default) shares the research env; full gets its own
-    # env name so its unrestricted policy can't be reasserted onto the shared one.
-    if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
-        sandbox_env_name = SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME
-        network_access_level = tasks_facade.SandboxNetworkAccessLevel.FULL
-    else:
-        sandbox_env_name = SIGNALS_SCOUT_SANDBOX_ENV_NAME
-        network_access_level = tasks_facade.SandboxNetworkAccessLevel.TRUSTED
+    sandbox_env = _sandbox_env_for_network_access(config)
+    if sandbox_env.network_access != config.network_access:
+        logger.warning(
+            "signals scout network access degraded to %s: config says %s",
+            sandbox_env.network_access,
+            config.network_access,
+            extra={"config_id": str(config.id), "skill_name": config.skill_name},
+        )
     sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
         team.id,
-        sandbox_env_name,
-        network_access_level,
+        sandbox_env.name,
+        sandbox_env.level,
     )
     report_channel = skill_uses_report_channel(skill.allowed_tools)
     # `write_scopes` adds the user-facing writes this ONE scout was granted from its settings, so a
@@ -750,6 +799,9 @@ async def _spawn_and_run(
         user_id=user_id,
         repositories=tuple(repositories),
         sandbox_environment_id=sandbox_env_id,
+        # A custom scout's extra hosts travel on the run, and Tasks unions them onto the env's
+        # trusted allowlist at provisioning.
+        allowed_domains=tuple(sandbox_env.allowed_domains or ()),
         # `signals_scout` is the harness's own scope posture: project reads +
         # INTERNAL_SCOPES + the scout's `signal_scout_internal:write`, plus a narrow
         # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`, e.g.
@@ -1067,9 +1119,14 @@ def _create_run_row(
     # Stamped only when non-default, like the model triple: absence means the run held the
     # trusted-domains posture. Stamped (rather than read off the config later) because the
     # config row can be edited after the fact, which would silently rewrite what past runs
-    # could actually reach.
-    if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
-        metadata["network_access"] = config.network_access
+    # could actually reach. A custom run carries its domain list for the same reason: the list
+    # is the run's real reach, and editing the config would otherwise take every past run's
+    # reach with it.
+    sandbox_env = _sandbox_env_for_network_access(config)
+    if sandbox_env.network_access != SignalScoutConfig.NetworkAccess.TRUSTED:
+        metadata["network_access"] = sandbox_env.network_access
+        if sandbox_env.allowed_domains is not None:
+            metadata["allowed_domains"] = sandbox_env.allowed_domains
     # The three dimensions that pin down which instructions this run actually got. All are
     # point-in-time facts that become unrecoverable later, which is why they are stamped rather
     # than resolved at read time: the harness prompt has no version history, a skill's
@@ -1474,8 +1531,10 @@ def _attach_run_shape_props(
     agent-server default served it; `service_tier` likewise only when a slice or pipeline pin asked
     for an OpenAI queue, so a flex arm and its standard control split without joining through
     `$ai_generation`. `network_access` follows the same absent-means-default
-    convention (attached only for `full`), so an event-based readout never pools runs with
-    different egress capabilities under one model or prompt. `write_scopes` is attached only for a scout
+    convention (attached only for `full` and `custom`), so an event-based readout never pools runs
+    with different egress capabilities under one model or prompt. A custom run carries only
+    `allowed_domains_count`: the hosts can name customer systems, so they stay on the team-scoped
+    run row and never reach product analytics. `write_scopes` is attached only for a scout
     granted extra write access, so a readout can separate runs that could change project objects from
     runs that could not. `triggered_by` follows the run row's
     own absent-means-schedule convention (`_create_run_row`), so the started/finished streams can
@@ -1488,8 +1547,11 @@ def _attach_run_shape_props(
     properties["skill_origin"] = skill.origin
     properties["github_guidance"] = github_guidance
     properties["business_knowledge_maintained"] = business_knowledge_maintained
-    if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
-        properties["network_access"] = config.network_access
+    sandbox_env = _sandbox_env_for_network_access(config)
+    if sandbox_env.network_access != SignalScoutConfig.NetworkAccess.TRUSTED:
+        properties["network_access"] = sandbox_env.network_access
+        if sandbox_env.allowed_domains is not None:
+            properties["allowed_domains_count"] = len(sandbox_env.allowed_domains)
     if granted_write_scopes := _granted_write_scopes(config):
         properties["write_scopes"] = granted_write_scopes
     if model is not None:

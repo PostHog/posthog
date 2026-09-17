@@ -55,11 +55,11 @@ Scouts run in a sandbox that defaults to a trusted-domain allowlist (PostHog, Gi
 
 1. If the external data already syncs into the data warehouse (Slack, a CRM, billing, support), point a scout at the warehouse table — the warehouse-backed source pattern — with no network change needed.
    Prefer this path whenever it exists: the scout stays inside the trusted allowlist.
-2. For genuinely external reads (a status page, arxiv, a changelog), author the custom scout and set `network_access: "full"` on its config.
+2. For genuinely external reads (a status page, arxiv, a changelog), author the custom scout and set `network_access: "custom"` with the hosts in `allowed_domains` on its config. Fall back to `network_access: "full"` only when the targets cannot be enumerated.
    The change applies from the next run and is activity-logged.
    Scout configs live on the project's canonical parent — a credential scoped only to a child environment gets a 403 on this write, so make (or request) the grant from the parent project.
    Treat `full` as a real grant, not a convenience: the scout reads external content that may try to steer it (prompt injection) while it holds project read tools and open egress.
-   Reserve it for sources you trust, name the exact sites in the skill body and tell the scout to treat everything it fetches as untrusted data rather than instructions, and keep the rest of the fleet on the default `trusted` allowlist (a per-scout custom domain allowlist doesn't exist yet).
+   Reserve it for sources you trust, name the exact sites in the skill body and tell the scout to treat everything it fetches as untrusted data rather than instructions, and keep the rest of the fleet on the default `trusted` allowlist.
 
 ## "The scouts are too noisy"
 

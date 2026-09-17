@@ -1768,42 +1768,73 @@ async def test_mounted_mcp_server_names_reach_the_prompt(ateam, aerrors_skill, r
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "network_access,expected_env_name,expected_level",
+    "network_access,allowed_domains,expected_env_name,expected_level,expected_domains",
     [
         pytest.param(
             None,
+            [],
             SIGNALS_SCOUT_SANDBOX_ENV_NAME,
             tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
+            None,
             id="default_trusted",
         ),
         pytest.param(
             "full",
+            [],
             SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME,
             tasks_facade.SandboxNetworkAccessLevel.FULL,
+            None,
             id="full",
+        ),
+        pytest.param(
+            "custom",
+            ["status.example.com"],
+            SIGNALS_SCOUT_SANDBOX_ENV_NAME,
+            tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
+            ["status.example.com"],
+            id="custom",
+        ),
+        # Only reachable through a direct database write, since the config API rejects it. Custom
+        # with nothing to add is the trusted posture, and must be stamped as such.
+        pytest.param(
+            "custom",
+            [],
+            SIGNALS_SCOUT_SANDBOX_ENV_NAME,
+            tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
+            None,
+            id="custom_without_domains_falls_back_to_trusted",
         ),
     ],
 )
 async def test_sandbox_env_matches_config_network_access(
-    ateam, aerrors_skill, network_access, expected_env_name, expected_level
+    ateam, aerrors_skill, network_access, allowed_domains, expected_env_name, expected_level, expected_domains
 ):
-    # The (env name, level) pair is the egress enforcement point: `upsert_internal_sandbox_env`
-    # reasserts policy per call on the per-team env row named here, so a `full` config routed to
-    # the shared trusted env would silently lift the restriction for every other scout on the
-    # team — and a config value that never reaches provisioning would leave a "full" scout
-    # blocked. The default path (no pre-existing config row) must stay on the trusted env.
+    # The (env name, level, domains) triple is the egress enforcement point:
+    # `upsert_internal_sandbox_env` reasserts policy per call on the per-team env row named here,
+    # so a `full` config routed to the shared trusted env would silently lift the restriction for
+    # every other scout on the team, and a config value that never reaches provisioning would
+    # leave a "full" scout blocked. The default path (no pre-existing config row) must stay on the
+    # trusted env. A `custom` scout stays on that shared env too and carries its domains on the
+    # run, so the env row is never written with one scout's list.
     if network_access is not None:
         await database_sync_to_async(SignalScoutConfig.objects.create, thread_sensitive=False)(
-            team=ateam, skill_name="signals-scout-errors", network_access=network_access
+            team=ateam,
+            skill_name="signals-scout-errors",
+            network_access=network_access,
+            allowed_domains=allowed_domains,
         )
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     env_mock = MagicMock(return_value="env-id")
+    captured: dict = {}
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
 
     with (
-        patch(
-            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
-            new=_fake_start_invoking_hook(session, result),
-        ),
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
         patch("products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", env_mock),
         patch(
             "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
@@ -1813,10 +1844,16 @@ async def test_sandbox_env_matches_config_network_access(
         run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
     env_mock.assert_called_once_with(ateam.id, expected_env_name, expected_level)
+    assert tuple(captured["context"].allowed_domains) == tuple(expected_domains or ())
     # Provenance stamp: `metadata.network_access` is present exactly when the run departed from
-    # the trusted default — a later config edit must not rewrite what past runs could reach.
+    # the trusted default, with the domain list alongside it for a custom run — a later config
+    # edit must not rewrite what past runs could reach.
     bridge = await database_sync_to_async(SignalScoutRun.objects.unscoped().get)(id=run_result.run_id)
-    assert (bridge.metadata or {}).get("network_access") == ("full" if network_access == "full" else None)
+    metadata = bridge.metadata or {}
+    departed = expected_level != tasks_facade.SandboxNetworkAccessLevel.TRUSTED or expected_domains is not None
+    expected_stamp = network_access if departed else None
+    assert metadata.get("network_access") == expected_stamp
+    assert metadata.get("allowed_domains") == expected_domains
 
 
 def _resolved_failure_threshold(cron_schedule: str | None, interval_minutes: int) -> int:
