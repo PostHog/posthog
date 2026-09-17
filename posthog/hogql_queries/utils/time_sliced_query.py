@@ -132,11 +132,14 @@ def time_sliced_results(
     def run_slice(slice_runner: TimeSliceableRunner) -> _HasResults | None:
         """Runs one slice inside the shared budget, or returns None once the budget is spent."""
         for attempt in range(CAPACITY_RETRY_ATTEMPTS):
-            remaining = budget.remaining()
-            if remaining <= 0:
+            # Floor the remainder so a slice cannot run past the shared budget. ClickHouse reads
+            # max_execution_time=0 as unlimited, so a sub-second remainder ends the ladder instead
+            # of starting a slice that has no time to finish in.
+            slice_seconds = math.floor(budget.remaining())
+            if slice_seconds <= 0:
                 give_up(ClickHouseQueryTimeOut())
                 return None
-            slice_runner.set_execution_time_budget(max(1, math.ceil(remaining)))
+            slice_runner.set_execution_time_budget(slice_seconds)
             try:
                 return slice_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
             except ClickHouseQueryTimeOut as error:

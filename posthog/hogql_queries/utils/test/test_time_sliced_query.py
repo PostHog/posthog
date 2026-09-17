@@ -275,17 +275,26 @@ class TestTimeSlicedResults(TestCase):
         list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner, budget=budget))
 
         caps = [cap for r in self.created_runners for cap in r.execution_time_budgets]
-        self.assertEqual(caps, [40, 30, 20, 10])
+        # Each slice gets what is left after the 10s the earlier ones spent, never a fresh budget.
+        for cap, headroom in zip(caps, [40, 30, 20, 10], strict=True):
+            self.assertLessEqual(cap, headroom)
+            self.assertGreater(cap, headroom - 2)
         self.assertFalse(budget.truncated)
 
-    def test_spent_budget_stops_the_ladder_and_keeps_the_rows_read_so_far(self):
+    @parameterized.expand(
+        [
+            ("nothing left", 40.0),
+            ("under a second left", 39.5),
+        ]
+    )
+    def test_spent_budget_stops_the_ladder_and_keeps_the_rows_read_so_far(self, _name, second_slice_elapsed):
         now = dt.datetime(2024, 1, 1, 12, 0, tzinfo=ZoneInfo("UTC"))
         runner = FakeRunner(date_from=now - dt.timedelta(days=2), date_to=now, results=[])
         budget = TimeSliceBudget(seconds=40)
         make_runner, _ = self._make_runner_factory(
             [["a"], [], ["b"], [], ["c"], ["d"]],
             budget=budget,
-            elapsed_per_call={0: 10.0, 2: 40.0},
+            elapsed_per_call={0: 10.0, 2: second_slice_elapsed},
         )
 
         results = list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner, budget=budget))
