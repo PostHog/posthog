@@ -356,7 +356,7 @@ class TestSharedVapiWebhook(APIBaseTest):
             "topsecret",
             self._payload(config.access_token, call_id="call_1", respondent_key="resp-1", transcript="a real answer"),
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
         interview = UserInterview.objects.get(team=self.team)
         assert config.interviewee_context is not None
         assert interview.topic_id == config.interviewee_context.topic_id
@@ -378,7 +378,7 @@ class TestSharedVapiWebhook(APIBaseTest):
             "topsecret",
             self._payload(config.access_token, call_id="call_s", respondent_key="resp-s", transcript="hi"),
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
         ended = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user_interview_conversation_ended"]
         assert ended, "expected a conversation_ended event"
         assert ended[0].kwargs["properties"]["$session_id"] == "018f0b7a-0000-7000-8000-000000000000"
@@ -404,7 +404,7 @@ class TestSharedVapiWebhook(APIBaseTest):
         payload["message"]["call"]["metadata"]["distinct_id"] = "alex@example.com"
         self.client.logout()
         response = self._signed_post("topsecret", payload)
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
 
         interview = UserInterview.objects.get(team=self.team)
         # Stored under a namespaced shared identity, never the targeted invitee's; the forged linkage
@@ -435,7 +435,7 @@ class TestSharedVapiWebhook(APIBaseTest):
             "topsecret",
             self._payload(config.access_token, call_id="call_2", respondent_key="resp-1", transcript="a full answer"),
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
         # The abandoned partial is gone; only the completed response remains for this respondent.
         assert not UserInterview.objects.filter(pk=abandoned.pk).exists()
         remaining = UserInterview.objects.filter(team=self.team, respondent_key="resp-1")
@@ -464,7 +464,7 @@ class TestSharedVapiWebhook(APIBaseTest):
             "topsecret",
             self._payload(config.access_token, call_id="call_9", respondent_key="resp-9", transcript="a full answer"),
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
         # The mislabeled real response is preserved (it has interviewee turns, so it doesn't re-derive
         # as abandoned); only genuine AI-only partials are collapsed.
         assert UserInterview.objects.filter(pk=real.pk).exists()

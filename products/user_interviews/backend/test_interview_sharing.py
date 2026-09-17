@@ -11,6 +11,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
+from django.db import InterfaceError, OperationalError
 from django.template.loader import get_template
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
@@ -31,6 +32,7 @@ from products.user_interviews.backend.presentation.webhooks import (
     _create_vapi_web_call,
     _resolve_first_message_template,
 )
+from products.user_interviews.backend.tasks.tasks import handle_vapi_webhook
 from products.user_interviews.backend.vapi_events import EMBEDDING_CONTENT_MAX_BYTES
 
 
@@ -722,13 +724,28 @@ class TestVapiWebhook(APIBaseTest):
             "topsecret",
             self._end_of_call_payload(share.access_token, metadata_path=metadata_path),
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
         interview = UserInterview.objects.get(team=self.team)
         assert share.interviewee_context is not None
         self.assertEqual(interview.topic, share.interviewee_context.topic)
         self.assertEqual(interview.interviewee_identifier, "alex@example.com")
         self.assertEqual(interview.recording_url, "https://vapi.example/recording.mp3")
         self.assertEqual(interview.transcript, "Hi! ...")
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.tasks.tasks.handle_vapi_webhook.delay")
+    def test_webhook_hands_the_report_to_a_task(self, mock_delay):
+        share = self._create_share()
+        self.client.logout()
+        payload = self._end_of_call_payload(share.access_token)
+        response = self._signed_post("topsecret", payload)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
+        mock_delay.assert_called_once_with(payload=payload, event_type="end-of-call-report")
+        self.assertEqual(UserInterview.objects.count(), 0)
+
+    def test_report_task_retries_a_transient_database_error(self):
+        # Bare max_retries without autoretry_for is silently inert; assert the wiring is real.
+        self.assertEqual(handle_vapi_webhook.autoretry_for, (OperationalError, InterfaceError))
 
     @override_settings(VAPI_WEBHOOK_SECRET="")
     def test_webhook_fails_closed_when_secret_unset(self):
@@ -746,7 +763,9 @@ class TestVapiWebhook(APIBaseTest):
     def test_webhook_rejects_unknown_token(self):
         self.client.logout()
         response = self._signed_post("topsecret", self._end_of_call_payload("does-not-exist"))
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        # The receipt is the transport's, so an unknown token is only observable as nothing stored.
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(UserInterview.objects.count(), 0)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     def test_webhook_requires_valid_signature(self):
@@ -786,8 +805,8 @@ class TestVapiWebhook(APIBaseTest):
     def test_webhook_ignores_unknown_message_types(self):
         self.client.logout()
         response = self._signed_post("topsecret", {"message": {"type": "speech-update"}})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], "ignored")
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(UserInterview.objects.count(), 0)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     @patch("products.user_interviews.backend.vapi_events.posthoganalytics.capture")
@@ -804,7 +823,7 @@ class TestVapiWebhook(APIBaseTest):
                 }
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         mock_capture.assert_called_once()
         kwargs = mock_capture.call_args.kwargs
         self.assertEqual(kwargs["event"], "user_interview_conversation_started")
@@ -854,7 +873,7 @@ class TestVapiWebhook(APIBaseTest):
                 }
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         mock_capture.assert_not_called()
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
@@ -863,7 +882,7 @@ class TestVapiWebhook(APIBaseTest):
         share = self._create_share()
         self.client.logout()
         response = self._signed_post("topsecret", self._end_of_call_payload(share.access_token))
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
         mock_capture.assert_called_once()
         kwargs = mock_capture.call_args.kwargs
         self.assertEqual(kwargs["event"], "user_interview_conversation_ended")
@@ -879,12 +898,13 @@ class TestVapiWebhook(APIBaseTest):
         self.client.logout()
         payload = self._end_of_call_payload(share.access_token, call_id="call_xyz")
         first = self._signed_post("topsecret", payload)
-        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(first.status_code, status.HTTP_202_ACCEPTED)
+        stored_id = UserInterview.objects.get(team=self.team).id
         second = self._signed_post("topsecret", payload)
-        self.assertEqual(second.status_code, status.HTTP_200_OK)
-        self.assertEqual(second.json()["status"], "duplicate")
-        self.assertEqual(first.json()["interview_id"], second.json()["interview_id"])
+        self.assertEqual(second.status_code, status.HTTP_202_ACCEPTED)
+        # The row the second delivery must not duplicate or replace.
         self.assertEqual(UserInterview.objects.filter(team=self.team).count(), 1)
+        self.assertEqual(UserInterview.objects.get(team=self.team).id, stored_id)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     @patch("products.user_interviews.backend.vapi_events.emit_embedding_request")
@@ -893,7 +913,7 @@ class TestVapiWebhook(APIBaseTest):
         self.client.logout()
         with self.captureOnCommitCallbacks(execute=True):
             response = self._signed_post("topsecret", self._end_of_call_payload(share.access_token))
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
 
         interview = UserInterview.objects.get(team=self.team)
         assert share.interviewee_context is not None
@@ -933,7 +953,7 @@ class TestVapiWebhook(APIBaseTest):
 
         with self.captureOnCommitCallbacks(execute=True):
             response = self._signed_post("topsecret", payload)
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
 
         emitted_types = {kwargs["document_type"] for _, kwargs in mock_emit.call_args_list}
         self.assertEqual(emitted_types, expected_types)
@@ -952,8 +972,8 @@ class TestVapiWebhook(APIBaseTest):
         first_call_count = mock_emit.call_count
 
         with self.captureOnCommitCallbacks(execute=True):
-            second = self._signed_post("topsecret", payload)
-        self.assertEqual(second.json()["status"], "duplicate")
+            self._signed_post("topsecret", payload)
+        self.assertEqual(UserInterview.objects.filter(team=self.team).count(), 1)
         self.assertEqual(mock_emit.call_count, first_call_count)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
@@ -966,7 +986,7 @@ class TestVapiWebhook(APIBaseTest):
         self.client.logout()
         with self.captureOnCommitCallbacks(execute=True):
             response = self._signed_post("topsecret", self._end_of_call_payload(share.access_token))
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
         self.assertEqual(UserInterview.objects.filter(team=self.team).count(), 1)
 
     @parameterized.expand(
@@ -993,7 +1013,7 @@ class TestVapiWebhook(APIBaseTest):
 
         with self.captureOnCommitCallbacks(execute=True):
             response = self._signed_post("topsecret", payload)
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
 
         emitted = {kwargs["document_type"]: kwargs for _, kwargs in mock_emit.call_args_list}
 

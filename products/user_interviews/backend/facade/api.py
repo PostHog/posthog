@@ -17,6 +17,8 @@ Do NOT:
 
 from uuid import UUID
 
+from posthog.ingress.contracts import WebhookDelivery
+
 from products.user_interviews.backend import logic
 from products.user_interviews.backend.classification import derive_auto_classifications
 from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
@@ -24,6 +26,7 @@ from products.user_interviews.backend.facade.contracts import IntervieweeIdentit
 __all__ = [
     "SHARED_INTERVIEWEE_IDENTIFIER",
     "IntervieweeIdentity",
+    "accept_vapi_event",
     "derive_auto_classifications",
     "has_replied",
     "is_shared_interviewee_context",
@@ -57,3 +60,11 @@ def has_replied(*, team_id: int, topic_id: UUID, interviewee_identifier: str) ->
         topic_id=topic_id,
         interviewee_identifier=interviewee_identifier,
     )
+
+
+def accept_vapi_event(delivery: WebhookDelivery) -> None:
+    # Deferred: keeps the Celery app off the facade import path.
+    from products.user_interviews.backend.tasks.tasks import handle_vapi_webhook  # noqa: PLC0415
+
+    # Enqueued, not run here, so a failed persist gets retried. The task module says why.
+    handle_vapi_webhook.delay(payload=dict(delivery.payload), event_type=delivery.event_type)
