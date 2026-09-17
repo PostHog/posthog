@@ -92,6 +92,7 @@ export function openConnection(opts: {
   cwd: string;
   codexOptions?: Record<string, unknown>;
   onStructuredOutput?: (output: Record<string, unknown>) => Promise<void>;
+  onQuestion?: () => Promise<void>;
 }): E2EConnection {
   const { adapter, cwd } = opts;
   // Sweep before every codex spawn so one leaked process (holding the
@@ -119,6 +120,9 @@ export function openConnection(opts: {
           codeToolKind: p?.toolCall?._meta?.codeToolKind,
         },
       });
+      if (p?.toolCall?._meta?.codeToolKind === "question") {
+        await opts.onQuestion?.();
+      }
       // Accepting a plan starts extra model turns outside the test's scenario.
       if (p?.toolCall?.kind === "switch_mode") {
         return { outcome: { outcome: "cancelled" } };
@@ -206,6 +210,7 @@ export async function openSession(opts: {
   cwd: string;
   codexOptions?: Record<string, unknown>;
   onStructuredOutput?: (output: Record<string, unknown>) => Promise<void>;
+  onQuestion?: () => Promise<void>;
   meta: Record<string, unknown>;
 }): Promise<OpenSession> {
   const c = openConnection(opts);

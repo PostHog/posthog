@@ -279,7 +279,12 @@ export const AccountsNotebooksCreateBody = () => zod.object({
         .max(accountsNotebooksCreateBodyTitleMax)
         .nullish()
         .describe('Human-readable title of the account notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook.'
+        ),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
 })
 

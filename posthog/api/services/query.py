@@ -75,7 +75,7 @@ def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool
         and query.modifiers is None
     )
     if isinstance(query, HogQLMetadata):
-        return common and query.variables is None and not query.debug and not query.indexUsage
+        return common and query.variables is None and not query.debug
     return common
 
 
@@ -359,15 +359,23 @@ def process_query_model(
         with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="autocomplete").time():
             if user is not None and (language_result := _language_service_call(team, user, query)) is not None:
                 body = language_result.body
-                kind_map = {"field": "Field", "property": "Property", "table": "Class", "keyword": "Keyword"}
+                kind_map = {
+                    "field": "Field",
+                    "function": "Function",
+                    "keyword": "Keyword",
+                    "operator": "Operator",
+                    "property": "Property",
+                    "table": "Class",
+                }
                 try:
                     return HogQLAutocompleteResponse(
                         suggestions=[
                             {
                                 "label": suggestion["label"],
-                                "insertText": suggestion["label"],
+                                "insertText": suggestion.get("insertText", suggestion["label"]),
                                 "kind": kind_map.get(suggestion["kind"], "Text"),
                                 "detail": suggestion.get("detail"),
+                                "sortText": suggestion.get("sortText"),
                             }
                             for suggestion in body["suggestions"]
                         ],

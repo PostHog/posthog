@@ -1513,6 +1513,29 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_get_usage_data.call_args[0][1]["team_ids"], f"[{other_team.pk}]")
 
+    @parameterized.expand(
+        [
+            ("list", "/api/billing/", "ee.billing.billing_manager.BillingManager.get_billing"),
+            ("usage", "/api/billing/usage/", "ee.billing.billing_manager.BillingManager.get_usage_data"),
+        ]
+    )
+    def test_a_billing_read_without_a_current_project_is_denied_rather_than_unauthenticated(
+        self, _name: str, path: str, billing_call: str
+    ):
+        headers = self._oauth_token_headers(["billing:read"])
+        self.user.current_team = None
+        self.user.save()
+
+        with patch(billing_call) as mock_billing_call:
+            response = self.client.get(
+                path, {"start_date": "2025-01-01"}, HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"]
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "permission_denied")
+        self.assertIn("your account has none", response.json()["detail"])
+        mock_billing_call.assert_not_called()
+
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
     def test_get_usage_rejects_other_org_team_ids_for_project_scoped_billing_read(self, mock_get_usage_data):
         other_org = self.create_organization_with_features([])

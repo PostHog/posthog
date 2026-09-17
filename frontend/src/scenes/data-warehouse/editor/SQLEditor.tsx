@@ -7,6 +7,7 @@ import { IconBook, IconChevronDown, IconDownload, IconNotebook, IconX } from '@p
 import { LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -60,6 +61,7 @@ export enum SQLEditorPanel {
 }
 
 const VARIABLE_QUERY_SYNC_DEBOUNCE_MS = 150
+const MAX_TOOL_CONTEXT_DEBOUNCE_MS = 150
 
 interface SQLEditorProps {
     tabId?: string
@@ -478,13 +480,23 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
 
-    useAttachedContext([
-        {
-            type: 'sql_editor_state',
-            value: JSON.stringify(getExecuteSqlToolContext(queryInput, sourceQuery)),
-            label: 'Current query',
-        },
-    ])
+    const debouncedQueryInput = useDebouncedValue(queryInput, MAX_TOOL_CONTEXT_DEBOUNCE_MS)
+    const debouncedSourceQuery = useDebouncedValue(sourceQuery, MAX_TOOL_CONTEXT_DEBOUNCE_MS)
+    const executeSqlToolContext = useMemo(
+        () => getExecuteSqlToolContext(debouncedQueryInput, debouncedSourceQuery),
+        [debouncedQueryInput, debouncedSourceQuery]
+    )
+    const attachedContextItems = useMemo(
+        () => [
+            {
+                type: 'sql_editor_state' as const,
+                value: JSON.stringify(executeSqlToolContext),
+                label: 'Current query',
+            },
+        ],
+        [executeSqlToolContext]
+    )
+    useAttachedContext(attachedContextItems)
 
     const saveAsViewAccessDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
@@ -661,7 +673,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                 })}
                 maxToolProps={{
                     identifier: 'execute_sql',
-                    context: getExecuteSqlToolContext(queryInput, sourceQuery),
+                    context: executeSqlToolContext,
                     contextDescription: {
                         text: 'Current query',
                         icon: iconForType('sql_editor'),

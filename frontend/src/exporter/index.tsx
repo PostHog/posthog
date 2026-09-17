@@ -5,7 +5,7 @@ import './Exporter.scss'
 // before any module that builds a zod schema. See lib/configureZod.
 import '../lib/configureZod'
 
-import { BeforeSendFn, CapturedNetworkRequest } from 'posthog-js'
+import { BeforeSendFn, CapturedNetworkRequest, NetworkMetricsConfig } from 'posthog-js'
 import { createRoot } from 'react-dom/client'
 
 import { polyfillCountryFlags } from 'lib/countryFlagEmojiPolyfill'
@@ -33,11 +33,15 @@ if (!isInterview) {
 
 // The interview URL embeds the SharingConfiguration access token (/interview/<token>/) and the
 // public start_call API path (/api/user_interviews/share/<token>/start_call/) embeds it too.
-// Two hooks redact it everywhere a viewer of analytics or replay could otherwise read it:
+// Three hooks redact it everywhere a viewer of analytics, replay, or metrics could otherwise read it:
 //   - `before_send` strips URL-shaped event properties ($current_url, $pathname, $referrer, ...)
 //   - `maskCapturedNetworkRequestFn` is also the hook posthog-js uses for ALL replay URL
 //     surfaces — captured network requests, the rrweb `EventType.Meta` header, `$url_changed`
 //     custom events on SPA route transitions, and masked $current_url in captured console events.
+//   - `metrics.network.attributes` overrides the `path` attribute posthog-js records on every
+//     automatic fetch/XHR duration metric. The default `path` only templates numeric or
+//     uuid-like segments to `:id`, and the access token (a `secrets.token_urlsafe` string) does
+//     not match that pattern, so without this override the token would reach the Metrics UI.
 // Together they cover every surface where the token could land for a viewer to reuse.
 const INTERVIEW_TOKEN_RE = /\/interview\/[^/?#]+|\/api\/user_interviews\/share\/[^/?#]+/g
 const URL_PROPERTIES = ['$current_url', '$pathname', '$referrer', '$initial_current_url', '$initial_pathname']
@@ -60,10 +64,14 @@ const interviewMaskNetworkRequest = (req: CapturedNetworkRequest): CapturedNetwo
     }
     return req
 }
+const interviewNetworkMetricsAttributes: NonNullable<NetworkMetricsConfig['attributes']> = (request) => ({
+    path: redactInterviewToken(new URL(request.url).pathname),
+})
 
 loadPostHogJS({
     beforeSend: isInterview ? interviewBeforeSend : undefined,
     sessionRecording: isInterview ? { maskCapturedNetworkRequestFn: interviewMaskNetworkRequest } : undefined,
+    metrics: isInterview ? { network: { attributes: interviewNetworkMetricsAttributes } } : undefined,
 })
 initKea({ replaceInitialPathInWindow: false })
 

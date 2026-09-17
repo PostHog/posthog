@@ -140,18 +140,13 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
         ],
         // The saved-query list response omits `suspended`, so read it off the nodes.
         /**
-         * A marker only means scheduled runs stopped when it is on the serving engine and the team
-         * enforces suspension. Detection runs for every team, so an unenforced marker is a record
-         * of repeated failures while the schedule keeps firing.
+         * Only a marker on the serving engine means scheduled runs stopped. The shadow engine marks
+         * its own failures, and those leave the schedule firing.
          */
         suspendedNodes: [
-            (s) => [s.nodes, s.featureFlags],
-            (nodes: DataModelingNode[], featureFlags: FeatureFlagsSet): DataModelingNode[] => {
-                if (!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES]) {
-                    return []
-                }
-                return nodes.filter((node) => servingSuspension(node.suspended))
-            },
+            (s) => [s.nodes],
+            (nodes: DataModelingNode[]): DataModelingNode[] =>
+                nodes.filter((node) => servingSuspension(node.suspended)),
         ],
         suspensionBySavedQueryId: [
             (s) => [s.suspendedNodes],
@@ -190,7 +185,7 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
                 const maps = buildAdjacencyMaps(edges)
 
                 const rows = affected.map((node): AttentionModel => {
-                    const suspension = servingSuspension(node.suspended)
+                    const suspension = suspendedIds.has(node.id) ? servingSuspension(node.suspended) : undefined
                     // The cone includes the node itself, which is not something it blocks.
                     const downstream = [...traverseLineage(node.id, maps, 'downstream')].filter((id) => id !== node.id)
                     return {

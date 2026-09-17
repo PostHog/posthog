@@ -945,3 +945,126 @@ class TestCustomBotDefinitions(ClickhouseTestMixin, BaseTest):
         )
 
         assert is_bot is False
+
+
+class TestCookielessClassification(ClickhouseTestMixin, BaseTest):
+    def _classify(
+        self,
+        properties: dict,
+        cookieless_traffic_is_regular: bool = True,
+        definitions: list[CustomBotRule] | None = None,
+    ) -> tuple:
+        modifiers: dict = {"cookielessTrafficIsRegular": cookieless_traffic_is_regular}
+        if definitions:
+            modifiers["customBotDefinitions"] = [d.model_dump(mode="json") for d in definitions]
+        self.team.modifiers = modifiers
+        self.team.save()
+
+        tag = uuid4().hex
+        _create_event(
+            team=self.team,
+            distinct_id="visitor",
+            event="$pageview",
+            properties={**properties, "_test_tag": tag},
+        )
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            "SELECT `$virt_is_bot`, `$virt_traffic_type`, `$virt_traffic_category`, `$virt_bot_name`, "
+            "`$virt_bot_operator`, getBotType(properties.`$raw_user_agent`, properties.`$ip`) "
+            f"FROM events WHERE properties._test_tag = '{tag}'",
+            self.team,
+        )
+        assert response.results is not None
+        return response.results[0]
+
+    @parameterized.expand(
+        [("missing", {}), ("empty", {"$raw_user_agent": ""}), ("string_flag", {"$cookieless_mode": "true"})]
+    )
+    def test_a_cookieless_event_is_regular_traffic(self, _name: str, properties: dict) -> None:
+        assert self._classify({"$cookieless_mode": True, **properties}) == (False, "Regular", "regular", "", "", "")
+
+    @parameterized.expand(
+        [
+            ("user_agent", {"$raw_user_agent": "Googlebot/2.1"}, False),
+            ("ip", {"$ip": "66.249.66.1"}, False),
+            ("user_agent_with_project_rules", {"$raw_user_agent": "Googlebot/2.1"}, True),
+            ("ip_with_project_rules", {"$ip": "66.249.66.1"}, True),
+        ]
+    )
+    def test_positive_bot_signals_still_classify_cookieless_events(
+        self, _name: str, properties: dict, with_project_rules: bool
+    ) -> None:
+        definitions = (
+            [_custom_bot(name="Staging checker", key=CustomBotField.FIELD_HOST, pattern="staging")]
+            if with_project_rules
+            else None
+        )
+        assert self._classify({"$cookieless_mode": True, **properties}, definitions=definitions) == (
+            True,
+            "Bot",
+            "search_crawler",
+            "Googlebot",
+            "Google",
+            "search_crawler",
+        )
+
+    def test_a_cookieless_event_is_still_automation_while_the_rollout_is_off(self):
+        assert self._classify({"$cookieless_mode": True}, cookieless_traffic_is_regular=False) == (
+            True,
+            "Automation",
+            "no_user_agent",
+            "",
+            "",
+            "no_user_agent",
+        )
+
+    def test_a_non_cookieless_event_with_no_user_agent_is_still_automation(self):
+        assert self._classify({}) == (True, "Automation", "no_user_agent", "", "", "no_user_agent")
+
+    def test_the_flag_is_read_as_a_value_not_as_presence(self):
+        is_bot, traffic_type, _category, _name, _operator, _bot_type = self._classify(
+            {"$cookieless_mode": False, "$raw_user_agent": "Googlebot/2.1 (+http://www.google.com/bot.html)"}
+        )
+
+        assert (is_bot, traffic_type) == (True, "Bot")
+
+    @parameterized.expand(
+        [("no_builtin", {}), ("user_agent", {"$raw_user_agent": "Googlebot/2.1"}), ("ip", {"$ip": "66.249.66.1"})]
+    )
+    def test_a_project_rule_still_names_a_cookieless_event(self, _name: str, properties: dict) -> None:
+        is_bot, traffic_type, category, name, _operator, bot_type = self._classify(
+            {"$cookieless_mode": True, "$host": "staging.example.com", **properties},
+            definitions=[
+                _custom_bot(
+                    name="Staging checker", key=CustomBotField.FIELD_HOST, pattern="staging", category="monitoring"
+                )
+            ],
+        )
+
+        assert (is_bot, traffic_type, category, name, bot_type) == (
+            True,
+            "Bot",
+            "monitoring",
+            "Staging checker",
+            "monitoring",
+        )
+
+
+COOKIELESS_ON = HogQLQueryModifiers(cookielessTrafficIsRegular=True)
+
+
+class TestCookielessOverrideExpression:
+    @parameterized.expand(
+        [
+            ("getTrafficType", get_traffic_type, "if"),
+            ("isLikelyBot", is_bot, "toBool"),
+        ]
+    )
+    def test_a_user_agent_with_no_properties_object_is_left_unwrapped(self, name, factory_fn, expected_top_call):
+        result = factory_fn(
+            node=ast.Call(name=name, args=[]), args=[ast.Call(name="lower", args=[])], modifiers=COOKIELESS_ON
+        )
+
+        assert isinstance(result, ast.Call)
+        assert result.name == expected_top_call

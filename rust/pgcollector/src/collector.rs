@@ -38,6 +38,7 @@ pub enum Value {
     Text(String),
     Timestamp(DateTime<Utc>),
     Json(serde_json::Value),
+    IntArray(Vec<i32>),
 }
 
 impl Value {
@@ -61,6 +62,7 @@ impl Value {
             Value::Text(_) => "text",
             Value::Timestamp(_) => "timestamptz",
             Value::Json(_) => "jsonb",
+            Value::IntArray(_) => "integer[]",
         }
     }
 }
@@ -99,6 +101,10 @@ pub struct Snapshot {
     /// Written by the sink after the primary rows.
     #[serde(default)]
     pub aux: Vec<Snapshot>,
+    /// Extra indexes for a `ts_` table, one column list each, built as
+    /// `(server_id, <cols>, collected_at)`.
+    #[serde(default)]
+    pub indexes: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

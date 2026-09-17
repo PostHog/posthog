@@ -1,7 +1,7 @@
 import re
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote, urlencode
 
@@ -9,15 +9,16 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.settings import (
+    AZURE_DEVOPS_BASE_URL,
     AZURE_DEVOPS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-AZURE_DEVOPS_BASE_URL = "https://dev.azure.com"
 
 # Source version labels. The legacy label predates versioning and keeps sending
 # api-version 7.1 so existing syncs are unchanged; 7.2 is the current GA stable API.
@@ -43,6 +44,11 @@ REQUEST_TIMEOUT_SECONDS = 60
 # Rate limiting is 200 TSTUs per identity per sliding 5-minute window; 429s
 # carry Retry-After but exponential backoff is sufficient.
 MAX_RETRY_ATTEMPTS = 5
+# The test run query rejects a minLastUpdatedDate/maxLastUpdatedDate span wider than this.
+TEST_RUN_WINDOW = timedelta(days=7)
+# Classification nodes arrive as a tree in one response, cut off at the requested depth.
+# Area and iteration trees deeper than this are rare; the fan-out logs when one is hit.
+CLASSIFICATION_NODE_DEPTH = 10
 
 
 class AzureDevOpsRetryableError(Exception):
@@ -95,6 +101,37 @@ def _format_datetime(value: Any) -> str:
     return str(value)
 
 
+def _parse_datetime(value: Any) -> Optional[datetime]:
+    """Read an incremental cursor back into a datetime, or None when it isn't one."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=UTC)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return None
+
+
+@frozen
+class LastUpdatedWindow:
+    """One minLastUpdatedDate/maxLastUpdatedDate pair for the test run query."""
+
+    min_last_updated: str
+    max_last_updated: str
+
+
+def _last_updated_windows(since: datetime, until: datetime) -> Iterator[LastUpdatedWindow]:
+    start = since
+    while start < until:
+        end = min(start + TEST_RUN_WINDOW, until)
+        yield LastUpdatedWindow(min_last_updated=_format_datetime(start), max_last_updated=_format_datetime(end))
+        start = end
+
+
 def _flatten_revision(item: dict[str, Any]) -> dict[str, Any]:
     # Revision payloads nest everything interesting under `fields`; copy the
     # watermark field to the top level so the pipeline can track it.
@@ -138,10 +175,25 @@ def _flatten_thread_comments(thread: dict[str, Any], ref: PullRequestRef) -> lis
     ]
 
 
-def _flatten_team(item: dict[str, Any], project: dict[str, Any]) -> dict[str, Any]:
-    # This endpoint leaves WebApiTeam's optional project fields unset, so the
-    # fan-out parent supplies them.
+def _with_project_ref(item: dict[str, Any], project: dict[str, Any]) -> dict[str, Any]:
+    # Project-fan-out rows either leave the project unset or nest it, and project_id is
+    # part of the primary key on several of them, so the parent supplies both fields.
     return {**item, "project_id": project.get("id"), "project_name": project.get("name")}
+
+
+def _flatten_timeline_record(
+    record: dict[str, Any], project: str, build: dict[str, Any], timeline_id: Any
+) -> dict[str, Any]:
+    # A record only makes sense against the run it describes. The build supplies both the
+    # stable partition field and the watermark field, which the record itself does not carry.
+    return {
+        **record,
+        "project_name": project,
+        "build_id": build.get("id"),
+        "build_queue_time": build.get("queueTime"),
+        "build_finish_time": build.get("finishTime"),
+        "timeline_id": timeline_id,
+    }
 
 
 def _flatten_team_member(item: dict[str, Any], project: dict[str, Any], team: dict[str, Any]) -> dict[str, Any]:
@@ -152,6 +204,67 @@ def _flatten_team_member(item: dict[str, Any], project: dict[str, Any], team: di
         "team_name": team.get("name"),
         "identity_id": (item.get("identity") or {}).get("id"),
     }
+
+
+def _with_team_ref(item: dict[str, Any], project: dict[str, Any], team: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **item,
+        "project_id": project.get("id"),
+        "project_name": project.get("name"),
+        "team_id": team.get("id"),
+        "team_name": team.get("name"),
+    }
+
+
+def _with_work_item_type_ref(
+    item: dict[str, Any], project: dict[str, Any], work_item_type: dict[str, Any]
+) -> dict[str, Any]:
+    # A state row carries only a name, a colour and a category, so the type it belongs to
+    # has to come from the parent — two thirds of the primary key live here.
+    return {
+        **item,
+        "project_id": project.get("id"),
+        "project_name": project.get("name"),
+        "work_item_type": work_item_type.get("name"),
+        "work_item_type_reference_name": work_item_type.get("referenceName"),
+    }
+
+
+def _with_pipeline_ref(item: dict[str, Any], project: dict[str, Any], pipeline: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **item,
+        "project_id": project.get("id"),
+        "project_name": project.get("name"),
+        "pipeline_id": pipeline.get("id"),
+        "pipeline_name": pipeline.get("name"),
+    }
+
+
+def _flatten_classification_nodes(
+    root: dict[str, Any], project: dict[str, Any], logger: FilteringBoundLogger
+) -> list[dict[str, Any]]:
+    """Walk one area or iteration tree into a row per node, dropping the nested subtree so a
+    node is not repeated inside each of its ancestors."""
+    rows: list[dict[str, Any]] = []
+    stack: list[tuple[dict[str, Any], Any]] = [(root, None)]
+    while stack:
+        node, parent_id = stack.pop()
+        children = node.get("children") or []
+        if node.get("hasChildren") and not children:
+            logger.warning(
+                f"Azure DevOps: classification node tree in project {project.get('name')} is deeper than "
+                f"{CLASSIFICATION_NODE_DEPTH} levels; children of node {node.get('id')} are not synced"
+            )
+        rows.append(
+            {
+                **{key: value for key, value in node.items() if key != "children"},
+                "project_id": project.get("id"),
+                "project_name": project.get("name"),
+                "parent_id": parent_id,
+            }
+        )
+        stack.extend((child, node.get("id")) for child in children)
+    return rows
 
 
 # Actionable reasons returned by the create-time credential probe. The sync-time equivalents live in
@@ -231,8 +344,8 @@ def get_rows(
         wait=wait_exponential_jitter(initial=2, max=120),
         reraise=True,
     )
-    def fetch(path: str, params: dict[str, Any]) -> requests.Response:
-        url = f"{AZURE_DEVOPS_BASE_URL}/{quote(org)}{path}?{urlencode({**params, 'api-version': wire_version})}"
+    def fetch(path: str, params: dict[str, Any], base_url: str = AZURE_DEVOPS_BASE_URL) -> requests.Response:
+        url = f"{base_url}/{quote(org)}{path}?{urlencode({**params, 'api-version': wire_version})}"
         response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
@@ -265,14 +378,23 @@ def get_rows(
         return params
 
     def iterate_header_token(
-        path: str, extra: dict[str, Any], use_base_params: bool = True
+        path: str,
+        extra: dict[str, Any],
+        use_base_params: bool = True,
+        base_url: str = AZURE_DEVOPS_BASE_URL,
+        # `None` leaves $top off, for an endpoint that documents no page size. Asking for one
+        # there risks a server that honours $top but sends no token back, which would cut the
+        # listing down to a single short page.
+        page_size: Optional[int] = PAGE_SIZE,
     ) -> Iterator[list[dict[str, Any]]]:
         token: Optional[str] = None
         while True:
-            params = {**(base_params() if use_base_params else {}), **extra, "$top": PAGE_SIZE}
+            params = {**(base_params() if use_base_params else {}), **extra}
+            if page_size is not None:
+                params["$top"] = page_size
             if token:
                 params["continuationToken"] = token
-            response = fetch(path, params)
+            response = fetch(path, params, base_url)
             items = response.json().get("value", []) or []
             if items:
                 yield items
@@ -313,6 +435,20 @@ def get_rows(
         path = AZURE_DEVOPS_ENDPOINTS["teams"].path.replace("{project}", quote(str(project["id"])))
         yield from iterate_skip(path, {}, use_base_params=False)
 
+    def pipelines_for(project: dict[str, Any]) -> Iterator[list[dict[str, Any]]]:
+        path = AZURE_DEVOPS_ENDPOINTS["pipelines"].path.replace("{project}", quote(str(project["id"])))
+        yield from iterate_header_token(path, {}, use_base_params=False)
+
+    def builds_for(project: str) -> Iterator[list[dict[str, Any]]]:
+        # The timeline endpoint takes no filter, so the endpoint's minTime watermark
+        # lands here and bounds which builds an incremental sync visits at all. minTime
+        # filters on whichever time queryOrder names, so ordering by finish time makes
+        # the cursor a finish time: a build still running has none and is skipped until
+        # it ends, and a retried build's finish time moves forward so its timeline is
+        # read again.
+        path = AZURE_DEVOPS_ENDPOINTS["builds"].path.replace("{project}", quote(project))
+        yield from iterate_header_token(path, {"queryOrder": "finishTimeAscending"})
+
     def pull_request_refs() -> Iterator[PullRequestRef]:
         pr_path = AZURE_DEVOPS_ENDPOINTS["pull_requests"].path
         for project in project_names():
@@ -351,6 +487,100 @@ def get_rows(
             )
         return
 
+    if endpoint == "build_definitions":
+        for project_row in projects():
+            if not project_row.get("name"):
+                continue
+            # lastModifiedAscending gives the listing a stable order to page through.
+            for page in iterate_header_token(
+                config.path.replace("{project}", quote(project_row["name"])), {"queryOrder": "lastModifiedAscending"}
+            ):
+                yield [_with_project_ref(item, project_row) for item in page]
+        return
+
+    if endpoint == "build_timeline_records":
+        for project in project_names():
+            for build_page in builds_for(project):
+                for build in build_page:
+                    if build.get("id") is None:
+                        continue
+                    path = config.path.replace("{project}", quote(project)).replace(
+                        "{buildId}", quote(str(build["id"]))
+                    )
+                    response = fetch(path, {})
+                    # A build that never ran has no timeline; Azure DevOps answers 204
+                    # with an empty body rather than an empty object.
+                    timeline = {} if response.status_code == 204 else response.json()
+                    rows = [
+                        _flatten_timeline_record(record, project, build, timeline.get("id"))
+                        for record in (timeline.get("records") or [])
+                    ]
+                    if rows:
+                        yield rows
+        return
+
+    if endpoint == "pipelines":
+        for project_row in projects():
+            if not project_row.get("id"):
+                continue
+            for page in pipelines_for(project_row):
+                yield [_with_project_ref(item, project_row) for item in page]
+        return
+
+    if endpoint == "pipeline_runs":
+        for project_row in projects():
+            if not project_row.get("id"):
+                continue
+            for pipeline_page in pipelines_for(project_row):
+                for pipeline in pipeline_page:
+                    if pipeline.get("id") is None:
+                        continue
+                    path = config.path.replace("{project}", quote(str(project_row["id"]))).replace(
+                        "{pipelineId}", quote(str(pipeline["id"]))
+                    )
+                    # The run listing documents no paging parameters, but Azure DevOps sends a
+                    # continuation token on listings that overflow, so follow one when it comes.
+                    for page in iterate_header_token(path, {}, use_base_params=False, page_size=None):
+                        yield [_with_pipeline_ref(item, project_row, pipeline) for item in page]
+        return
+
+    if endpoint in ("releases", "release_deployments"):
+        for project_row in projects():
+            if not project_row.get("name"):
+                continue
+            for page in iterate_header_token(
+                config.path.replace("{project}", quote(project_row["name"])),
+                {"queryOrder": "ascending"},
+                base_url=config.base_url,
+            ):
+                yield [_with_project_ref(item, project_row) for item in page]
+        return
+
+    if endpoint == "test_runs":
+        # Both window bounds are mandatory on the filtered query and may span at most
+        # 7 days, so an incremental sync walks windows from the watermark to now. Full
+        # refresh takes the unfiltered listing, which pages on $skip instead.
+        since = _parse_datetime(db_incremental_field_last_value) if incremental_value is not None else None
+        for project_row in projects():
+            if not project_row.get("name"):
+                continue
+            path = config.path.replace("{project}", quote(project_row["name"]))
+            if since is None:
+                for page in iterate_skip(path, {}, use_base_params=False):
+                    yield [_with_project_ref(item, project_row) for item in page]
+                continue
+            for window in _last_updated_windows(since, datetime.now(UTC)):
+                for page in iterate_header_token(
+                    path,
+                    {
+                        "minLastUpdatedDate": window.min_last_updated,
+                        "maxLastUpdatedDate": window.max_last_updated,
+                    },
+                    use_base_params=False,
+                ):
+                    yield [_with_project_ref(item, project_row) for item in page]
+        return
+
     if endpoint == "pull_requests":
         extra = {"searchCriteria.status": "all"}
         if incremental_value is not None:
@@ -386,11 +616,11 @@ def get_rows(
                 yield rows
         return
 
-    if endpoint == "pull_request_reviewers":
+    if endpoint in ("pull_request_reviewers", "pull_request_work_items"):
         for ref in pull_request_refs():
-            reviewers = fetch(pull_request_child_path(ref), {}).json().get("value", []) or []
-            if reviewers:
-                yield [_with_pull_request_ref(item, ref) for item in reviewers]
+            items = fetch(pull_request_child_path(ref), {}).json().get("value", []) or []
+            if items:
+                yield [_with_pull_request_ref(item, ref) for item in items]
         return
 
     if endpoint == "teams":
@@ -398,7 +628,7 @@ def get_rows(
             if not project_row.get("id"):
                 continue
             for page in teams_for(project_row):
-                yield [_flatten_team(item, project_row) for item in page]
+                yield [_with_project_ref(item, project_row) for item in page]
         return
 
     if endpoint == "team_members":
@@ -414,6 +644,56 @@ def get_rows(
                     )
                     for page in iterate_skip(path, {}, use_base_params=False):
                         yield [_flatten_team_member(item, project_row, team) for item in page]
+        return
+
+    if endpoint in ("work_item_types", "work_item_type_states"):
+        want_states = endpoint == "work_item_type_states"
+        types_path = AZURE_DEVOPS_ENDPOINTS["work_item_types"].path
+        for project_row in projects():
+            if not project_row.get("id"):
+                continue
+            project_segment = quote(str(project_row["id"]))
+            types = fetch(types_path.replace("{project}", project_segment), {}).json().get("value", []) or []
+            if not want_states:
+                if types:
+                    yield [_with_project_ref(item, project_row) for item in types]
+                continue
+            for work_item_type in types:
+                if not work_item_type.get("name"):
+                    continue
+                path = config.path.replace("{project}", project_segment).replace(
+                    "{workItemType}", quote(work_item_type["name"])
+                )
+                states = fetch(path, {}).json().get("value", []) or []
+                if states:
+                    yield [_with_work_item_type_ref(item, project_row, work_item_type) for item in states]
+        return
+
+    if endpoint == "work_item_classification_nodes":
+        for project_row in projects():
+            if not project_row.get("id"):
+                continue
+            path = config.path.replace("{project}", quote(str(project_row["id"])))
+            roots = fetch(path, {"$depth": CLASSIFICATION_NODE_DEPTH}).json().get("value", []) or []
+            rows = [row for root in roots for row in _flatten_classification_nodes(root, project_row, logger)]
+            if rows:
+                yield rows
+        return
+
+    if endpoint == "work_iterations":
+        for project_row in projects():
+            if not project_row.get("id"):
+                continue
+            for team_page in teams_for(project_row):
+                for team in team_page:
+                    if not team.get("id"):
+                        continue
+                    path = config.path.replace("{project}", quote(str(project_row["id"]))).replace(
+                        "{teamId}", quote(str(team["id"]))
+                    )
+                    iterations = fetch(path, {}).json().get("value", []) or []
+                    if iterations:
+                        yield [_with_team_ref(item, project_row, team) for item in iterations]
         return
 
     # work_item_revisions: org-level reporting endpoint with a body

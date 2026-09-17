@@ -3,6 +3,7 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import (
     BRAZE_DATA_SERIES_ENDPOINTS,
+    BRAZE_DETAILS_ENDPOINTS,
     DATA_SERIES_LOOKBACK_SECONDS,
     ENDPOINTS,
 )
@@ -52,6 +53,11 @@ class TestBrazeSource:
         # Templates/content blocks expose Braze's server-side `modified_after` filter; every data
         # series is bounded by its own `ending_at`/`length` window.
         assert incremental == {"email_templates", "content_blocks", *BRAZE_DATA_SERIES_ENDPOINTS}
+        # A details endpoint takes only its parent id, so there is nothing to sync incrementally.
+        for name in BRAZE_DETAILS_ENDPOINTS:
+            details = next(schema for schema in schemas if schema.name == name)
+            assert details.supports_incremental is False
+            assert details.supports_append is False
 
     def test_data_series_schemas_re_read_a_trailing_window_and_never_append(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
@@ -95,6 +101,10 @@ class TestBrazeSource:
             ("campaign_analytics", "/campaigns/list?page=0"),
             ("canvas_analytics", "/canvas/list?page=0"),
             ("event_analytics", "/events/list?page=0"),
+            ("segment_analytics", "/segments/list?page=0"),
+            # A details endpoint rejects a request without its parent id, so it probes the same way.
+            ("campaign_details", "/campaigns/list?page=0"),
+            ("canvas_details", "/canvas/list?page=0"),
         ],
     )
     @mock.patch(

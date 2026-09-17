@@ -27,9 +27,8 @@ index to read. All three go to the visual review maintainers, in a message of th
 inside the digest those maintainers get for what they own, because holding an item until a team
 takes it is not owning it.
 
-GitHub keeps that build artifact for one day, so a baseline set on any other day of the week has no
-readable artifact left by Monday. The scheduled task therefore runs twice a day: every run reads the
-index into the cache while the artifact still exists, and only the Monday morning run posts.
+The CLI uploads that story index with the run that built it, named by its content hash, so the
+digest reads the index of the newest default-branch Storybook run and needs nothing else from CI.
 
 Every message is Block Kit: a lead naming the team and the counts, then one thread reply per
 condition, with the one action that resolves an item on a button beside it.
@@ -37,7 +36,6 @@ condition, with the one action that resolves an item on a button beside it.
 
 from __future__ import annotations
 
-from calendar import MONDAY
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
 from enum import StrEnum
@@ -98,8 +96,6 @@ _PRODUCER: Producer = "visual_review"
 # delivery path to keep working.
 _PRODUCT_PATH = "products/visual_review/"
 
-# Said of a run type whose items have no default-branch run to attribute against.
-_NO_BASELINE_RUN_DETAIL = "there is no default branch run to read"
 
 _MAX_LINE_CHARS = MAX_SECTION_CHARS // 2
 # The full identifier still goes into the URL, so a cut display costs the reader nothing.
@@ -118,10 +114,6 @@ MODES = (MODE_PREVIEW, MODE_LIVE)
 # One day wider than the window the flakiness page uses. Two weekly runs can fall slightly more than
 # seven days apart, and without the overlap a quarantine expiring in that gap is never reported.
 _DIGEST_EXPIRY_WINDOW_DAYS = FLAKINESS_EXPIRY_SOON_DAYS + 1
-
-# A run at or after this hour posts nothing, so the second run of a Monday only warms the story
-# index. Late enough that a child task held in a queue still counts as the morning run it came from.
-_POSTS_BEFORE_HOUR_UTC = 12
 
 _LEAD_BODY = "Each item and its action is in the thread."
 _LEAD_LAPSE_NOTE = "Quarantines that lapse start failing the gate again on the next run."
@@ -395,51 +387,26 @@ def _display_names(user_ids: set[int]) -> dict[int, str]:
     }
 
 
-def _workflow_run_id(run: Run) -> str | None:
-    """The GitHub workflow run that produced one run, or None when the run records none.
-
-    Read on a query of its own because the shared default-branch universe defers `metadata`. Every
-    other reader of that universe needs the run ids alone, so it stays lean for the pages that use
-    it.
-    """
-    metadata = Run.objects.filter(id=run.id).values_list("metadata", flat=True).first()
-    github_run_id = (metadata or {}).get("github_run_id")
-    return github_run_id if isinstance(github_run_id, str) and github_run_id else None
-
-
 def _attribution_sources(
     repo: Repo, run_types: set[str], newest_run_by_type: Mapping[str, Run]
 ) -> dict[str, story_index.StoryIndex | str]:
     """What each run type in play can be attributed against: a story index, or why there is none.
 
-    One artifact read per run type, not per item. A run type nothing owes today is never read, so a
-    repo with no Storybook debt costs no download at all.
+    One map read per run type, not per item. A run type nothing owes today is never read, so a repo
+    with no Storybook debt reads no map at all.
     """
     sources: dict[str, story_index.StoryIndex | str] = {}
     for run_type in run_types:
         if run_type != RunType.STORYBOOK:
             sources[run_type] = f"{run_type} runs are not supported yet"
             continue
-        run = newest_run_by_type.get(run_type)
-        if run is None:
-            sources[run_type] = _NO_BASELINE_RUN_DETAIL
-            continue
-        github_run_id = _workflow_run_id(run)
-        if github_run_id is None:
-            sources[run_type] = "the run behind the baseline records no workflow run"
-            continue
-        index = story_index.fetch_story_index(repo, github_run_id)
-        sources[run_type] = (
-            index if index is not None else f"the Storybook build artifact for run {github_run_id} was not read"
-        )
+        sources[run_type] = story_index.latest_story_index(repo, newest_run_by_type)
     return sources
 
 
 def _attribution(sources: Mapping[str, story_index.StoryIndex | str], run_type: str, identifier: str) -> Attribution:
     """Where one snapshot's story lives, or why the index cannot say."""
-    source = sources.get(run_type)
-    if source is None:
-        return Attribution(kind=AttributionKind.UNAVAILABLE, detail=_NO_BASELINE_RUN_DETAIL)
+    source = sources[run_type]
     if isinstance(source, str):
         return Attribution(kind=AttributionKind.UNAVAILABLE, detail=source)
     path = story_index.story_path(source, identifier)
@@ -712,7 +679,11 @@ def lead_message(repo: Repo, digest: TeamDigest, now: datetime) -> SlackMessage:
             section_block(f"{_LEAD_BODY} {_LEAD_LAPSE_NOTE}" if digest.expiring_quarantines else _LEAD_BODY),
             actions_block(
                 [
-                    SlackButton(text="Open flakiness overview", url=_repo_flakiness_url(repo), primary=True),
+                    SlackButton(
+                        text="Open flakiness overview",
+                        url=f"{_repo_flakiness_url(repo)}#teams={quote(digest.team_slug, safe='')}",
+                        primary=True,
+                    ),
                     SlackButton(text="Open snapshots", url=_repo_snapshots_url(repo)),
                 ]
             ),
@@ -965,32 +936,6 @@ def _send_one(
         for reply in post.replies:
             post_message(slack, delivery.channel_id, reply.blocks, reply.text, thread_ts=thread_ts)
     return _post_text(post)
-
-
-def posts_today(now: datetime) -> bool:
-    """Whether a run at this moment posts the digest, or only warms the story index.
-
-    The weekday and the hour are read here rather than passed down from the beat, because that
-    keeps the child task's arguments unchanged and there is only one rule to read.
-    """
-    return now.weekday() == MONDAY and now.hour < _POSTS_BEFORE_HOUR_UTC
-
-
-def warm_story_index(repo: Repo) -> None:
-    """Read the story index behind the repo's current Storybook baseline into the cache.
-
-    Nothing is evaluated and nothing is posted. This runs on the days the digest does not, so the
-    weekly post still finds an index for a baseline whose build artifact GitHub has since deleted.
-    """
-    newest_run_by_type = run_queries.newest_run_by_run_type(run_queries.latest_default_branch_runs(repo.id))
-    run_types: set[str] = {RunType.STORYBOOK}
-    source = _attribution_sources(repo, run_types, newest_run_by_type)[RunType.STORYBOOK]
-    logger.info(
-        "visual_review.debt_digest_story_index_warmed",
-        repo_id=str(repo.id),
-        team_id=repo.team_id,
-        read=isinstance(source, story_index.StoryIndex),
-    )
 
 
 def repos_in_scope() -> list[Repo]:

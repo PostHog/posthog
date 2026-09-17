@@ -61,7 +61,12 @@ def iter_metric_dicts(experiment: Experiment) -> list[dict[str, Any]]:
         for metric in (experiment.metrics or []) + (experiment.metrics_secondary or [])
         if is_scheduled_metric(metric)
     ]
-    for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
+    # Calling select_related on the manager would clone the queryset and discard a caller's
+    # prefetch cache, re-querying per experiment. Join saved_metric only when nothing is prefetched.
+    links = experiment.experimenttosavedmetric_set.all()
+    if "experimenttosavedmetric_set" not in getattr(experiment, "_prefetched_objects_cache", {}):
+        links = links.select_related("saved_metric")
+    for link in links:
         saved_query = link.saved_metric.query
         if is_scheduled_metric(saved_query):
             dicts.append(_merge_saved_metric_breakdowns(saved_query, link.metadata))

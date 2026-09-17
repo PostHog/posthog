@@ -60,10 +60,13 @@ pub async fn verify_postgres(
         .collect::<Vec<_>>();
     // The saga records each source's seal on its op row and sets the
     // row's status to deleted after the flip.
-    let sealed_query = "SELECT person_id, (sealed->>'version')::bigint AS sealed_version \
-                        FROM lifecycle_op_person \
-                        WHERE team_id = $1 AND role = 'source' AND status = 'deleted' \
-                          AND person_id = ANY($2)";
+    let (_, lifecycle_op_person) = crate::seed::lifecycle_tables_for(table);
+    let sealed_query = format!(
+        "SELECT person_id, (sealed->>'version')::bigint AS sealed_version \
+         FROM {lifecycle_op_person} \
+         WHERE team_id = $1 AND role = 'source' AND status = 'deleted' \
+           AND person_id = ANY($2)"
+    );
     let deadline = Instant::now() + QUIESCE_DEADLINE;
     loop {
         let rows = sqlx::query(&query)
@@ -137,7 +140,7 @@ pub async fn verify_postgres(
                 tombstones.insert(id, (is_deleted, version.unwrap_or(0)));
             }
             let mut seals: HashMap<i64, i64> = HashMap::new();
-            for row in sqlx::query(sealed_query)
+            for row in sqlx::query(&sealed_query)
                 .bind(team)
                 .bind(&merged_ids)
                 .fetch_all(pool)

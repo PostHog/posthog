@@ -38,7 +38,6 @@ _OTHER_PATH = "frontend/src/scenes/Card.stories.tsx"
 _OTHER_STORY_ID = "scenes-app-card--primary"
 _OTHER_IDENTIFIER = f"{_OTHER_STORY_ID}--light"
 _ABSENT_IDENTIFIER = "scenes-app-gone--primary--light"
-_GITHUB_RUN_ID = "98765"
 _INDEX = story_index.StoryIndex(path_by_story_id={_STORY_ID: _SOURCE_PATH})
 
 # The renderers take the moment they render for, so a fixed Monday never ages against a real clock.
@@ -48,7 +47,7 @@ _PLACED = debt_digest.Attribution(kind=debt_digest.AttributionKind.PLACED, sourc
 _STORY_ABSENT = debt_digest.Attribution(kind=debt_digest.AttributionKind.STORY_ABSENT)
 _UNAVAILABLE = debt_digest.Attribution(
     kind=debt_digest.AttributionKind.UNAVAILABLE,
-    detail=f"the Storybook build artifact for run {_GITHUB_RUN_ID} was not read",
+    detail="the story index 0123456789ab could not be read",
 )
 
 
@@ -83,8 +82,8 @@ def _maintainers_digest(*groups: debt_digest.TriageGroup) -> debt_digest.Maintai
     return debt_digest.MaintainersDigest(team_slug="team-devex", groups=list(groups))
 
 
-def _with_index(index: story_index.StoryIndex | None):
-    return patch("products.visual_review.backend.logic.story_index.fetch_story_index", return_value=index)
+def _with_index(index: story_index.StoryIndex | str):
+    return patch("products.visual_review.backend.logic.story_index.latest_story_index", return_value=index)
 
 
 def _section_texts(message: debt_digest.SlackMessage) -> list[str]:
@@ -125,7 +124,11 @@ class TestLead:
         message = debt_digest.lead_message(_repo(), _team_digest(pileups=1), _MONDAY)
 
         assert [(button["text"]["text"], button["url"]) for button in _buttons(message)] == [
-            ("Open flakiness overview", f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness"),
+            # The page opens on the team's own rows, so a shared repo does not bury them.
+            (
+                "Open flakiness overview",
+                f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness#teams=team-devex",
+            ),
             ("Open snapshots", f"{settings.SITE_URL}/project/7/visual_review/repos/abc/snapshots"),
         ]
 
@@ -494,7 +497,6 @@ class TestCollectAndSend:
                 commit_sha="abc",
                 branch="main",
                 pr_number=None,
-                metadata={"github_run_id": _GITHUB_RUN_ID},
                 snapshots=[
                     SnapshotManifestItem(identifier=identifier, content_hash="new_hash") for identifier in identifiers
                 ],
@@ -546,11 +548,11 @@ class TestCollectAndSend:
         ]
         assert "3 accepted variants of the current baseline" in debt.variant_pileups[0].line
 
-    def test_an_unreadable_artifact_leaves_the_items_unattributed(self, repo, mocker):
+    def test_an_unreadable_story_index_leaves_the_items_unattributed(self, repo, mocker):
         self._completed_run(repo, mocker)
         self._pile_up(repo)
 
-        with _with_index(None):
+        with _with_index(_UNAVAILABLE.detail):
             debt = debt_digest.collect_debt(repo, timezone.now())
 
         assert [item.attribution for item in debt.variant_pileups] == [_UNAVAILABLE]

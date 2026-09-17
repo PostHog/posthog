@@ -32,6 +32,7 @@ DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
         str(Integration.IntegrationKind.S3_COMPATIBLE),
     ),
     str(ExternalDataDestination.Type.BIGQUERY): (str(Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT),),
+    str(ExternalDataDestination.Type.AZURE_BLOB): (str(Integration.IntegrationKind.AZURE_BLOB),),
 }
 
 # Types a user may create. The PostHog warehouse row is created by the sync itself the first
