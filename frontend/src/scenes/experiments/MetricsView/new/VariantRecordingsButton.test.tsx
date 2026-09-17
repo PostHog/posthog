@@ -1,9 +1,12 @@
 import { render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { type ExperimentRecordingModes } from 'scenes/experiments/ExperimentView/experimentRecordingModes'
 
 import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
 import { Experiment } from '~/types'
 
 import { VariantRecordingsButton } from './VariantRecordingsButton'
@@ -70,6 +73,13 @@ const renderButton = (recordingModes: ExperimentRecordingModes): HTMLElement => 
 }
 
 describe('VariantRecordingsButton', () => {
+    // Every link here is a `Link`, which routes client-side, so the router has to be mounted or the
+    // click throws instead of navigating.
+    beforeEach(() => {
+        initKeaTests(false)
+        router.mount()
+    })
+
     it.each([
         {
             case: 'a metric the tab accepts links straight to its default population',
@@ -108,7 +118,9 @@ describe('VariantRecordingsButton', () => {
     it('keeps the metric modes refused in the menu, and explains nothing the menu already names', async () => {
         // The two metric modes name a population the tab can't produce for this metric, so they stay
         // refused. "All recordings of this variant" says what it opens, so the tab must not caption
-        // it with an explanation the reader never asked for.
+        // it with an explanation the reader never asked for, and the report must not count it as a
+        // filter taken away.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
         const container = renderButton(droppedMetricModes())
 
         await userEvent.click(container.querySelector('[data-attr="experiment-metrics-recordings-menu"]')!)
@@ -118,5 +130,11 @@ describe('VariantRecordingsButton', () => {
         expect(item('fired_all')?.getAttribute('aria-disabled')).toEqual('true')
         expect(item('no_metric_activity')?.getAttribute('aria-disabled')).toEqual('true')
         expect(linkParams(item('all'))).toEqual({ tab: 'recordings', variant: 'test', entry: 'results_menu' })
+
+        await userEvent.click(item('all')!)
+        expect(captureSpy).toHaveBeenLastCalledWith(
+            'viewed recordings from experiment',
+            expect.objectContaining({ trigger: 'menu', metric_unavailable_reason: null })
+        )
     })
 })

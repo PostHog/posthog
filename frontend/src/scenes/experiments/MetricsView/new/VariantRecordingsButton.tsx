@@ -79,8 +79,10 @@ export function VariantRecordingsButton({
             surface,
             is_baseline: isBaseline,
             // Null on an ordinary click. Non-null means the metric filter was dropped and the link
-            // opened the variant's whole list instead, which is the population this measures.
-            metric_unavailable_reason: unselectableCode,
+            // opened the variant's whole list instead, which is the population this measures. The
+            // menu reports null even for the same metric: its "all recordings" item is a choice the
+            // viewer made, not a filter taken away, and the tab's own events count it the same way.
+            metric_unavailable_reason: trigger === 'button' ? unselectableCode : null,
         })
     }
 
