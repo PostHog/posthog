@@ -175,7 +175,11 @@ SELECT
         / nullIf(sumIf(ifNull(toInt(properties.$ai_input_tokens), 0),
                        properties.$ai_cache_reporting_exclusive = 'false'), 0), 3
     ) AS cache_hit_rate_inclusive,
-    countIf(properties.$ai_cache_reporting_exclusive IS NULL) AS calls_without_cache_flag
+    countIf(properties.$ai_cache_reporting_exclusive IS NULL) AS calls_without_cache_flag,
+    sumIf(ifNull(toInt(properties.$ai_input_tokens), 0),
+          properties.$ai_cache_reporting_exclusive IS NULL) AS input_tokens_without_flag,
+    sumIf(ifNull(toInt(properties.$ai_cache_read_input_tokens), 0),
+          properties.$ai_cache_reporting_exclusive IS NULL) AS cache_read_tokens_without_flag
 FROM events
 WHERE event = '$ai_generation'
     AND timestamp >= now() - INTERVAL 30 DAY
@@ -193,9 +197,11 @@ falls back to zero: `toInt` of an absent property is null, and one null inside
 the sum would drop that event's input tokens from the denominator and overstate
 the rate. A null rate means the branch has no input volume at all — the model
 has no events in it, or its events report no input tokens.
-`calls_without_cache_flag` counts the events with no flag — they have no valid
-denominator either, so they are in neither rate; read `cache_read_tokens` for
-those.
+`calls_without_cache_flag` counts the events with no flag. They have no valid
+denominator either, so they are in neither rate. Read
+`cache_read_tokens_without_flag` and `input_tokens_without_flag` for their
+volume — `cache_read_tokens` and `input_tokens` are model-wide totals over all
+three branches, so they say nothing about the unflagged calls on their own.
 
 Rank and roll up on `total_cost` — summing only the input/output components
 drops request and web-search fees and can diverge from the `/ai-observability`
