@@ -73,14 +73,15 @@ class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
         self.assertTrue(context["supports_deferred"])
         self.assertEqual(context["default_execution_mode"], ExecutionMode.DEFERRED)
 
-    def test_approve_view_rejects_query_backed_request_until_execution_is_available(self):
+    def test_approve_view_approves_query_backed_request_as_deferred(self):
         request = self._pending_request(request_type=RequestType.HOGQL_EVENT_REMOVAL)
 
-        response = self._call_approve("POST", request)
+        response = self._call_approve("POST", request, {"execution_mode": ExecutionMode.IMMEDIATE.value})
 
         self.assertEqual(response.status_code, 302)
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.PENDING)
+        self.assertEqual(request.status, RequestStatus.APPROVED)
+        self.assertEqual(request.execution_mode, ExecutionMode.DEFERRED)
 
     def test_approve_view_get_hides_picker_for_property_removal(self):
         request = self._pending_request(request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"])
@@ -196,16 +197,19 @@ class TestDataDeletionRequestAdminRetry(BaseTest):
         self.assertTrue(request.approved)
         self.assertEqual(request.attempt_count, 2)
 
-    def test_retry_view_rejects_query_backed_request(self):
+    def test_retry_view_requeues_query_backed_request(self):
         request = self._failed_request()
         request.request_type = RequestType.HOGQL_EVENT_REMOVAL
-        request.save(update_fields=["request_type"])
+        request.execution_mode = ExecutionMode.DEFERRED
+        request.hogql_query = "SELECT uuid FROM events"
+        request.save(update_fields=["request_type", "execution_mode", "hogql_query"])
 
         response = self._call_retry("POST", request)
 
         self.assertEqual(response.status_code, 302)
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.FAILED)
+        self.assertEqual(request.status, RequestStatus.APPROVED)
+        self.assertEqual(request.execution_mode, ExecutionMode.DEFERRED)
 
     def test_retry_view_get_does_not_change_status(self):
         request = self._failed_request()
