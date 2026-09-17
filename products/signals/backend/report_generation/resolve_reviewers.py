@@ -478,7 +478,9 @@ def resolve_suggested_reviewers_with_diagnostics(
         login = author_info.login.lower()
         weight = total - i
         login_weights[login] += weight
-        login_commits.setdefault(login, []).append(RelevantCommit(sha=sha, url=author_info.commit_url, reason=reason))
+        login_commits.setdefault(login, []).append(
+            RelevantCommit(sha=sha, url=author_info.commit_url, reason=bounded_reviewer_reason(reason) or "")
+        )
         if login not in login_names:
             login_names[login] = author_info.name
 

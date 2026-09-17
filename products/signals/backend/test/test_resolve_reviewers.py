@@ -17,6 +17,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
 
+from products.signals.backend.artefact_schemas import SuggestedReviewers
 from products.signals.backend.models import SignalRepositoryAreaActivity, SignalScoutConfig
 from products.signals.backend.report_generation.author_activity import AUTHOR_ACTIVITY_WINDOW_DAYS
 from products.signals.backend.report_generation.repo_activity import ACTIVITY_WINDOW_DAYS, ContributorActivity
@@ -483,6 +484,56 @@ class TestRankAssigneeCandidates:
 
 @pytest.mark.django_db
 class TestResolveSuggestedReviewersEndToEnd:
+    @pytest.mark.parametrize(("reason", "expected_reason"), [("x" * 500, "x" * 500), ("x" * 501, "")])
+    def test_commit_reason_limit_keeps_reviewer_payload_valid(self, team, reason, expected_reason):
+        class FakeGitHub:
+            def get_commit_author_info(self, repository, sha):
+                return GitHubCommitAuthor(
+                    login="active-author",
+                    name="Active Author",
+                    commit_url=f"https://github.com/acme/app/commit/{sha}",
+                    file_paths=("products/signals/backend/models.py",),
+                )
+
+        activity = {
+            "products/signals": [
+                ContributorActivity(
+                    login="active-author",
+                    name="Active Author",
+                    commit_count=1,
+                    last_commit_at=timezone.now() - timedelta(days=1),
+                    last_commit_sha="a" * 7,
+                    last_commit_url="https://github.com/acme/app/commit/aaaaaaa",
+                )
+            ]
+        }
+        with (
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+                return_value=FakeGitHub(),
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
+                return_value=activity,
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
+                return_value=False,
+            ),
+        ):
+            reviewers = resolve_suggested_reviewers(team.id, "acme/app", {"d" * 7: reason})
+
+        assert reviewers[0].commits[0].reason == expected_reason
+        SuggestedReviewers.model_validate(
+            [
+                {
+                    "github_login": reviewer.login,
+                    "relevant_commits": [commit.model_dump() for commit in reviewer.commits],
+                }
+                for reviewer in reviewers
+            ]
+        )
+
     def test_stale_blame_author_demoted_and_active_owner_suggested(self, team):
         class FakeGitHub:
             def get_commit_author_info(self, repository, sha):
