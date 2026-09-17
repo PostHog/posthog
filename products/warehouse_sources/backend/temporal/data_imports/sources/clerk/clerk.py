@@ -242,6 +242,10 @@ _UNSUPPORTED_CHARACTER_MESSAGE = (
     "Your Clerk secret key contains a character that can't be sent to Clerk, such as an invisible "
     "one pasted from another app. Copy the key again from your Clerk dashboard and reconnect."
 )
+INSTANCE_NOT_FOUND_MESSAGE = (
+    "Clerk can't find the data this secret key points at, so this table can't sync. Check the key "
+    "belongs to an active Clerk instance, then reconnect."
+)
 
 
 def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
@@ -273,6 +277,11 @@ def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
         return False, _INVALID_KEY_MESSAGE
     if response.status_code == 403:
         return False, _FORBIDDEN_KEY_MESSAGE
+    if response.status_code == 404:
+        # The users list exists on every Clerk instance, so a 404 here is Clerk refusing to resolve
+        # the instance the key belongs to rather than a missing record. That is user input like the
+        # statuses above, so explain it instead of filing an error.
+        return False, INSTANCE_NOT_FOUND_MESSAGE
 
     # Any other status is unexpected for this endpoint; keep the raw detail for us instead of
     # surfacing it to the user.
