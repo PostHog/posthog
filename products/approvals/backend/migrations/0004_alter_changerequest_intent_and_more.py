@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("approvals", "0003_alter_approvalpolicy_organization_and_more"),
     ]
@@ -14,22 +13,16 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="changerequest",
             name="intent",
-            field=models.JSONField(
-                encoder=django.core.serializers.json.DjangoJSONEncoder
-            ),
+            field=models.JSONField(encoder=django.core.serializers.json.DjangoJSONEncoder),
         ),
         migrations.AlterField(
             model_name="changerequest",
             name="intent_display",
-            field=models.JSONField(
-                encoder=django.core.serializers.json.DjangoJSONEncoder
-            ),
+            field=models.JSONField(encoder=django.core.serializers.json.DjangoJSONEncoder),
         ),
         migrations.AlterField(
             model_name="changerequest",
             name="policy_snapshot",
-            field=models.JSONField(
-                encoder=django.core.serializers.json.DjangoJSONEncoder
-            ),
+            field=models.JSONField(encoder=django.core.serializers.json.DjangoJSONEncoder),
         ),
     ]
