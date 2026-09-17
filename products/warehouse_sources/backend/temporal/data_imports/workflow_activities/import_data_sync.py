@@ -70,9 +70,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.byt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
     is_transient_egress_proxy_error,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
-    is_fanout_warehouse_reuse_enabled,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.history_window import (
     history_start_for_schema,
 )
@@ -192,9 +189,8 @@ async def _warehouse_parent_reuse_available(
     """Whether this run reads its fan-out parents from the warehouse instead of the parent API.
 
     Reuse is an optimization, never a requirement: any parent the child can't read falls the
-    whole run back to the legacy parent-API path, so enabling the flag can't break a schema
-    that syncs today. Sources consume the result via `SourceInputs.fanout_warehouse_reuse`;
-    this is the single feature-flag evaluation for the run.
+    whole run back to the legacy parent-API path, so a schema that syncs today keeps syncing.
+    Sources consume the result via `SourceInputs.fanout_warehouse_reuse`.
 
     A parent that is mid-sync doesn't force the fallback: `resolve_parent_table_ref` pins the
     read to the parent's last completed snapshot (Delta time travel), so a concurrent rewrite
@@ -202,8 +198,6 @@ async def _warehouse_parent_reuse_available(
     """
     required_parents = source.get_required_parent_schemas(schema.name)
     if not required_parents:
-        return False
-    if not await database_sync_to_async_pool(is_fanout_warehouse_reuse_enabled)(team_id):
         return False
 
     for parent_name in required_parents:
