@@ -181,3 +181,5 @@ BLOCKED_GEOIP_REGIONS = get_list(os.getenv("BLOCKED_GEOIP_REGIONS", ""))
 # development can reach localhost services. Set this to run the production validation path in dev —
 # e.g. to reproduce or test SSRF fixes — without flipping DEBUG globally.
 FORCE_URL_VALIDATION: bool = get_from_env("POSTHOG_FORCE_URL_VALIDATION", False, type_cast=str_to_bool)
+
+SSRF_TRUSTED_PROXY_URLS: list[str] = get_list(get_from_env("SSRF_TRUSTED_PROXY_URLS", ""))
