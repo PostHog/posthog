@@ -88,27 +88,24 @@ describe('webhookTabLogic', () => {
     // two to `updateWebhookInputs` stores the key and leaves the provider with nothing to deliver
     // from, so no data arrives and the tab still looks set up.
     it.each([
-        ['no delivery function yet', false, {}, 'createWebhook'],
-        ['the provider webhook is gone', true, { external_status: { exists: false } }, 'createWebhook'],
-        ['both sides exist', true, { external_status: { exists: true } }, 'updateWebhookInputs'],
-    ])(
-        'submitting the credential form calls %s -> %s',
-        async (_name, exists, infoOverrides, expectedCall) => {
-            await mountWith(exists, infoOverrides as Partial<WebhookInfo>)
+        ['no delivery function yet', 'createWebhook', false, {}],
+        ['the provider webhook is gone', 'createWebhook', true, { external_status: { exists: false } }],
+        ['both sides exist', 'updateWebhookInputs', true, { external_status: { exists: true } }],
+    ])('submitting the credential form when %s calls %s', async (_name, expectedCall, exists, infoOverrides) => {
+        await mountWith(exists as boolean, infoOverrides as Partial<WebhookInfo>)
 
-            const createWebhook = jest
-                .spyOn(api.externalDataSources, 'createWebhook')
-                .mockResolvedValue({ success: true, webhook_url: 'https://example.com/w/1' })
-            const updateWebhookInputs = jest
-                .spyOn(api.externalDataSources, 'updateWebhookInputs')
-                .mockResolvedValue(undefined as never)
+        const createWebhook = jest
+            .spyOn(api.externalDataSources, 'createWebhook')
+            .mockResolvedValue({ success: true, webhook_url: 'https://example.com/w/1' })
+        const updateWebhookInputs = jest
+            .spyOn(api.externalDataSources, 'updateWebhookInputs')
+            .mockResolvedValue(undefined as never)
 
-            logic.actions.setWebhookFieldInputsValue('signing_secret', 'key-from-the-vendor-dashboard')
-            logic.actions.submitWebhookFields()
-            await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setWebhookFieldInputsValue('signing_secret', 'key-from-the-vendor-dashboard')
+        logic.actions.submitWebhookFields()
+        await expectLogic(logic).toFinishAllListeners()
 
-            expect(createWebhook).toHaveBeenCalledTimes(expectedCall === 'createWebhook' ? 1 : 0)
-            expect(updateWebhookInputs).toHaveBeenCalledTimes(expectedCall === 'updateWebhookInputs' ? 1 : 0)
-        }
-    )
+        expect(createWebhook).toHaveBeenCalledTimes(expectedCall === 'createWebhook' ? 1 : 0)
+        expect(updateWebhookInputs).toHaveBeenCalledTimes(expectedCall === 'updateWebhookInputs' ? 1 : 0)
+    })
 })
