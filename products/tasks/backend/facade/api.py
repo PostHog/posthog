@@ -7632,6 +7632,8 @@ def warm_task_resume_sandbox(
     for protected_key in ("wizard_head_branch", "self_driving_head_branch", "github_read_access"):
         if protected_key in (previous_run.state or {}):
             extra_state[protected_key] = (previous_run.state or {})[protected_key]
+    if "imported_from" in (previous_run.state or {}):
+        extra_state["resume_from_import_run"] = True
     extra_state = {key: value for key, value in extra_state.items() if value is not None or key == "pr_base_branch"}
     stable_selection = {
         key: value
