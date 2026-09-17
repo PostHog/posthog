@@ -68,6 +68,7 @@ from products.conversations.backend.slack import (
     handle_support_mention,
     handle_support_message,
     handle_support_reaction,
+    my_tickets_link,
     nudge_event_properties,
     ticket_created_blocks,
     ticket_created_text,
@@ -331,11 +332,13 @@ def _post_ticket_link(
 ) -> None:
     """Answer a "View ticket" click with an ephemeral link, so only the clicker sees the URL.
 
-    The button rides on a public confirmation, so anyone in the channel can click it. Two checks
-    gate the link: the clicker belongs to the workspace the app is installed in, and their Slack
-    profile email matches a member of the team's organization. The workspace check is what makes
-    the email check worth anything — an external (Slack Connect) participant's profile email is
-    set by their own workspace, so it can claim a teammate's address.
+    The button rides on a public confirmation, so anyone in the channel can click it, and both
+    kinds of clicker get somewhere useful: a member of the team's organization gets the ticket
+    in Support, and everyone else gets their own ticket list. Nobody is told the other view
+    exists. Two checks decide which: the clicker belongs to the workspace the app is installed
+    in, and their Slack profile email matches an organization member. The workspace check is
+    what makes the email check worth anything — an external (Slack Connect) participant's
+    profile email is set by their own workspace, so it can claim a teammate's address.
 
     Best-effort: a failure leaves the click unanswered rather than retrying.
     """
@@ -360,9 +363,13 @@ def _post_ticket_link(
                 link = ticket_deep_link(ticket, team)
                 text = f"<{link}|Ticket #{ticket.ticket_number}>. Only you can see this message."
             else:
+                # Not "no access". The clicker is usually the requester, whose own list carries
+                # this ticket, but a bystander in the channel gets the same answer and only sees
+                # their own list, so the copy stays true either way. Replying always works.
                 text = (
-                    f"Ticket #{ticket.ticket_number} opens in PostHog, which only the support team can reach. "
-                    "Reply in this thread and they'll see it."
+                    f"Ticket #{ticket.ticket_number} is with our support team. "
+                    f"If you raised it, follow it in <{my_tickets_link(ticket)}|your PostHog tickets>, "
+                    "or just reply in this thread."
                 )
         client.chat_postEphemeral(channel=channel, user=clicker, thread_ts=thread_ts or None, text=text)
         capture_support_event(
@@ -496,7 +503,7 @@ def _handle_supporthog_interactivity(
                 prompt_channel,
                 prompt_ts,
                 text,
-                blocks=ticket_created_blocks(ticket, team) if ticket else None,
+                blocks=ticket_created_blocks(ticket) if ticket else None,
             )
             prompt_can_be_updated = bool(prompt_channel and prompt_ts)
             if final_update == "transient" and prompt_can_be_updated:

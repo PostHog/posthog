@@ -1,3 +1,4 @@
+import { NodeKind } from '../../frontend/src/queries/schema/schema-general'
 import { LoginPage } from '../page-models/loginPage'
 import { LOGIN_PASSWORD, LOGIN_USERNAME } from '../utils/playwright-test-core'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
@@ -5,9 +6,25 @@ import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace
 test.describe('Auth', () => {
     let loginPage: LoginPage
     let workspace: PlaywrightWorkspaceSetupResult | null = null
+    const redirectInsightName = 'Authentication redirect insight'
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+        workspace = await playwrightSetup.createWorkspace({
+            skip_onboarding: true,
+            no_demo_data: true,
+            insights: [
+                {
+                    name: redirectInsightName,
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.TrendsQuery,
+                            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                        },
+                    },
+                },
+            ],
+        })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
@@ -114,6 +131,25 @@ test.describe('Auth', () => {
 
         await expect(page).toHaveURL(/search%3DtestString/)
         await expect(page.locator('.saved-insight-empty-state')).toContainText('testString')
+    })
+
+    test('Redirect to a saved insight after login', async ({ page, context }) => {
+        const insightShortId = workspace!.created_insights![0].short_id
+        const insightUrl = `/project/${workspace!.team_id}/insights/${insightShortId}`
+
+        await context.clearCookies()
+        await page.goto(insightUrl, { waitUntil: 'commit' })
+        await expect(page).toHaveURL(/\/login/)
+
+        await loginPage.enterUsername(workspace!.user_email)
+        await page.locator('[data-attr=login-email]').blur()
+        await page.locator('[data-attr=password]').waitFor({ state: 'visible', timeout: 5000 })
+
+        await loginPage.enterPassword(LOGIN_PASSWORD)
+        await loginPage.clickLogin()
+
+        await expect(page).toHaveURL(insightUrl)
+        await expect(page.getByTestId('scene-name')).toContainText(redirectInsightName)
     })
 
     test('Cannot access signup page if authenticated', async ({ page }) => {

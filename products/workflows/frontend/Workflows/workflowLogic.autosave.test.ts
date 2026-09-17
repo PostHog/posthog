@@ -255,7 +255,8 @@ describe('workflowLogic auto-save', () => {
                     const body = (await request.json()) as Record<string, any>
                     patchBodies.push(body)
                     // Server-faithful echo: a staged save keeps the live content and returns the
-                    // new draft blob; a live save applies the payload.
+                    // new draft blob; a live save applies the payload, and clears the draft only
+                    // when the save says it carries it.
                     return [
                         200,
                         body.stage_draft
@@ -265,7 +266,9 @@ describe('workflowLogic auto-save', () => {
                                   draft: { actions: body.actions, edges: body.edges },
                                   draft_updated_at: '2026-05-02T00:00:00.000Z',
                               }
-                            : { ...getResponse, ...body },
+                            : body.includes_staged_draft
+                              ? { ...getResponse, ...body, draft: null, draft_updated_at: null }
+                              : { ...getResponse, ...body },
                     ]
                 },
             },
@@ -400,6 +403,39 @@ describe('workflowLogic auto-save', () => {
             expect(patchBodies[0].stage_draft).toBeUndefined()
             expect(patchBodies[0].actions).toBeUndefined()
             expect(patchBodies[0].status).toBe('draft')
+        })
+
+        it('an edit to a disabled workflow with a leftover draft clears the draft and keeps the edit', async () => {
+            useMocks(
+                activeMocks({
+                    ...activeWorkflow,
+                    status: 'draft',
+                    draft: {
+                        actions: renameExit(activeWorkflow.actions, 'Staged exit'),
+                        edges: activeWorkflow.edges,
+                    },
+                    draft_updated_at: '2026-05-02T00:00:00.000Z',
+                })
+            )
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            jest.useFakeTimers()
+            logic.actions.setWorkflowValue(
+                'actions',
+                renameExit(logic.values.workflow.actions, 'Edited while disabled')
+            )
+            await jest.advanceTimersByTimeAsync(3100)
+            jest.useRealTimers()
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+
+            expect(patchBodies[0].stage_draft).toBeUndefined()
+            expect(patchBodies[0].includes_staged_draft).toBe(true)
+            expect(patchBodies[0].base_updated_at).toBe('2026-05-02T00:00:00.000Z')
+            expect(logic.values.workflow.actions.find((a) => a.id === 'exit_node')?.name).toBe('Edited while disabled')
+            expect(logic.values.hasStagedDraft).toBe(false)
         })
     })
 

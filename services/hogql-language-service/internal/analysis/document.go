@@ -97,7 +97,7 @@ func (s *Statement) analyze() {
 		if bindSubquery(expr, s.scopes, s.budget) {
 			return true
 		}
-		name, alias, start, end, ok := tableReference(expr)
+		name, alias, implicitAlias, start, end, ok := tableReference(expr)
 		if !ok {
 			return true
 		}
@@ -111,10 +111,15 @@ func (s *Statement) analyze() {
 		}
 		if original, exists := s.originalTableNames[strings.ToLower(name)]; exists {
 			name = original
+			implicitAlias = strings.ReplaceAll(original, ".", "__")
 		}
 		table, exists := s.schema.Table(name)
 		s.tables = append(s.tables, TableReference{Name: name, Start: start, End: end, Known: exists})
 		if exists {
+			if alias == "" && implicitAlias != name {
+				// HogQL registers multi-part table paths under a double-underscore alias.
+				alias = implicitAlias
+			}
 			addBinding(scope, name, alias, Relation{name: name, table: table})
 		}
 		return true
@@ -158,6 +163,30 @@ func (s *Statement) RelationAt(name string, position int) (Relation, bool) {
 
 func (b Bindings) Len() int {
 	return len(b.relations)
+}
+
+func (b Bindings) CTENames(prefix string) iter.Seq[catalog.Entry] {
+	return func(yield func(catalog.Entry) bool) {
+		seen := map[string]bool{}
+		prefix = foldedFieldName(prefix)
+		for scope := b.scope; scope != nil; scope = scope.parent {
+			ctes := scope.visibleCTEs(b.position)
+			for index := len(ctes) - 1; index >= 0; index-- {
+				name := ctes[index].name
+				if !scope.budget.lookup(len(name) + 1) {
+					return
+				}
+				folded := foldedFieldName(name)
+				if seen[folded] {
+					continue
+				}
+				seen[folded] = true
+				if strings.HasPrefix(folded, prefix) && !yield(catalog.Entry{Name: name, Type: "CTE"}) {
+					return
+				}
+			}
+		}
+	}
 }
 
 func (b Bindings) Relation(name string) (Relation, bool) {

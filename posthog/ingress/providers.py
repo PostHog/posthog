@@ -25,6 +25,7 @@ _INCARNATION_MODULES = (
     "posthog.ingress.github.provider",
     "posthog.ingress.slack.provider",
     "posthog.ingress.pandadoc.provider",
+    "posthog.ingress.mailgun.provider",
     "posthog.ingress.vapi.provider",
     "posthog.ingress.sns.provider",
 )
@@ -57,14 +58,19 @@ class WebhookProvider(ABC):
     # whose verification is a local HMAC. It must be a fixed-rate throttle: `build_webhook_view`
     # refuses a `ScopedRateThrottle`, whose scope lives on a view this one does not have.
     throttle_class: type[BaseThrottle] | None = None
-    # Answered instead of the receipt when the forward to the owning region fails, so a provider
-    # that redelivers on a non-2xx tries again (Slack does, GitHub does not). `None` keeps the
-    # receipt. This is the one documented exception to "consumers never decide the response": the
-    # decision is the transport's, not a consumer's.
-    forward_failure_status: int | None = None
+    # Answered instead of the receipt when ingress cannot vouch that the delivery was accepted:
+    # the forward to the owning region failed, a consumer raised, or the budget skipped a
+    # consumer. A provider that redelivers on a non-2xx then sends the delivery again (Slack
+    # does, GitHub does not), and `None` keeps the receipt for one that does not. The decision is
+    # the transport's own, taken on whether the work ran at all, never on what a consumer returned.
+    retry_status: int | None = None
     # An incarnation that answers 404 to withhold the endpoint's existence sets this False, so the
     # body does not name the reason the status code was chosen to hide.
     explains_rejections: bool = True
+    # How long the forward to the owning region may take. The default suits a small JSON body; a
+    # provider whose deliveries carry uploaded files needs longer, because the forward rebuilds
+    # and re-sends every part.
+    forward_timeout_seconds: float = 3.0
 
     @abstractmethod
     def scheme(self) -> SignatureScheme:

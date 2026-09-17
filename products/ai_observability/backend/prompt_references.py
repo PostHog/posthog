@@ -2,12 +2,15 @@ import re
 from collections import Counter
 from typing import Any
 
+from django.db import InterfaceError, OperationalError
 from django.db.models import Q
 
 from rest_framework import serializers
 
 from posthog.dataclasses import frozen
 from posthog.llm_prompt import MAX_PROMPT_PAYLOAD_BYTES, normalize_prompt_to_string
+from posthog.models.team.team import Team
+from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptDependency, LLMPromptLabel
 
@@ -136,7 +139,10 @@ def validate_prompt_references(team_id: int, *, prompt_name: str, prompt_payload
             "referenced_prompt_cannot_reference",
         )
 
-    assembled_bytes = len(text.encode("utf-8"))
+    # True assembled size: the tags are replaced by content at resolution,
+    # so their bytes leave the total.
+    tag_bytes = sum(len(match.group(0).encode("utf-8")) for match in PROMPT_REFERENCE_REGEX.finditer(text))
+    assembled_bytes = len(text.encode("utf-8")) - tag_bytes
     for reference in references:
         if reference.name == prompt_name:
             raise _reference_error(
@@ -244,3 +250,122 @@ def record_prompt_references(prompt: LLMPrompt) -> list[LLMPromptDependency]:
             for reference in unique_references
         ]
     )
+
+
+@frozen
+class PromptReferenceResolutionError(Exception):
+    """A fetched prompt's reference cannot be spliced in.
+
+    `missing` distinguishes "the referenced prompt/version/label is gone"
+    (a 404 for the caller) from "the referenced content is in a state
+    validation normally prevents", e.g. nested references or an oversized
+    assembly reached through a raced label move (a 409). `unavailable` means
+    the reference could not be checked at all (a 503): the caller should
+    retry, not edit their prompt.
+    """
+
+    reference_name: str
+    message: str
+    missing: bool
+    unavailable: bool = False
+
+
+def _confirm_reference_missing(team_id: int, name: str, version: str | None, label: str | None) -> bool:
+    """Distinguish a genuinely absent reference target from a database outage.
+
+    The cached read path deliberately degrades transient database errors to
+    None. Served raw, that tells SDK callers the referenced prompt "no longer
+    exists" during an outage. This direct check runs only on the miss path,
+    so the warm fetch stays cache-only.
+    """
+    try:
+        if version is not None:
+            return not LLMPrompt.objects.filter(
+                team_id=team_id, name=name, version=int(version), deleted=False
+            ).exists()
+        return not LLMPromptLabel.objects.filter(
+            team_id=team_id, prompt_name=name, name=label, prompt__deleted=False
+        ).exists()
+    except (OperationalError, InterfaceError):
+        return False
+
+
+def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, Any]:
+    """Splice referenced prompts' content into a fetched payload.
+
+    Each referenced prompt resolves through the same cached read path as the
+    payload itself, so staleness stays inside the documented cache TTLs and a
+    warm fetch costs one cache read per referenced prompt. Depth is one level
+    by validation, so there is no recursion. Raises
+    PromptReferenceResolutionError instead of ever returning a payload with a
+    raw tag or a hole where referenced content should be.
+    """
+    content = payload.get("prompt")
+    if not isinstance(content, str) or not PROMPT_REFERENCE_REGEX.search(content):
+        return {**payload, "resolved_references": []}
+
+    resolved: list[dict[str, Any]] = []
+    # Publish validation caps unique references, not occurrences: a 1 MB body
+    # can hold ~35k copies of one small tag whose label later moves to a large
+    # version. Memoizing bounds the cache reads to the unique references, and
+    # the running size check aborts before a large assembly is materialized,
+    # so a fetch never allocates more than the payload cap.
+    memoized: dict[tuple[str, str | None, str | None], str] = {}
+    # Running total of the true assembled size: each replacement removes the
+    # tag's bytes and adds the spliced content's bytes.
+    assembled_bytes = len(content.encode("utf-8"))
+
+    def _splice(match: re.Match[str]) -> str:
+        nonlocal assembled_bytes
+        name = match.group("name")
+        version = match.group("version")
+        label = match.group("label")
+        key = (name, version, label)
+        child_content = memoized.get(key)
+        if child_content is None:
+            child = get_prompt_by_name_from_cache(
+                team, name, int(version) if version is not None else None, label=label
+            )
+            if child is None:
+                if not _confirm_reference_missing(team.id, name, version, label):
+                    raise PromptReferenceResolutionError(
+                        reference_name=name,
+                        message=f"Couldn't load the referenced prompt '{name}' right now. Try again.",
+                        missing=False,
+                        unavailable=True,
+                    )
+                selector = f"version {version}" if version is not None else f"label '{label}'"
+                raise PromptReferenceResolutionError(
+                    reference_name=name,
+                    message=f"This prompt references '{name}' at {selector}, which no longer exists.",
+                    missing=True,
+                )
+            child_content = child.get("prompt")
+            if not isinstance(child_content, str):
+                raise PromptReferenceResolutionError(
+                    reference_name=name,
+                    message=f"The referenced prompt '{name}' is not plain text and cannot be spliced in.",
+                    missing=False,
+                )
+            if PROMPT_REFERENCE_REGEX.search(child_content):
+                raise PromptReferenceResolutionError(
+                    reference_name=name,
+                    message=f"The referenced prompt '{name}' contains references of its own and cannot be spliced in.",
+                    missing=False,
+                )
+            memoized[key] = child_content
+            resolved.append({"name": name, "version": child["version"], "label": label})
+        assembled_bytes += len(child_content.encode("utf-8")) - len(match.group(0).encode("utf-8"))
+        if assembled_bytes > MAX_PROMPT_PAYLOAD_BYTES:
+            raise PromptReferenceResolutionError(
+                reference_name=payload["name"],
+                message=(
+                    f"The prompt with all referenced content included exceeds {MAX_PROMPT_PAYLOAD_BYTES} bytes. "
+                    "Shorten the prompt or its referenced prompts."
+                ),
+                missing=False,
+            )
+        return child_content
+
+    assembled = PROMPT_REFERENCE_REGEX.sub(_splice, content)
+    return {**payload, "prompt": assembled, "resolved_references": resolved}

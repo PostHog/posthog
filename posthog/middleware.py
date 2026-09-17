@@ -48,11 +48,7 @@ from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.models import Organization, Team, User
-from posthog.models.activity_logging.utils import (
-    ACTIVITY_LOG_CLIENT_HEADER,
-    ACTIVITY_LOG_CLIENT_MAX_LENGTH,
-    activity_storage,
-)
+from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_HEADER, activity_storage, client_from_header
 from posthog.models.utils import generate_random_token
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
@@ -1123,7 +1119,7 @@ class ActivityLoggingMiddleware:
 
         client_header = request.headers.get(ACTIVITY_LOG_CLIENT_HEADER)
         if client_header:
-            activity_storage.set_client(client_header[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
+            activity_storage.set_client(client_from_header(client_header))
 
         activity_storage.set_ip_address(get_ip_address(request) or None)
 
@@ -1420,16 +1416,35 @@ class CSPMiddleware:
                 "form-action 'self' https://accounts.google.com",
             ]
 
-            report_uri = csp_report_endpoint(sample_rate="0.1")
+            # Both values are read inside one narrowed block, so nothing below re-checks `user`.
+            user = getattr(request, "user", None)
+            if user is not None and user.is_authenticated:
+                is_staff = bool(getattr(user, "is_staff", False))
+                distinct_id = getattr(user, "distinct_id", None)
+            else:
+                is_staff = False
+                distinct_id = None
+
+            # Staff get the policy enforced ahead of everyone else, so each violation they report is
+            # something already broken for a colleague rather than one sample of a trend. At 0.1 we
+            # would see one breakage in ten, which is the opposite of what the staff rollout is for.
+            # The endpoint does the sampling, so browsers already send every report and taking staff
+            # to 1 costs ingestion rather than client traffic.
+            #
+            # This keys on is_staff rather than on the enforcement flag, which would otherwise track
+            # the enforced population exactly. The flag widens until it covers everyone, and would
+            # silently take the whole fleet to unsampled reporting; staff stays bounded.
+            sample_rate = "1" if is_staff else "0.1"
+
+            report_uri = csp_report_endpoint(sample_rate=sample_rate)
             if report_uri:
                 csp_parts += [f"report-uri {report_uri}", "report-to posthog"]
                 report_endpoint = report_uri
-                user = getattr(request, "user", None)
-                if user is not None and user.is_authenticated and getattr(user, "distinct_id", None):
+                if distinct_id:
                     # Crash reports arrive after the tab already died, so the report body is the
                     # only chance to attribute them; carrying the distinct_id in the endpoint URL
                     # ties the event to the person instead of a random per-report id.
-                    report_endpoint = csp_report_endpoint(sample_rate="0.1", distinct_id=user.distinct_id)
+                    report_endpoint = csp_report_endpoint(sample_rate=sample_rate, distinct_id=distinct_id)
                 # Browsers only deliver crash reports to the endpoint named `default`; the CSP
                 # `report-to posthog` directive keeps routing violations to `posthog`.
                 response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'

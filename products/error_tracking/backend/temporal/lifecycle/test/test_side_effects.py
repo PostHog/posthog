@@ -16,8 +16,14 @@ from products.error_tracking.backend.temporal.lifecycle.issue_reopened.types imp
     IssueReopenedSnapshot,
     IssueReopenedWorkflowInputs,
 )
+from products.error_tracking.backend.temporal.lifecycle.issue_spiking.types import (
+    IssueSpikingSnapshot,
+    IssueSpikingWorkflowInputs,
+)
 from products.error_tracking.backend.temporal.lifecycle.rendering import SIGNAL_MAX_TOKENS
 from products.error_tracking.backend.temporal.lifecycle.side_effects import (
+    alert_delivery_inputs,
+    dispatch_issue_lifecycle_alert,
     emit_issue_lifecycle_signal,
     produce_issue_lifecycle_internal_event,
 )
@@ -156,6 +162,7 @@ def test_oversized_internal_event_retries_without_exception_properties() -> None
 
 
 def test_internal_event_reraises_non_size_kafka_errors() -> None:
+    inputs = _inputs()
     result = MagicMock()
     result.get.side_effect = KafkaException(KafkaError(KafkaError._TRANSPORT))  # type: ignore[attr-defined]
     sent_events: list[InternalEventEvent] = []
@@ -181,9 +188,9 @@ def test_internal_event_reraises_non_size_kafka_errors() -> None:
         pytest.raises(KafkaException),
     ):
         produce_issue_lifecycle_internal_event(
-            _inputs(),
+            inputs,
             event="$error_tracking_issue_spiking",
-            exception_timestamp="invalid",
+            exception_timestamp="2026-07-21T12:30:00Z",
             include_status=False,
         )
 
@@ -191,6 +198,61 @@ def test_internal_event_reraises_non_size_kafka_errors() -> None:
     assert sent_events[0].event == "$error_tracking_issue_spiking"
     assert "status" not in sent_events[0].properties
     assert sent_events[0].properties["severity"] == "high"
+    assert sent_events[0].properties["exception_timestamp"] == "2026-07-21T12:30:00+00:00"
+
+
+def test_alert_inputs_mirror_the_internal_event_and_key_the_exception_by_its_own_time() -> None:
+    inputs = IssueSpikingWorkflowInputs(
+        notification_id="01982721-5e00-7000-8000-000000000001",
+        team_id=42,
+        issue_id="01982721-5e00-7000-8000-000000000002",
+        issue=IssueSpikingSnapshot(
+            name="x" * 600,
+            description="Something failed",
+            status="active",
+            created_at="2026-07-21T12:00:00Z",
+            severity="high",
+        ),
+        fingerprint="fingerprint",
+        event_uuid="01982721-5e00-7000-8000-000000000003",
+        event_timestamp="2026-07-21T12:05:00Z",
+        assignee=None,
+        detected_at="2026-07-21T12:30:00Z",
+        computed_baseline=2.0,
+        current_bucket_value=40,
+    )
+
+    alert = alert_delivery_inputs(
+        inputs,
+        event="$error_tracking_issue_spiking",
+        extra_properties={"computed_baseline": 2.0, "current_bucket_value": 40, "ignored": "x"},
+        include_status=False,
+    )
+
+    assert alert.notification_id == inputs.notification_id
+    assert alert.status is None
+    # The alert keys the exception by its own timestamp even when the lifecycle event
+    # carries the spike detection time.
+    assert alert.event_uuid == inputs.event_uuid
+    assert alert.event_timestamp == inputs.event_timestamp
+    assert alert.extra == {"computed_baseline": "2.0", "current_bucket_value": "40"}
+    assert alert.issue_name is not None and len(alert.issue_name) == 500
+
+    reopened = alert_delivery_inputs(_inputs(), event="$error_tracking_issue_reopened")
+    assert reopened.status == "Pending Release"
+    assert reopened.assignee == '{"type":"user","id":1}'
+
+
+def test_dispatch_raises_so_the_activity_retries() -> None:
+    with (
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.start_alert_delivery_workflow",
+            side_effect=RuntimeError("temporal down"),
+        ) as start,
+        pytest.raises(RuntimeError),
+    ):
+        dispatch_issue_lifecycle_alert(_inputs(), event="$error_tracking_issue_reopened")
+    assert start.call_args.args[0].event == "$error_tracking_issue_reopened"
 
 
 @pytest.mark.asyncio

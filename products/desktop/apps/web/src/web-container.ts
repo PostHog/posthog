@@ -75,6 +75,7 @@ import {
   REPORT_MODEL_RESOLVER,
   type ReportModelResolver,
 } from "@posthog/core/inbox/identifiers";
+import { inboxCoreModule } from "@posthog/core/inbox/inbox.module";
 import { selectModelFromOptions } from "@posthog/core/inbox/reportTaskCreation";
 import { githubConnectModule } from "@posthog/core/integrations/githubConnect.module";
 import {
@@ -862,6 +863,13 @@ container.bind(REPORT_MODEL_RESOLVER).toConstantValue({
     }
   },
 } satisfies ReportModelResolver);
+
+// ── Inbox: the report services the shared Inbox hooks resolve ──
+// Self-driving lives in the shared route tree, so the web host loads the same
+// core module the desktop renderer does. Bindings resolve lazily, and the one
+// token the shared hooks reach for (the report implementation service) has no
+// injected dependencies, so nothing here needs a local-only capability.
+container.load(inboxCoreModule);
 
 // Fail loudly at composition time if a capability the shared app resolves via
 // service location is unbound, instead of limping to the first navigation that
