@@ -14,12 +14,9 @@ import json
 import string
 import hashlib
 from typing import Any
-from uuid import uuid4
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
-from django.utils.timezone import now
 
 import requests
 import structlog
@@ -43,6 +40,13 @@ from posthog.rate_limit import IPThrottle
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from ..facade.api import derive_auto_classifications, is_shared_interviewee_context, valid_distinct_id, valid_session_id
+from ..logic import (
+    RESPONDENT_KEY_MAX_CHARS,
+    RESPONDENT_NAME_MAX_CHARS,
+    clean_field,
+    resolve_share,
+    shared_interviewee_identifier,
+)
 from ..models import UserInterview, UserInterviewClassification, UserInterviewTopic
 
 logger = structlog.get_logger(__name__)
@@ -204,30 +208,6 @@ def _emit_interview_embeddings(interview: UserInterview, topic: UserInterviewTop
             )
 
 
-def _resolve_share(access_token: str) -> SharingConfiguration | None:
-    """Resolve a share token to its `SharingConfiguration`, mirroring the filters
-    used by `SharingViewerPageViewSet.get_object()`:
-    * `enabled=True`
-    * not expired (`expires_at` null OR in the future) — rotated tokens past their
-      5-minute grace period are excluded so this surface stays consistent with the
-      public viewer.
-    """
-    try:
-        return (
-            SharingConfiguration.objects.select_related(
-                "team",
-                "team__organization",
-                "interviewee_context",
-                "interviewee_context__topic",
-                "interviewee_context__topic__created_by",
-            )
-            .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
-            .get(access_token=access_token, enabled=True)
-        )
-    except SharingConfiguration.DoesNotExist:
-        return None
-
-
 def _public_sharing_disabled_for_org(sharing_config: SharingConfiguration) -> bool:
     """Mirror of `SharingViewerPageViewSet.retrieve()`'s org-level kill switch."""
     organization = sharing_config.team.organization
@@ -302,30 +282,6 @@ def _build_first_message(
             user_name=name_part, topic_text=topic_part
         )
     return rendered[:_FIRST_MESSAGE_MAX_CHARS]
-
-
-# Max lengths for the self-reported fields a shared-link respondent sends to start_call. These
-# are echoed into Vapi metadata and persisted on the UserInterview, so cap them defensively.
-_RESPONDENT_NAME_MAX_CHARS = 200
-_RESPONDENT_KEY_MAX_CHARS = 64
-
-# Every shared-link response is stored under an identifier carrying this prefix. It can NEVER equal a
-# personalised interviewee's identifier (an email or distinct_id), so an anonymous respondent can
-# neither be attributed to nor lock out a targeted invitee.
-SHARED_RESPONDENT_IDENTIFIER_PREFIX = "shared:"
-
-
-def _clean_field(value: Any, max_chars: int) -> str:
-    return str(value).strip()[:max_chars] if value else ""
-
-
-def _shared_interviewee_identifier(respondent_key: str) -> str:
-    """Namespaced, non-authoritative identity for a shared-link respondent.
-
-    Keyed on the stable per-browser ``respondent_key`` so a refreshed respondent keeps one identity;
-    falls back to a random id when no key was supplied so rows stay distinct. Deliberately independent
-    of any self-reported name or untrusted ``distinct_id`` — those never determine attribution."""
-    return f"{SHARED_RESPONDENT_IDENTIFIER_PREFIX}{respondent_key or uuid4().hex}"
 
 
 VAPI_WEB_CALL_URL = "https://api.vapi.ai/call/web"
@@ -469,7 +425,7 @@ def start_call(request: Request, access_token: str) -> Response:
         )
         return Response({"error": "invalid request"}, status=status.HTTP_400_BAD_REQUEST)
 
-    sharing_config = _resolve_share(access_token)
+    sharing_config = resolve_share(access_token)
     if sharing_config is None or sharing_config.interviewee_context is None:
         logger.warning("user_interviews_start_call_unknown_access_token")
         return Response({"error": "unknown access_token"}, status=status.HTTP_404_NOT_FOUND)
@@ -485,10 +441,10 @@ def start_call(request: Request, access_token: str) -> Response:
     ic = sharing_config.interviewee_context
     topic = ic.topic
     if is_shared_interviewee_context(ic.interviewee_identifier):
-        respondent_name = _clean_field(body.get("name"), _RESPONDENT_NAME_MAX_CHARS)
+        respondent_name = clean_field(body.get("name"), RESPONDENT_NAME_MAX_CHARS)
         if not respondent_name:
             return Response({"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST)
-        respondent_key = _clean_field(body.get("respondent_key"), _RESPONDENT_KEY_MAX_CHARS)
+        respondent_key = clean_field(body.get("respondent_key"), RESPONDENT_KEY_MAX_CHARS)
         user_name = respondent_name or "there"
         agent_context = topic.agent_context or ""
         # The response is stored under a namespaced identifier that can never collide with a targeted
@@ -497,7 +453,7 @@ def start_call(request: Request, access_token: str) -> Response:
         # targeted person out.
         metadata: dict[str, str] = {
             "topic_id": str(topic.id),
-            "interviewee_identifier": _shared_interviewee_identifier(respondent_key),
+            "interviewee_identifier": shared_interviewee_identifier(respondent_key),
             "sharing_access_token": access_token,
             "shared": "true",
             "respondent_name": respondent_name,
@@ -637,7 +593,7 @@ def vapi_webhook(request: Request) -> Response:
         # capture the ended event from that branch where we already have the interview row.
         call_status = message.get("status")
         if call_status == "in-progress" and access_token:
-            sharing_config = _resolve_share(access_token)
+            sharing_config = resolve_share(access_token)
             if sharing_config is not None and sharing_config.interviewee_context is not None:
                 _capture_user_interview_event(
                     "user_interview_conversation_started",
@@ -672,7 +628,7 @@ def vapi_webhook(request: Request) -> Response:
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    sharing_config = _resolve_share(access_token)
+    sharing_config = resolve_share(access_token)
     if sharing_config is None:
         logger.warning(
             "user_interviews_vapi_webhook_unknown_access_token",
@@ -709,11 +665,11 @@ def vapi_webhook(request: Request) -> Response:
     topic = interviewee_context.topic
 
     if is_shared_interviewee_context(interviewee_context.interviewee_identifier):
-        respondent_name = _clean_field(merged_metadata.get("respondent_name"), _RESPONDENT_NAME_MAX_CHARS)
-        respondent_key = _clean_field(merged_metadata.get("respondent_key"), _RESPONDENT_KEY_MAX_CHARS)
+        respondent_name = clean_field(merged_metadata.get("respondent_name"), RESPONDENT_NAME_MAX_CHARS)
+        respondent_key = clean_field(merged_metadata.get("respondent_key"), RESPONDENT_KEY_MAX_CHARS)
         # Recompute the identifier from respondent_key rather than trusting the echoed metadata, so it
         # is always a namespaced shared marker and can never be steered onto a targeted invitee.
-        interviewee_identifier = _shared_interviewee_identifier(respondent_key)
+        interviewee_identifier = shared_interviewee_identifier(respondent_key)
         interviewee_emails = []
         # Best-effort, untrusted person linkage. Re-validated here (defense in depth) and stored in its
         # own column — never as the interviewee_identifier, so it can't forge attribution.
