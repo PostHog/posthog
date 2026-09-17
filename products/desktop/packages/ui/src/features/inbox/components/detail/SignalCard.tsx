@@ -20,6 +20,7 @@ import {
 import type { Signal, SignalFindingContent } from "@posthog/shared/types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
+import { ERROR_TRACKING_TYPE_COPY } from "@posthog/ui/features/inbox/components/utils/errorTrackingSignalTypes";
 import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
@@ -42,12 +43,6 @@ const COLLAPSE_THRESHOLD = 300;
 
 // ── Source line labels (matching PostHog Cloud's signalCardSourceLine) ────────
 
-const ERROR_TRACKING_TYPE_LABELS: Record<string, string> = {
-  issue_created: "New issue",
-  issue_reopened: "Issue reopened",
-  issue_spiking: "Volume spike",
-};
-
 // Turn a scout's skill_name (e.g. "signals-scout-error-tracking") into a
 // human-friendly label (e.g. "Error tracking").
 function prettifyScoutName(skillName: string): string {
@@ -68,7 +63,8 @@ export function signalCardSourceLine(signal: {
 
   if (source_product === "error_tracking") {
     const typeLabel =
-      ERROR_TRACKING_TYPE_LABELS[source_type] ?? source_type.replace(/_/g, " ");
+      ERROR_TRACKING_TYPE_COPY[source_type]?.name ??
+      source_type.replace(/_/g, " ");
     return `Error tracking · ${typeLabel}`;
   }
   if (

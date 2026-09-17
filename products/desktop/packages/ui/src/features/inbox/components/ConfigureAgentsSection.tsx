@@ -17,6 +17,7 @@ import {
   getCloudUrlFromRegion,
 } from "@posthog/shared";
 import { SELF_DRIVING_SETUP_TASK_FLAG } from "@posthog/shared/constants";
+import type { SourceType } from "@posthog/shared/types";
 import { useTrackAgentsViewed } from "@posthog/ui/features/agents/hooks/useTrackAgentsViewed";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
@@ -24,6 +25,8 @@ import { DataSourceSetup } from "@posthog/ui/features/inbox/components/DataSourc
 import {
   ResponderAgentRoster,
   ResponderAgentRosterSkeleton,
+  type ResponderEntity,
+  type ResponderSourceState,
 } from "@posthog/ui/features/inbox/components/ResponderAgentRoster";
 import {
   RESPONDER_AGENT_GROUPS,
@@ -74,6 +77,25 @@ const RESPONDER_SOURCE_PRODUCTS = new Set<ResponderAgentSource>(
   ),
 );
 
+/** Copy for the three error tracking signal types, which are enum values rather than records. */
+const ERROR_TRACKING_TYPE_COPY: Record<
+  string,
+  { name: string; detail: string }
+> = {
+  issue_created: {
+    name: "New issue",
+    detail: "An error that has not been seen before.",
+  },
+  issue_reopened: {
+    name: "Reopened issue",
+    detail: "A resolved issue that came back.",
+  },
+  issue_spiking: {
+    name: "Spiking issue",
+    detail: "A known issue whose rate jumped above its baseline.",
+  },
+};
+
 export function ConfigureAgentsSection() {
   const {
     displayValues,
@@ -89,6 +111,13 @@ export function ConfigureAgentsSection() {
     handleUpdateMaxReportsPerDay,
     userAutonomyConfig,
     userAutonomyConfigLoading,
+    errorTrackingTypeStates,
+    loadingSourceTypes,
+    handleToggleErrorTrackingType,
+    scanners,
+    scannersLoading,
+    togglingScanners,
+    handleToggleScanner,
   } = useSignalSourceManager();
   const { hasGithubIntegration, isLoadingIntegrations } =
     useRepositoryIntegration();
@@ -110,6 +139,70 @@ export function ConfigureAgentsSection() {
   // Count only Responder sources so non-responder inputs don't inflate counts.
   const responderEntries = Object.entries(displayValues).filter(([source]) =>
     RESPONDER_SOURCE_PRODUCTS.has(source as ResponderAgentSource),
+  );
+
+  const scannerEntities = useMemo<ResponderEntity[]>(
+    () =>
+      scanners.map((scanner) => ({
+        id: scanner.id,
+        name: scanner.name,
+        detail: scanner.description || undefined,
+        kind: scanner.scanner_type,
+        enabled: scanner.emits_signals ?? false,
+      })),
+    [scanners],
+  );
+
+  const errorTrackingEntities = useMemo<ResponderEntity[]>(
+    () =>
+      errorTrackingTypeStates.map(({ sourceType, enabled }) => ({
+        id: sourceType,
+        name: ERROR_TRACKING_TYPE_COPY[sourceType]?.name ?? sourceType,
+        detail: ERROR_TRACKING_TYPE_COPY[sourceType]?.detail,
+        enabled,
+      })),
+    [errorTrackingTypeStates],
+  );
+
+  const rosterStates = useMemo<
+    Partial<Record<ResponderAgentSource, ResponderSourceState>>
+  >(
+    () => ({
+      ...sourceStates,
+      error_tracking: {
+        ...sourceStates?.error_tracking,
+        requiresSetup: false,
+        loading: sourceStates?.error_tracking?.loading ?? false,
+        entities: errorTrackingEntities,
+        pendingEntities: loadingSourceTypes,
+      },
+      replay_vision: {
+        requiresSetup: false,
+        loading: false,
+        entities: scannerEntities,
+        entitiesLoading: scannersLoading,
+        pendingEntities: togglingScanners,
+      },
+    }),
+    [
+      sourceStates,
+      errorTrackingEntities,
+      loadingSourceTypes,
+      scannerEntities,
+      scannersLoading,
+      togglingScanners,
+    ],
+  );
+
+  const handleToggleRosterEntity = useCallback(
+    (source: ResponderAgentSource, entityId: string) => {
+      if (source === "replay_vision") {
+        void handleToggleScanner(entityId);
+      } else if (source === "error_tracking") {
+        void handleToggleErrorTrackingType(entityId as SourceType);
+      }
+    },
+    [handleToggleScanner, handleToggleErrorTrackingType],
   );
 
   useTrackAgentsViewed({
@@ -165,12 +258,18 @@ export function ConfigureAgentsSection() {
               ) : (
                 <ResponderAgentRoster
                   value={displayValues}
-                  onToggle={(source, enabled) =>
-                    void handleToggle(source, enabled)
-                  }
+                  onToggle={(source, enabled) => {
+                    // Narrows away the sources with no `SignalSourceValues` row to toggle.
+                    if (source === "replay_vision") return;
+                    void handleToggle(source, enabled);
+                  }}
                   disabled={!hasGithubIntegration}
-                  sourceStates={sourceStates}
-                  onSetup={handleSetup}
+                  sourceStates={rosterStates}
+                  onSetup={(source) => {
+                    if (source === "replay_vision") return;
+                    handleSetup(source);
+                  }}
+                  onToggleEntity={handleToggleRosterEntity}
                 />
               )}
             </Box>

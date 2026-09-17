@@ -85,7 +85,9 @@ function computeValues(
   if (!configs?.length) return result;
   for (const product of ALL_SOURCE_PRODUCTS) {
     if (product === "error_tracking") {
-      result.error_tracking = ERROR_TRACKING_SOURCE_TYPES.every((st) =>
+      // Any type on means the source is emitting. The expanded signal-type rows say which
+      // ones, so a card reading Standby while one type watches would contradict them.
+      result.error_tracking = ERROR_TRACKING_SOURCE_TYPES.some((st) =>
         configs.some(
           (c) =>
             c.source_product === "error_tracking" &&
@@ -128,6 +130,9 @@ export function useSignalSourceToggles() {
     Partial<Record<keyof SignalSourceValues, boolean>>
   >({});
   const pendingRef = useRef(new Set<keyof SignalSourceValues>());
+
+  const pendingTypesRef = useRef(new Set<SourceType>());
+  const [loadingTypes, setLoadingTypes] = useState<Record<string, boolean>>({});
 
   const [setupSource, setSetupSource] = useState<SourceKey | null>(null);
   const [loadingSources, setLoadingSources] = useState<
@@ -357,6 +362,65 @@ export function useSignalSourceToggles() {
     ],
   );
 
+  const errorTrackingTypeStates = useMemo(
+    () =>
+      ERROR_TRACKING_SOURCE_TYPES.map((sourceType) => ({
+        sourceType,
+        enabled:
+          configs?.find(
+            (c) =>
+              c.source_product === "error_tracking" &&
+              c.source_type === sourceType,
+          )?.enabled === true,
+      })),
+    [configs],
+  );
+
+  /** Switch one error tracking signal type, leaving the other two as they are. */
+  const handleToggleErrorTrackingType = useCallback(
+    async (sourceType: SourceType) => {
+      if (!client || !projectId) return;
+      if (pendingTypesRef.current.has(sourceType)) return;
+
+      const existing = configs?.find(
+        (c) =>
+          c.source_product === "error_tracking" && c.source_type === sourceType,
+      );
+      const enabled = !(existing?.enabled ?? false);
+
+      pendingTypesRef.current.add(sourceType);
+      setLoadingTypes((prev) => ({ ...prev, [sourceType]: true }));
+      try {
+        if (existing) {
+          await client.updateSignalSourceConfig(projectId, existing.id, {
+            enabled,
+          });
+        } else if (enabled) {
+          await client.createSignalSourceConfig(projectId, {
+            source_product: "error_tracking",
+            source_type: sourceType,
+            enabled: true,
+          });
+        }
+        await invalidateAfterToggle();
+      } catch (error: unknown) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Failed to toggle this signal type",
+        );
+      } finally {
+        pendingTypesRef.current.delete(sourceType);
+        setLoadingTypes((prev) => {
+          const next = { ...prev };
+          delete next[sourceType];
+          return next;
+        });
+      }
+    },
+    [client, projectId, configs, invalidateAfterToggle],
+  );
+
   const handleSetupComplete = useCallback(async () => {
     const completedSource = setupSource;
     setSetupSource(null);
@@ -414,5 +478,8 @@ export function useSignalSourceToggles() {
     handleSetup,
     handleSetupComplete,
     handleSetupCancel,
+    errorTrackingTypeStates,
+    loadingSourceTypes: loadingTypes,
+    handleToggleErrorTrackingType,
   };
 }

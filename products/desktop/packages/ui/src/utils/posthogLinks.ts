@@ -29,6 +29,14 @@ function withProjectId(
   return getPostHogUrl(path(projectId), overrides?.cloudRegion);
 }
 
+/** Any project-scoped PostHog page, for callers that already hold the path. */
+export function projectUrl(
+  path: string,
+  overrides?: LinkOverrides,
+): string | null {
+  return withProjectId((pid) => `/project/${pid}${path}`, overrides);
+}
+
 export function flagUrl(
   flagId: number,
   overrides?: LinkOverrides,

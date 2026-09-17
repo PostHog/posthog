@@ -4,6 +4,7 @@ import { useSignalTeamConfig } from "@posthog/ui/features/inbox/hooks/useSignalT
 import { useSignalTeamConfigMutations } from "@posthog/ui/features/inbox/hooks/useSignalTeamConfigMutations";
 import { useSignalUserAutonomyConfig } from "@posthog/ui/features/inbox/hooks/useSignalUserAutonomyConfig";
 import { useSignalUserAutonomyMutations } from "@posthog/ui/features/inbox/hooks/useSignalUserAutonomyMutations";
+import { useVisionScanners } from "@posthog/ui/features/inbox/hooks/useVisionScanners";
 
 /**
  * Aggregator over the focused source/evaluations/team-config/autonomy hooks.
@@ -12,6 +13,7 @@ import { useSignalUserAutonomyMutations } from "@posthog/ui/features/inbox/hooks
  */
 export function useSignalSourceManager() {
   const toggles = useSignalSourceToggles();
+  const scanners = useVisionScanners();
   const evaluations = useSignalEvaluations();
   const { data: teamConfig, isLoading: teamConfigLoading } =
     useSignalTeamConfig();
@@ -30,6 +32,15 @@ export function useSignalSourceManager() {
     handleSetup: toggles.handleSetup,
     handleSetupComplete: toggles.handleSetupComplete,
     handleSetupCancel: toggles.handleSetupCancel,
+    errorTrackingTypeStates: toggles.errorTrackingTypeStates,
+    loadingSourceTypes: toggles.loadingSourceTypes,
+    handleToggleErrorTrackingType: toggles.handleToggleErrorTrackingType,
+
+    // Replay Vision scanners
+    scanners: scanners.scanners,
+    scannersLoading: scanners.scannersLoading,
+    togglingScanners: scanners.togglingScanners,
+    handleToggleScanner: scanners.handleToggleScanner,
 
     // Evaluations
     evaluations: evaluations.evaluations,

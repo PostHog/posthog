@@ -564,6 +564,22 @@ export interface LlmSkillFileInput {
   content_type?: string;
 }
 
+/** Enough scanners for any project that hand-creates them. */
+const SCANNER_PAGE_SIZE = 100;
+
+/**
+ * A Replay Vision scanner, as far as Self-driving cares: `emits_signals` is the flag that
+ * authorizes the scanner's observations to start agent research. The scanner itself is created
+ * and configured in PostHog, so only the display fields are modelled here.
+ */
+export interface VisionScanner {
+  id: string;
+  name: string;
+  description?: string | null;
+  scanner_type: string;
+  emits_signals?: boolean;
+}
+
 export interface SignalSourceConfig {
   id: string;
   source_product: SourceProduct;
@@ -2458,6 +2474,58 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as SignalSourceConfig;
+  }
+
+  /**
+   * Scanners whose Temporal schedule is running. A disabled scanner produces no observations,
+   * so listing it under the source would offer a switch over nothing.
+   */
+  async listVisionScanners(projectId: number): Promise<VisionScanner[]> {
+    const urlPath = `/api/projects/${projectId}/vision/scanners/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    url.searchParams.set("enabled", "enabled");
+    url.searchParams.set("limit", String(SCANNER_PAGE_SIZE));
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch Replay Vision scanners: ${response.statusText}`,
+      );
+    }
+    const data = (await response.json()) as
+      | { results: VisionScanner[] }
+      | VisionScanner[];
+    return Array.isArray(data) ? data : (data.results ?? []);
+  }
+
+  async updateVisionScannerSignals(
+    projectId: number,
+    scannerId: string,
+    emitsSignals: boolean,
+  ): Promise<VisionScanner> {
+    const urlPath = `/api/projects/${projectId}/vision/scanners/${scannerId}/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url,
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({ emits_signals: emitsSignals }),
+      },
+    });
+    if (!response.ok) {
+      const errorData = (await response.json().catch(() => ({}))) as {
+        detail?: string;
+      };
+      throw new Error(
+        errorData.detail ??
+          `Failed to update Replay Vision scanner: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as VisionScanner;
   }
 
   private async scoutGet<T>(
