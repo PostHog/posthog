@@ -20,7 +20,7 @@ PUBLIC_IP = ipaddress.ip_address("93.184.216.34")
 
 def _capturing_transport(seen: list[httpx.Request]) -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
+        seen.append(httpx.Request(request.method, request.url, headers=request.headers, extensions=request.extensions))
         return httpx.Response(200)
 
     return httpx.MockTransport(handler)
@@ -84,6 +84,52 @@ class TestPinnedTransport:
 
         assert str(seen[0].url) == "https://other.example.com/"
 
+    @pytest.mark.parametrize("redirect", [False, True])
+    def test_preserves_host_only_cookies_across_requests_and_redirects(self, redirect: bool) -> None:
+        url = "https://example.com/mcp"
+        seen: list[httpx.Request] = []
+
+        def handle_request(request: httpx.Request) -> httpx.Response:
+            seen.append(
+                httpx.Request(request.method, request.url, headers=request.headers, extensions=request.extensions)
+            )
+            if len(seen) == 1:
+                headers = {"Set-Cookie": "mcp_session=fake-session; Path=/; Secure"}
+                if redirect:
+                    headers["Location"] = "/continued"
+                return httpx.Response(302 if redirect else 200, headers=headers)
+            return httpx.Response(200)
+
+        with pinned_client(url, {PUBLIC_IP}, transport=httpx.MockTransport(handle_request), trust_env=False) as client:
+            response = client.get(url, follow_redirects=True)
+            assert response.status_code == 200
+            assert response.url == httpx.URL("https://example.com/continued" if redirect else url)
+            assert [item.url for item in response.history] == ([httpx.URL(url)] if redirect else [])
+            assert [cookie.domain for cookie in client.cookies.jar] == ["example.com"]
+            assert client.get("https://example.com/continued").status_code == 200
+
+        assert len(seen) == (3 if redirect else 2)
+        assert {request.url.host for request in seen} == {str(PUBLIC_IP)}
+        assert {request.headers["Host"] for request in seen} == {"example.com"}
+        assert {request.extensions["sni_hostname"] for request in seen} == {"example.com"}
+        assert seen[0].headers.get("Cookie") is None
+        assert {request.headers.get("Cookie") for request in seen[1:]} == {"mcp_session=fake-session"}
+
+    @pytest.mark.parametrize("error_type", [httpx.ConnectError, httpx.ReadTimeout])
+    def test_restores_request_url_after_transport_error(self, error_type: type[httpx.RequestError]) -> None:
+        url = "https://example.com/mcp"
+
+        def handle_request(request: httpx.Request) -> httpx.Response:
+            assert request.url.host == str(PUBLIC_IP)
+            raise error_type("upstream failed", request=request)
+
+        with pinned_client(url, {PUBLIC_IP}, transport=httpx.MockTransport(handle_request), trust_env=False) as client:
+            request = client.build_request("GET", url)
+            with pytest.raises(error_type) as error:
+                client.send(request)
+            assert request.url == httpx.URL(url)
+            assert error.value.request.url == httpx.URL(url)
+
 
 class TestPinnedClientRouting:
     @override_settings(SSRF_TRUSTED_PROXY_URLS=[])
@@ -117,7 +163,9 @@ class TestPinnedClientRouting:
         seen: list[httpx.Request] = []
 
         def handle_request(_transport: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
-            seen.append(request)
+            seen.append(
+                httpx.Request(request.method, request.url, headers=request.headers, extensions=request.extensions)
+            )
             return httpx.Response(200)
 
         with (

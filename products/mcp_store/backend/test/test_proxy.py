@@ -570,7 +570,9 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         def handle_request(_transport: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
             if route == "denied":
                 raise httpx.ProxyError("403 Forbidden")
-            seen.append(request)
+            seen.append(
+                httpx.Request(request.method, request.url, headers=request.headers, extensions=request.extensions)
+            )
             return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}})
 
         no_proxies = {key: "" for key in os.environ if key.lower().endswith("_proxy")}

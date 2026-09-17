@@ -72,6 +72,7 @@ Don’t log sensitive information. Make sure you never log:
 
 Use `posthog.security.pinned_httpx.pinned_client` for synchronous httpx requests to user-supplied MCP URLs after URL validation.
 Direct connections use a validated IP address and keep the original host name for HTTP and TLS certificate verification.
+The transport restores the request URL before cookie storage and redirect handling, including after connection errors.
 Proxy connections preserve the host name and require an explicit operator trust decision.
 
 `SSRF_TRUSTED_PROXY_URLS` is a comma-separated list of complete proxy URLs, such as `http://egress.example.com:3128`.

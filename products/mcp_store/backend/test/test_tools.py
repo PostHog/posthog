@@ -223,7 +223,9 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         def handle_request(_transport: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
             if route == "denied":
                 raise httpx.ProxyError("403 Forbidden")
-            seen.append(request)
+            seen.append(
+                httpx.Request(request.method, request.url, headers=request.headers, extensions=request.extensions)
+            )
             if request.method == "DELETE":
                 return httpx.Response(200)
             request_id = json.loads(request.content).get("id")
@@ -231,7 +233,7 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
                 return httpx.Response(
                     200,
                     json={"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05"}},
-                    headers={"mcp-session-id": "sess-1"},
+                    headers={"mcp-session-id": "sess-1", "Set-Cookie": "mcp_session=fake-session; Path=/; Secure"},
                 )
             if request_id == 2:
                 return httpx.Response(200, json={"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "alpha"}]}})
@@ -258,6 +260,7 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
 
         assert [tool["name"] for tool in tools] == ["alpha"]
         assert len(seen) == 4
+        assert {request.headers.get("Cookie") for request in seen[1:]} == {"mcp_session=fake-session"}
         assert {request.url.host for request in seen} == {"93.184.216.34" if route == "direct" else "mcp.example.com"}
         assert {request.headers["Host"] for request in seen} == {"mcp.example.com"}
         assert {request.extensions.get("sni_hostname") for request in seen} == {

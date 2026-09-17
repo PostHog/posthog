@@ -71,10 +71,14 @@ class PinnedTransport(httpx.BaseTransport):
 
         # The Host header was filled from the original URL when the request was built, and
         # replacing the URL afterwards leaves it as it is.
-        request.url = request.url.copy_with(host=str(ip))
-        if request.url.scheme == "https":
-            request.extensions["sni_hostname"] = host
-        return self._inner.handle_request(request)
+        original_url = request.url
+        try:
+            request.url = original_url.copy_with(host=str(ip))
+            if request.url.scheme == "https":
+                request.extensions["sni_hostname"] = host
+            return self._inner.handle_request(request)
+        finally:
+            request.url = original_url
 
     def close(self) -> None:
         self._inner.close()
