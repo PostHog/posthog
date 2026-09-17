@@ -27,16 +27,18 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import QueryStats, RecordedExecution
 
 from posthog.clickhouse.query_tagging import AccessMethod, Feature, reset_query_tags, tag_queries
 from posthog.event_usage import EventSource
+from posthog.query_scan.explain import EXPLAIN_MAX_SECONDS
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.slot import slot_key
 from posthog.query_scan.tree_facts import TreeFacts
-from posthog.query_scan.trigger import MAX_EXECUTION_BYTES, _open_filters_placeholder, maybe_trigger_query_scan
+from posthog.query_scan.trigger import _open_filters_placeholder, maybe_trigger_query_scan
 
 FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
 
@@ -49,12 +51,14 @@ def _execution(
     rows_read: int = 100,
     values: dict[str, Any] | None = None,
     lookup: str | None = None,
+    settings: HogQLGlobalSettings | None = None,
 ) -> RecordedExecution:
     return RecordedExecution(
         tree=parse_select(sql),
         context=HogQLContext(team_id=1, values=values or {}),
         rows_read=rows_read,
         lookup=lookup,
+        settings=settings,
     )
 
 
@@ -103,7 +107,7 @@ def _lose_the_slot_claim(test: "TestQueryScanTrigger") -> None:
 def _printing(values: dict[str, Any]) -> Any:
     """A printer stand-in that adds to the context the values a real print would."""
 
-    def print_with_values(node: Any, context: HogQLContext, dialect: str) -> str:
+    def print_with_values(node: Any, context: HogQLContext, dialect: str, settings: Any = None) -> str:
         context.values.update(values)
         return "SELECT 1"
 
@@ -312,24 +316,37 @@ class TestQueryScanTrigger(SimpleTestCase):
 
     @parameterized.expand(
         [
-            # The values count because one large literal can outweigh the SQL around it.
-            ("too large to ship", {"hogql_val_0": "x" * (MAX_EXECUTION_BYTES + 1)}, "too_large"),
-            ("carrying a sensitive value", {"hogql_val_0_sensitive": "warehouse-secret"}, "sensitive_values"),
+            ("that will not print", RuntimeError("no printer for this node"), "print_failed"),
+            (
+                "carrying a sensitive value",
+                _printing({"hogql_val_0_sensitive": "warehouse-secret"}),
+                "sensitive_values",
+            ),
         ]
     )
     def test_an_unshippable_selected_execution_aborts_the_whole_scan(
-        self, _name: str, printed_values: dict[str, Any], expected_reason: str
+        self, _name: str, print_outcome: Any, expected_reason: str
     ) -> None:
         # A person reads the advice as if it covered the whole run, so a run with a selected
         # execution that cannot ship is not analyzed in part. The claimed slot is dropped, so a
         # later run can try again.
-        self.print.side_effect = _printing(printed_values)
+        self.print.side_effect = print_outcome
 
         result = self._trigger(stats=_stats(executions=[_execution(rows_read=100), _execution(rows_read=50)]))
 
         assert result == expected_reason
         self.delay.assert_not_called()
         self.redis.delete.assert_called_once_with(slot_key(1, "cache_key_1", FLAG.thresholds_fingerprint))
+
+    def test_the_sql_is_printed_under_the_settings_the_run_had(self) -> None:
+        run_settings = HogQLGlobalSettings(max_execution_time=600)
+
+        result = self._trigger(stats=_stats(executions=[_execution(settings=run_settings)]))
+
+        assert result is None
+        printed_under = self.print.call_args.kwargs["settings"]
+        assert printed_under.max_ast_elements == run_settings.max_ast_elements
+        assert printed_under.max_execution_time == EXPLAIN_MAX_SECONDS
 
     def test_ships_several_printable_executions_heaviest_first(self) -> None:
         # An insight fans out into several executions; the job explains the heaviest, so the payload

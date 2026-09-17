@@ -121,6 +121,7 @@ class HogQLQueryExecutor:
     clickhouse_prepared_ast: Optional[ast.AST] = None
     clickhouse_context: Optional[HogQLContext] = None
     clickhouse_sql: Optional[str] = None
+    clickhouse_settings: Optional[HogQLGlobalSettings] = None
     direct_context: Optional[HogQLContext] = None
     direct_sql: Optional[str] = None
     direct_source_id: Optional[str] = None
@@ -627,6 +628,7 @@ class HogQLQueryExecutor:
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self, *, include_settings: bool = True):
         settings = get_default_hogql_global_settings(self.team.pk, self.settings)
+        self.clickhouse_settings = settings
         if self.limit_context in (
             LimitContext.EXPORT,
             LimitContext.COHORT_CALCULATION,
@@ -834,6 +836,7 @@ class HogQLQueryExecutor:
                         context=clickhouse_context,
                         rows_read=query_stats.last_rows_read(),
                         lookup=get_query_tag_value("lookup"),
+                        settings=self.clickhouse_settings,
                     )
 
         if self.debug and self.error is None:

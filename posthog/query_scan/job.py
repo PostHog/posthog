@@ -35,7 +35,7 @@ from posthog.query_scan.event_filter import (
     EventFilterReason,
     combine_event_filter,
 )
-from posthog.query_scan.explain import QueryPlan, TimestampBounds, parse_query_plan
+from posthog.query_scan.explain import EXPLAIN_MAX_SECONDS, QueryPlan, TimestampBounds, parse_query_plan
 from posthog.query_scan.findings import finding_label
 from posthog.query_scan.flag import get_query_scan_flag
 from posthog.query_scan.slot import (
@@ -48,7 +48,6 @@ logger = structlog.get_logger(__name__)
 
 T = TypeVar("T")
 
-EXPLAIN_MAX_SECONDS = 10
 TABLE_AVERAGES_MAX_SECONDS = 5
 MAX_EXPLAIN_WORKERS = 8
 

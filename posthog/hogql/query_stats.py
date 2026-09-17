@@ -21,6 +21,7 @@ from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from posthog.hogql import ast
+    from posthog.hogql.constants import HogQLGlobalSettings
     from posthog.hogql.context import HogQLContext
 
 
@@ -29,13 +30,15 @@ class RecordedExecution:
     """One ClickHouse execution inside a scope, held by reference for the job to explain later.
 
     ``lookup`` is the ``QueryTags.lookup`` value the execution ran under, so a run's analysis can
-    leave out an internal lookup a runner made on the way to its real query.
+    leave out an internal lookup a runner made on the way to its real query. ``settings`` are the
+    ones the query was printed with, so the job plans it under the same ones.
     """
 
     tree: ast.Expr
     context: HogQLContext
     rows_read: int
     lookup: str | None = None
+    settings: HogQLGlobalSettings | None = None
 
 
 @frozen(frozen=False)
@@ -66,10 +69,18 @@ class QueryStats:
                 self.lookup_duration_ms += duration_ms
 
     def record_execution(
-        self, *, tree: ast.Expr, context: HogQLContext, rows_read: int, lookup: str | None = None
+        self,
+        *,
+        tree: ast.Expr,
+        context: HogQLContext,
+        rows_read: int,
+        lookup: str | None = None,
+        settings: HogQLGlobalSettings | None = None,
     ) -> None:
         with self.lock:
-            self.executions.append(RecordedExecution(tree=tree, context=context, rows_read=rows_read, lookup=lookup))
+            self.executions.append(
+                RecordedExecution(tree=tree, context=context, rows_read=rows_read, lookup=lookup, settings=settings)
+            )
 
 
 _accumulator: ContextVar[QueryStats | None] = ContextVar("query_stats_accumulator", default=None)

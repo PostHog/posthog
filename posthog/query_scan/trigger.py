@@ -8,7 +8,6 @@ the query result.
 from __future__ import annotations
 
 import copy
-import json
 from typing import Any, Literal, TypeGuard
 
 import structlog
@@ -35,6 +34,7 @@ from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, is_ap
 from posthog.event_usage import EventSource
 from posthog.models.user import User
 from posthog.query_scan.event_filter import classify_event_filter
+from posthog.query_scan.explain import EXPLAIN_MAX_SECONDS
 from posthog.query_scan.findings import SQL_QUERY_KIND
 from posthog.query_scan.flag import QueryScanFlag
 from posthog.query_scan.slot import (
@@ -48,10 +48,6 @@ from posthog.query_scan.tree_facts import tree_facts
 
 logger = structlog.get_logger(__name__)
 
-# Above this an EXPLAIN is unlikely to plan and the payload is not worth shipping to the worker. The
-# cap covers the SQL and its parameter values together, since one large literal can outweigh the
-# SQL around it.
-MAX_EXECUTION_BYTES = 100 * 1024
 # The runner can fan an insight out into many series; the heaviest handful explains the run.
 MAX_EXECUTIONS = 5
 # Each subquery is explained on its own, so the cap is across the whole run, not per execution.
@@ -111,7 +107,7 @@ SkipReason = Literal[
     "rate_limited",
     "slot_exists",
     "nothing_to_analyze",
-    "too_large",
+    "print_failed",
     "enqueue_failed",
 ]
 
@@ -264,10 +260,18 @@ def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict
         context = copy.copy(execution.context)
         context.values = {}
         stub = stub_in_subqueries(execution.tree)
+        # A setting in the SQL overrides the one the job passes, so the EXPLAIN's time limit goes here.
+        settings = (
+            execution.settings.model_copy(update={"max_execution_time": EXPLAIN_MAX_SECONDS})
+            if execution.settings is not None
+            else None
+        )
         entry = {
-            "stubbed_sql": print_prepared_ast(stub.stubbed, context, dialect="clickhouse"),
+            "stubbed_sql": print_prepared_ast(stub.stubbed, context, dialect="clickhouse", settings=settings),
             "subqueries": [
-                print_prepared_ast(stub_in_subqueries(subquery).stubbed, context, dialect="clickhouse")
+                print_prepared_ast(
+                    stub_in_subqueries(subquery).stubbed, context, dialect="clickhouse", settings=settings
+                )
                 for subquery in stub.subqueries[: max(subquery_budget, 0)]
             ],
             # The parameter values travel as they are: Celery's JSON serializer round-trips the
@@ -282,14 +286,12 @@ def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict
         if any(key.endswith("_sensitive") for key in context.values):
             # The warehouse stub runs before the print, so this catches any other credential or access list.
             return "sensitive_values"
-        if len(json.dumps(entry, default=str).encode("utf-8")) > MAX_EXECUTION_BYTES:
-            return "too_large"
         return entry
     except Exception:
         # A tree that will not print is one the job could not EXPLAIN either. Dropping it drops the
         # run's analysis, never the query result the person already waited for.
         logger.warning("query_scan_print_failed", exc_info=True)
-        return "too_large"
+        return "print_failed"
 
 
 def _event_filter_verdict(tree: ast.Expr) -> dict[str, str | bool | None] | None:
