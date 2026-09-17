@@ -8,6 +8,7 @@ from posthog.utils import str_to_bool
 
 __all__ = [
     "assert_debug_not_in_production",
+    "assert_postgres_engine",
     "generate_rsa_private_key_pem",
     "get_from_env",
     "get_list",
@@ -29,6 +30,29 @@ def assert_debug_not_in_production(*, debug: bool, cloud_deployment: Optional[st
             "Unset DEBUG. Developing cloud-only features locally? Use CLOUD_DEPLOYMENT=E2E instead — "
             "is_cloud() treats it as cloud and it is allowed with DEBUG. "
             "(DEBUG=1 is injected by the flox env: .flox/env/manifest.toml [vars].)"
+        )
+
+
+POSTGRES_DB_ENGINES = frozenset(
+    {
+        "django.db.backends.postgresql",
+        "django.db.backends.postgresql_psycopg2",
+        "django.contrib.gis.db.backends.postgis",
+    }
+)
+
+
+def assert_postgres_engine(engine: str) -> None:
+    """Refuse to boot when DATABASE_URL selects a database backend other than PostgreSQL.
+
+    dj_database_url reads the backend from the URL scheme, so a mysql:// or sqlite:// URL
+    configures Django with that backend and the application starts. The first failure then
+    comes from inside a migration, and it reports a missing table instead of the real cause.
+    """
+    if engine not in POSTGRES_DB_ENGINES:
+        raise ImproperlyConfigured(
+            f'DATABASE_URL selected the "{engine}" database backend, but PostHog requires PostgreSQL. '
+            "Use a postgres:// URL."
         )
 
 
