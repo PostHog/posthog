@@ -86,6 +86,7 @@ export interface userAutonomyLogicValues {
     autonomyConfigLoading: boolean
     autostartPriorityUpdating: boolean
     githubAssignUpdating: boolean
+    openPullRequestReadyUpdating: boolean
     slackNotificationsSaving: boolean
     slackPickersExpanded: boolean
 }
@@ -113,11 +114,17 @@ export interface userAutonomyLogicActions {
         autonomyConfig: SignalUserAutonomyConfig | null
         payload?: any
     }
+    openPullRequestReadySettled: () => {
+        value: true
+    }
     setAutostartPriority: (priority: SignalReportPriority | null) => {
         priority: SignalReportPriority | null
     }
     setGithubAssignOnPullRequest: (enabled: boolean) => {
         enabled: boolean
+    }
+    setOpenPullRequestReady: (ready: boolean | null) => {
+        ready: boolean | null
     }
     setSlackPickersExpanded: (expanded: boolean) => {
         expanded: boolean
@@ -137,8 +144,9 @@ export type userAutonomyLogicType = MakeLogicType<userAutonomyLogicValues, userA
  * endpoint via `api.signalUserAutonomy`. Every field here applies to reports that
  * suggest this user as reviewer: the PR auto-start priority threshold, which
  * overrides the team default when set and inherits it when `null` (see the backend
- * `_effective_threshold`); the Slack notification destination; and whether to add
- * this user as a GitHub assignee on the implementation PR.
+ * `_effective_threshold`); the Slack notification destination; whether to add
+ * this user as a GitHub assignee on the implementation PR; and whether that PR opens
+ * ready for review instead of draft, which also inherits the team default when `null`.
  */
 export const userAutonomyLogic = kea<userAutonomyLogicType>([
     path(['scenes', 'inbox', 'logics', 'userAutonomyLogic']),
@@ -157,6 +165,12 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
         setGithubAssignOnPullRequest: (enabled: boolean) => ({ enabled }),
         // Fires when the GitHub assignment POST settles, releasing the switch's save guard.
         githubAssignSettled: true,
+        // Whether PRs for reports suggesting this user open ready for review. Null follows the
+        // project default rather than pinning an answer, so a project that changes its mind moves
+        // this user with it.
+        setOpenPullRequestReady: (ready: boolean | null) => ({ ready }),
+        // Fires when the ready-for-review POST settles, releasing that control's save guard.
+        openPullRequestReadySettled: true,
         // Ephemeral view state: whether the workspace/channel pickers are revealed. Lets a user
         // with multiple workspaces (and nothing saved yet) open the pickers to pick one.
         setSlackPickersExpanded: (expanded: boolean) => ({ expanded }),
@@ -182,6 +196,10 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
             setGithubAssignOnPullRequest: (state, { enabled }) => ({
                 ...(state ?? { autostart_priority: null }),
                 github_assign_on_pull_request: enabled,
+            }),
+            setOpenPullRequestReady: (state, { ready }) => ({
+                ...(state ?? { autostart_priority: null }),
+                github_open_pull_request_ready: ready,
             }),
             updateSlackNotifications: (state, { updates }) => ({
                 ...(state ?? { autostart_priority: null }),
@@ -209,6 +227,14 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
             {
                 setGithubAssignOnPullRequest: () => true,
                 githubAssignSettled: () => false,
+            },
+        ],
+        // Same guard again: the control stays disabled for the whole save window.
+        openPullRequestReadyUpdating: [
+            false,
+            {
+                setOpenPullRequestReady: () => true,
+                openPullRequestReadySettled: () => false,
             },
         ],
         // Covers the POST itself, which `autonomyConfigLoading` only reflects once it resolves.
@@ -257,6 +283,24 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
                 captureInboxSettingsChanged({
                     setting: 'github_assign_on_pull_request',
                     newValue: enabled,
+                    success,
+                    scope: 'user',
+                })
+                actions.loadAutonomyConfig()
+            }
+        },
+        setOpenPullRequestReady: async ({ ready }) => {
+            let success = true
+            try {
+                await api.signalUserAutonomy.update({ github_open_pull_request_ready: ready })
+            } catch (error: any) {
+                success = false
+                lemonToast.error(error?.detail ?? error?.message ?? 'Failed to update pull request state setting')
+            } finally {
+                actions.openPullRequestReadySettled()
+                captureInboxSettingsChanged({
+                    setting: 'github_open_pull_request_ready',
+                    newValue: ready,
                     success,
                     scope: 'user',
                 })

@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures
     _flatten_report,
     _headers,
     _is_page_limit_response,
+    _parse_aso_countries,
     _to_date_str,
     appfigures_source,
     check_credentials,
@@ -466,6 +467,269 @@ class TestIterRanks:
         assert fetch.call_count == 1
 
 
+class TestParseAsoCountries:
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            (None, ("US",)),
+            ("", ("US",)),
+            ("   ", ("US",)),
+            (",,", ("US",)),
+            ("gb", ("GB",)),
+            ("US, GB ,de", ("US", "GB", "DE")),
+            # A code repeated in the form would otherwise fan out twice and seed duplicate rows.
+            ("US,us", ("US",)),
+            # Anything that isn't a two-letter code would only ever be a request Appfigures rejects.
+            ("US, United Kingdom, 1, ??", ("US",)),
+        ],
+    )
+    def test_parse(self, raw: str | None, expected: tuple[str, ...]):
+        assert _parse_aso_countries(raw) == expected
+
+
+def _aso_page(results: list[dict[str, Any]], page: int = 1, total_pages: int = 1) -> dict[str, Any]:
+    return {
+        "metadata": {"resultset": {"count": 500, "page": page, "total_pages": total_pages, "total_count": 1}},
+        "results": results,
+    }
+
+
+class TestIterAso:
+    @time_machine.travel("2024-02-15", tick=False)
+    def test_fans_out_over_products_and_countries_stamping_row_identity(self):
+        def fake_fetch(_session, url, params, _logger):
+            if url.endswith(appfigures.PRODUCTS_PATH):
+                return {"1": {"id": 1, "type": "app"}, "2": {"id": 2, "type": "app"}, "9": {"id": 9, "type": "inapp"}}
+            return _aso_page([{"keyword_id": "k1", "keyword_term": "stream tv", "position": 12}])
+
+        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch) as fetch:
+            batches = list(
+                get_rows(
+                    token="pat",
+                    endpoint="aso_keywords",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=_manager(),
+                    aso_countries="US,GB",
+                )
+            )
+
+        requested = [(c.args[2]["products"], c.args[2]["countries"]) for c in fetch.call_args_list[1:]]
+        # Two rankable products x two countries, one product and one country per request. The in-app
+        # purchase holds no keyword ranks, so it is left out.
+        assert requested == [("1", "US"), ("1", "GB"), ("2", "US"), ("2", "GB")]
+        rows = [row for batch in batches for row in batch]
+        assert [(r["date"], r["product_id"], r["country"], r["keyword_id"]) for r in rows] == [
+            ("2024-02-15", "1", "US", "k1"),
+            ("2024-02-15", "1", "GB", "k1"),
+            ("2024-02-15", "2", "US", "k1"),
+            ("2024-02-15", "2", "GB", "k1"),
+        ]
+
+    @time_machine.travel("2024-02-15", tick=False)
+    def test_request_carries_keyword_pivot_and_bounded_window(self):
+        def fake_fetch(_session, url, _params, _logger):
+            if url.endswith(appfigures.PRODUCTS_PATH):
+                return {"1": {"id": 1, "type": "app"}}
+            return _aso_page([])
+
+        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch) as fetch:
+            list(
+                get_rows(
+                    token="pat",
+                    endpoint="aso_keywords",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=_manager(),
+                )
+            )
+        params = fetch.call_args_list[1].args[2]
+        assert params["group_by"] == "keyword"
+        assert params["granularity"] == "daily"
+        # The 30-day window the deltas are computed over, sent explicitly so Appfigures doesn't pick
+        # its own undocumented range.
+        assert (params["start_date"], params["end_date"]) == ("2024-01-17", "2024-02-15")
+
+    @time_machine.travel("2024-02-15", tick=False)
+    def test_walks_pages_per_target_and_saves_state_after_each(self):
+        def fake_fetch(_session, url, params, _logger):
+            if url.endswith(appfigures.PRODUCTS_PATH):
+                return {"1": {"id": 1, "type": "app"}, "2": {"id": 2, "type": "app"}}
+            page = params["page"]
+            return _aso_page([{"keyword_id": f"k{page}", "position": page}], page=page, total_pages=2)
+
+        manager = _manager()
+        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch) as fetch:
+            batches = list(
+                get_rows(
+                    token="pat",
+                    endpoint="aso_keywords",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                    aso_countries="US",
+                )
+            )
+
+        assert [(c.args[2]["products"], c.args[2]["page"]) for c in fetch.call_args_list[1:]] == [
+            ("1", 1),
+            ("1", 2),
+            ("2", 1),
+            ("2", 2),
+        ]
+        assert len([row for batch in batches for row in batch]) == 4
+        # Saved after yielding: the next page of the current target, then the next target.
+        assert manager.save_state.call_args_list == [
+            mock.call(AppfiguresResumeConfig(aso_target="1:US", next_page=2)),
+            mock.call(AppfiguresResumeConfig(aso_target="2:US")),
+            mock.call(AppfiguresResumeConfig(aso_target="2:US", next_page=2)),
+        ]
+
+    @time_machine.travel("2024-02-15", tick=False)
+    def test_resume_skips_targets_already_walked(self):
+        def fake_fetch(_session, url, _params, _logger):
+            if url.endswith(appfigures.PRODUCTS_PATH):
+                return {str(index): {"id": index, "type": "app"} for index in (1, 2, 3)}
+            return _aso_page([])
+
+        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch) as fetch:
+            list(
+                get_rows(
+                    token="pat",
+                    endpoint="aso_keywords",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=_manager(AppfiguresResumeConfig(aso_target="2:US", next_page=3)),
+                    aso_countries="US",
+                )
+            )
+        assert [(c.args[2]["products"], c.args[2]["page"]) for c in fetch.call_args_list[1:]] == [("2", 3), ("3", 1)]
+
+    @time_machine.travel("2024-02-15", tick=False)
+    def test_resume_target_missing_from_catalog_starts_over(self):
+        def fake_fetch(_session, url, _params, _logger):
+            if url.endswith(appfigures.PRODUCTS_PATH):
+                return {"1": {"id": 1, "type": "app"}}
+            return _aso_page([])
+
+        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch) as fetch:
+            list(
+                get_rows(
+                    token="pat",
+                    endpoint="aso_keywords",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=_manager(AppfiguresResumeConfig(aso_target="404:US", next_page=7)),
+                    aso_countries="US",
+                )
+            )
+        assert [(c.args[2]["products"], c.args[2]["page"]) for c in fetch.call_args_list[1:]] == [("1", 1)]
+
+    @time_machine.travel("2024-02-15", tick=False)
+    def test_page_limit_stops_the_target_and_moves_to_the_next(self):
+        products = _response(200)
+        products.json.return_value = {"1": {"id": 1, "type": "app"}, "2": {"id": 2, "type": "app"}}
+        first_page = _response(200)
+        first_page.json.return_value = _aso_page([{"keyword_id": "k1"}], page=1, total_pages=9)
+        page_limit = _response(400, reason=_PAGE_LIMIT_REASON)
+        second_target = _response(200)
+        second_target.json.return_value = _aso_page([{"keyword_id": "k2"}])
+
+        session = mock.MagicMock()
+        session.get.side_effect = [products, first_page, page_limit, second_target]
+
+        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
+            batches = list(
+                get_rows(
+                    token="pat",
+                    endpoint="aso_keywords",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=_manager(),
+                    aso_countries="US",
+                )
+            )
+
+        assert [row["keyword_id"] for batch in batches for row in batch] == ["k1", "k2"]
+        assert session.get.call_count == 4
+
+    def test_account_with_no_rankable_products_makes_no_aso_request(self):
+        with mock.patch(f"{_MODULE}._fetch", return_value={"9": {"id": 9, "type": "inapp"}}) as fetch:
+            batches = list(
+                get_rows(
+                    token="pat",
+                    endpoint="aso_keywords",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=_manager(),
+                )
+            )
+        assert batches == []
+        assert fetch.call_count == 1
+
+
+class TestIterAsoStats:
+    @time_machine.travel("2024-02-15", tick=False)
+    def test_one_row_per_target_with_identity_and_window(self):
+        def fake_fetch(_session, url, params, _logger):
+            if url.endswith(appfigures.PRODUCTS_PATH):
+                return {"1": {"id": 1, "type": "app"}, "2": {"id": 2, "type": "app"}}
+            return {"avg_position": 21, "top_5": 1, "total_keywords": 5, "_asked": params["products"]}
+
+        manager = _manager()
+        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch) as fetch:
+            batches = list(
+                get_rows(
+                    token="pat",
+                    endpoint="aso_stats",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                    aso_countries="US",
+                )
+            )
+
+        assert [len(batch) for batch in batches] == [1, 1]
+        rows = [row for batch in batches for row in batch]
+        assert [(r["date"], r["product_id"], r["country"], r["avg_position"]) for r in rows] == [
+            ("2024-02-15", "1", "US", 21),
+            ("2024-02-15", "2", "US", 21),
+        ]
+        # /aso/stats spells its window start/end rather than start_date/end_date.
+        params = fetch.call_args_list[1].args[2]
+        assert (params["start"], params["end"]) == ("2024-01-17", "2024-02-15")
+        manager.save_state.assert_called_once_with(AppfiguresResumeConfig(aso_target="2:US"))
+
+    @time_machine.travel("2024-02-15", tick=False)
+    def test_empty_stats_body_yields_nothing(self):
+        def fake_fetch(_session, url, _params, _logger):
+            if url.endswith(appfigures.PRODUCTS_PATH):
+                return {"1": {"id": 1, "type": "app"}}
+            return {}
+
+        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch):
+            batches = list(
+                get_rows(
+                    token="pat",
+                    endpoint="aso_stats",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=_manager(),
+                )
+            )
+        assert batches == []
+
+    @time_machine.travel("2024-02-15", tick=False)
+    def test_resume_skips_targets_already_walked(self):
+        def fake_fetch(_session, url, _params, _logger):
+            if url.endswith(appfigures.PRODUCTS_PATH):
+                return {str(index): {"id": index, "type": "app"} for index in (1, 2, 3)}
+            return {"avg_position": 1}
+
+        with mock.patch(f"{_MODULE}._fetch", side_effect=fake_fetch) as fetch:
+            list(
+                get_rows(
+                    token="pat",
+                    endpoint="aso_stats",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=_manager(AppfiguresResumeConfig(aso_target="3:US")),
+                    aso_countries="US",
+                )
+            )
+        assert [c.args[2]["products"] for c in fetch.call_args_list[1:]] == ["3"]
+
+
 class TestCheckCredentials:
     @pytest.mark.parametrize("status", [200, 401, 403, 500])
     def test_returns_status_code(self, status):
@@ -490,6 +754,8 @@ class TestAppfiguresSourceResponse:
             ("sales_report", ["date"], "date"),
             ("revenue_report", ["date"], "date"),
             ("ranks", ["date", "product_id", "country", "category_id", "category_subtype"], "date"),
+            ("aso_keywords", ["date", "product_id", "country", "keyword_id"], "date"),
+            ("aso_stats", ["date", "product_id", "country"], "date"),
             # The /data lookups carry no date field, so they sync unpartitioned.
             ("stores", ["id"], None),
             ("categories", ["id"], None),

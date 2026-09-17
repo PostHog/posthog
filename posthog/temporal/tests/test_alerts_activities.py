@@ -50,13 +50,12 @@ from posthog.temporal.alerts.types import (
     PrepareAction,
     PrepareAlertActivityInputs,
     RecordFailedEvaluationActivityInputs,
-    ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
 
-from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
+from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.facade.models import Insight
 
@@ -134,31 +133,6 @@ async def _create_alert(
     return await _create()
 
 
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_retrieve_due_alerts_limits_each_schedule_run_without_starving_other_teams(
-    ateam: Team,
-) -> None:
-    max_alerts_per_run = 2
-    for _ in range(max_alerts_per_run):
-        await _create_alert(ateam, calculation_interval=AlertCalculationInterval.REAL_TIME.value)
-
-    other_team = await sync_to_async(Team.objects.create)(
-        organization_id=ateam.organization_id,
-        project_id=ateam.project_id,
-        name="Other team",
-    )
-    other_alert = await _create_alert(other_team)
-
-    alerts = await ActivityEnvironment().run(
-        retrieve_due_alerts,
-        ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=max_alerts_per_run),
-    )
-
-    assert len(alerts) == max_alerts_per_run
-    assert str(other_alert.id) in {alert.alert_id for alert in alerts}
-
-
 @pytest_asyncio.fixture
 async def alert(ateam):
     return await _create_alert(ateam)
@@ -218,6 +192,25 @@ async def _create_alert_check(
         )
 
     return await _create()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+class TestRetrieveDueAlerts:
+    @time_machine.travel("2026-09-09T12:00:00Z", tick=False)
+    async def test_records_metrics_for_due_alerts(self, ateam) -> None:
+        due_alert = await _create_alert(ateam, next_check_at=datetime(2026, 9, 9, 11, 0, tzinfo=UTC))
+        await _create_alert(ateam, next_check_at=datetime(2026, 9, 9, 13, 0, tzinfo=UTC))
+
+        with patch("posthog.temporal.alerts.activities.record_due_insight_alert_metrics") as record_metrics:
+            result = await ActivityEnvironment().run(retrieve_due_alerts)
+
+        assert [item.alert_id for item in result] == [str(due_alert.id)]
+        record_metrics.assert_called_once()
+        due_count, oldest_due_at, polled_at = record_metrics.call_args.args
+        assert due_count == 1
+        assert oldest_due_at == datetime(2026, 9, 9, 11, 0, tzinfo=UTC)
+        assert polled_at == datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
 
 
 @pytest.mark.asyncio
@@ -615,7 +608,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics"),
-            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[]),
             patch("posthog.tasks.alerts.utils.send_notifications_for_errors") as mock_errors,
         ):
@@ -639,7 +632,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
-            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
                 return_value=[_email_delivery("alice@posthog.com")],
@@ -870,7 +863,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
-            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
                 side_effect=RuntimeError("SMTP unavailable"),

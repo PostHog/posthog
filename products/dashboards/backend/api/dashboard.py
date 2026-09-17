@@ -122,7 +122,7 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.facade.api import DashboardTileBasicSerializer
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
-from products.dashboards.backend.feature_flags import dashboard_customization_enabled, dashboard_widgets_enabled
+from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
     DASHBOARD_GRID_SPACING_GAPS,
@@ -1570,10 +1570,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         team = self.context["get_team"]()
         grid_spacing = validated_data.pop("grid_spacing", None)
         layout_compaction = validated_data.pop("layout_compaction", None)
-        if grid_spacing is not None and not dashboard_customization_enabled(team=team, user=request.user):
-            raise serializers.ValidationError({"grid_spacing": "Tile density isn't available."})
-        if layout_compaction is not None and not dashboard_customization_enabled(team=team, user=request.user):
-            raise serializers.ValidationError({"layout_compaction": "Tile movement settings aren't available."})
         current_count = Dashboard.objects.filter(team_id=team_id, deleted=False).count()
         check_count_limit(
             team=team,
@@ -1845,14 +1841,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         validated_data.pop("use_template", None)  # Remove attribute if present
         grid_spacing = validated_data.pop("grid_spacing", None)
         layout_compaction = validated_data.pop("layout_compaction", None)
-        if grid_spacing is not None and not dashboard_customization_enabled(
-            team=instance.team, user=cast(User, self.context["request"].user)
-        ):
-            raise serializers.ValidationError({"grid_spacing": "Tile density isn't available."})
-        if layout_compaction is not None and not dashboard_customization_enabled(
-            team=instance.team, user=cast(User, self.context["request"].user)
-        ):
-            raise serializers.ValidationError({"layout_compaction": "Tile movement settings aren't available."})
         if grid_spacing is not None or layout_compaction is not None:
             validated_data["customization"] = {
                 **_normalize_dashboard_customization(instance.customization),
@@ -2469,6 +2457,18 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
                     "sub-folders are not included."
                 ),
             ),
+            OpenApiParameter(
+                "pinned",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Return only pinned dashboards.",
+            ),
+            OpenApiParameter(
+                "exclude_generated",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Exclude dashboards that PostHog generated.",
+            ),
         ],
     ),
     # Dashboards nest insight payloads via `tiles[].insight`, so the deprecated-`dashboards`-field
@@ -2670,6 +2670,9 @@ class DashboardsViewSet(
         # Filter out generated dashboards if requested (for list action only)
         if self.action == "list" and self.request.query_params.get("exclude_generated") == "true":
             queryset = queryset.exclude(name__startswith=GENERATED_DASHBOARD_PREFIX)
+
+        if self.action == "list" and self.request.query_params.get("pinned") == "true":
+            queryset = queryset.filter(pinned=True).order_by(F("last_viewed_at").desc(nulls_last=True), "name")
 
         # Allow filtering by creation_mode query param
         creation_mode = self.request.query_params.get("creation_mode")

@@ -29,6 +29,7 @@ from enum import Enum
 
 
 class CeleryQueue(Enum):
+    AI_RESEARCH_PRIVACY = "ai_research_privacy"
     DEFAULT = "celery"
     STATS = "stats"
     EMAIL = "email"

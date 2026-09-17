@@ -12,11 +12,13 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.database.schema.information_schema import (
+    DeniedTableMatcher,
     _bound_table_names,
     _certification_key,
     _classify_table,
     _pushdown_table_filter,
     _warehouse_metadata,
+    references_denied_table,
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -53,6 +55,31 @@ def _in(field: str, values: list[str]) -> ast.CompareOperation:
         left=_field(field),
         right=ast.Tuple(exprs=[ast.Constant(value=v) for v in values]),
     )
+
+
+class TestDeniedTableMatcher(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("mixed_case", ["Orders"], ["oRDERS"], True),
+            ("qualified_reference", ["Orders"], ["warehouse.ORDERS"], True),
+            ("qualified_denial", ["Warehouse.Orders"], ["ORDERS"], True),
+            ("shared_leaf", ["warehouse.orders"], ["other.orders"], True),
+            ("later_reference", ["orders"], ["customers", "orders"], True),
+            ("distinct_leaf", ["warehouse.orders"], ["warehouse.customers"], False),
+            ("partial_name", ["orders"], ["archived_orders"], False),
+            ("empty_denial", [], ["orders"], False),
+            ("empty_references", ["orders"], [], False),
+            ("missing_references", ["orders"], None, False),
+        ]
+    )
+    def test_repeated_matches_preserve_existing_denial_rules(
+        self, _name: str, denied: list[str], references: list[str] | None, expected: bool
+    ) -> None:
+        matcher = DeniedTableMatcher(iter(denied))
+
+        assert matcher.matches(references) is expected
+        assert matcher.matches(references) is expected
+        assert references_denied_table(references, set(denied)) is expected
 
 
 class TestInformationSchemaPushdown(APIBaseTest):

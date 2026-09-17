@@ -1,0 +1,25 @@
+from argparse import ArgumentParser
+from typing import Any
+
+from django.core.management.base import BaseCommand, CommandError
+
+from products.ai_training.backend.config import key_table_name
+from products.ai_training.backend.privacy.store import KEY_READ_LEASE_SECONDS, AITrainingPrivacyStore
+
+
+class Command(BaseCommand):
+    help = "Permanently remove the session and image keys of an ML session month."
+
+    def add_arguments(self, parser: ArgumentParser) -> None:
+        parser.add_argument("session_month", help="UTC session start month, in YYYY-MM format")
+
+    def handle(self, *args: Any, **options: Any) -> None:
+        if not key_table_name():
+            raise CommandError("AI_RESEARCH_REPLAY_KEY_TABLE is not configured")
+        try:
+            count = AITrainingPrivacyStore.from_settings().delete_month(options["session_month"])
+        except ValueError as error:
+            raise CommandError(str(error)) from error
+        self.stdout.write(
+            f"Removed {count} indexed keys. Existing read leases expire within {KEY_READ_LEASE_SECONDS} seconds."
+        )

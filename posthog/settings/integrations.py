@@ -47,6 +47,9 @@ YOUTUBE_ANALYTICS_APP_CLIENT_SECRET = get_from_env("YOUTUBE_ANALYTICS_APP_CLIENT
 
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", "")
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", "")
+# HMAC keys, newest first, for the email and `sub` fingerprints in ee/api/google_oauth_diagnostics.py.
+# Provision a unique value per environment. When empty, those fingerprints are left out.
+GOOGLE_OAUTH_DIAGNOSTICS_FINGERPRINT_KEYS = get_list(get_from_env("GOOGLE_OAUTH_DIAGNOSTICS_FINGERPRINT_KEYS", ""))
 
 LINEAR_APP_CLIENT_ID = get_from_env("LINEAR_APP_CLIENT_ID", "")
 LINEAR_APP_CLIENT_SECRET = get_from_env("LINEAR_APP_CLIENT_SECRET", "")
@@ -197,10 +200,35 @@ BROWSERLESS_EGRESS_HOURLY_BUDGET = get_from_env("BROWSERLESS_EGRESS_HOURLY_BUDGE
 
 HEATMAP_BROWSERLESS_URL = get_from_env("HEATMAP_BROWSERLESS_URL", "")
 HEATMAP_BROWSERLESS_TOKEN = get_from_env("HEATMAP_BROWSERLESS_TOKEN", "")
+# Enable only after verifying that the renderer and its proxies do not log cookie values.
+HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED = get_from_env(
+    "HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED", False, type_cast=str_to_bool
+)
 # Browserless /screenshot session cap (ms); must stay under the plan's max-timeout.
 HEATMAP_BROWSERLESS_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_TIMEOUT_MS", 180000, type_cast=int)
 HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS", 30000, type_cast=int)
 HEATMAP_BROWSERLESS_BLOCK_ADS = get_from_env("HEATMAP_BROWSERLESS_BLOCK_ADS", False, type_cast=str_to_bool)
+
+# Lighthouse audits run on the same Browserless fleet as the heatmap screenshots above, over the
+# `/performance` REST API rather than `/screenshot`. They get their own settings so one can be
+# repointed or switched off without touching the other, and default to the heatmap fleet because
+# that is the only Browserless we provision today. Which pages may be audited, and by whom, is
+# policy rather than connection config and lives in `posthog/settings/signals.py`.
+LIGHTHOUSE_BROWSERLESS_URL = get_from_env("LIGHTHOUSE_BROWSERLESS_URL", HEATMAP_BROWSERLESS_URL)
+LIGHTHOUSE_BROWSERLESS_TOKEN = get_from_env("LIGHTHOUSE_BROWSERLESS_TOKEN", HEATMAP_BROWSERLESS_TOKEN)
+# Unlike the heatmap render, this one is awaited inside a request handler, so the cap has to fit
+# inside the app server's own request timeout rather than the Browserless plan's max — a longer
+# budget just means the proxy hangs up first, leaving the run charged for a report it never sees
+# and a browser session still running. A throttled desktop load of a heavy marketing page measures
+# ~17s, so 60s is generous; raise it only alongside the ingress timeout.
+LIGHTHOUSE_BROWSERLESS_TIMEOUT_MS = get_from_env("LIGHTHOUSE_BROWSERLESS_TIMEOUT_MS", 60000, type_cast=int)
+LIGHTHOUSE_BROWSERLESS_CONNECT_TIMEOUT_MS = get_from_env(
+    "LIGHTHOUSE_BROWSERLESS_CONNECT_TIMEOUT_MS", 10000, type_cast=int
+)
+# A Lighthouse report carries base64 screenshot and filmstrip blobs; the one measured against
+# posthog.com was 1.8 MB. Reject an implausibly large body before it is parsed into worker memory,
+# mirroring `HEATMAP_SCREENSHOT_MAX_BYTES`.
+LIGHTHOUSE_REPORT_MAX_BYTES = get_from_env("LIGHTHOUSE_REPORT_MAX_BYTES", 32 * 1024 * 1024, type_cast=int)
 
 # PostHog connect — lets a user connect (via the target's OAuth consent flow) to another PostHog
 # project to drive its APIs, e.g. dispatching a Task that must run in that project (including one in

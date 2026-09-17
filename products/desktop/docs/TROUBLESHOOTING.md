@@ -1,5 +1,24 @@
 # Troubleshooting
 
+## Conversation is too large to continue
+
+A request can exceed the size limit when a conversation contains large images or tool output.
+The app keeps the session connected and reports the size error instead of restarting the agent and sending the same request again.
+Restarting the session does not reduce the request size.
+
+Start a new task with a short text summary of the work.
+Do not copy the old images or full tool output into the new task.
+
+## Completion sounds when resuming a task
+
+Resuming an idle sandbox does not trigger a completion sound or notification.
+For Pi sessions, completion notifications require an active turn and stay silent during restart setup.
+After a cloud restart, the server must confirm the resent message before a completion can notify.
+Returning to the task while the message is pending does not trigger a completion notification.
+Delayed completion events from restart setup stay silent while the message is pending.
+If you stop a pending message, a successful cancellation clears the running state even if the message never appears in the conversation.
+A completed reply or a request for input still follows your notification settings.
+
 ## Codex asks for the same permissions again
 
 Codex Auto keeps approvals for actions outside its allowed scope.
@@ -40,6 +59,12 @@ Read the fields in this order:
 The line carries no titles or message text on purpose, so identify the notification from `reason` and `target` rather than from what it said.
 
 A sound with no notification the user was waiting on shows up as a `reason`/`trigger` pair that does not match what they were doing. Take the task id from `target` and the `context.taskRunId` from the line and follow that run.
+
+## A cloud task asks for GitHub access
+
+Cloud tasks and investigations use GitHub to read the selected repository and keep later background runs current. Connect GitHub from the prompt in the task.
+
+If your organization needs an owner to approve the PostHog app, copy the access request from the prompt and send it to the owner. When the same repository is registered as a local folder, you can run the investigation against that local checkout. The result is a point-in-time view and can become stale after the run.
 
 ## Black screen during development
 

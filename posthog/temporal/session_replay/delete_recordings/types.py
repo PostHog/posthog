@@ -114,6 +114,10 @@ class LoadRecordingError(Exception):
     pass
 
 
+class RecordingApiConfigurationError(RuntimeError):
+    """The worker cannot reach recording-api because a setting is missing. Retries cannot fix it."""
+
+
 class PurgeDeletedMetadataInput(BaseModel):
     """Input for the nightly metadata purge workflow."""
 

@@ -9,14 +9,17 @@ from unittest.mock import MagicMock, patch
 
 from django.db import OperationalError
 from django.db.models import QuerySet
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from posthog_owners.schema import TeamEntry
 from slack_sdk.errors import SlackApiError
+from structlog.testing import capture_logs
 
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
+from posthog.team_notifications.slack import SlackChannel
 
 from products.stamphog.backend.facade.enums import AudienceReason, ChannelResolutionSource, DigestRunStatus
 from products.stamphog.backend.logic.audiences import REPO_AUDIENCE_PREFIX
@@ -24,7 +27,6 @@ from products.stamphog.backend.logic.channel_resolution import (
     Destination,
     RoutingContext,
     RoutingUnavailable,
-    SlackChannel,
     _candidate_repo_configs,
 )
 from products.stamphog.backend.logic.digest import (
@@ -412,19 +414,23 @@ def test_a_repo_with_no_registry_inherits_one(team) -> None:
 
 
 @pytest.mark.parametrize(
-    "context_kwargs,reason",
+    "context_kwargs,logged",
     [
-        ({"registry_by_repo": {REPO: {AUDIENCE: TeamEntry(notifications=False)}}}, "silenced_by_config"),
+        (
+            {"registry_by_repo": {REPO: {AUDIENCE: TeamEntry(notifications=False)}}},
+            ("stamphog_digest_opted_out", "info"),
+        ),
         # A team that silences this digest alone keeps its channel for every other bot.
         (
             {"registry_by_repo": {REPO: {AUDIENCE: TeamEntry(slack="#team-apm", notifications={"stamphog": False})}}},
-            "silenced_by_config",
+            ("stamphog_digest_opted_out", "info"),
         ),
-        ({"channels_by_name": {}}, "no_channel_of_that_name"),
+        ({"channels_by_name": {}}, ("stamphog_digest_no_destination", "warning")),
     ],
+    ids=["silenced_everywhere", "silenced_for_this_digest_only", "no_channel_of_that_name"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_unroutable_merges_stay_unclaimed(team, context_kwargs: dict, reason: str) -> None:
+def test_unroutable_merges_stay_unclaimed(team, context_kwargs: dict, logged: tuple[str, str]) -> None:
     # Claiming marks a PR as handled forever, so a merge that routes nowhere must not be claimed.
     # A team that silences its digest today and declares a channel next week has to receive the
     # merges in between, and a channel created after the declaration has to pick up the backlog.
@@ -433,10 +439,17 @@ def test_unroutable_merges_stay_unclaimed(team, context_kwargs: dict, reason: st
     with (
         patch("products.stamphog.backend.logic.digest_runs.post_digest_lead") as post,
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
+        capture_logs() as logs,
     ):
         _run_digests(team.id, _routing_context(**context_kwargs))
 
     assert not post.called
+    routing_events = [
+        (entry["event"], entry["log_level"])
+        for entry in logs
+        if entry["event"] in {"stamphog_digest_opted_out", "stamphog_digest_no_destination"}
+    ]
+    assert routing_events == [logged]
     with team_scope(team.id):
         assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 2
         assert not DigestRun.objects.exists()
@@ -730,7 +743,7 @@ def test_the_headline_call_never_sees_a_merge_the_thread_left_out() -> None:
     )
     client = _recording_llm_client([selection, json.dumps({"headline": "The kept one shipped."})])
 
-    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client):
+    with patch("products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client", return_value=client):
         summary = summarize_merged_prs(prs)
 
     assert [p.pr_number for p in summary.prs] == [1]
@@ -754,7 +767,7 @@ def test_a_headline_failure_keeps_the_judged_digest() -> None:
 
     client = _recording_llm_client(answers)
 
-    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client):
+    with patch("products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client", return_value=client):
         summary = summarize_merged_prs(prs)
 
     assert summary.judged is True
@@ -771,24 +784,25 @@ def test_a_headline_failure_keeps_the_judged_digest() -> None:
 def test_the_digest_call_names_its_product_team_and_source() -> None:
     # The Go gateway serves Claude only on the Messages shape and reads labels from the client's
     # headers, so the builder carries the product, team and source tag and every call sets the
-    # output ceiling the shape requires. metadata.user_id is for the Python-gateway fallback.
+    # output ceiling the shape requires.
     prs = [_pr_stub("o/r", 1, "Kept", "https://github.com/o/r/pull/1")]
     client = _recording_llm_client([json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "It ships."}]})])
 
-    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client) as build:
+    with patch(
+        "products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client", return_value=client
+    ) as build:
         summary = summarize_merged_prs(prs)
 
     team_id = prs[0].team_id
     assert summary.judged is True
     build.assert_called_once_with(
-        "stamphog",
         ai_product="aio_stamphog",
         team_id=team_id,
         properties={"source_product": "stamphog_digest"},
         distinct_id=f"team-{team_id}",
     )
     (selection_call,) = client.calls[:1]
-    assert selection_call["model"] == "claude-haiku-4-5"
+    assert selection_call["model"] == "claude-sonnet-5"
     assert selection_call["max_tokens"] > 0
     assert selection_call["metadata"] == {"user_id": f"team-{team_id}"}
     assert "extra_headers" not in selection_call and "user" not in selection_call
@@ -828,7 +842,7 @@ def test_a_merge_that_only_grazed_the_team_never_reaches_the_model(
     )
     client = _recording_llm_client([selection, json.dumps({"headline": "Something shipped."})])
 
-    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client):
+    with patch("products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client", return_value=client):
         summary = summarize_merged_prs([grazed, owned], audiences)
 
     assert ("Swept in" in client.prompts[0]) is not dropped
@@ -839,14 +853,14 @@ def test_a_merge_that_only_grazed_the_team_never_reaches_the_model(
 
 
 @pytest.mark.parametrize(
-    "audience,claim,kept",
+    "audience,claim,kept,headline_reads_title",
     [
-        (_audience(3), {"scope": "whole_pr"}, False),
-        (_audience(3), {}, False),
-        (_audience(3), {"scope": 42}, False),
-        (_audience(3), {"scope": SCOPE_YOUR_FILES}, True),
-        (_audience(8), {}, True),
-        (_audience(0, AudienceReason.REPO_DECLARED), {}, True),
+        (_audience(3), {"scope": "whole_pr"}, False, False),
+        (_audience(3), {}, False, False),
+        (_audience(3), {"scope": 42}, False, False),
+        (_audience(3), {"scope": SCOPE_YOUR_FILES}, True, False),
+        (_audience(8), {}, True, True),
+        (_audience(0, AudienceReason.REPO_DECLARED), {}, True, True),
     ],
     ids=[
         "a_line_about_the_whole_pr_is_not_this_teams_news",
@@ -858,7 +872,7 @@ def test_a_merge_that_only_grazed_the_team_never_reaches_the_model(
     ],
 )
 def test_a_line_about_another_teams_half_of_a_merge_is_dropped(
-    audience: PullRequestAudience, claim: dict[str, Any], kept: bool
+    audience: PullRequestAudience, claim: dict[str, Any], kept: bool, headline_reads_title: bool
 ) -> None:
     # The model names the perspective in its answer, so the code can check it here.
     #
@@ -879,12 +893,17 @@ def test_a_line_about_another_teams_half_of_a_merge_is_dropped(
     )
     client = _recording_llm_client([selection, json.dumps({"headline": "Something shipped."})])
 
-    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client):
+    with patch("products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client", return_value=client):
         summary = summarize_merged_prs([partly, ours], [audience, _audience(2)])
 
     ours_line = (2, "Our own area changed.")
     expected = [(1, "The other team's feature ships."), ours_line] if kept else [ours_line]
     assert [(pr.pr_number, pr.summary) for pr in summary.prs] == expected
+    # The title describes the whole pull request. A headline shown it for a merge the team owns only
+    # part of wrote about the other team's half while the team's own line was about its files.
+    headline_prompt = client.prompts[1]
+    assert ("Adds a facade the other product calls" in headline_prompt) is headline_reads_title
+    assert "Our own area changed." in headline_prompt
 
 
 _WHOLE_CHANGE = "Uploads pause when a workspace spends the daily quota."
@@ -973,7 +992,7 @@ def test_a_merge_the_reviewer_wrote_this_team_no_clause_for_never_reaches_the_mo
     )
     client = _recording_llm_client([selection, json.dumps({"headline": "Something shipped."})])
 
-    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client):
+    with patch("products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client", return_value=client):
         summary = summarize_merged_prs([unaddressed, ours], [_audience(3), _audience(2)])
 
     assert "Somebody else's half" not in client.prompts[0]
@@ -1013,7 +1032,7 @@ def test_the_headline_prompt_asks_for_a_paragraph_every_time() -> None:
         )
     ]
 
-    prompt = _build_headline_prompt(picked, {}, AUDIENCE)
+    prompt = _build_headline_prompt(picked, {}, AUDIENCE, frozenset())
 
     assert "empty string" not in prompt
     assert "do not restate its line" in prompt
@@ -1027,7 +1046,8 @@ def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() ->
     prs = [_pr_stub("o/r", n, f"Change {n}", f"https://github.com/o/r/pull/{n}") for n in range(MAX_FALLBACK_PRS + 3)]
 
     with patch(
-        "products.stamphog.backend.logic.digest.build_anthropic_client", side_effect=RuntimeError("gateway down")
+        "products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client",
+        side_effect=RuntimeError("gateway down"),
     ):
         summary = summarize_merged_prs(prs)
 
@@ -1035,6 +1055,23 @@ def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() ->
     assert len(summary.prs) == MAX_FALLBACK_PRS
     assert summary.considered == len(prs)
     assert summary.headline == ""
+
+
+@override_settings(
+    AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="", LLM_GATEWAY_URL="http://llm-gateway.test", LLM_GATEWAY_API_KEY="phx_test"
+)
+def test_without_the_ai_gateway_the_digest_never_reaches_the_python_gateway() -> None:
+    # The legacy gateway has no stamphog route, so a process without the Go pair posts the plain list
+    # even when a Python-gateway client would have answered.
+    prs = [_pr_stub("o/r", 1, "Kept", "https://github.com/o/r/pull/1")]
+    client = _recording_llm_client([json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "It ships."}]})])
+
+    with patch("posthog.llm.gateway_client.get_anthropic_gateway_client", return_value=client) as python_gateway:
+        summary = summarize_merged_prs(prs)
+
+    assert summary.judged is False
+    python_gateway.assert_not_called()
+    assert client.calls == []
 
 
 def test_same_pr_number_across_repos_both_survive_summarization() -> None:
@@ -1056,7 +1093,7 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
     )
 
     with patch(
-        "products.stamphog.backend.logic.digest.build_anthropic_client",
+        "products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client",
         return_value=_recording_llm_client([selection, json.dumps({"headline": "Both repos changed."})]),
     ):
         summary = summarize_merged_prs(prs)
@@ -1182,7 +1219,8 @@ def test_the_headline_reaches_the_channel_as_one_link_free_paragraph(raw_headlin
         json.dumps({"headline": raw_headline}),
     ]
     with patch(
-        "products.stamphog.backend.logic.digest.build_anthropic_client", return_value=_recording_llm_client(contents)
+        "products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client",
+        return_value=_recording_llm_client(contents),
     ):
         summary = summarize_merged_prs([_pr_stub("o/r", 1, "Ship it", "https://example.com/1")])
     assert summary.headline == expected

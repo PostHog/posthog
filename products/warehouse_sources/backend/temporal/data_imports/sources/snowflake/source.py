@@ -5,19 +5,17 @@ from snowflake.connector.errors import DatabaseError, ForbiddenError, HttpError,
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+
+from products.data_warehouse.backend.facade.api import reconcile_snowflake_schemas
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
-from posthog.exceptions_capture import capture_exception
-
-from products.data_warehouse.backend.facade.api import reconcile_snowflake_schemas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
@@ -113,7 +111,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SNOWFLAKE,
+            name=ExternalDataSourceType.SNOWFLAKE,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["sql"],
             caption="Enter your Snowflake credentials to automatically pull your Snowflake data into the PostHog Data warehouse.",
@@ -374,6 +372,14 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # so Temporal-level retries will eventually succeed. The attempt count is volatile, so we
             # match the stable prefix.
             "Could not connect to Snowflake backend after",
+            # requests (vendored by the connector) raises ChunkedEncodingError when the peer resets
+            # the TCP connection (ECONNRESET) while streaming a query result's chunked HTTP response
+            # body. This happens after the connector's own request-retry wrapper has already handed
+            # back the response object, so it isn't covered by that retry budget. A fresh Temporal-level
+            # retry opens a new connection and re-executes the query from scratch, which recovers
+            # cleanly, so this is a self-recovering network blip rather than a bug. The errno and OS-
+            # specific wrapping vary, so we match the stable requests-library wrapper phrase.
+            "Connection broken: ConnectionResetError",
         }
 
     def reconcile_schema_metadata(

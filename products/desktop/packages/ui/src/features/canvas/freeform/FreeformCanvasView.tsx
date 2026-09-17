@@ -85,6 +85,7 @@ import {
 import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { useSessionForTask } from "@posthog/ui/features/sessions/useSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
@@ -865,209 +866,206 @@ export function FreeformCanvasView({
         overflow="hidden"
       >
         {showToolbar && (
-          <Flex
-            align="center"
-            justify="between"
-            className="h-10 shrink-0 items-center border-b bg-chrome px-3"
-          >
-            <Flex align="center" gap="1">
-              {interactive && (
-                <>
-                  <Button
-                    size="icon"
-                    variant="default"
-                    aria-label="Undo"
-                    disabled={!canUndo}
-                    onClick={onUndo}
-                  >
-                    <ArrowUUpLeftIcon size={16} />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="default"
-                    aria-label="Redo"
-                    disabled={!canRedo}
-                    onClick={onRedo}
-                  >
-                    <ArrowUUpRightIcon size={16} />
-                  </Button>
-                  {browsingDraft ? (
-                    <Badge variant="warning" className="ml-1">
-                      Draft preview
-                    </Badge>
-                  ) : (
-                    versions.length > 0 && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <Button
-                              size="sm"
-                              variant="default"
-                              className="ml-1"
-                              aria-label="Version history"
-                            />
-                          }
+          <ChromeBar
+            inset="even"
+            className="bg-chrome"
+            actions={
+              <>
+                <CanvasBuildStatus
+                  dashboardId={dashboardId}
+                  lifecycle={lifecycle}
+                  onAskAgentToFix={interactive ? prefillComposer : undefined}
+                />
+                {interactive &&
+                  (isGenerating && effectiveTaskId ? (
+                    <>
+                      <Spinner size="md" className="text-accent-9" />
+                      <Text size="1" className="text-gray-10">
+                        Generating
+                      </Text>
+                      <RadixButton size="1" variant="soft" asChild>
+                        <Link
+                          to="/spaces/$channelId/tasks/$taskId"
+                          params={{ channelId, taskId: effectiveTaskId }}
                         >
-                          v{versions.length - currentIndex}/{versions.length}
-                          {!browsing && " · Live"}
-                          <CaretDownIcon size={12} />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" side="bottom">
-                          {versions.map((version, index) => (
-                            <DropdownMenuItem
-                              key={version.id}
+                          View task
+                        </Link>
+                      </RadixButton>
+                    </>
+                  ) : (
+                    runtimeError && (
+                      <>
+                        <TooltipProvider delay={0}>
+                          <QuillTooltip>
+                            <TooltipTrigger
                               render={
-                                <ItemMenuItem size="xs" className="w-full" />
+                                <div className="flex items-center gap-1 text-red-11">
+                                  <WarningIcon size={14} />
+                                  <Text size="1">Runtime error</Text>
+                                </div>
                               }
-                              onClick={() =>
-                                setBrowseVersion(
-                                  threadId,
-                                  version.id === headVersionId
-                                    ? null
-                                    : version.id,
-                                )
-                              }
-                            >
-                              <ItemContent variant="menuItem">
-                                <ItemTitle>
-                                  v{versions.length - index}
-                                  {version.id === headVersionId && " · Live"}
-                                </ItemTitle>
-                                <ItemDescription className="leading-none">
-                                  {describeCanvasVersion(version)}
-                                </ItemDescription>
-                              </ItemContent>
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                            />
+                            <TooltipContent>
+                              <span className="block max-w-sm whitespace-pre-wrap break-words">
+                                {runtimeError}
+                              </span>
+                            </TooltipContent>
+                          </QuillTooltip>
+                        </TooltipProvider>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={askAgentToFix}
+                        >
+                          Ask agent to fix
+                        </Button>
+                      </>
                     )
+                  ))}
+                {interactive &&
+                  showPanel &&
+                  collapsed &&
+                  !generatingPanelOpen && (
+                    <Tooltip content={chatTaskId ? "Show chat" : "Edit canvas"}>
+                      <Button
+                        size="icon"
+                        variant="default"
+                        aria-label="Show panel"
+                        onClick={() => setCollapsed(false)}
+                      >
+                        <SidebarSimpleIcon size={16} />
+                      </Button>
+                    </Tooltip>
                   )}
-                  {browsing && !browsingDraft && (
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      className="ml-1"
-                      disabled={isReverting}
-                      onClick={() => void onRevert()}
-                    >
-                      {isReverting ? "Reverting…" : "Revert to this version"}
-                    </Button>
-                  )}
-                  {browsingDraft && (
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      className="ml-1"
-                      disabled={isPromoting}
-                      onClick={() => void onPromote()}
-                    >
-                      {isPromoting ? "Publishing…" : "Publish draft"}
-                    </Button>
-                  )}
-                  {drafts.length > 0 && (
+              </>
+            }
+          >
+            {interactive && (
+              <>
+                <Button
+                  size="icon"
+                  variant="default"
+                  aria-label="Undo"
+                  disabled={!canUndo}
+                  onClick={onUndo}
+                >
+                  <ArrowUUpLeftIcon size={16} />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="default"
+                  aria-label="Redo"
+                  disabled={!canRedo}
+                  onClick={onRedo}
+                >
+                  <ArrowUUpRightIcon size={16} />
+                </Button>
+                {browsingDraft ? (
+                  <Badge variant="warning" className="ml-1">
+                    Draft preview
+                  </Badge>
+                ) : (
+                  versions.length > 0 && (
                     <DropdownMenu>
                       <DropdownMenuTrigger
                         render={
-                          <Button size="sm" variant="default" className="ml-1">
-                            Drafts ({drafts.length})
-                            <CaretDownIcon size={12} />
-                          </Button>
+                          <Button
+                            size="sm"
+                            variant="default"
+                            className="ml-1"
+                            aria-label="Version history"
+                          />
                         }
-                      />
+                      >
+                        v{versions.length - currentIndex}/{versions.length}
+                        {!browsing && " · Live"}
+                        <CaretDownIcon size={12} />
+                      </DropdownMenuTrigger>
                       <DropdownMenuContent align="start" side="bottom">
-                        {drafts.map((draft) => (
+                        {versions.map((version, index) => (
                           <DropdownMenuItem
-                            key={draft.versionId}
+                            key={version.id}
+                            render={
+                              <ItemMenuItem size="xs" className="w-full" />
+                            }
                             onClick={() =>
-                              setBrowseVersion(threadId, draft.versionId)
+                              setBrowseVersion(
+                                threadId,
+                                version.id === headVersionId
+                                  ? null
+                                  : version.id,
+                              )
                             }
                           >
-                            <span className="mr-2 truncate">
-                              {draft.prompt || "Untitled draft"}
-                            </span>
-                            <Badge
-                              variant={draftBadgeVariant(draft.buildStatus)}
-                            >
-                              {draft.buildStatus ?? "pending"}
-                            </Badge>
+                            <ItemContent variant="menuItem">
+                              <ItemTitle>
+                                v{versions.length - index}
+                                {version.id === headVersionId && " · Live"}
+                              </ItemTitle>
+                              <ItemDescription className="leading-none">
+                                {describeCanvasVersion(version)}
+                              </ItemDescription>
+                            </ItemContent>
                           </DropdownMenuItem>
                         ))}
                       </DropdownMenuContent>
                     </DropdownMenu>
-                  )}
-                </>
-              )}
-            </Flex>
-            <Flex align="center" gap="2">
-              <CanvasBuildStatus
-                dashboardId={dashboardId}
-                lifecycle={lifecycle}
-                onAskAgentToFix={interactive ? prefillComposer : undefined}
-              />
-              {interactive &&
-                (isGenerating && effectiveTaskId ? (
-                  <>
-                    <Spinner size="md" className="text-accent-9" />
-                    <Text size="1" className="text-gray-10">
-                      Generating
-                    </Text>
-                    <RadixButton size="1" variant="soft" asChild>
-                      <Link
-                        to="/spaces/$channelId/tasks/$taskId"
-                        params={{ channelId, taskId: effectiveTaskId }}
-                      >
-                        View task
-                      </Link>
-                    </RadixButton>
-                  </>
-                ) : (
-                  runtimeError && (
-                    <>
-                      <TooltipProvider delay={0}>
-                        <QuillTooltip>
-                          <TooltipTrigger
-                            render={
-                              <div className="flex items-center gap-1 text-red-11">
-                                <WarningIcon size={14} />
-                                <Text size="1">Runtime error</Text>
-                              </div>
-                            }
-                          />
-                          <TooltipContent>
-                            <span className="block max-w-sm whitespace-pre-wrap break-words">
-                              {runtimeError}
-                            </span>
-                          </TooltipContent>
-                        </QuillTooltip>
-                      </TooltipProvider>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={askAgentToFix}
-                      >
-                        Ask agent to fix
-                      </Button>
-                    </>
                   )
-                ))}
-              {interactive &&
-                showPanel &&
-                collapsed &&
-                !generatingPanelOpen && (
-                  <Tooltip content={chatTaskId ? "Show chat" : "Edit canvas"}>
-                    <Button
-                      size="icon"
-                      variant="default"
-                      aria-label="Show panel"
-                      onClick={() => setCollapsed(false)}
-                    >
-                      <SidebarSimpleIcon size={16} />
-                    </Button>
-                  </Tooltip>
                 )}
-            </Flex>
-          </Flex>
+                {browsing && !browsingDraft && (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    className="ml-1"
+                    disabled={isReverting}
+                    onClick={() => void onRevert()}
+                  >
+                    {isReverting ? "Reverting…" : "Revert to this version"}
+                  </Button>
+                )}
+                {browsingDraft && (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    className="ml-1"
+                    disabled={isPromoting}
+                    onClick={() => void onPromote()}
+                  >
+                    {isPromoting ? "Publishing…" : "Publish draft"}
+                  </Button>
+                )}
+                {drafts.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button size="sm" variant="default" className="ml-1">
+                          Drafts ({drafts.length})
+                          <CaretDownIcon size={12} />
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="start" side="bottom">
+                      {drafts.map((draft) => (
+                        <DropdownMenuItem
+                          key={draft.versionId}
+                          onClick={() =>
+                            setBrowseVersion(threadId, draft.versionId)
+                          }
+                        >
+                          <span className="mr-2 truncate">
+                            {draft.prompt || "Untitled draft"}
+                          </span>
+                          <Badge variant={draftBadgeVariant(draft.buildStatus)}>
+                            {draft.buildStatus ?? "pending"}
+                          </Badge>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </>
+            )}
+          </ChromeBar>
         )}
 
         <Box position="relative" className="min-h-0 flex-1">

@@ -1,8 +1,7 @@
 import { useValues } from 'kea'
 
-import { Link } from '@posthog/lemon-ui'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 
-import { DataWarehouseTab } from 'scenes/data-warehouse/dataWarehouseSceneLogic'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 import { urls } from 'scenes/urls'
 
@@ -20,14 +19,14 @@ function GateNotice(): JSX.Element | null {
     }
 
     return (
-        <p className="mb-0 text-secondary text-sm">
+        <LemonBanner type="info">
             {gateConfig.gate_materialization_on_checks
                 ? 'This project blocks materialization on failing error-severity checks.'
                 : 'This project materializes this view even when an error-severity check fails.'}{' '}
-            <Link to={urls.dataOps(DataWarehouseTab.DATA_QUALITY)} data-attr="node-detail-tests-gate-settings">
+            <Link to={urls.settings('environment-data-quality')} data-attr="node-detail-tests-gate-settings">
                 Change this in data quality settings
             </Link>
-        </p>
+        </LemonBanner>
     )
 }
 
@@ -41,14 +40,14 @@ export function NodeDetailTests({ id, subjectId }: { id: string; subjectId: stri
     }
 
     return (
-        <div className="flex flex-col gap-2">
-            {savedQuery?.is_materialized && <GateNotice />}
+        <div className="flex flex-col gap-4">
             <DataQualityChecksPanel
                 subjectType="view"
                 subjectId={subjectId}
                 columns={savedQuery?.columns ?? []}
                 dataLastSyncedAt={savedQuery?.is_materialized ? lastSuccessfulSyncAt : undefined}
                 hideTitle
+                notice={savedQuery?.is_materialized ? <GateNotice /> : undefined}
             />
         </div>
     )

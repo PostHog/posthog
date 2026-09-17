@@ -3,7 +3,6 @@ import posthog from 'posthog-js'
 import { IconFlag, IconHeart, IconHeartFilled } from '@posthog/icons'
 
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
-import { TagSelect } from 'lib/components/TagSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -12,6 +11,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
+
+import { SavedInsightsTagSelect } from './SavedInsightsTagSelect'
 
 export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites' | 'featureFlags'
 const ALL_QUICK_FILTERS: QuickFilterKind[] = ['insightType', 'tags', 'createdBy', 'favorites', 'featureFlags']
@@ -59,24 +60,14 @@ export function SavedInsightsFilters({
                         />
                     )}
                     {quickFilterSet.has('tags') && (
-                        <TagSelect
+                        <SavedInsightsTagSelect
                             value={tags || []}
+                            borderless={borderless}
                             onChange={(tags) => {
                                 setFilters({ tags: tags.length > 0 ? tags : [] })
                                 posthog.capture('saved insights filtered', { filter_type: 'tags', value: tags })
                             }}
-                        >
-                            {(selectedTags) => (
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    active={selectedTags.length > 0}
-                                    status={borderless && selectedTags.length === 0 ? 'alt' : 'default'}
-                                >
-                                    {selectedTags.length > 0 ? `Tags (${selectedTags.length})` : 'Tags'}
-                                </LemonButton>
-                            )}
-                        </TagSelect>
+                        />
                     )}
                     {quickFilterSet.has('createdBy') && (
                         <MemberSelectMultiplePopover
