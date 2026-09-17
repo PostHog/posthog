@@ -3469,7 +3469,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run resumed in cloud"),
-            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Run already active"),
+            400: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description=(
+                    "Run is already active, is not a cloud run, belongs to a previous task owner, "
+                    "has an unsupported origin, or needs GitHub authorization"
+                ),
+            ),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
@@ -3483,7 +3489,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
         },
         summary="Resume task run in cloud",
-        description="Resume an existing task run in a cloud sandbox. Terminates any existing workflow and starts a new one.",
+        description="Queue a restart of an existing task run in a cloud sandbox. The dispatcher terminates any existing workflow and starts a new one.",
     )
     @action(
         detail=True,

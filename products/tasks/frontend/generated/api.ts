@@ -2221,7 +2221,7 @@ export const getTasksRunsResumeInCloudCreateUrl = (projectId: string, taskId: st
 }
 
 /**
- * Resume an existing task run in a cloud sandbox. Terminates any existing workflow and starts a new one.
+ * Queue a restart of an existing task run in a cloud sandbox. The dispatcher terminates any existing workflow and starts a new one.
  * @summary Resume task run in cloud
  */
 export const tasksRunsResumeInCloudCreate = async (
