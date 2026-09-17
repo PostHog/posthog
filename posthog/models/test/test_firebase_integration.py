@@ -129,6 +129,31 @@ class TestFirebaseIntegration(BaseTest):
         with self.assertRaises(ValidationError):
             FirebaseIntegration.integration_from_key(key_info_no_project, self.team.id)
 
+    @patch("posthog.models.integration.push.GoogleRequest")
+    @patch("posthog.models.integration.push.service_account.Credentials.from_service_account_info")
+    def test_rejects_key_file_token_uri_that_is_not_google(self, mock_from_sa, mock_google_request) -> None:
+        with self.assertRaises(ValidationError):
+            FirebaseIntegration.integration_from_key(
+                {**FAKE_KEY_INFO, "token_uri": "https://relay.example.com/token"}, self.team.id
+            )
+
+        mock_from_sa.assert_not_called()
+
+    @patch("posthog.models.integration.push.GoogleRequest")
+    @patch("posthog.models.integration.push.service_account.Credentials.from_service_account_info")
+    def test_stored_key_file_with_non_google_token_uri_never_refreshes(self, mock_from_sa, mock_google_request) -> None:
+        integration = self._create_firebase_integration()
+        integration.sensitive_config = {
+            **integration.sensitive_config,
+            "key_info": {**FAKE_KEY_INFO, "token_uri": "https://relay.example.com/token"},
+        }
+        integration.save()
+
+        with self.assertRaises(ValidationError):
+            FirebaseIntegration(integration).refresh_access_token()
+
+        mock_from_sa.assert_not_called()
+
     def test_wrapper_properties(self):
         integration = self._create_firebase_integration()
         wrapper = FirebaseIntegration(integration)

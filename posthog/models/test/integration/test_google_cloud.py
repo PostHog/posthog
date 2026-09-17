@@ -7,7 +7,7 @@ from typing import Optional
 import pytest
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -15,6 +15,13 @@ from rest_framework.exceptions import ValidationError
 from posthog.models.integration import GoogleCloudIntegration, GoogleCloudServiceAccountIntegration, Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+
+NON_GOOGLE_TOKEN_URIS = [
+    ("relay", "https://relay.example.com/token"),
+    ("plain_http_google", "http://oauth2.googleapis.com/token"),
+    ("lookalike_host", "https://oauth2.googleapis.com.example.com/token"),
+    ("link_local", "http://169.254.169.254/latest/meta-data/"),
+]
 
 
 class TestGoogleCloudIntegrationModel(BaseTest):
@@ -166,13 +173,36 @@ class TestGoogleCloudIntegrationModel(BaseTest):
         assert token == "ACCESS_TOKEN"
         assert "access_token" not in integration.config
 
+    @parameterized.expand(NON_GOOGLE_TOKEN_URIS)
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_rejects_key_file_token_uri_that_is_not_google(
+        self, _name: str, token_uri: str, mock_credentials: MagicMock
+    ) -> None:
+        with pytest.raises(ValidationError):
+            GoogleCloudIntegration.integration_from_key(
+                "google-pubsub", {**self.mock_keyfile, "token_uri": token_uri}, self.team.id, self.user
+            )
 
-NON_GOOGLE_TOKEN_URIS = [
-    ("relay", "https://relay.example.com/token"),
-    ("plain_http_google", "http://oauth2.googleapis.com/token"),
-    ("lookalike_host", "https://oauth2.googleapis.com.example.com/token"),
-    ("link_local", "http://169.254.169.254/latest/meta-data/"),
-]
+        mock_credentials.assert_not_called()
+        assert not Integration.objects.filter(team=self.team, kind="google-pubsub").exists()
+
+    @parameterized.expand(NON_GOOGLE_TOKEN_URIS)
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_stored_key_file_with_non_google_token_uri_never_refreshes(
+        self, _name: str, token_uri: str, mock_credentials: MagicMock
+    ) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="google-pubsub",
+            integration_id="stored-before-validation",
+            config={"refreshed_at": 0, "expires_in": 1},
+            sensitive_config={"key_info": {**self.mock_keyfile, "token_uri": token_uri}, "access_token": "OLD"},
+        )
+
+        with pytest.raises(ValidationError):
+            GoogleCloudIntegration(integration).refresh_access_token()
+
+        mock_credentials.assert_not_called()
 
 
 class TestGoogleCloudServiceAccountIntegration(BaseTest):

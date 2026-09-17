@@ -28,11 +28,10 @@ GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR = (
 )
 
 
-def require_google_token_uri(token_uri: str) -> str:
-    token_uri = token_uri.strip()
-    if token_uri not in GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS:
+def require_google_token_uri(token_uri: object) -> str:
+    if not isinstance(token_uri, str) or token_uri.strip() not in GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS:
         raise ValidationError(GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR)
-    return token_uri
+    return token_uri.strip()
 
 
 def is_unique_service_account_by_organization_id(service_account_email: str, organization_id: str) -> bool:
@@ -163,6 +162,8 @@ class GoogleCloudIntegration:
         else:
             raise NotImplementedError(f"Google Cloud integration kind {kind} not implemented")
 
+        key_info["token_uri"] = require_google_token_uri(key_info.get("token_uri"))
+
         try:
             credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
             credentials.refresh(GoogleRequest())
@@ -215,6 +216,12 @@ class GoogleCloudIntegration:
             raise NotImplementedError(f"Google Cloud integration kind {self.integration.kind} not implemented")
 
         key_info = self.integration.sensitive_config.get("key_info", self.integration.sensitive_config)
+        try:
+            require_google_token_uri(key_info.get("token_uri"))
+        except ValidationError:
+            refresh_tracking.record_refresh_failure(self.integration)
+            self.integration.save(update_fields=["config"])
+            raise
         credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
 
         try:

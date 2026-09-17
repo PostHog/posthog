@@ -6591,7 +6591,11 @@ class TestPushIdentityVerificationAPI(APIBaseTest):
             {
                 "kind": "firebase",
                 "config": {
-                    "key_info": {"type": "service_account", "project_id": "my-firebase-project"},
+                    "key_info": {
+                        "type": "service_account",
+                        "project_id": "my-firebase-project",
+                        "token_uri": "https://oauth2.googleapis.com/token",
+                    },
                     "push_identity_verification": "required",
                 },
             },
