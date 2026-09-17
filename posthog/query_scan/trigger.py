@@ -100,6 +100,7 @@ SkipReason = Literal[
     "flag_off",
     "below_floor",
     "api_key",
+    "mcp",
     "kind_not_analyzed",
     "sql_without_surface",
     "no_principal",
@@ -116,19 +117,16 @@ SkipReason = Literal[
 
 
 def is_mcp_run() -> bool:
-    """An MCP agent authenticates with a personal API key, but it does read the findings in the
-    block above its results, so the skip for API callers with nowhere to read advice leaves it
-    out."""
-    return get_query_tag_value("feature") == Feature.MCP
+    """Whether an MCP agent made the run. A PostHog AI tool the MCP server invokes carries the
+    feature. A call the server proxies to the query endpoint carries the source the request
+    middleware set, whichever key or token the agent authenticates with."""
+    return get_query_tag_value("feature") == Feature.MCP or get_query_tag_value("source") == EventSource.MCP
 
 
 def _sql_run_has_surface(insight_id: int | None, dashboard_id: int | None) -> bool:
     if insight_id or dashboard_id:
         return True
-    if get_query_tag_value("scene") in _SQL_SCENES_WITH_ADVICE:
-        return True
-    # An agent's run carries no scene. The request middleware marks it as MCP before authentication.
-    return is_mcp_run() or get_query_tag_value("source") == EventSource.MCP
+    return get_query_tag_value("scene") in _SQL_SCENES_WITH_ADVICE
 
 
 def is_analyzable_principal(user: object) -> TypeGuard[User]:
@@ -172,7 +170,10 @@ def maybe_trigger_query_scan(
     # stopped, however fast it died, so a stopped run is analyzed at any duration.
     if duration_ms < flag.floor_ms and not killed:
         return "below_floor"
-    if is_api_key_access_method(get_query_tag_value("access_method")) and not is_mcp_run():
+    if is_mcp_run():
+        # Nothing hands an agent the advice, so the analysis would only cost.
+        return "mcp"
+    if is_api_key_access_method(get_query_tag_value("access_method")):
         # An API caller has no surface to read the advice on, so the analysis would only cost.
         return "api_key"
     kind = getattr(query, "kind", None)

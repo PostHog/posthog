@@ -88,6 +88,14 @@ def _spend_the_enqueue_budget(test: "TestQueryScanTrigger") -> None:
     test.redis.incr.return_value = 11
 
 
+def _tag_as_mcp_tool(test: "TestQueryScanTrigger") -> None:
+    tag_queries(access_method=AccessMethod.PERSONAL_API_KEY, feature=Feature.MCP)
+
+
+def _tag_as_mcp_server(test: "TestQueryScanTrigger") -> None:
+    tag_queries(access_method=AccessMethod.OAUTH, source=EventSource.MCP)
+
+
 def _lose_the_slot_claim(test: "TestQueryScanTrigger") -> None:
     test.redis.set.return_value = None
 
@@ -144,6 +152,8 @@ class TestQueryScanTrigger(SimpleTestCase):
             ("flag off", {"flag": None}, None, "flag_off"),
             ("below the floor", {"stats": _stats(duration_ms=999.0)}, None, "below_floor"),
             ("api key run", {}, _tag_as_api_key, "api_key"),
+            ("an mcp tool on an api key", {}, _tag_as_mcp_tool, "mcp"),
+            ("the mcp server on oauth", {}, _tag_as_mcp_server, "mcp"),
             (
                 "a kind from one of posthog's own screens",
                 {"query": EventsQuery(select=["*"])},
@@ -218,19 +228,10 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert (enqueued["rows_read"], enqueued["duration_ms"]) == (expected_rows, expected_ms)
         assert [execution["rows_read"] for execution in enqueued["executions"]] == [50]
 
-    def test_an_mcp_run_is_analyzed_despite_its_api_key(self) -> None:
-        tag_queries(access_method=AccessMethod.PERSONAL_API_KEY, feature=Feature.MCP)
-
-        result = self._trigger()
-
-        assert result is None
-        assert self.delay.call_count == 1
-
     @parameterized.expand(
         [
             ("the sql editor", {"scene": "SQLEditor"}),
             ("an unsaved insight", {"scene": "Insight"}),
-            ("an mcp agent", {"source": EventSource.MCP}),
         ]
     )
     def test_sql_outside_an_insight_is_analyzed_where_its_advice_is_read(self, _name, tags) -> None:
