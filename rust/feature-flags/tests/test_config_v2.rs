@@ -3,7 +3,8 @@ use std::sync::Arc;
 use feature_flags::flags::config_v2::{Config, Outcome, ParseError, RolloutMiss, MAX_CONFIG_BYTES};
 use feature_flags::flags::feature_flag_list::PreparedFlags;
 use feature_flags::flags::flag_models::{
-    EvaluationMetadata, FeatureFlag, HypercacheFlagsWrapper, PreparedFlagDefinitions,
+    EvaluationMetadata, FeatureFlag, FeatureFlagRow, HypercacheFlagsWrapper,
+    PreparedFlagDefinitions,
 };
 use feature_flags::properties::property_models::OperatorType;
 use serde_json::{json, Value};
@@ -90,21 +91,80 @@ fn original_numeric_tokens_control_precision_and_survive_cache_round_trips() {
     for (number, recognized_v2) in [
         ("2.0", true),
         ("20e-1", true),
-        ("2.0000000000000001", false),
+        ("2.0000000000000001", true),
         ("1.0000000000000001", false),
     ] {
         let document = config()
             .to_string()
             .replace("\"version\":2", &format!("\"version\":{number}"));
-        let encoded =
-            format!(r#"{{"id":1,"team_id":1,"key":"example","active":true,"filters":{document}}}"#);
-        let flag: FeatureFlag = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(
-            flag.filters.non_v1.as_ref().unwrap().parsed_v2.is_some(),
-            recognized_v2
-        );
-        assert!(serde_json::to_string(&flag).unwrap().contains(number));
+        let flag = read_raw(&document);
+        assert_eq!(flag.filters.non_v1.is_some(), recognized_v2, "{number}");
+        if recognized_v2 {
+            assert!(result(&flag).is_ok());
+            assert!(serde_json::to_string(&flag).unwrap().contains(number));
+        }
     }
+}
+
+fn read_raw(document: &str) -> FeatureFlag {
+    serde_json::from_str(&format!(
+        r#"{{"id":1,"team_id":1,"key":"example","active":true,"filters":{document}}}"#
+    ))
+    .unwrap()
+}
+
+#[test]
+fn raw_v2_constraints_reject_duplicates_and_underflow_only_in_the_affected_flag() {
+    for (raw, field) in [
+        (r#"{"version":2,"version":2,"return_type":"boolean","default_value":null,"rules":[]}"#.to_owned(), "json_keys_unique"),
+        (config().to_string().replace("\"value\":true", "\"value\":false,\"value\":true"), "json_keys_unique"),
+        (config().to_string().replace("\"properties\":[]", r#""properties":[{"key":"example","key":"other","type":"person"}]"#), "json_keys_unique"),
+        (config().to_string().replace("\"properties\":[]", r#""properties":[{"key":"example","type":"person","value":{"items":[{"x":1,"\u0078":2}]}}]"#), "json_keys_unique"),
+        (config().to_string().replace("\"seed\":", r#""metadata":{"nested":{"x":1,"x":2}},"seed":"#), "json_keys_unique"),
+    ] {
+        let flag = read_raw(&raw);
+        assert_eq!(result(&flag).as_ref().unwrap_err(), &ParseError::Malformed(field), "{raw}");
+        let encoded = serde_json::to_string(&flag).unwrap();
+        assert!(encoded.contains(&raw));
+        let wrapper = format!(r#"{{"flags":[{encoded},{{"id":2,"team_id":1,"key":"healthy","filters":{{"groups":[{{"rollout_percentage":100}}]}}}}],"evaluation_metadata":{{"dependency_stages":[[1,2]],"flags_with_missing_deps":[],"transitive_deps":{{}}}}}}"#);
+        let wrapper: HypercacheFlagsWrapper = serde_json::from_str(&wrapper).unwrap();
+        assert!(result(&wrapper.flags[0]).is_err());
+        assert_eq!(wrapper.flags[1].filters.groups.len(), 1);
+    }
+    for (number, valid) in [
+        ("1e-400", false),
+        ("-1e-400", false),
+        ("1e400", false),
+        ("-1e400", false),
+        ("5e-324", true),
+        ("-5e-324", true),
+        ("0e-400", true),
+        ("-0.0", true),
+    ] {
+        for property in [
+            format!(r#"{{"key":"example","type":"person","operator":"gt","value":{number}}}"#),
+            format!(r#"{{"key":"example","type":"person","value":{{"nested":[{number}]}}}}"#),
+        ] {
+            let raw = config()
+                .to_string()
+                .replace("\"properties\":[]", &format!("\"properties\":[{property}]"));
+            let flag = read_raw(&raw);
+            assert_eq!(result(&flag).is_ok(), valid, "{number}");
+            if !valid {
+                assert_eq!(
+                    result(&flag).as_ref().unwrap_err(),
+                    &ParseError::Malformed("number_is_binary64")
+                );
+            }
+        }
+    }
+    let mut document = config();
+    document["rules"][0]["metadata"] = json!({"rollout_percentage": 0.001, "text": "\"duplicate\":1,\"duplicate\":1e-400 \\ braces{}[]", "distinct": [{"same":1},{"same":2}]});
+    assert!(result(&read(document)).is_ok());
+    let legacy = read_raw(r#"{"groups":[],"extra":{"key":1,"key":2,"tiny":1e-400}}"#);
+    assert!(legacy.filters.non_v1.is_none());
+    assert_eq!(legacy.filters.extra["extra"]["key"], 2);
+    assert_eq!(legacy.filters.extra["extra"]["tiny"].as_f64(), Some(0.0));
 }
 
 #[test]
@@ -343,6 +403,7 @@ fn person_properties_are_closed_before_reusing_operator_types() {
         ("is_date_after", json!("-7d")),
         ("is_date_before", json!("2024-01-01T00:00:00Z")),
         ("semver_gt", json!("1.2.3")),
+        ("semver_eq", json!(" 1.2.3 ")),
         ("semver_gte", json!("1.2.3")),
         ("semver_lt", json!("1.2.3")),
         ("semver_lte", json!("1.2.3")),
@@ -420,6 +481,9 @@ fn person_properties_are_closed_before_reusing_operator_types() {
         ("semver_gt", json!(123)),
         ("semver_eq", json!("1.2.3+meta")),
         ("semver_eq", json!("v1.2.3")),
+        ("semver_eq", json!("+1.2.3")),
+        ("semver_eq", json!("1. 2.3")),
+        ("semver_eq", json!("1.+2.3")),
     ] {
         let mut document = config();
         document["rules"][0]["targeting"]["properties"] =
@@ -473,6 +537,20 @@ fn unsupported_members_reject_the_whole_flag_and_debug_redacts_config() {
         document["rules"][0]["metadata"] = json!({"private-metadata": "private-metadata-value"});
         document["rules"][0]["targeting"]["properties"] =
             json!([{"key": "private-key", "type": "person", "value": "private-property-value"}]);
+        let row = FeatureFlagRow {
+            id: 1,
+            team_id: 2,
+            key: "example".to_owned(),
+            active: true,
+            version: Some(42),
+            filters: document.clone(),
+            ..Default::default()
+        };
+        let debug = format!("{row:?}");
+        assert!(debug.contains("key: \"example\""));
+        assert!(debug.contains("active: true"));
+        assert!(debug.contains("version: Some(42)"));
+        assert!(!debug.contains("private-"), "{debug}");
         let flag = read(document);
         let debug = format!("{flag:?}");
         assert!(!debug.contains("private-"), "{debug}");

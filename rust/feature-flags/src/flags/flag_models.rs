@@ -254,6 +254,39 @@ pub struct FlagFilters {
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
+impl std::fmt::Debug for FlagFilters {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            non_v1,
+            groups,
+            multivariate,
+            aggregation_group_type_index,
+            payloads,
+            feature_enrollment,
+            holdout,
+            early_exit,
+            extra,
+        } = self;
+        if !self.is_v1() {
+            return f
+                .debug_struct("FlagFilters")
+                .field("non_v1", non_v1)
+                .finish_non_exhaustive();
+        }
+        f.debug_struct("FlagFilters")
+            .field("non_v1", non_v1)
+            .field("groups", groups)
+            .field("multivariate", multivariate)
+            .field("aggregation_group_type_index", aggregation_group_type_index)
+            .field("payloads", payloads)
+            .field("feature_enrollment", feature_enrollment)
+            .field("holdout", holdout)
+            .field("early_exit", early_exit)
+            .field("extra", extra)
+            .finish()
+    }
+}
+
 pub type FeatureFlagId = i32;
 
 /// Defines which identifier is used for bucketing users into rollout and variants
@@ -360,6 +393,41 @@ pub struct FeatureFlagRow<F = serde_json::Value> {
     /// Populated by the from_pg fallback query via a correlated EXISTS over posthog_experiment.
     #[serde(default)]
     pub has_experiment: bool,
+}
+
+impl<F> std::fmt::Debug for FeatureFlagRow<F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            id,
+            team_id,
+            name,
+            key,
+            filters: _,
+            deleted,
+            active,
+            ensure_experience_continuity,
+            version,
+            evaluation_runtime,
+            evaluation_tags,
+            bucketing_identifier,
+            has_experiment,
+        } = self;
+        f.debug_struct("FeatureFlagRow")
+            .field("id", id)
+            .field("team_id", team_id)
+            .field("name", name)
+            .field("key", key)
+            .field("filters", &"<redacted>")
+            .field("deleted", deleted)
+            .field("active", active)
+            .field("ensure_experience_continuity", ensure_experience_continuity)
+            .field("version", version)
+            .field("evaluation_runtime", evaluation_runtime)
+            .field("evaluation_tags", evaluation_tags)
+            .field("bucketing_identifier", bucketing_identifier)
+            .field("has_experiment", has_experiment)
+            .finish()
+    }
 }
 
 /// Request-scoped view of flag definitions plus the per-request filter set.

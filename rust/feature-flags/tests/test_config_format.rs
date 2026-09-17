@@ -31,6 +31,9 @@ fn documents() -> Vec<(String, Value, bool, bool)> {
         true,
         false,
     ));
+    let mut rounded = supported.clone();
+    rounded["version"] = json!("__rounds_to_two__");
+    cases.push(("rejected-rounded-v2".to_string(), rounded, true, false));
     let mut unsupported = supported.clone();
     unsupported["rules"]
         .as_array_mut()
@@ -61,6 +64,7 @@ fn documents() -> Vec<(String, Value, bool, bool)> {
         ("absent", None),
         ("one", Some(json!(1))),
         ("one-float", Some(json!(1.0))),
+        ("one-rounded", Some(json!("__rounds_to_one__"))),
     ] {
         let mut filters = json!({"groups": [{"rollout_percentage": 100}], "payloads": {"true": "example-payload"}});
         if let Some(version) = version {
@@ -152,23 +156,40 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
     if cached {
         let encoded = json!(flags)
             .to_string()
-            .replace("\"__overprecise__\"", "33.330000000000000001");
+            .replace("\"__overprecise__\"", "33.330000000000000001")
+            .replace("\"__rounds_to_one__\"", "1.0")
+            .replace("\"__rounds_to_two__\"", "2.0");
         insert_flags_for_team_in_redis(redis, team.id, Some(encoded)).await?;
     } else {
-        let raw = docs
-            .iter()
-            .find(|(key, ..)| key == "rejected-overprecise-v2")
-            .unwrap()
-            .1
-            .to_string()
-            .replace("\"__overprecise__\"", "33.330000000000000001");
         let mut connection = db.non_persons_writer.get_connection().await?;
-        sqlx::query("UPDATE posthog_featureflag SET filters = $1::jsonb WHERE team_id = $2 AND key = 'rejected-overprecise-v2'")
-            .bind(raw).bind(team.id).execute(&mut *connection).await?;
+        for (key, placeholder, number) in [
+            (
+                "rejected-overprecise-v2",
+                "__overprecise__",
+                "33.330000000000000001",
+            ),
+            ("one-rounded", "__rounds_to_one__", "1.0000000000000001"),
+            (
+                "rejected-rounded-v2",
+                "__rounds_to_two__",
+                "2.0000000000000001",
+            ),
+        ] {
+            let raw = docs
+                .iter()
+                .find(|(name, ..)| name == key)
+                .unwrap()
+                .1
+                .to_string()
+                .replace(&format!("\"{placeholder}\""), number);
+            sqlx::query("UPDATE posthog_featureflag SET filters = $1::jsonb WHERE team_id = $2 AND key = $3")
+                .bind(raw).bind(team.id).bind(key).execute(&mut *connection).await?;
+        }
         drop(connection);
         let stored = FeatureFlagList::from_pg(db.non_persons_reader.clone(), team.id).await?;
         for (key, valid) in [
             ("rejected-valid-v2", true),
+            ("rejected-rounded-v2", true),
             ("rejected-overprecise-v2", false),
         ] {
             let flag = stored.iter().find(|flag| flag.key == key).unwrap();
@@ -240,7 +261,7 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
         }
         match shape {
             Shape::Detailed => {
-                for key in ["absent", "one", "one-float"] {
+                for key in ["absent", "one", "one-float", "one-rounded"] {
                     assert_eq!(body["flags"][key]["enabled"], true, "{body}");
                     assert_eq!(body["flags"][key]["metadata"]["version"], 2, "{body}");
                 }
@@ -266,13 +287,19 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
                 keys.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
                 assert_eq!(
                     keys,
-                    vec![json!("absent"), json!("one"), json!("one-float")]
+                    vec![
+                        json!("absent"),
+                        json!("one"),
+                        json!("one-float"),
+                        json!("one-rounded")
+                    ]
                 );
             }
             Shape::Map {
                 keeps_rejected_as_false,
             } => {
-                let mut expected = json!({"absent": true, "one": true, "one-float": true});
+                let mut expected =
+                    json!({"absent": true, "one": true, "one-float": true, "one-rounded": true});
                 if keeps_rejected_as_false {
                     for (key, _, _, _) in &docs {
                         if key.starts_with("rejected-") {

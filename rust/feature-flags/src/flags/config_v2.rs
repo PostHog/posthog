@@ -5,15 +5,14 @@ use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
-use crate::utils::json_size::estimate_json_map_size;
-
 mod properties;
 mod raw;
 pub use properties::PersonPredicate;
-pub(crate) use raw::{classify_number, validate_raw_percentages};
+pub(crate) use raw::validate_raw_document;
 
 pub const MAX_CONFIG_BYTES: usize = 512 * 1024;
 const MAX_RULES: usize = 100;
+const MAX_PREDICATES: usize = 100;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParseError {
@@ -109,14 +108,6 @@ impl fmt::Debug for Outcome {
 
 impl Config {
     pub(super) fn parse(document: &Map<String, Value>) -> Result<Self, ParseError> {
-        // Match the existing writer's default document ceiling. Deployment-specific
-        // writer limits can be lower; metadata remains part of the whole document.
-        if estimate_json_map_size(document) + 2 > MAX_CONFIG_BYTES {
-            return Err(ParseError::LimitExceeded("filters"));
-        }
-        if document.get("version").and_then(Value::as_f64) != Some(2.0) {
-            return Err(ParseError::Malformed("version"));
-        }
         closed(
             document,
             &[
@@ -284,9 +275,6 @@ fn percentage(value: &Value) -> Result<f64, ParseError> {
     };
     let numeric = number.as_f64().ok_or(error)?;
     if !numeric.is_finite() || !(0.0..=100.0).contains(&numeric) {
-        return Err(error);
-    }
-    if !raw::decimal_places_at_most(&number.to_string(), 2) {
         return Err(error);
     }
     Ok(numeric)

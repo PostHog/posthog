@@ -55,7 +55,7 @@ fn released_parser_artifacts_are_intact() {
 #[test]
 fn released_config_cases_distinguish_schema_expectations_from_supported_families() {
     let manifest = load("manifest.json");
-    let mut totals = [0; 3];
+    let mut totals = [0; 5];
     for fixture in manifest["artifacts"].as_array().unwrap() {
         let path = fixture["path"].as_str().unwrap();
         if !path.starts_with("fixtures/config/") {
@@ -79,10 +79,31 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
                 totals[1] += 1;
             }
         } else {
-            // Reserved families have no semantic implementation. Their schema errors
-            // are checked by the released contract suite, separately from admission.
-            assert!(parsed.is_none_or(Result::is_err), "{path}");
-            totals[2] += 1;
+            let name = PathBuf::from(path)
+                .file_stem()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned();
+            let expected = invalid_fixture_error(&name);
+            assert_eq!(
+                parsed.map(|result| *result.as_ref().unwrap_err()),
+                expected,
+                "{path}"
+            );
+            match expected {
+                Some(ParseError::Malformed(_)) => {
+                    totals[2] += 1;
+                    let repaired = repair_supported_fixture(&name, document.clone());
+                    assert!(
+                        result(&read(repaired)).is_ok(),
+                        "repair must make {path} supported"
+                    );
+                }
+                Some(ParseError::Unsupported(_)) => totals[3] += 1,
+                None => totals[4] += 1,
+                other => panic!("unexpected fixture classification: {other:?}"),
+            }
         }
         assert_eq!(
             serde_json::to_value(flag).unwrap()["filters"],
@@ -90,7 +111,99 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
             "{path}"
         );
     }
-    assert_eq!(totals, [2, 6, 32]);
+    assert_eq!(totals, [2, 6, 18, 11, 3]);
+}
+
+fn invalid_fixture_error(name: &str) -> Option<ParseError> {
+    use ParseError::{Malformed, Unsupported};
+    Some(match name {
+        "assign_by_not_person" => Malformed("assign_by"),
+        "default_value_type_mismatch" => Malformed("default_value"),
+        "empty_seed" | "missing_rollout_seed" => Malformed("seed"),
+        "missing_on_rollout_miss" => Malformed("on_rollout_miss"),
+        "non_uuid_rule_id" => Malformed("rule.id"),
+        "null_rule_value" | "return_value_type_mismatch" => Malformed("value"),
+        "rollout_percentage_above_maximum" | "rollout_percentage_below_minimum" => {
+            Malformed("rollout_percentage")
+        }
+        "targeted_release_with_rollout_fields" | "unknown_rule_field" => Malformed("rule"),
+        "unknown_assignment_algorithm" => Malformed("assignment_algorithm"),
+        "unknown_config_field" => Malformed("filters"),
+        "unknown_property_field" => Malformed("property"),
+        "unknown_property_operator" => Malformed("property.operator"),
+        "unknown_property_type" => Malformed("property.type"),
+        "unknown_rollout_miss_policy" => Malformed("on_rollout_miss"),
+        "empty_string_value" | "object_value_too_deep" => Unsupported("return_type"),
+        "group_experiment_with_assign_by" | "group_percentage_rollout_with_assign_by" => {
+            Unsupported("aggregation_group_type_index")
+        }
+        "missing_experiment_paused"
+        | "null_experiment_id"
+        | "seed_too_long"
+        | "too_few_variants"
+        | "too_many_variants"
+        | "variant_key_invalid_characters"
+        | "variant_value_type_mismatch" => Unsupported("rule_type"),
+        "unknown_config_version" | "version_boolean" | "version_string" => return None,
+        _ => panic!("unclassified released fixture: {name}"),
+    })
+}
+
+fn repair_supported_fixture(name: &str, mut document: Value) -> Value {
+    match name {
+        "assign_by_not_person" => document["rules"][0]["assign_by"] = json!("person"),
+        "default_value_type_mismatch" => document["default_value"] = json!(false),
+        "empty_seed" | "missing_rollout_seed" => {
+            document["rules"][0]["seed"] = json!("example-seed")
+        }
+        "missing_on_rollout_miss" | "unknown_rollout_miss_policy" => {
+            document["rules"][0]["on_rollout_miss"] = json!("continue")
+        }
+        "non_uuid_rule_id" => {
+            document["rules"][0]["id"] = json!("11111111-1111-4111-8111-111111111111")
+        }
+        "null_rule_value" | "return_value_type_mismatch" => {
+            document["rules"][0]["value"] = json!(false)
+        }
+        "rollout_percentage_above_maximum" | "rollout_percentage_below_minimum" => {
+            document["rules"][0]["rollout_percentage"] = json!(33.33)
+        }
+        "targeted_release_with_rollout_fields" => {
+            for field in [
+                "assign_by",
+                "assignment_algorithm",
+                "on_rollout_miss",
+                "rollout_percentage",
+                "seed",
+            ] {
+                document["rules"][0].as_object_mut().unwrap().remove(field);
+            }
+        }
+        "unknown_rule_field" => {
+            document["rules"][0]
+                .as_object_mut()
+                .unwrap()
+                .remove("implicit_default");
+        }
+        "unknown_assignment_algorithm" => {
+            document["rules"][0]["assignment_algorithm"] = json!("sha1_60_v1")
+        }
+        "unknown_config_field" => {
+            document.as_object_mut().unwrap().remove("groups");
+        }
+        "unknown_property_field" => document["rules"][0]["targeting"]["properties"][0]
+            .as_object_mut()
+            .unwrap()
+            .retain(|key, _| ["key", "type", "operator", "value"].contains(&key.as_str())),
+        "unknown_property_operator" => {
+            document["rules"][0]["targeting"]["properties"][0]["operator"] = json!("exact")
+        }
+        "unknown_property_type" => {
+            document["rules"][0]["targeting"]["properties"][0]["type"] = json!("person")
+        }
+        _ => panic!("no focused repair for {name}"),
+    }
+    document
 }
 
 #[test]

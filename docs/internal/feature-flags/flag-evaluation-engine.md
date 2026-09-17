@@ -8,12 +8,14 @@ Stored configuration dispatch reads `filters.version`; the row's `FeatureFlag.ve
 An absent discriminator or numeric 1 (including 1.0) selects v1.
 Numeric 2 (including 2.0) selects the closed v2 parser; other discriminator values are unsupported.
 The service does not evaluate any non-v1 format, including a successfully parsed v2 configuration.
-The classification matches Python's `detect_config_format` (`products/feature_flags/backend/facade/config.py`).
+The classification uses decoded numeric values, matching Python's `detect_config_format` (`products/feature_flags/backend/facade/config.py`) and its cache producer's normalization.
 
 Cache and PostgreSQL ingress classify the original document before decoding v1 fields.
 Non-v1 objects retain their original JSON in `FlagFilters.non_v1`, alongside the v2 parse result when applicable.
 PostgreSQL decodes filters as raw JSON through the same reader used by service-cache records.
-Raw number tokens keep excess decimal precision from rounding into validity and survive cache round trips.
+V2 validation checks the retained tokens for duplicate object keys, nonzero numeric underflow, and excess percentage precision before admitting the typed configuration.
+These checks share one token pass with the compact document-size limit; original tokens survive cache round trips.
+Validation cannot recover precision or duplicate keys already lost by an upstream producer, so writers must enforce these constraints before ordinary JSON decoding.
 The prepared cache retains this data through an `Arc`; requests reuse the parse result, and its byte estimate includes raw JSON, typed rules, property values, and seeds.
 Manually constructed opaque filters still use the passthrough-map serialization fallback.
 
@@ -25,7 +27,7 @@ One unsupported predicate or rule rejects the whole flag's configuration.
 Parser diagnostics and debug output omit raw configuration values.
 
 The reader enforces 100 rules, 100 predicates per rule, 1–400 character percentage-rule seeds, and finite percentages in [0, 100] with at most two decimal places.
-Its compact UTF-8 document ceiling is 512 KiB, matching the default `MAX_FEATURE_FLAG_FILTER_SIZE_BYTES` writer limit.
+Its compact UTF-8 document ceiling is 512 KiB, matching the default `MAX_FEATURE_FLAG_FILTER_SIZE_BYTES` writer limit; the reader counts stored token bytes, excluding whitespace outside strings.
 Writers must also enforce their deployment-specific document limit and explicit metadata limit; the parser adds no separate metadata-size policy.
 Reader and writer byte limits must agree before admitting stored v2 data if a deployment overrides the default.
 Presentation metadata stays in the original JSON and does not enter typed targeting.

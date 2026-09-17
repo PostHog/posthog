@@ -1,7 +1,7 @@
-use serde::Deserialize;
 use serde_json::value::RawValue;
+use std::collections::HashSet;
 
-use super::ParseError;
+use super::{ParseError, MAX_CONFIG_BYTES};
 
 // Raw tokens prevent binary64 rounding from making an overprecise value valid.
 pub(super) fn decimal_places_at_most(number: &str, places: i64) -> bool {
@@ -31,28 +31,112 @@ pub(super) fn decimal_places_at_most(number: &str, places: i64) -> bool {
         <= places
 }
 
-pub(crate) fn classify_number(number: &str, expected: f64) -> bool {
-    decimal_places_at_most(number, 0) && number.parse::<f64>().ok() == Some(expected)
+enum Container {
+    Object {
+        keys: HashSet<String>,
+        key: String,
+        expects_key: bool,
+        rule: bool,
+    },
+    Array {
+        rules: bool,
+    },
 }
 
-pub(crate) fn validate_raw_percentages(document: &RawValue) -> Result<(), ParseError> {
-    #[derive(Deserialize)]
-    struct Percentages<'a> {
-        #[serde(borrow)]
-        rules: Vec<Rule<'a>>,
-    }
-    #[derive(Deserialize)]
-    struct Rule<'a> {
-        #[serde(borrow)]
-        rollout_percentage: Option<&'a RawValue>,
-    }
-    let parsed: Percentages<'_> =
-        serde_json::from_str(document.get()).map_err(|_| ParseError::Malformed("rules"))?;
-    for rule in parsed.rules {
-        if let Some(percentage) = rule.rollout_percentage {
-            if !decimal_places_at_most(percentage.get(), 2) {
-                return Err(ParseError::Malformed("rollout_percentage"));
+pub(crate) fn validate_raw_document(document: &RawValue) -> Result<(), ParseError> {
+    // RawValue already checked JSON syntax. Inspect tokens before Value loses
+    // duplicate keys or rounds nonzero numbers to zero.
+    let text = document.get();
+    let bytes = text.as_bytes();
+    let mut containers = Vec::new();
+    let mut compact_bytes = 0;
+    let mut index = 0;
+    while index < bytes.len() {
+        let start = index;
+        match bytes[index] {
+            b' ' | b'\t' | b'\n' | b'\r' => {
+                index += 1;
+                continue;
             }
+            b'"' => {
+                index += 1;
+                while bytes[index] != b'"' {
+                    if bytes[index] == b'\\' {
+                        index += 1;
+                    }
+                    index += 1;
+                }
+                index += 1;
+                if let Some(Container::Object {
+                    keys,
+                    key,
+                    expects_key,
+                    ..
+                }) = containers.last_mut()
+                {
+                    if *expects_key {
+                        *key = serde_json::from_str(&text[start..index])
+                            .map_err(|_| ParseError::Malformed("filters"))?;
+                        if !keys.insert(key.clone()) {
+                            return Err(ParseError::Malformed("json_keys_unique"));
+                        }
+                        *expects_key = false;
+                    }
+                }
+            }
+            b'{' => {
+                let rule = matches!(containers.last(), Some(Container::Array { rules: true }));
+                containers.push(Container::Object {
+                    keys: HashSet::new(),
+                    key: String::new(),
+                    expects_key: true,
+                    rule,
+                });
+                index += 1;
+            }
+            b'[' => {
+                let rules = containers.len() == 1
+                    && matches!(containers.last(), Some(Container::Object { key, .. }) if key == "rules");
+                containers.push(Container::Array { rules });
+                index += 1;
+            }
+            b'}' | b']' => {
+                containers.pop();
+                index += 1;
+            }
+            b',' => {
+                if let Some(Container::Object { expects_key, .. }) = containers.last_mut() {
+                    *expects_key = true;
+                }
+                index += 1;
+            }
+            b'-' | b'0'..=b'9' => {
+                while index < bytes.len()
+                    && matches!(bytes[index], b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')
+                {
+                    index += 1;
+                }
+                let token = &text[start..index];
+                let number = token
+                    .parse::<f64>()
+                    .map_err(|_| ParseError::Malformed("number_is_binary64"))?;
+                let mantissa = token.split(['e', 'E']).next().unwrap();
+                if !number.is_finite()
+                    || (number == 0.0 && mantissa.bytes().any(|b| matches!(b, b'1'..=b'9')))
+                {
+                    return Err(ParseError::Malformed("number_is_binary64"));
+                }
+                if matches!(containers.last(), Some(Container::Object { key, rule: true, .. }) if key == "rollout_percentage")
+                    && !decimal_places_at_most(token, 2)
+                {
+                    return Err(ParseError::Malformed("rollout_percentage"));
+                }
+            }
+            _ => index += 1,
+        }
+        compact_bytes += index - start;
+        if compact_bytes > MAX_CONFIG_BYTES {
+            return Err(ParseError::LimitExceeded("filters"));
         }
     }
     Ok(())

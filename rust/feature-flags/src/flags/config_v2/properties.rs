@@ -2,9 +2,10 @@ use std::fmt;
 
 use serde_json::Value;
 
-use super::{closed, object, required, string, ParseError};
+use super::{closed, object, required, string, ParseError, MAX_PREDICATES};
 use crate::properties::property_matching::to_semver_representation;
 use crate::properties::property_models::OperatorType;
+use crate::properties::relative_date::parse_relative_date_parts;
 
 #[derive(Clone)]
 pub struct PersonPredicate {
@@ -28,7 +29,7 @@ pub(super) fn parse_targeting(value: &Value) -> Result<Vec<PersonPredicate>, Par
     let properties = required(targeting, "properties")?
         .as_array()
         .ok_or(ParseError::Malformed("properties"))?;
-    if properties.len() > 100 {
+    if properties.len() > MAX_PREDICATES {
         return Err(ParseError::LimitExceeded("properties"));
     }
     properties.iter().map(PersonPredicate::parse).collect()
@@ -156,9 +157,11 @@ fn validate_value(operator: OperatorType, value: Option<&Value>) -> Result<(), P
                 .all(|part| part.trim().parse::<u64>().is_ok())
                 && to_semver_representation(&Value::String(s.to_owned())).is_some()
         }),
-        IsDateExact | IsDateAfter | IsDateBefore => value
-            .and_then(Value::as_str)
-            .is_some_and(|s| dateparser::parse(s).is_ok() || relative_date_shape(s)),
+        IsDateExact | IsDateAfter | IsDateBefore => {
+            value.and_then(Value::as_str).is_some_and(|s| {
+                dateparser::parse(s).is_ok() || parse_relative_date_parts(s).is_some()
+            })
+        }
         Exact | IsNot | IsSet | IsNotSet => true,
         Between | NotBetween | In | NotIn | FlagEvaluatesTo => false,
     };
@@ -190,17 +193,4 @@ fn value_heap_bytes(value: &Value) -> usize {
                     .sum::<usize>()
         }
     }
-}
-
-fn relative_date_shape(value: &str) -> bool {
-    let Some((unit, number)) = value.as_bytes().split_last() else {
-        return false;
-    };
-    matches!(unit, b'h' | b'd' | b'w' | b'm' | b'y')
-        && std::str::from_utf8(number).ok().is_some_and(|n| {
-            let n = n.strip_prefix('-').unwrap_or(n);
-            !n.is_empty()
-                && n.bytes().all(|b| b.is_ascii_digit())
-                && n.parse::<u32>().is_ok_and(|n| n < 10_000)
-        })
 }
