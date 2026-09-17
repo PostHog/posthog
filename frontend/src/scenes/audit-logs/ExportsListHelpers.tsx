@@ -3,7 +3,14 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { AdvancedActivityLogFilters, ExportedAsset } from './advancedActivityLogsLogic'
+import { AdvancedActivityLogFilters, DetailFilter, ExportedAsset } from './advancedActivityLogsLogic'
+
+const DETAIL_FILTER_OPERATION_LABELS: Record<DetailFilter['operation'], string> = {
+    exact: 'equals',
+    contains: 'contains',
+    in: 'is one of',
+    not_in: 'is none of',
+}
 
 export const getStatusTag = (exportAsset: ExportedAsset): JSX.Element => {
     if (exportAsset.exception) {
@@ -66,6 +73,15 @@ export const getFilterSummary = (exportAsset: ExportedAsset): string => {
     }
     if (filters.ip_addresses && filters.ip_addresses.length > 0) {
         activeFilters.push(`IP addresses: ${filters.ip_addresses.length}`)
+    }
+    if (filters.exclude_users && filters.exclude_users.length > 0) {
+        activeFilters.push(`Excluded users: ${filters.exclude_users.length}`)
+    }
+    if (filters.exclude_clients && filters.exclude_clients.length > 0) {
+        activeFilters.push(`Excluded clients: ${filters.exclude_clients.length}`)
+    }
+    if (filters.exclude_ip_addresses && filters.exclude_ip_addresses.length > 0) {
+        activeFilters.push(`Excluded IP addresses: ${filters.exclude_ip_addresses.length}`)
     }
 
     return activeFilters.length > 0 ? activeFilters.join(', ') : 'No filters'
@@ -136,8 +152,7 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
         const detailFilterEntries = Object.entries(filters.detail_filters)
         const detailFilterText = detailFilterEntries.map(([field, filter]) => {
             const valueText = Array.isArray(filter.value) ? filter.value.join(', ') : filter.value
-            const operationText =
-                filter.operation === 'exact' ? 'equals' : filter.operation === 'contains' ? 'contains' : 'is one of'
+            const operationText = DETAIL_FILTER_OPERATION_LABELS[filter.operation]
             return `${field} ${operationText} "${valueText}"`
         })
 
@@ -200,6 +215,39 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
                 <br />
                 {filters.ip_addresses.slice(0, 5).join(', ')}
                 {filters.ip_addresses.length > 5 && `... and ${filters.ip_addresses.length - 5} more`}
+            </div>
+        )
+    }
+
+    if (filters.exclude_users && filters.exclude_users.length > 0) {
+        filterSections.push(
+            <div key="exclude_users">
+                <strong>Excluded users ({filters.exclude_users.length}):</strong>
+                <br />
+                {filters.exclude_users.slice(0, 5).join(', ')}
+                {filters.exclude_users.length > 5 && `... and ${filters.exclude_users.length - 5} more`}
+            </div>
+        )
+    }
+
+    if (filters.exclude_clients && filters.exclude_clients.length > 0) {
+        filterSections.push(
+            <div key="exclude_clients">
+                <strong>Excluded clients ({filters.exclude_clients.length}):</strong>
+                <br />
+                {filters.exclude_clients.slice(0, 5).join(', ')}
+                {filters.exclude_clients.length > 5 && `... and ${filters.exclude_clients.length - 5} more`}
+            </div>
+        )
+    }
+
+    if (filters.exclude_ip_addresses && filters.exclude_ip_addresses.length > 0) {
+        filterSections.push(
+            <div key="exclude_ip_addresses">
+                <strong>Excluded IP addresses ({filters.exclude_ip_addresses.length}):</strong>
+                <br />
+                {filters.exclude_ip_addresses.slice(0, 5).join(', ')}
+                {filters.exclude_ip_addresses.length > 5 && `... and ${filters.exclude_ip_addresses.length - 5} more`}
             </div>
         )
     }
