@@ -146,7 +146,8 @@ def _create_change_request(
     # The field encoder renders the payloads on the way to the database, but `create()` leaves this
     # instance holding what the caller passed. The 409 body serializes this instance, so without
     # this read a `datetime` reaches it as a native object and renders to a different precision
-    # than every later read of the same row.
+    # than every later read of the same row. Only these three fields reload, so the `team`,
+    # `organization` and `created_by` objects cached by `create()` stay cached for the notification.
     change_request.refresh_from_db(fields=["intent", "intent_display", "policy_snapshot"])
 
     logger.info(
