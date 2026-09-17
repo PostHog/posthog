@@ -47,7 +47,7 @@ function AuthGate() {
 }
 
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     "JetBrainsMono-Regular": require("../../assets/fonts/JetBrainsMono-Regular.ttf"),
     "JetBrainsMono-Medium": require("../../assets/fonts/JetBrainsMono-Medium.ttf"),
     RoundHog: require("../../assets/fonts/RoundHog.ttf"),
@@ -65,7 +65,9 @@ export default function RootLayout() {
     return () => subscription.remove();
   }, [reconnect]);
 
-  if (!fontsLoaded) return null;
+  // Keep going after a font error and accept fallback fonts. AuthGate hides
+  // the splash screen, and it cannot mount while this returns null.
+  if (!fontsLoaded && !fontError) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
