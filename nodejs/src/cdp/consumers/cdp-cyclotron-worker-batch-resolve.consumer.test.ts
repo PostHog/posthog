@@ -445,7 +445,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 [
                     expect.objectContaining({
                         message:
-                            'Batch resolver failed: Audience query timed out after 30s on each of ' +
+                            'Batch resolver failed: Audience query timed out after 30s on the last of ' +
                             `${MAX_RESOLVER_ATTEMPTS} attempts. Use fewer or simpler audience filters, or a smaller audience.`,
                     }),
                 ],
