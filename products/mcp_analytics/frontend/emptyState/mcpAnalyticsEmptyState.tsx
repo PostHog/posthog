@@ -1,4 +1,4 @@
-import * as robotPng from '@posthog/brand/hoggies/png/robot'
+import * as puzzlePng from '@posthog/brand/hoggies/png/puzzle'
 import { IconMCP } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -12,7 +12,7 @@ import { MCP_ANALYTICS_DOCS_URL, MCPListeningIndicator } from '../onboarding/MCP
 import { MCPAnalyticsSetupActions } from './MCPAnalyticsSetupActions'
 import { MCPToolCallPreview } from './MCPToolCallPreview'
 
-const HedgehogRobot = pngHoggie(robotPng)
+const HedgehogPuzzle = pngHoggie(puzzlePng)
 
 export const mcpAnalyticsEmptyState: SceneProductEmptyState = {
     statusLogic: mcpAnalyticsOnboardingLogic,
@@ -24,7 +24,7 @@ export const mcpAnalyticsEmptyState: SceneProductEmptyState = {
         icon: <IconMCP />,
         accentColor: 'var(--color-product-mcp-analytics-light)',
         accentColorDark: 'var(--color-product-mcp-analytics-dark)',
-        hedgehog: HedgehogRobot,
+        hedgehog: HedgehogPuzzle,
         text: {
             'needs-setup': {
                 headline: 'Know how agents actually use your tools',

@@ -349,6 +349,13 @@ class IPThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ip}
 
 
+class SSOLoginThrottle(IPThrottle):
+    """Limit SSO login flow starts from one source IP."""
+
+    scope = "sso_login"
+    rate = "10/minute"
+
+
 class SignupIPThrottle(IPThrottle):
     """
     Rate limit signups by IP address to avoid a single IP address from creating too many accounts.

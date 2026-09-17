@@ -936,13 +936,79 @@ class TestHasDuplicatePrimaryKeys:
         cursor.fetchone.return_value = None
         assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
 
-    def test_returns_false_on_exception(self, impl, cursor, logger):
+    def test_returns_inconclusive_on_exception(self, impl: Any, cursor: Any, logger: Any) -> None:
         cursor.execute.side_effect = RuntimeError("boom")
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
         ) as mock_capture:
-            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is None
         mock_capture.assert_called_once()
+
+    def test_window_limits_the_scan_to_the_rows_this_run_reads(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.fetchone.return_value = None
+
+        impl.has_duplicate_primary_keys(
+            cursor, "public", "t", ["id"], logger, incremental_window=("updated_at", ">", "2026-01-01")
+        )
+
+        executed = cursor.execute.call_args.args[0].as_string()
+        assert '"updated_at" > ' in executed
+
+    def test_window_counts_its_keys_across_the_whole_table(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.fetchone.return_value = None
+
+        impl.has_duplicate_primary_keys(
+            cursor, "public", "t", ["id"], logger, incremental_window=("updated_at", ">", "2026-01-01")
+        )
+
+        executed = cursor.execute.call_args.args[0].as_string()
+        assert "EXISTS (SELECT 1 FROM (SELECT DISTINCT" in executed
+        assert executed.index("GROUP BY") > executed.index("EXISTS (SELECT 1 FROM (SELECT DISTINCT")
+
+    def test_window_matches_a_null_key_as_well(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.fetchone.return_value = None
+        impl.has_duplicate_primary_keys(
+            cursor, "public", "t", ["id", "region"], logger, incremental_window=("updated_at", ">", "2026-01-01")
+        )
+        executed = cursor.execute.call_args.args[0].as_string()
+        assert '(t."id" = c."id" OR (t."id" IS NULL AND c."id" IS NULL))' in executed
+        assert '(t."region" = c."region" OR (t."region" IS NULL AND c."region" IS NULL))' in executed
+        assert " IN (" not in executed
+
+    def test_row_filters_bound_both_sides_of_the_check(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.fetchone.return_value = None
+
+        impl.has_duplicate_primary_keys(
+            cursor,
+            "public",
+            "t",
+            ["id"],
+            logger,
+            incremental_window=("updated_at", ">", "2026-01-01"),
+            row_filters=[
+                ValidatedRowFilter(column="tenant", operator="=", value="acme", category=ColumnTypeCategory.STRING)
+            ],
+        )
+
+        executed = cursor.execute.call_args.args[0].as_string()
+        assert executed.count('"tenant"') == 2
+
+    def test_an_aborted_check_is_inconclusive_not_clean(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.execute.side_effect = psycopg.errors.InternalError_("system requested abort")
+
+        assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is None
+
+    def test_no_window_scans_the_whole_table(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.fetchone.return_value = None
+
+        impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger)
+
+        assert "WHERE" not in cursor.execute.call_args.args[0].as_string()
+
+    def test_query_canceled_is_propagated(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.execute.side_effect = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        with pytest.raises(psycopg.errors.QueryCanceled):
+            impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger)
 
     def test_operational_error_is_propagated(self, impl, cursor, logger):
         # A connection-level failure (e.g. the SSL connection dropping mid-query) means the probe
@@ -958,7 +1024,7 @@ class TestHasDuplicatePrimaryKeys:
                 impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger)
         mock_capture.assert_not_called()
 
-    def test_system_requested_abort_is_not_reported(self, impl, cursor, logger):
+    def test_system_requested_abort_is_not_reported(self, impl: Any, cursor: Any, logger: Any) -> None:
         # Redshift WLM/QMR aborts (code 1020, "system requested abort") surface as `InternalError_`
         # and are expected, non-actionable noise — skip gracefully without reporting to error tracking.
         abort_message = (
@@ -969,7 +1035,7 @@ class TestHasDuplicatePrimaryKeys:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
         ) as mock_capture:
-            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is None
         mock_capture.assert_not_called()
 
 

@@ -53,8 +53,16 @@ Prefer reusing existing insights over recreating them.
 - New dashboard: `dashboard-create` with a short (3–7 word) name and a concise description, then add the insight tiles.
 - Existing dashboard: `dashboard-update`. Adding, replacing, or removing insights means sending the full intended set of
   tiles — insights you omit are removed, so include the ones you want to keep.
-- Layout: by default preserve existing tile placement. Only reflow (`dashboard-reorder-tiles`) when the user explicitly
-  asks to rearrange, reorder, or move tiles.
+- Layout: by default preserve existing tile placement. Use `dashboard-update` to plan each tile independently on the
+  12-column grid. Tile widths can be any whole number from 1 to 12, subject to each tile's minimum size. Use wider
+  tiles for primary charts and smaller tiles for supporting metrics. Mixed rows such as 8 plus 4 or 6 plus 6 can show
+  that hierarchy.
+- Reflow: use `dashboard-reorder-tiles` only when the user explicitly asks to reorder tiles or make every tile the
+  same size. Its layout modes give every tile a uniform box. For mixed widths or heights, use `dashboard-update`.
+- Tile sizes: send `tiles` through `dashboard-update` with each tile's `id` and a complete `layouts.sm` box. `sm` is
+  required whenever you send `layouts`, because a write replaces the tile's whole layout. `sm` controls desktop
+  placement, and the dashboard derives the mobile layout from the `sm` order and heights, so set only `sm`. The API
+  stores only `x`, `y`, `w`, and `h`. It does not resolve overlaps, so plan the grid before you send it.
 - Verify with `dashboard-insights-run` to confirm the tiles return data, then summarize what you built and invite the
   user to refine it.
 
