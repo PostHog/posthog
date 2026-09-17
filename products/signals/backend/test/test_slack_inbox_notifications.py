@@ -423,8 +423,17 @@ def test_dispatch_falls_back_to_team_channel_without_suggested_reviewers(org_and
 
 
 @pytest.mark.django_db
-def test_reviewer_resolution_uses_only_the_latest_reviewer_row(org_and_team):
+@pytest.mark.parametrize("has_project_access", [True, False])
+def test_reviewer_resolution_uses_only_the_latest_reviewer_row(
+    org_and_team: tuple[Organization, Team], has_project_access: bool
+) -> None:
     org, team = org_and_team
+    if not has_project_access:
+        org.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        org.save()
+        AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
     old_reviewer = _make_reviewer_user(org, "old@example.com", "old-reviewer")
     current_reviewer = _make_reviewer_user(org, "current@example.com", "current-reviewer")
     report = _make_ready_report(team, priority=AutonomyPriority.P1)
@@ -441,7 +450,7 @@ def test_reviewer_resolution_uses_only_the_latest_reviewer_row(org_and_team):
         content=json.dumps([{"user_uuid": str(current_reviewer.uuid)}]),
     )
 
-    assert _resolve_suggested_reviewer_user_ids(report) == {current_reviewer.id}
+    assert _resolve_suggested_reviewer_user_ids(report) == ({current_reviewer.id} if has_project_access else set())
 
 
 @pytest.mark.django_db
