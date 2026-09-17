@@ -7,7 +7,16 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, productSplitShards, PRODUCT_JOB_OVERHEAD_SECONDS, TARGET_WALL_SECONDS } = require('./turbo-discover.js')
+const {
+    pruneDeadDurations,
+    getSegmentDuration,
+    calculateShards,
+    resolveProductSizing,
+    buildMatrix,
+    productSplitShards,
+    PRODUCT_JOB_OVERHEAD_SECONDS,
+    TARGET_WALL_SECONDS,
+} = require('./turbo-discover.js')
 
 // A path that exists in every checkout, so the existence check is deterministic.
 const LIVE_FILE = '.github/scripts/turbo-discover.js'
@@ -69,7 +78,10 @@ test('calculateShards keeps the floor and ceiling', () => {
 test('calculateShards floors the work budget at half the overhead', () => {
     // Overhead above the target makes it unreachable; the work budget floors at
     // half the overhead instead of going negative.
-    assert.equal(calculateShards(6000, TARGET_WALL_SECONDS + 100, 1), Math.ceil(6000 / ((TARGET_WALL_SECONDS + 100) / 2)))
+    assert.equal(
+        calculateShards(6000, TARGET_WALL_SECONDS + 100, 1),
+        Math.ceil(6000 / ((TARGET_WALL_SECONDS + 100) / 2))
+    )
 })
 
 // Product sizing: with the junit-scaled marker the union's product sums are
@@ -96,7 +108,10 @@ test('buildMatrix splits a product to the shared wall target', () => {
     const matrix = buildMatrix(['big-one'], union, true)
 
     // 2000s of work, with the imbalance margin, over a (target - overhead) budget.
-    assert.equal(matrix.length, productSplitShards({ work: 2000, heavyCount: 0, lightWork: 2000, maxLight: 50, testCount: 40 }))
+    assert.equal(
+        matrix.length,
+        productSplitShards({ work: 2000, heavyCount: 0, lightWork: 2000, maxLight: 50, testCount: 40 })
+    )
     assert.match(matrix[0].group, /^big-one \(1\/\d+\)$/)
 })
 
@@ -143,10 +158,7 @@ test('tests above half the budget each hold a shard of their own', () => {
     // One heavy test and a sliver stays bounded rather than asking for a shard per
     // second of remainder. Two tests cannot fill three shards, so the count stops
     // there rather than planning one that collects nothing.
-    assert.equal(
-        productSplitShards({ work: budget + 1, heavyCount: 1, lightWork: 1, maxLight: 1, testCount: 2 }),
-        2
-    )
+    assert.equal(productSplitShards({ work: budget + 1, heavyCount: 1, lightWork: 1, maxLight: 1, testCount: 2 }), 2)
 })
 
 test('the count never exceeds the tests there are to place', () => {
@@ -162,10 +174,7 @@ test('a product holding one test is never split', () => {
 
     // One test over the budget still gets one job: a second would collect nothing,
     // and no split shortens the first.
-    assert.equal(
-        productSplitShards({ work: budget + 1, heavyCount: 1, lightWork: 0, maxLight: 0, testCount: 1 }),
-        1
-    )
+    assert.equal(productSplitShards({ work: budget + 1, heavyCount: 1, lightWork: 0, maxLight: 0, testCount: 1 }), 1)
 })
 
 test('a heavy test between light ones splits the light run', () => {

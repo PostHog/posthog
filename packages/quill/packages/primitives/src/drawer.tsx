@@ -1,7 +1,8 @@
+import './drawer.css'
+
 import { Drawer as DrawerPrimitive } from '@base-ui/react/drawer'
 import * as React from 'react'
 
-import './drawer.css'
 import { cn } from './lib/utils'
 
 function Drawer({ ...props }: DrawerPrimitive.Root.Props): React.ReactElement {
@@ -32,11 +33,7 @@ function DrawerBackdrop({ className, ...props }: DrawerPrimitive.Backdrop.Props)
     )
 }
 
-function DrawerContent({
-    className,
-    children,
-    ...props
-}: DrawerPrimitive.Popup.Props): React.ReactElement {
+function DrawerContent({ className, children, ...props }: DrawerPrimitive.Popup.Props): React.ReactElement {
     return (
         <DrawerPortal>
             <DrawerBackdrop />
@@ -53,9 +50,7 @@ function DrawerContent({
                     {...props}
                 >
                     <DrawerHandle />
-                    <div className="w-full max-w-[32rem] mx-auto">
-                    {children}
-                    </div>
+                    <div className="w-full max-w-[32rem] mx-auto">{children}</div>
                 </DrawerPrimitive.Popup>
             </DrawerPrimitive.Viewport>
         </DrawerPortal>
@@ -95,11 +90,7 @@ function DrawerFooter({ className, ...props }: React.ComponentProps<'div'>): Rea
 
 function DrawerTitle({ className, ...props }: DrawerPrimitive.Title.Props): React.ReactElement {
     return (
-        <DrawerPrimitive.Title
-            data-slot="drawer-title"
-            className={cn('quill-drawer__title', className)}
-            {...props}
-        />
+        <DrawerPrimitive.Title data-slot="drawer-title" className={cn('quill-drawer__title', className)} {...props} />
     )
 }
 

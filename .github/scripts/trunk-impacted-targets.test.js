@@ -508,7 +508,10 @@ test('the paths-filter action and its CI share the ci-tooling lane', () => {
 // and depot.json is billing and cache routing that fails its own PR's builds
 // alone.
 test('pnpm patches take the JS lanes and depot.json the repo-config lane', () => {
-    assert.deepEqual(computeTargets(['patches/dayjs@1.11.11.patch'], CONTEXT), computeTargets(['.oxlintrc.json'], CONTEXT))
+    assert.deepEqual(
+        computeTargets(['patches/dayjs@1.11.11.patch'], CONTEXT),
+        computeTargets(['.oxlintrc.json'], CONTEXT)
+    )
     assert.deepEqual(computeTargets(['depot.json'], CONTEXT), ['repo-config'])
 })
 
@@ -801,7 +804,10 @@ test('the agent-skills workflow claims both language families', () => {
 })
 
 test('the ml-mirror sidecar image and its workflow stay on the node lane', () => {
-    for (const file of ['.github/workflows/ci-ml-mirror-image-scrub-container.yml', 'Dockerfile.ml-mirror-image-scrub']) {
+    for (const file of [
+        '.github/workflows/ci-ml-mirror-image-scrub-container.yml',
+        'Dockerfile.ml-mirror-image-scrub',
+    ]) {
         assert.deepEqual(computeTargets([file], CONTEXT), ['node:ingestion'], file)
     }
 })

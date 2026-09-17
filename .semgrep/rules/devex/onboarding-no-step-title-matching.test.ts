@@ -33,7 +33,7 @@ const h = paSteps.filter((step) => step['title'] === 'Send events')
 
 // double quotes, any receiver name
 // ruleid: onboarding-no-step-title-matching
-const i = paSteps.map((s) => (s.title === "Send events" ? replacement : s))
+const i = paSteps.map((s) => (s.title === 'Send events' ? replacement : s))
 
 // template literal
 // ruleid: onboarding-no-step-title-matching

@@ -11,8 +11,8 @@ import {
     resolveAxisLineColor,
 } from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
-import { applyChartDefaults } from '../../core/chart-config'
 import { Chart } from '../../core/Chart'
+import { applyChartDefaults } from '../../core/chart-config'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import {
     buildSegmentResolveValue,

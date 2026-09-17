@@ -2,19 +2,18 @@
 {% load i18n %}
 {% block content %}
     <p>
-        Provision a new managed warehouse for an organization and its first team. This runs the same
-        flow as the in-product provision API: the duckgres control-plane <code>/provision</code> call, then
-        the local <code>DuckgresServer</code> connection record and the control-plane team row.
-        The organization's <code>data-warehouse-scene</code> feature flag is
-        <strong>not</strong> required here.
+        Provision a new managed warehouse for an organization and its first team. This runs the same flow as the in-product
+        provision API: the duckgres control-plane <code>/provision</code> call, then the local
+        <code>DuckgresServer</code> connection record and the control-plane team row. The organization's
+        <code>data-warehouse-scene</code> feature flag is <strong>not</strong> required here.
     </p>
     <p>
-        <strong>This makes a real control-plane call.</strong> In environments where
-        <code>DUCKGRES_API_URL</code> is unset, it returns "not configured" and persists nothing.
+        <strong>This makes a real control-plane call.</strong> In environments where <code>DUCKGRES_API_URL</code> is unset,
+        it returns "not configured" and persists nothing.
     </p>
     <form method="post">
         {% csrf_token %}
-        <div style="margin: 20px 0;">
+        <div style="margin: 20px 0">
             <label for="organization_id"
                    style="display: block;
                           margin-bottom: 5px;
@@ -26,7 +25,7 @@
                           padding: 8px"
                    required />
         </div>
-        <div style="margin: 20px 0;">
+        <div style="margin: 20px 0">
             <label for="team_id"
                    style="display: block;
                           margin-bottom: 5px;
@@ -38,7 +37,7 @@
                           padding: 8px"
                    required />
         </div>
-        <div style="margin: 20px 0;">
+        <div style="margin: 20px 0">
             <label for="database_name"
                    style="display: block;
                           margin-bottom: 5px;
@@ -49,9 +48,12 @@
                    style="width: 400px;
                           padding: 8px"
                    required />
-            <p class="help">Becomes the connection's SNI subdomain — 3-63 chars, lowercase letters, numbers and hyphens, starting with a letter.</p>
+            <p class="help">
+                Becomes the connection's SNI subdomain — 3-63 chars, lowercase letters, numbers and hyphens, starting with a
+                letter.
+            </p>
         </div>
-        <div style="margin: 20px 0;">
+        <div style="margin: 20px 0">
             <label for="schema_name"
                    style="display: block;
                           margin-bottom: 5px;
@@ -62,9 +64,12 @@
                    style="width: 400px;
                           padding: 8px"
                    required />
-            <p class="help">The team's schema in the warehouse (lowercase letters, numbers and underscores). The schema name cannot be changed later.</p>
+            <p class="help">
+                The team's schema in the warehouse (lowercase letters, numbers and underscores). The schema name cannot be
+                changed later.
+            </p>
         </div>
-        <div style="margin-top: 20px;">
+        <div style="margin-top: 20px">
             <input type="submit"
                    class="default"
                    value="Provision"

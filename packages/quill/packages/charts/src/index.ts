@@ -206,8 +206,4 @@ export { ChartLegend } from './components/Legend/ChartLegend'
 export type { ChartLegendProps } from './components/Legend/ChartLegend'
 export { legendItemsFromSeries } from './components/Legend/legendItemsFromSeries'
 export { useChartLegend, applyHiddenSeries } from './components/Legend/useChartLegend'
-export type {
-    ChartLegendRenderProps,
-    ChartLegendState,
-    LegendItemControls,
-} from './components/Legend/useChartLegend'
+export type { ChartLegendRenderProps, ChartLegendState, LegendItemControls } from './components/Legend/useChartLegend'

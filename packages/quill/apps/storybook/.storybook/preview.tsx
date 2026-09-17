@@ -2,9 +2,10 @@ import './storybook.css'
 
 import { DocsContainer } from '@storybook/addon-docs/blocks'
 import type { Preview } from '@storybook/react'
-import { themes } from 'storybook/theming'
 import React, { useEffect, useState } from 'react'
 import { useDarkMode } from 'storybook-dark-mode'
+
+import { themes } from 'storybook/theming'
 
 // The Docs container renders outside Storybook's preview-hooks context, so
 // `useDarkMode()` (a preview hook) can't be used here. Track the `<html>.dark`

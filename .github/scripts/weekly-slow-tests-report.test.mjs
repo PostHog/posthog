@@ -41,7 +41,10 @@ describe('weekly slow tests report', () => {
         assert.match(captured.query, /median\(toFloat\(duration_nano\)\)/)
         assert.doesNotMatch(captured.query, /toFloat64/)
         assert.match(captured.query, /lower\(resource_attributes\['ci\.repository'\]\) = lower\(\{repository\}\)/)
-        assert.match(captured.query, /ci\.branch'\] = {for_branch} OR resource_attributes\['ci\.branch'\] LIKE {merge_queue_glob}/)
+        assert.match(
+            captured.query,
+            /ci\.branch'\] = {for_branch} OR resource_attributes\['ci\.branch'\] LIKE {merge_queue_glob}/
+        )
         assert.match(captured.query, /GROUP BY/)
         assert.equal(captured.values.repository, 'PostHog/posthog')
         assert.equal(captured.values.for_branch, 'master')
@@ -77,7 +80,10 @@ describe('weekly slow tests report', () => {
             rankReportCandidates(items, 10).map((item) => item.selector),
             ['b.py::test_b', 'a.py::test_a', 'c.py::test_c']
         )
-        assert.deepEqual(rankReportCandidates(items, 2).map((item) => item.selector), ['b.py::test_b', 'a.py::test_a'])
+        assert.deepEqual(
+            rankReportCandidates(items, 2).map((item) => item.selector),
+            ['b.py::test_b', 'a.py::test_a']
+        )
     })
 
     it('dedupes editors newest-first, skips bots, and caps at two', () => {
@@ -169,15 +175,18 @@ describe('weekly slow tests report', () => {
             { ...ITEM, file: 'b.py', repoPaths: ['b.py'] },
         ]
         const githubCalls = []
-        const editorIndex = await buildEditorIndex(
-            candidates,
-            async (url) => {
-                githubCalls.push(url)
-                assert.match(url, /^https:\/\/api\.github\.com\/repos\/PostHog\/posthog\/commits\?/)
-                const path = new URL(url).searchParams.get('path')
-                return [{ sha: '1', commit: { author: { email: `${path}@example.com` } }, author: { login: `editor-of-${path}` } }]
-            }
-        )
+        const editorIndex = await buildEditorIndex(candidates, async (url) => {
+            githubCalls.push(url)
+            assert.match(url, /^https:\/\/api\.github\.com\/repos\/PostHog\/posthog\/commits\?/)
+            const path = new URL(url).searchParams.get('path')
+            return [
+                {
+                    sha: '1',
+                    commit: { author: { email: `${path}@example.com` } },
+                    author: { login: `editor-of-${path}` },
+                },
+            ]
+        })
 
         assert.equal(githubCalls.length, 2)
         assert.equal(editorIndex.get('a.py').length, 1)
@@ -208,11 +217,7 @@ describe('weekly slow tests report', () => {
 
     it('builds a six-column Slack table with supported cells and structured links', () => {
         const editorFor = () => [{ login: 'adalovelace', email: 'ada@example.com', slackId: 'U1' }]
-        const rows = tableRows(
-            [ITEM],
-            () => ({ owner: 'team-observability', repoPath: ITEM.file }),
-            editorFor
-        )
+        const rows = tableRows([ITEM], () => ({ owner: 'team-observability', repoPath: ITEM.file }), editorFor)
         const blocks = buildBlocks(new Date('2026-08-03T00:00:00Z'), rows)
         const table = blocks.find((block) => block.type === 'table')
 

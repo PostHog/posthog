@@ -38,6 +38,11 @@ describe('heatmap-layout', () => {
     })
 
     it('maxCellValue ignores non-finite values', () => {
-        expect(maxCellValue([[1, Number.NaN], [Number.POSITIVE_INFINITY, 7]])).toBe(7)
+        expect(
+            maxCellValue([
+                [1, Number.NaN],
+                [Number.POSITIVE_INFINITY, 7],
+            ])
+        ).toBe(7)
     })
 })

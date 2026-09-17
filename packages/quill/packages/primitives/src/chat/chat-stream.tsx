@@ -1,6 +1,7 @@
+import './chat-stream.css'
+
 import * as React from 'react'
 
-import './chat-stream.css'
 import { cn } from '../lib/utils'
 
 /**

@@ -145,9 +145,15 @@ async function fetchWorkflowRuns(
 ) {
     for (let attempt = 0; ; attempt++) {
         try {
-            return await fetchSettledRuns(github, owner, repo, workflowFile, perPage, { event, maxLagMinutes, freshAsOf })
+            return await fetchSettledRuns(github, owner, repo, workflowFile, perPage, {
+                event,
+                maxLagMinutes,
+                freshAsOf,
+            })
         } catch (err) {
-            if (!err.staleIndex || attempt >= STALE_PAGE_RETRIES) {throw err}
+            if (!err.staleIndex || attempt >= STALE_PAGE_RETRIES) {
+                throw err
+            }
             await sleep(STALE_PAGE_RETRY_DELAY_MS)
         }
     }
@@ -185,8 +191,12 @@ async function fetchSettledRuns(github, owner, repo, workflowFile, perPage, { ev
         for (const run of data.workflow_runs) {
             // In-progress/queued must neither count as nor break a failure streak (mirroring how
             // unreported commits classify 'unknown'); cancelled/skipped never reflect real health.
-            if (run.status !== 'completed') {continue}
-            if (run.conclusion === 'cancelled' || run.conclusion === 'skipped') {continue}
+            if (run.status !== 'completed') {
+                continue
+            }
+            if (run.conclusion === 'cancelled' || run.conclusion === 'skipped') {
+                continue
+            }
             settled.push({
                 id: run.id,
                 name: run.name,
@@ -201,7 +211,9 @@ async function fetchSettledRuns(github, owner, repo, workflowFile, perPage, { ev
         // Once a kept run is a non-failure it terminates the leading streak, so we have all we need.
         // A short raw page means there are no older runs to fetch.
         const streakBounded = settled.some((r) => !isFailure(r))
-        if (streakBounded || data.workflow_runs.length < perPage) {break}
+        if (streakBounded || data.workflow_runs.length < perPage) {
+            break
+        }
     }
     return settled
 }
@@ -224,8 +236,11 @@ function contiguousFailureSince(runs, count) {
     const dispatchedAt = (run) => run.created_at || run.updated_at
     let oldest = runs[0]
     for (let i = 1; i < count; i++) {
-        const gapMins = (new Date(dispatchedAt(runs[i - 1])).getTime() - new Date(dispatchedAt(runs[i])).getTime()) / 60000
-        if (!(gapMins <= STREAK_MAX_GAP_MINUTES)) {break} // NaN-safe
+        const gapMins =
+            (new Date(dispatchedAt(runs[i - 1])).getTime() - new Date(dispatchedAt(runs[i])).getTime()) / 60000
+        if (!(gapMins <= STREAK_MAX_GAP_MINUTES)) {
+            break
+        } // NaN-safe
         oldest = runs[i]
     }
     return dispatchedAt(oldest)
@@ -237,7 +252,9 @@ function contiguousFailureSince(runs, count) {
 function buildFailingMap(laneRuns) {
     const failing = {}
     for (const { lane, runs } of laneRuns) {
-        if (runs.length === 0) {continue}
+        if (runs.length === 0) {
+            continue
+        }
         const count = countConsecutiveFailures(runs)
         if (count > 0) {
             const latest = runs[0]
@@ -286,13 +303,17 @@ function classifyCommits(commits, allWorkflowRuns) {
     const runsBySha = new Map()
     for (const runs of allWorkflowRuns) {
         for (const run of runs) {
-            if (!runsBySha.has(run.sha)) {runsBySha.set(run.sha, [])}
+            if (!runsBySha.has(run.sha)) {
+                runsBySha.set(run.sha, [])
+            }
             runsBySha.get(run.sha).push(run)
         }
     }
     return commits.map((commit) => {
         const runs = runsBySha.get(commit.sha) || []
-        if (runs.length === 0) {return { ...commit, status: 'unknown' }}
+        if (runs.length === 0) {
+            return { ...commit, status: 'unknown' }
+        }
         const red = runs.some(isFailure)
         return { ...commit, status: red ? 'red' : 'green' }
     })
@@ -306,10 +327,16 @@ function leadingRedStreak(classified) {
     let count = 0
     let since = null
     for (const commit of classified) {
-        if (commit.status === 'green') {break}
-        if (commit.status !== 'red') {continue}
+        if (commit.status === 'green') {
+            break
+        }
+        if (commit.status !== 'red') {
+            continue
+        }
         count++
-        if (commit.date) {since = commit.date}
+        if (commit.date) {
+            since = commit.date
+        }
     }
     return { count, since }
 }
@@ -327,7 +354,9 @@ function defaultSlackClient(token, fetchImpl) {
             body: JSON.stringify(body),
         })
         const data = await res.json()
-        if (!data.ok) {throw new Error(`slack ${method} failed: ${data.error}`)}
+        if (!data.ok) {
+            throw new Error(`slack ${method} failed: ${data.error}`)
+        }
         return data
     }
     return {
@@ -341,7 +370,9 @@ function defaultSlackClient(token, fetchImpl) {
             url.searchParams.set('include_all_metadata', 'true')
             const res = await doFetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } })
             const data = await res.json()
-            if (!data.ok) {throw new Error(`slack conversations.history failed: ${data.error}`)}
+            if (!data.ok) {
+                throw new Error(`slack conversations.history failed: ${data.error}`)
+            }
             return data
         },
     }
@@ -349,7 +380,9 @@ function defaultSlackClient(token, fetchImpl) {
 
 // Only an incident's first tick calls this, so a start lost here is never retried by a later tick.
 async function startDiagnosisAgent({ url, fetchImpl, sleep, core }, payload) {
-    if (!url) {return false}
+    if (!url) {
+        return false
+    }
     // The url is the only thing guarding the endpoint, and a variable is not masked in this public
     // repo's logs, so register it before any code path can print it.
     core.setSecret(url)
@@ -363,12 +396,16 @@ async function startDiagnosisAgent({ url, fetchImpl, sleep, core }, payload) {
                 body: JSON.stringify(payload),
                 signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
             })
-            if (res.ok) {return true}
+            if (res.ok) {
+                return true
+            }
             lastError = `HTTP ${res.status}`
         } catch (err) {
             lastError = err.message
         }
-        if (attempt < WEBHOOK_ATTEMPTS) {await sleep(WEBHOOK_RETRY_DELAY_MS * attempt)}
+        if (attempt < WEBHOOK_ATTEMPTS) {
+            await sleep(WEBHOOK_RETRY_DELAY_MS * attempt)
+        }
     }
     core.setFailed(`Could not start the diagnosis agent after ${WEBHOOK_ATTEMPTS} attempts: ${lastError}`)
     return false
@@ -394,7 +431,9 @@ async function findActiveIncident(slack, channel) {
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 function formatDuration(mins) {
-    if (mins < 60) {return `${mins}m`}
+    if (mins < 60) {
+        return `${mins}m`
+    }
     const h = Math.floor(mins / 60)
     const m = mins % 60
     return m === 0 ? `${h}h` : `${h}h ${m}m`
@@ -485,9 +524,15 @@ function buildThreadReply({ created = [], added = [], removed = [], commitStarte
         // Arm-neutral wording: the anchor bullet already says count vs. duration.
         parts.push(...created.map((wf) => `:red_circle: ${workflowLink(wf)} is now failing master`))
     }
-    if (added.length) {parts.push(`:heavy_plus_sign: now also failing: ${added.map(workflowLink).join(', ')}`)}
-    if (removed.length) {parts.push(`:white_check_mark: recovered: ${removed.map(workflowLink).join(', ')}`)}
-    if (commitStarted) {parts.push(`:red_circle: commit-failure streak crossed the threshold`)}
+    if (added.length) {
+        parts.push(`:heavy_plus_sign: now also failing: ${added.map(workflowLink).join(', ')}`)
+    }
+    if (removed.length) {
+        parts.push(`:white_check_mark: recovered: ${removed.map(workflowLink).join(', ')}`)
+    }
+    if (commitStarted) {
+        parts.push(`:red_circle: commit-failure streak crossed the threshold`)
+    }
     return parts.join('\n')
 }
 
@@ -549,9 +594,7 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
               ),
         activePromise,
     ])
-    const knownLaneRuns = lanes
-        .map((lane, i) => ({ lane, runs: fetchedRuns[i] }))
-        .filter(({ runs }) => runs !== null)
+    const knownLaneRuns = lanes.map((lane, i) => ({ lane, runs: fetchedRuns[i] })).filter(({ runs }) => runs !== null)
     const knownRuns = knownLaneRuns.map(({ runs }) => runs)
     // Reconciling an open incident on incomplete reads would let a stale page or a failed fetch
     // masquerade as recovery.
@@ -577,7 +620,8 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     const latestCommit = commits?.[0] || null
     // Fail closed: no dated commit → not recent → the wall-clock arm won't open.
     const recentActivity =
-        latestCommit?.date != null && now.getTime() - new Date(latestCommit.date).getTime() <= activityWindowMins * 60000
+        latestCommit?.date != null &&
+        now.getTime() - new Date(latestCommit.date).getTime() <= activityWindowMins * 60000
 
     const { count: commitStreakCount, since: commitStreakSince } = leadingRedStreak(
         classifyCommits(commits || [], knownRuns)
@@ -600,7 +644,9 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     // Earliest start across both active signals (preserve original on update); gap-bounded displaySince.
     const computeSince = () => {
         const times = blocking.map((b) => new Date(b.displaySince).getTime())
-        if (commitActive && commitStreakSince) {times.push(new Date(commitStreakSince).getTime())}
+        if (commitActive && commitStreakSince) {
+            times.push(new Date(commitStreakSince).getTime())
+        }
         return times.length ? new Date(Math.min(...times)).toISOString() : now.toISOString()
     }
 

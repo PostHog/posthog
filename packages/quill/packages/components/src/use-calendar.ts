@@ -104,10 +104,7 @@ export const useCalendar = ({
 
     const clearSelected = useCallback(() => setSelected([]), [])
 
-    const isSelected = useCallback(
-        (date: Date) => selected.findIndex((s) => isEqual(s, date)) > -1,
-        [selected]
-    )
+    const isSelected = useCallback((date: Date) => selected.findIndex((s) => isEqual(s, date)) > -1, [selected])
 
     const select = useCallback((date: Date | Date[], replaceExisting?: boolean) => {
         if (replaceExisting) {
@@ -128,8 +125,7 @@ export const useCalendar = ({
     )
 
     const toggle = useCallback(
-        (date: Date, replaceExisting?: boolean) =>
-            isSelected(date) ? deselect(date) : select(date, replaceExisting),
+        (date: Date, replaceExisting?: boolean) => (isSelected(date) ? deselect(date) : select(date, replaceExisting)),
         [deselect, isSelected, select]
     )
 
@@ -143,7 +139,12 @@ export const useCalendar = ({
 
     const deselectRange = useCallback((start: Date, end: Date) => {
         setSelected((items) =>
-            items.filter((s) => !eachDayOfInterval({ start, end }).map((d) => d.getTime()).includes(s.getTime()))
+            items.filter(
+                (s) =>
+                    !eachDayOfInterval({ start, end })
+                        .map((d) => d.getTime())
+                        .includes(s.getTime())
+            )
         )
     }, [])
 

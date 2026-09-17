@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-/* eslint-disable no-console */
-import { chromium } from 'playwright-core'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+/* eslint-disable no-console */
+import { chromium } from 'playwright-core'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const STATIC_DIR = resolve(__dirname, '../storybook-static')
@@ -31,7 +31,9 @@ async function main() {
     if (!entries.length) {
         throw new Error('No stories found in index.json')
     }
-    console.log(`Found ${entries.length} stories. Capturing ${entries.length * THEMES.length} screenshots (${THEMES.length} themes).`)
+    console.log(
+        `Found ${entries.length} stories. Capturing ${entries.length * THEMES.length} screenshots (${THEMES.length} themes).`
+    )
 
     await Promise.all(THEMES.map((t) => mkdir(resolve(OUT_DIR, t), { recursive: true })))
 
@@ -119,7 +121,9 @@ async function main() {
     async function worker() {
         while (queue.length) {
             const item = queue.shift()
-            if (!item) {return}
+            if (!item) {
+                return
+            }
             const { entry, theme } = item
             const r = await captureOne(entry, theme)
             done++

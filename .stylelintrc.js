@@ -19,7 +19,8 @@ module.exports = {
         'selector-class-pattern': [
             '^[A-Za-z0-9_/-]+(__[A-Za-z0-9_/-]+)?(--[A-Za-z0-9/-]+)?$',
             {
-                message: 'Expected class selector to match Block__Element--Modifier or plain snake-case (slash allowed for Tailwind opacity)',
+                message:
+                    'Expected class selector to match Block__Element--Modifier or plain snake-case (slash allowed for Tailwind opacity)',
             },
         ],
         'selector-id-pattern': [

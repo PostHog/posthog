@@ -66,7 +66,9 @@ function commitsWithRuns(perCommitConclusions) {
     const runsByWorkflow = {}
     perCommitConclusions.forEach((conclusionsMap, i) => {
         for (const [wf, conclusion] of Object.entries(conclusionsMap)) {
-            if (!runsByWorkflow[wf]) {runsByWorkflow[wf] = []}
+            if (!runsByWorkflow[wf]) {
+                runsByWorkflow[wf] = []
+            }
             runsByWorkflow[wf].push({
                 name: wf === 'ci-backend.yml' ? 'Backend CI' : 'Frontend CI',
                 status: 'completed',
@@ -120,8 +122,22 @@ const activeAnchor = (payload = {}) => ({
 // One failure that landed `redMins` ago, preceded by a green run. count=1 (below the streak
 // threshold), so this drives the wall-clock arm in isolation; redForMins == redMins.
 const failingFor = (redMins, name = 'Backend CI') => [
-    { name, status: 'completed', conclusion: 'failure', head_sha: `f_${redMins}`, html_url: `https://github.com/runs/${name}/f`, updated_at: minutes(-redMins).toISOString() },
-    { name, status: 'completed', conclusion: 'success', head_sha: `g_${redMins}`, html_url: `https://github.com/runs/${name}/g`, updated_at: minutes(-(redMins + 30)).toISOString() },
+    {
+        name,
+        status: 'completed',
+        conclusion: 'failure',
+        head_sha: `f_${redMins}`,
+        html_url: `https://github.com/runs/${name}/f`,
+        updated_at: minutes(-redMins).toISOString(),
+    },
+    {
+        name,
+        status: 'completed',
+        conclusion: 'success',
+        head_sha: `g_${redMins}`,
+        html_url: `https://github.com/runs/${name}/g`,
+        updated_at: minutes(-(redMins + 30)).toISOString(),
+    },
 ]
 
 // A single commit `ageMins` old — drives recentActivity. No matching run SHA, so it classifies
@@ -325,7 +341,10 @@ describe('ci-alerts-devex', () => {
         const thread = slack.postMessage.calls[0][0].text
         assert.match(thread, /now also failing/)
         assert.match(thread, /Frontend CI/)
-        assert.match(thread, /engineering-analytics\/repos\/PostHog\/posthog\/actions\/workflows\/Frontend%20CI\?q=master/)
+        assert.match(
+            thread,
+            /engineering-analytics\/repos\/PostHog\/posthog\/actions\/workflows\/Frontend%20CI\?q=master/
+        )
     })
 
     it('strikes through the anchor and threads recovery on resolve', async () => {
@@ -440,13 +459,24 @@ describe('ci-alerts-devex', () => {
         updated_at: updatedAt,
     })
     const pushAt = (iso) => [
-        { sha: 'push', html_url: 'https://github.com/commit/push', author: { login: 'dev' }, commit: { message: 'p', author: { name: 'dev', date: iso } } },
+        {
+            sha: 'push',
+            html_url: 'https://github.com/commit/push',
+            author: { login: 'dev' },
+            commit: { message: 'p', author: { name: 'dev', date: iso } },
+        },
     ]
     // A runs page anchored ~3 days back — the shape both observed phantoms ("red 70h", "red 141h")
     // were built from.
     const stalePage = (conclusion = 'failure') => [
-        { ...failureRun('Backend CI', 'stale1', minutes(-4200).toISOString(), minutes(-4186).toISOString()), conclusion },
-        { ...failureRun('Backend CI', 'stale2', minutes(-4215).toISOString(), minutes(-4201).toISOString()), conclusion },
+        {
+            ...failureRun('Backend CI', 'stale1', minutes(-4200).toISOString(), minutes(-4186).toISOString()),
+            conclusion,
+        },
+        {
+            ...failureRun('Backend CI', 'stale2', minutes(-4215).toISOString(), minutes(-4201).toISOString()),
+            conclusion,
+        },
     ]
 
     it('bridged stale failures do not inflate the displayed duration (regression)', async () => {
@@ -592,7 +622,10 @@ describe('ci-alerts-devex', () => {
             nonTerminalRun('ip'),
             nonTerminalRun('q', 'queued'),
             failureRun('Backend CI', 'f', minutes(-5).toISOString(), minutes(-5).toISOString()),
-            { ...failureRun('Backend CI', 'x', minutes(-10).toISOString(), minutes(-10).toISOString()), conclusion: 'cancelled' },
+            {
+                ...failureRun('Backend CI', 'x', minutes(-10).toISOString(), minutes(-10).toISOString()),
+                conclusion: 'cancelled',
+            },
             runs('Backend CI', ['success'])[0],
         ]
         let capturedParams
@@ -770,7 +803,11 @@ describe('ci-alerts-devex', () => {
     for (const [scenario, { red, commitAge, env = {} }, expected] of [
         ['stays quiet below the minutes threshold', { red: 15, commitAge: 3 }, 'none'],
         ['fails closed with no commit data', { red: 25 }, 'none'],
-        ['honors a custom minutes threshold', { red: 12, commitAge: 3, env: { WORKFLOW_FAILURE_MINUTES_THRESHOLD: '10' } }, 'create'],
+        [
+            'honors a custom minutes threshold',
+            { red: 12, commitAge: 3, env: { WORKFLOW_FAILURE_MINUTES_THRESHOLD: '10' } },
+            'create',
+        ],
         ['opens just inside the activity window', { red: 30, commitAge: 119 }, 'create'],
         ['stays quiet just outside the activity window', { red: 30, commitAge: 121 }, 'none'],
     ]) {
@@ -819,7 +856,11 @@ describe('ci-alerts-devex', () => {
             { push: ['success'], schedule: ['failure', 'success'] },
             { action: 'none', blocking: [] },
         ],
-        ['a green scheduled lane stays quiet', { push: ['success'], schedule: ['success'] }, { action: 'none', blocking: [] }],
+        [
+            'a green scheduled lane stays quiet',
+            { push: ['success'], schedule: ['success'] },
+            { action: 'none', blocking: [] },
+        ],
     ]) {
         it(`scheduled lane: ${scenario}`, async () => {
             const github = laneGithub(
@@ -833,10 +874,7 @@ describe('ci-alerts-devex', () => {
             assert.equal(outputs.action, expected.action)
             assert.equal(outputs.blocking_count, String(expected.blocking.length))
             const anchored = slack.postMessage.calls[0]?.[0]?.metadata?.event_payload?.workflows || []
-            assert.deepEqual(
-                anchored.map((w) => w.name).sort(),
-                expected.blocking
-            )
+            assert.deepEqual(anchored.map((w) => w.name).sort(), expected.blocking)
         })
     }
 

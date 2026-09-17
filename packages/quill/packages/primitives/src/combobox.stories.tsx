@@ -32,7 +32,14 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-const frameworks = ['Next.js', 'SvelteKit', 'Nuxt.js', 'Remix', 'Astro', 'This will truncate in both the chip + list and still show chipClose'] as const
+const frameworks = [
+    'Next.js',
+    'SvelteKit',
+    'Nuxt.js',
+    'Remix',
+    'Astro',
+    'This will truncate in both the chip + list and still show chipClose',
+] as const
 
 export const Default: Story = {
     render: () => {
@@ -65,7 +72,9 @@ function MultipleComboboxInner(): React.ReactElement {
                     {(values) => (
                         <React.Fragment>
                             {values.map((value: string) => (
-                                <ComboboxChip key={value} title={value}>{value}</ComboboxChip>
+                                <ComboboxChip key={value} title={value}>
+                                    {value}
+                                </ComboboxChip>
                             ))}
                             <ComboboxChipsInput />
                         </React.Fragment>
@@ -280,19 +289,8 @@ export const InputInsidePopup: Story = {
         const triggerRef = React.useRef<HTMLButtonElement>(null)
         return (
             <div className="max-w-xs">
-                <Combobox
-                    items={frameworks}
-                    open={open}
-                    onOpenChange={setOpen}
-                    value={value}
-                    onValueChange={setValue}
-                >
-                    <Button
-                        ref={triggerRef}
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setOpen((prev) => !prev)}
-                    >
+                <Combobox items={frameworks} open={open} onOpenChange={setOpen} value={value} onValueChange={setValue}>
+                    <Button ref={triggerRef} variant="outline" size="sm" onClick={() => setOpen((prev) => !prev)}>
                         {value ?? 'Select framework'}
                     </Button>
                     <ComboboxContent anchor={triggerRef}>
@@ -342,19 +340,8 @@ export const InputInsidePopupOverflow: Story = {
         const triggerRef = React.useRef<HTMLButtonElement>(null)
         return (
             <div className="max-w-xs">
-                <Combobox
-                    items={manyItems}
-                    open={open}
-                    onOpenChange={setOpen}
-                    value={value}
-                    onValueChange={setValue}
-                >
-                    <Button
-                        ref={triggerRef}
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setOpen((prev) => !prev)}
-                    >
+                <Combobox items={manyItems} open={open} onOpenChange={setOpen} value={value} onValueChange={setValue}>
+                    <Button ref={triggerRef} variant="outline" size="sm" onClick={() => setOpen((prev) => !prev)}>
                         {value ?? 'Select framework'}
                     </Button>
                     <ComboboxContent anchor={triggerRef}>
@@ -403,12 +390,7 @@ export const InputInsidePopupWithFooter: Story = {
                         setValue(val)
                     }}
                 >
-                    <Button
-                        ref={triggerRef}
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setOpen((prev) => !prev)}
-                    >
+                    <Button ref={triggerRef} variant="outline" size="sm" onClick={() => setOpen((prev) => !prev)}>
                         {value ?? 'Select framework'}
                     </Button>
                     <ComboboxContent anchor={triggerRef}>

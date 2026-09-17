@@ -14,9 +14,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
-    render: () => (
-        <Checkbox id="checkbox" />
-    ),
+    render: () => <Checkbox id="checkbox" />,
 } satisfies Story
 
 export const WithFieldGroup: Story = {

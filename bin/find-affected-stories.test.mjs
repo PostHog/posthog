@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import {
-    affectedStoriesFor,
-    requiresFullRun,
-    unresolvedRuntimeFiles,
-} from './find-affected-stories'
+import { affectedStoriesFor, requiresFullRun, unresolvedRuntimeFiles } from './find-affected-stories'
 
 describe('find-affected-stories', () => {
     const graph = {

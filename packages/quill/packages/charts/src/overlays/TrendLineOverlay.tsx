@@ -1,9 +1,9 @@
 /* eslint-disable react/forbid-dom-props -- dynamic pixel positions from d3 scales */
 import React, { useMemo } from 'react'
 
-import type { Series } from '../core/types'
 import { useChartLayout } from '../core/chart-context'
 import { resolveYScaleForSeries } from '../core/scales'
+import type { Series } from '../core/types'
 
 interface TrendLineOverlayProps {
     /** Pre-computed trend line series (from buildTrendLineSeries). One per source series. */

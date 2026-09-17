@@ -1,12 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react'
-
 import { CheckIcon, FileIcon, PencilIcon, SearchIcon, TerminalIcon } from 'lucide-react'
 import * as React from 'react'
 
-import { ChatMarker, ChatMarkerContent, ChatMarkerIcon, ChatMarkerValue } from './chat-marker'
-import { ChatSource, ChatSourceList, ChatSourceTitle, ChatSourceUrl, type ChatSourceStatus } from './chat-source'
 import { Button } from '../button'
 import { Spinner } from '../spinner'
+import { ChatMarker, ChatMarkerContent, ChatMarkerIcon, ChatMarkerValue } from './chat-marker'
+import { ChatSource, ChatSourceList, ChatSourceTitle, ChatSourceUrl, type ChatSourceStatus } from './chat-source'
 
 const meta = {
     title: 'Primitives/Chat/ChatMarker',

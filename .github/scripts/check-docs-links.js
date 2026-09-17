@@ -43,8 +43,12 @@ function extractLinks(content) {
 
 function resolveRelativeLink(fromFile, link) {
     const target = link.split('#')[0]
-    if (!target) {return null}
-    if (/^https?:\/\/|^mailto:|^\//.test(target)) {return null}
+    if (!target) {
+        return null
+    }
+    if (/^https?:\/\/|^mailto:|^\//.test(target)) {
+        return null
+    }
 
     const dir = path.dirname(fromFile)
     const resolved = path.resolve(dir, target)
@@ -70,7 +74,9 @@ function resolveRelativeLink(fromFile, link) {
     ]
 
     for (const candidate of candidates) {
-        if (fs.existsSync(candidate)) {return null} // found, no error
+        if (fs.existsSync(candidate)) {
+            return null
+        } // found, no error
     }
 
     return { file: path.relative(DOCS_ROOT, fromFile), link, resolved: path.relative(DOCS_ROOT, resolved) }
@@ -80,7 +86,9 @@ function resolveRelativeLink(fromFile, link) {
 // e.g. "handbook/engineering/project-structure" if published/handbook/engineering/project-structure.md exists
 function buildPublishedUrlIndex() {
     const index = new Set()
-    if (!fs.existsSync(PUBLISHED_ROOT)) {return index}
+    if (!fs.existsSync(PUBLISHED_ROOT)) {
+        return index
+    }
 
     for (const file of findMarkdownFiles(PUBLISHED_ROOT)) {
         let rel = path.relative(PUBLISHED_ROOT, file)
@@ -164,7 +172,9 @@ async function checkPosthogUrls(urls) {
         const batch = urls.slice(i, i + MAX_CONCURRENT)
         const results = await Promise.all(batch.map(fetchWithRetry))
         for (const r of results) {
-            if (!r.ok) {failures.push(r)}
+            if (!r.ok) {
+                failures.push(r)
+            }
         }
     }
     return failures
@@ -189,7 +199,9 @@ async function main() {
         const links = extractLinks(content)
         for (const link of links) {
             const err = resolveRelativeLink(file, link)
-            if (err) {brokenRelative.push(err)}
+            if (err) {
+                brokenRelative.push(err)
+            }
         }
     }
 

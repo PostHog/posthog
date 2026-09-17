@@ -73,4 +73,3 @@ export const Vertical: Story = {
         )
     },
 } satisfies Story
-

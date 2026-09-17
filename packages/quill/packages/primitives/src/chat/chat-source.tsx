@@ -1,10 +1,11 @@
+import './chat-source.css'
+import './lib/status.css'
+
 import { mergeProps } from '@base-ui/react/merge-props'
 import { useRender } from '@base-ui/react/use-render'
 import { ArrowUpRightIcon, CircleCheckIcon, CircleDashedIcon } from 'lucide-react'
 import * as React from 'react'
 
-import './chat-source.css'
-import './lib/status.css'
 import { cn } from '../lib/utils'
 import { ChatGlobe } from './chat-globe'
 

@@ -102,7 +102,10 @@ describe('monitor-github-rate-limit', () => {
         const github = createGithubMock({ core: snapshot({ remaining: 14500, limit: 15000 }) })
         const core = createCore()
 
-        await monitor({ github, context, core }, { now: () => T_BASE, fetch: fetchMock, source: 'posthog-devex-general' })
+        await monitor(
+            { github, context, core },
+            { now: () => T_BASE, fetch: fetchMock, source: 'posthog-devex-general' }
+        )
 
         assertMatch(captured[0].properties, {
             resource: 'core',
@@ -116,9 +119,7 @@ describe('monitor-github-rate-limit', () => {
         process.env.POSTHOG_DEVEX_PROJECT_API_TOKEN = 'devex-key'
         let calls = 0
         const fetchMock = recordingFn(() =>
-            ++calls === 1
-                ? Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve('boom') })
-                : fetchOk()
+            ++calls === 1 ? Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve('boom') }) : fetchOk()
         )
         const github = createGithubMock({
             core: snapshot({ remaining: 3000, limit: 15000 }),

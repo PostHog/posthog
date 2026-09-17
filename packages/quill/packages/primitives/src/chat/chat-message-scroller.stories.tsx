@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
-
 import { CheckIcon, FileIcon, TerminalIcon } from 'lucide-react'
 import * as React from 'react'
 
+import { Spinner } from '../spinner'
 import { ChatBubble, ChatBubbleContent } from './chat-bubble'
 import { ChatMarker, ChatMarkerContent, ChatMarkerIcon } from './chat-marker'
 import { ChatMessage, ChatMessageContent } from './chat-message'
@@ -14,7 +14,6 @@ import {
     ChatMessageScrollerProvider,
     ChatMessageScrollerViewport,
 } from './chat-message-scroller'
-import { Spinner } from '../spinner'
 
 const meta = {
     title: 'Primitives/Chat/ChatMessageScroller',
@@ -34,7 +33,9 @@ function Turn({ index, withTools = false }: { index: number; withTools?: boolean
                 <ChatMessage align="end">
                     <ChatMessageContent>
                         <ChatBubble variant="muted" align="end">
-                            <ChatBubbleContent>Turn {index}: can you check the file and run the build?</ChatBubbleContent>
+                            <ChatBubbleContent>
+                                Turn {index}: can you check the file and run the build?
+                            </ChatBubbleContent>
                         </ChatBubble>
                     </ChatMessageContent>
                 </ChatMessage>

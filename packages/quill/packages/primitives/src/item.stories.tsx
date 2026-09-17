@@ -305,18 +305,14 @@ export const DropdownCheckboxesInItemWithSelectAll: Story = {
         const usernames = people.map((p) => p.username)
 
         const toggle = (username: string, checked: boolean): void => {
-            setSelected((prev) =>
-                checked ? [...prev, username] : prev.filter((u) => u !== username)
-            )
+            setSelected((prev) => (checked ? [...prev, username] : prev.filter((u) => u !== username)))
         }
 
         return (
             <Item variant="outline" className="max-w-md">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
-                    <ItemDescription>
-                        Multi-select with a headless select-all action above the list.
-                    </ItemDescription>
+                    <ItemDescription>Multi-select with a headless select-all action above the list.</ItemDescription>
                 </ItemContent>
                 <ItemActions>
                     <DropdownMenu open={open} onOpenChange={setOpen}>

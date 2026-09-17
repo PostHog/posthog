@@ -148,7 +148,11 @@ describe('weekly flaky report', () => {
         }
         const items = [
             { ...common, runner: 'jest', selector: 'frontend/src/shared.test.tsx::shared flakes' },
-            { ...common, runner: 'jest', selector: 'products/new/frontend/Unmerged.test.tsx::Unmerged explains itself' },
+            {
+                ...common,
+                runner: 'jest',
+                selector: 'products/new/frontend/Unmerged.test.tsx::Unmerged explains itself',
+            },
         ]
         const toRepoPaths = (path) => (path === 'frontend/src/shared.test.tsx' ? [path] : [])
 
@@ -441,5 +445,4 @@ describe('weekly flaky report', () => {
             '2026-07-11T16:45:09.000Z'
         )
     })
-
 })

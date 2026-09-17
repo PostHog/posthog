@@ -162,9 +162,7 @@ export function filterSchemaByOperationIds(fullSchema, operationIds, options = {
 export function discoverComponentSchemaNames(filteredSchema, { nameSuffix = '', include = [] } = {}) {
     const schemas = filteredSchema.components?.schemas ?? {}
     const discovered = Object.keys(schemas).filter((name) => name.endsWith(nameSuffix))
-    return [...new Set([...discovered, ...include])]
-        .filter((name) => schemas[name])
-        .sort()
+    return [...new Set([...discovered, ...include])].filter((name) => schemas[name]).sort()
 }
 
 function _resolveComponentSchema(schemas, ref) {
@@ -202,7 +200,10 @@ function _resolveConfigSchemaName(schemas, configSchemaProperty) {
 }
 
 function _isNullOpenApiSchema(schema) {
-    return schema?.type === 'null' || (Array.isArray(schema?.type) && schema.type.length === 1 && schema.type[0] === 'null')
+    return (
+        schema?.type === 'null' ||
+        (Array.isArray(schema?.type) && schema.type.length === 1 && schema.type[0] === 'null')
+    )
 }
 
 function _substantiveAnyOfArms(schema) {

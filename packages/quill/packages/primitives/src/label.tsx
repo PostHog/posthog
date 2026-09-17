@@ -1,6 +1,7 @@
+import './label.css'
+
 import * as React from 'react'
 
-import './label.css'
 import { cn } from './lib/utils'
 
 function Label({ className, ...props }: React.ComponentProps<'label'>): React.ReactElement {

@@ -88,12 +88,7 @@ describe('BoxPlot', () => {
 
     it('lists the labels down the y-axis and the values along x when horizontal', () => {
         const { chart } = renderHogChart(
-            <BoxPlot
-                series={TWO_SERIES}
-                labels={LABELS}
-                theme={THEME}
-                config={{ axisOrientation: 'horizontal' }}
-            />
+            <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} config={{ axisOrientation: 'horizontal' }} />
         )
         expect(chart.yTicks()).toEqual(LABELS)
         const values = chart.xTicks().map((tick) => parseFloat(tick.replace(/[^\d.-]/g, '')))

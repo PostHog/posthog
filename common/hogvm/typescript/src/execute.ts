@@ -855,7 +855,9 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                         } else if (Object.hasOwn(STL, name)) {
                             const stlFn = STL[name]
                             if (stlFn.minArgs !== undefined && temp < stlFn.minArgs) {
-                                throw new HogVMException(`Function ${name} requires at least ${stlFn.minArgs} arguments`)
+                                throw new HogVMException(
+                                    `Function ${name} requires at least ${stlFn.minArgs} arguments`
+                                )
                             }
                             if (stlFn.maxArgs !== undefined && temp > stlFn.maxArgs) {
                                 throw new HogVMException(`Function ${name} requires at most ${stlFn.maxArgs} arguments`)

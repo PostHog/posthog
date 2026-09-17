@@ -50,14 +50,13 @@ function runLoader({ cssFileFallback = CSS_FALLBACK, apiKey = 'phc_test' as stri
         },
     }
     // The inline loader runs in the page as a classic script: these are all globals there.
-    new Function(
-        'window',
-        'document',
-        'navigator',
-        'console',
-        'fetch',
-        cssLoaderScript(CSS_FILE, cssFileFallback)
-    )(win, doc, nav, { error: () => {} }, () => Promise.resolve())
+    new Function('window', 'document', 'navigator', 'console', 'fetch', cssLoaderScript(CSS_FILE, cssFileFallback))(
+        win,
+        doc,
+        nav,
+        { error: () => {} },
+        () => Promise.resolve()
+    )
     return { ready: win.ESBUILD_CSS_READY, links, beacons }
 }
 

@@ -1,7 +1,8 @@
+import './switch.css'
+
 import { Switch as SwitchPrimitive } from '@base-ui/react/switch'
 import * as React from 'react'
 
-import './switch.css'
 import { cn } from './lib/utils'
 
 function Switch({

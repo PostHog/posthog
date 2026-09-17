@@ -86,19 +86,14 @@ function MenubarItem({
             data-slot="menubar-item"
             data-inset={inset}
             variant={variant}
-            className={cn(
-                'group/menubar-item min-h-7 gap-2 rounded-sm px-2 py-1 data-disabled:opacity-50',
-                className
-            )}
+            className={cn('group/menubar-item min-h-7 gap-2 rounded-sm px-2 py-1 data-disabled:opacity-50', className)}
             {...props}
         />
     )
 }
 
 // Explicit Base UI props, not `ComponentProps<typeof ...>`, so inline `onCheckedChange` callbacks keep their parameter type.
-function MenubarCheckboxItem({
-    ...props
-}: MenuPrimitive.CheckboxItem.Props & { inset?: boolean }): React.ReactElement {
+function MenubarCheckboxItem({ ...props }: MenuPrimitive.CheckboxItem.Props & { inset?: boolean }): React.ReactElement {
     return <DropdownMenuCheckboxItem data-slot="menubar-checkbox-item" {...props} />
 }
 

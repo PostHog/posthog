@@ -5,33 +5,36 @@
                  border-radius: 4px">
     <h2>Latest recalculation</h2>
     {% if panel %}
-        <table style="margin: 8px 0 16px; border-collapse: collapse;">
+        <table style="margin: 8px 0 16px; border-collapse: collapse">
             <tbody>
                 <tr>
-                    <th style="text-align: left; padding: 2px 16px 2px 0;">Status</th>
-                    <td>{{ panel.status }} <span style="color: #666;">({{ panel.trigger }})</span></td>
+                    <th style="text-align: left; padding: 2px 16px 2px 0">Status</th>
+                    <td>{{ panel.status }} <span style="color: #666">({{ panel.trigger }})</span></td>
                 </tr>
                 <tr>
-                    <th style="text-align: left; padding: 2px 16px 2px 0;">Metrics</th>
-                    <td>{{ panel.completed_metrics }} completed, {{ panel.failed_metrics }} failed of {{ panel.total_metrics }}</td>
+                    <th style="text-align: left; padding: 2px 16px 2px 0">Metrics</th>
+                    <td>
+                        {{ panel.completed_metrics }} completed, {{ panel.failed_metrics }} failed of {{ panel.total_metrics
+                        }}
+                    </td>
                 </tr>
                 <tr>
-                    <th style="text-align: left; padding: 2px 16px 2px 0;">Started</th>
+                    <th style="text-align: left; padding: 2px 16px 2px 0">Started</th>
                     <td>{{ panel.started_at|default:"—" }}</td>
                 </tr>
                 <tr>
-                    <th style="text-align: left; padding: 2px 16px 2px 0;">Ended</th>
+                    <th style="text-align: left; padding: 2px 16px 2px 0">Ended</th>
                     <td>{{ panel.completed_at|default:"—" }}</td>
                 </tr>
                 <tr>
-                    <th style="text-align: left; padding: 2px 16px 2px 0;">Execution time</th>
+                    <th style="text-align: left; padding: 2px 16px 2px 0">Execution time</th>
                     <td>{{ panel.duration_human|default:"—" }}</td>
                 </tr>
             </tbody>
         </table>
         {% if panel.has_failures %}
-            <h3 style="margin: 8px 0;">Failures</h3>
-            <table style="border-collapse: collapse; width: 100%; max-width: 900px;">
+            <h3 style="margin: 8px 0">Failures</h3>
+            <table style="border-collapse: collapse; width: 100%; max-width: 900px">
                 <thead>
                     <tr>
                         <th style="text-align: left;
@@ -93,7 +96,7 @@
                style="padding: 8px 14px">Temporal workflow</a>
         </div>
     {% else %}
-        <p style="color: #666; margin: 4px 0;">No recalculation has run for this experiment yet.</p>
+        <p style="color: #666; margin: 4px 0">No recalculation has run for this experiment yet.</p>
         {% if can_start_recalculation %}
             <button type="submit"
                     formaction="{{ start_recalculation_url }}"
@@ -111,12 +114,12 @@
 <script>
     // These buttons live inside the admin change form, so the submit event bubbles up from it.
     // Disabling the submitter after submit starts keeps the request but blocks a second click.
-    document.addEventListener("submit", function (event) {
-        var button = event.submitter;
-        if (!button || !button.hasAttribute("data-disable-on-submit")) {
-            return;
+    document.addEventListener('submit', function (event) {
+        var button = event.submitter
+        if (!button || !button.hasAttribute('data-disable-on-submit')) {
+            return
         }
-        button.disabled = true;
-        button.textContent = button.getAttribute("data-submitting-text") || button.textContent;
-    });
+        button.disabled = true
+        button.textContent = button.getAttribute('data-submitting-text') || button.textContent
+    })
 </script>

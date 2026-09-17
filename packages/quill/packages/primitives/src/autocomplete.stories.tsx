@@ -171,13 +171,62 @@ type Command = {
 }
 
 const COMMANDS: Command[] = [
-    { id: 'open-settings', label: 'Open settings', section: 'General', icon: <Cog />, onRun: () => alert('open settings'), endNode: '' },
-    { id: 'open-profile', label: 'Open profile', section: 'General', icon: <UserIcon />, onRun: () => alert('open profile'), endNode: '' },
-    { id: 'new-doc', label: 'New document', section: 'General', icon: <FileTextIcon />, keywords: 'create file', onRun: () => alert('new doc'), endNode: '' },
-    { id: 'theme-light', label: 'Switch to light theme', section: 'Theme', icon: <SunIcon />, onRun: () => alert('light theme'), endNode: '' },
-    { id: 'theme-dark', label: 'Switch to dark theme', section: 'Theme', icon: <MoonIcon />, onRun: () => alert('dark theme'), endNode: '' },
-    { id: 'go-calendar', label: 'Go to calendar', section: 'Navigation', icon: <CalendarIcon />, onRun: () => alert('calendar') },
-    { id: 'go-search', label: 'Search everywhere', section: 'Navigation', icon: <SearchIcon />, onRun: () => alert('search'), endNode: '' },
+    {
+        id: 'open-settings',
+        label: 'Open settings',
+        section: 'General',
+        icon: <Cog />,
+        onRun: () => alert('open settings'),
+        endNode: '',
+    },
+    {
+        id: 'open-profile',
+        label: 'Open profile',
+        section: 'General',
+        icon: <UserIcon />,
+        onRun: () => alert('open profile'),
+        endNode: '',
+    },
+    {
+        id: 'new-doc',
+        label: 'New document',
+        section: 'General',
+        icon: <FileTextIcon />,
+        keywords: 'create file',
+        onRun: () => alert('new doc'),
+        endNode: '',
+    },
+    {
+        id: 'theme-light',
+        label: 'Switch to light theme',
+        section: 'Theme',
+        icon: <SunIcon />,
+        onRun: () => alert('light theme'),
+        endNode: '',
+    },
+    {
+        id: 'theme-dark',
+        label: 'Switch to dark theme',
+        section: 'Theme',
+        icon: <MoonIcon />,
+        onRun: () => alert('dark theme'),
+        endNode: '',
+    },
+    {
+        id: 'go-calendar',
+        label: 'Go to calendar',
+        section: 'Navigation',
+        icon: <CalendarIcon />,
+        onRun: () => alert('calendar'),
+    },
+    {
+        id: 'go-search',
+        label: 'Search everywhere',
+        section: 'Navigation',
+        icon: <SearchIcon />,
+        onRun: () => alert('search'),
+        endNode: '',
+    },
     { id: 'go-x', label: 'Go to x', section: 'Navigation', icon: <SearchIcon />, onRun: () => alert('x') },
     { id: 'go-y', label: 'Go to y', section: 'Navigation', icon: <SearchIcon />, onRun: () => alert('y') },
     { id: 'go-z', label: 'Go to z', section: 'Navigation', icon: <SearchIcon />, onRun: () => alert('z') },
@@ -211,9 +260,13 @@ export const CommandPalette: Story = {
         const [query, setQuery] = React.useState('')
 
         const handleSelect = (id: string | null): void => {
-            if (id === null) {return}
+            if (id === null) {
+                return
+            }
             const cmd = COMMANDS.find((c) => c.id === id)
-            if (!cmd) {return}
+            if (!cmd) {
+                return
+            }
             cmd.onRun()
             setOpen(false)
             setQuery('')
@@ -241,9 +294,17 @@ export const CommandPalette: Story = {
                             }}
                         >
                             <AutocompleteInput placeholder="Type a command…" showClear>
-                                <Button variant="outline" size="xs">Some more content</Button>
+                                <Button variant="outline" size="xs">
+                                    Some more content
+                                </Button>
                             </AutocompleteInput>
-                            <AutocompleteStatus emptyContent={<span>No commands match <strong>"{query}"</strong></span>}/>
+                            <AutocompleteStatus
+                                emptyContent={
+                                    <span>
+                                        No commands match <strong>"{query}"</strong>
+                                    </span>
+                                }
+                            />
                             <AutocompleteList>
                                 {(section: CommandSection) => (
                                     <AutocompleteGroup key={section.label} items={section.items}>
@@ -261,7 +322,6 @@ export const CommandPalette: Story = {
                                                     <span className="font-mono ml-auto text-xs text-subtle-foreground">
                                                         2 days ago
                                                     </span>
-
                                                 </AutocompleteItem>
                                             )}
                                         </AutocompleteCollection>
@@ -282,9 +342,13 @@ export const CommandPaletteCustomEmpty: Story = {
         const [query, setQuery] = React.useState('asdfasdfasdf')
 
         const handleSelect = (id: string | null): void => {
-            if (id === null) {return}
+            if (id === null) {
+                return
+            }
             const cmd = COMMANDS.find((c) => c.id === id)
-            if (!cmd) {return}
+            if (!cmd) {
+                return
+            }
             cmd.onRun()
             setOpen(false)
             setQuery('')
@@ -312,25 +376,27 @@ export const CommandPaletteCustomEmpty: Story = {
                             }}
                         >
                             <AutocompleteInput placeholder="Type a command…" showClear>
-                                <Button variant="outline" size="xs">Some more content</Button>
+                                <Button variant="outline" size="xs">
+                                    Some more content
+                                </Button>
                             </AutocompleteInput>
-                            <AutocompleteStatus emptyContent={
-                                <Empty>
-                                    <EmptyHeader>
-                                        <EmptyMedia variant="icon">
-                                            <SearchIcon />
-                                        </EmptyMedia>
-                                        <EmptyTitle>Oops, we couldn't find that.</EmptyTitle>
-                                        <EmptyDescription>
-                                            Try searching for something else.
-                                        </EmptyDescription>
-                                    </EmptyHeader>
-                                    <EmptyContent className="flex-row justify-center gap-2">
-                                        <Button variant="primary">Call to action</Button>
-                                        <Button variant="outline">Secondary</Button>
-                                    </EmptyContent>
-                                </Empty>
-                            }/>
+                            <AutocompleteStatus
+                                emptyContent={
+                                    <Empty>
+                                        <EmptyHeader>
+                                            <EmptyMedia variant="icon">
+                                                <SearchIcon />
+                                            </EmptyMedia>
+                                            <EmptyTitle>Oops, we couldn't find that.</EmptyTitle>
+                                            <EmptyDescription>Try searching for something else.</EmptyDescription>
+                                        </EmptyHeader>
+                                        <EmptyContent className="flex-row justify-center gap-2">
+                                            <Button variant="primary">Call to action</Button>
+                                            <Button variant="outline">Secondary</Button>
+                                        </EmptyContent>
+                                    </Empty>
+                                }
+                            />
                             <AutocompleteList>
                                 {(section: CommandSection) => (
                                     <AutocompleteGroup key={section.label} items={section.items}>
@@ -348,7 +414,6 @@ export const CommandPaletteCustomEmpty: Story = {
                                                     <span className="font-mono ml-auto text-xs text-subtle-foreground">
                                                         2 days ago
                                                     </span>
-
                                                 </AutocompleteItem>
                                             )}
                                         </AutocompleteCollection>

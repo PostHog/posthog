@@ -95,9 +95,24 @@ test('parseType', async (t) => {
 const DOCS_LABEL_CASES = [
     { title: 'docs: x', author: 'someuser', expected: true, description: 'docs type applies' },
     { title: 'docs(cdp): x', author: 'someuser', expected: true, description: 'docs type with scope applies' },
-    { title: 'feat(flags): x', author: 'inkeep[bot]', expected: true, description: 'inkeep author applies on any title' },
-    { title: 'feat(flags): x', author: 'someuser', expected: false, description: 'neither type nor author -> no docs label' },
-    { title: 'chore: tidy up docs', author: 'someuser', expected: false, description: 'docs only in prose does not apply' },
+    {
+        title: 'feat(flags): x',
+        author: 'inkeep[bot]',
+        expected: true,
+        description: 'inkeep author applies on any title',
+    },
+    {
+        title: 'feat(flags): x',
+        author: 'someuser',
+        expected: false,
+        description: 'neither type nor author -> no docs label',
+    },
+    {
+        title: 'chore: tidy up docs',
+        author: 'someuser',
+        expected: false,
+        description: 'docs only in prose does not apply',
+    },
 ]
 
 test('docsLabelApplies', async (t) => {

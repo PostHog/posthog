@@ -42,11 +42,7 @@ describe('closestHoverSeriesKey', () => {
     })
 
     it('ignores series with a non-finite y-pixel (off-plot / collapsed cell)', () => {
-        const result = closestHoverSeriesKey(
-            [series('a'), series('b')],
-            yPixelFromMap({ a: NaN, b: 300 }),
-            0
-        )
+        const result = closestHoverSeriesKey([series('a'), series('b')], yPixelFromMap({ a: NaN, b: 300 }), 0)
         expect(result).toBe('b')
     })
 

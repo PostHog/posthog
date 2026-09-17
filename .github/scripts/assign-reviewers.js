@@ -201,11 +201,7 @@ function computeOwnerFootprints(resolutionByPath, changedFiles, config = CONFIG)
         // tree still changes future routing and must reach a reviewer.
         const basename = file.filename.split('/').pop()
         const isOwnershipFile = basename === 'owners.yaml' || basename === 'product.yaml'
-        if (
-            !isOwnershipFile &&
-            resolution &&
-            (resolution.status === 'generated' || resolution.status === 'vendored')
-        ) {
+        if (!isOwnershipFile && resolution && (resolution.status === 'generated' || resolution.status === 'vendored')) {
             continue
         }
         const owners = (resolution && resolution.owners) || []
@@ -398,7 +394,9 @@ async function assignReviewers(teams, users) {
             if (r.status === 422) {
                 dropped.push(`@${user}`)
             } else if (!r.ok) {
-                throw new Error(`GitHub API error assigning user '${user}': ${r.status} ${r.statusText}\n${await r.text()}`)
+                throw new Error(
+                    `GitHub API error assigning user '${user}': ${r.status} ${r.statusText}\n${await r.text()}`
+                )
             }
         }
 

@@ -53,7 +53,7 @@ function TodoList({ current }: { current: number }): React.ReactElement {
             </ChatTaskListTrigger>
             <ChatTaskListContent>
                 {TODOS.map((label, index) => (
-                    <ChatTask key={label} status={statuses[index]}  className="whitespace-normal">
+                    <ChatTask key={label} status={statuses[index]} className="whitespace-normal">
                         {label}
                     </ChatTask>
                 ))}

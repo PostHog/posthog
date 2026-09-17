@@ -1,8 +1,9 @@
+import './autocomplete.css'
+
 import { Autocomplete as AutocompletePrimitive } from '@base-ui/react/autocomplete'
 import { ChevronDownIcon, SearchIcon, XIcon } from 'lucide-react'
 import * as React from 'react'
 
-import './autocomplete.css'
 import { Button } from './button'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from './input-group'
 import { cn } from './lib/utils'
@@ -92,11 +93,7 @@ function AutocompleteInput({
                     </InputGroupAddon>
                 )}
                 <AutocompletePrimitive.Input render={<InputGroupInput disabled={disabled} />} {...props} />
-                {children ? (
-                    <InputGroupAddon align="inline-end">
-                        {children}
-                    </InputGroupAddon>
-                ) : null}
+                {children ? <InputGroupAddon align="inline-end">{children}</InputGroupAddon> : null}
                 {showClear && (
                     <InputGroupAddon align="inline-end">
                         <AutocompleteClear disabled={disabled} />
@@ -153,7 +150,10 @@ function AutocompleteList({ className, ...props }: AutocompletePrimitive.List.Pr
     return (
         <AutocompletePrimitive.List
             data-slot="autocomplete-list"
-            className={cn('quill-autocomplete__list scroll-mask-t-2 scroll-mask-b-4 scroll-pb-4 scroll-pt-6 empty:hidden', className)}
+            className={cn(
+                'quill-autocomplete__list scroll-mask-t-2 scroll-mask-b-4 scroll-pb-4 scroll-pt-6 empty:hidden',
+                className
+            )}
             {...props}
         />
     )
@@ -216,10 +216,7 @@ function AutocompleteEmpty({ className, ...props }: AutocompletePrimitive.Empty.
     )
 }
 
-function AutocompleteSeparator({
-    className,
-    ...props
-}: AutocompletePrimitive.Separator.Props): React.ReactElement {
+function AutocompleteSeparator({ className, ...props }: AutocompletePrimitive.Separator.Props): React.ReactElement {
     return (
         <AutocompletePrimitive.Separator
             data-slot="autocomplete-separator"
@@ -235,9 +232,16 @@ function AutocompleteSeparator({
  * each entry has an `items` property (returns sum of all `.items.length`).
  */
 function countAutocompleteLeaves(items: unknown): number {
-    if (!Array.isArray(items)) {return 0}
+    if (!Array.isArray(items)) {
+        return 0
+    }
     return items.reduce<number>((acc, item) => {
-        if (item && typeof item === 'object' && 'items' in item && Array.isArray((item as { items: unknown[] }).items)) {
+        if (
+            item &&
+            typeof item === 'object' &&
+            'items' in item &&
+            Array.isArray((item as { items: unknown[] }).items)
+        ) {
             return acc + (item as { items: unknown[] }).items.length
         }
         return acc + 1
@@ -288,7 +292,10 @@ function AutocompleteStatus({
     return (
         <AutocompletePrimitive.Status
             data-slot="autocomplete-status"
-            className={cn('quill-autocomplete__status bg-card border-b border-border text-xs text-muted-foreground px-2 py-1.5 empty:hidden', className)}
+            className={cn(
+                'quill-autocomplete__status bg-card border-b border-border text-xs text-muted-foreground px-2 py-1.5 empty:hidden',
+                className
+            )}
             {...props}
         >
             {content}

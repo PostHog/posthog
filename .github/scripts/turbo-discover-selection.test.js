@@ -60,8 +60,14 @@ test('each distrusted input has its own reason, so telemetry can tell them apart
         [{ runLegacyReason: 'contract_cascade' }, 'untrusted'],
         [{ runLegacyReason: 'schema' }, 'untrusted'],
         [{ selection: null }, 'selector_error'],
-        [{ selection: selectionFixture({ ast: { full_run_reasons: ['posthog/settings/base.py'] } }) }, 'full_run_requested'],
-        [{ selection: selectionFixture({ combined: { count: 0, products: [], segments: segments() } }) }, 'empty_selection'],
+        [
+            { selection: selectionFixture({ ast: { full_run_reasons: ['posthog/settings/base.py'] } }) },
+            'full_run_requested',
+        ],
+        [
+            { selection: selectionFixture({ combined: { count: 0, products: [], segments: segments() } }) },
+            'empty_selection',
+        ],
     ]
     for (const [overrides, reason] of cases) {
         const decision = decide(overrides)

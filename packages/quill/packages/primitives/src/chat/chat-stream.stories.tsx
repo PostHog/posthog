@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
-
 import * as React from 'react'
 
+import { Avatar, AvatarFallback } from '../avatar'
+import { Button } from '../button'
 import { ChatMarker, ChatMarkerContent } from './chat-marker'
 import { ChatStream, ChatStreamLine } from './chat-stream'
 import {
@@ -14,8 +15,6 @@ import {
     ThreadItemHeader,
     ThreadItemTimestamp,
 } from './thread-item'
-import { Avatar, AvatarFallback } from '../avatar'
-import { Button } from '../button'
 
 const meta: Meta<typeof ChatStream> = {
     title: 'Primitives/Chat/ChatStream',

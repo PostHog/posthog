@@ -1,23 +1,29 @@
 {% extends "email/base.html" %}
 {% block head %}
-    <style type="text/css">body, .main { background-color: #f3f4f0 !important; }</style>
-{% endblock %}
-{% block preheader %}Web analytics weekly digest for {{ organization.name }} organization{% endblock %}
+    <style type="text/css">
+    body,
+    .main {
+        background-color: #f3f4f0 !important;
+    }
+    </style>
+{% endblock %} {% block preheader %}Web analytics weekly digest for {{ organization.name }} organization{% endblock %}
 {% block main %}
-    <p style="font-size: 1.1em; color: #374151; margin: 0 0 24px 0;">Web analytics weekly digest for <strong>{{ organization.name }}</strong> organization</p>
+    <p style="font-size: 1.1em; color: #374151; margin: 0 0 24px 0">
+        Web analytics weekly digest for <strong>{{ organization.name }}</strong> organization
+    </p>
     {% for section in project_sections %}
         <!-- Project section: {{ section.team.name }} -->
-        <div style="margin-bottom: 40px;">
+        <div style="margin-bottom: 40px">
             <table width="100%"
                    cellpadding="0"
                    cellspacing="0"
                    border="0"
                    style="margin-bottom: 12px">
                 <tr>
-                    <td style="width: 50%; vertical-align: middle;">
-                        <div style="height: 1px; background-color: #d1d5db;"></div>
+                    <td style="width: 50%; vertical-align: middle">
+                        <div style="height: 1px; background-color: #d1d5db"></div>
                     </td>
-                    <td style="white-space: nowrap; padding: 0 16px; vertical-align: middle;">
+                    <td style="white-space: nowrap; padding: 0 16px; vertical-align: middle">
                         <a href="{{ section.dashboard_url }}"
                            target="_blank"
                            style="font-size: 1.15em;
@@ -25,8 +31,8 @@
                                   color: #111827;
                                   text-decoration: none">{{ section.team.name }}</a>
                     </td>
-                    <td style="width: 50%; vertical-align: middle;">
-                        <div style="height: 1px; background-color: #d1d5db;"></div>
+                    <td style="width: 50%; vertical-align: middle">
+                        <div style="height: 1px; background-color: #d1d5db"></div>
                     </td>
                 </tr>
             </table>
@@ -37,42 +43,48 @@
                         margin-bottom: 8px">
                 <table width="100%" cellpadding="0" cellspacing="0" border="0">
                     <tr>
-                        <td align="center" style="text-align: center; padding: 8px; width: 20%;">
-                            <div style="font-size: 0.8em; color: #6b7280; margin-bottom: 4px;">Visitors</div>
-                            <div style="font-size: 1.5em; font-weight: bold;">{{ section.visitors.current|compact_number }}</div>
+                        <td align="center" style="text-align: center; padding: 8px; width: 20%">
+                            <div style="font-size: 0.8em; color: #6b7280; margin-bottom: 4px">Visitors</div>
+                            <div style="font-size: 1.5em; font-weight: bold">{{ section.visitors.current|compact_number }}</div>
                             {% if section.visitors.change %}
                                 <div style="font-size: 0.75em; color: {{ section.visitors.change.color }}">{{ section.visitors.change.text }}</div>
                             {% endif %}
                         </td>
-                        <td align="center" style="text-align: center; padding: 8px; width: 20%;">
-                            <div style="font-size: 0.8em; color: #6b7280; margin-bottom: 4px;">Pageviews</div>
-                            <div style="font-size: 1.5em; font-weight: bold;">{{ section.pageviews.current|compact_number }}</div>
+                        <td align="center" style="text-align: center; padding: 8px; width: 20%">
+                            <div style="font-size: 0.8em; color: #6b7280; margin-bottom: 4px">Pageviews</div>
+                            <div style="font-size: 1.5em; font-weight: bold">{{ section.pageviews.current|compact_number }}</div>
                             {% if section.pageviews.change %}
                                 <div style="font-size: 0.75em;
-                                            color: {{ section.pageviews.change.color }}">{{ section.pageviews.change.text }}</div>
+                                            color: {{ section.pageviews.change.color }}">
+                                    {{ section.pageviews.change.text }}
+                                </div>
                             {% endif %}
                         </td>
-                        <td align="center" style="text-align: center; padding: 8px; width: 20%;">
-                            <div style="font-size: 0.8em; color: #6b7280; margin-bottom: 4px;">Sessions</div>
-                            <div style="font-size: 1.5em; font-weight: bold;">{{ section.sessions.current|compact_number }}</div>
+                        <td align="center" style="text-align: center; padding: 8px; width: 20%">
+                            <div style="font-size: 0.8em; color: #6b7280; margin-bottom: 4px">Sessions</div>
+                            <div style="font-size: 1.5em; font-weight: bold">{{ section.sessions.current|compact_number }}</div>
                             {% if section.sessions.change %}
                                 <div style="font-size: 0.75em; color: {{ section.sessions.change.color }}">{{ section.sessions.change.text }}</div>
                             {% endif %}
                         </td>
-                        <td align="center" style="text-align: center; padding: 8px; width: 20%;">
-                            <div style="font-size: 0.8em; color: #6b7280; margin-bottom: 4px;">Bounce rate</div>
-                            <div style="font-size: 1.5em; font-weight: bold;">{{ section.bounce_rate.current }}%</div>
+                        <td align="center" style="text-align: center; padding: 8px; width: 20%">
+                            <div style="font-size: 0.8em; color: #6b7280; margin-bottom: 4px">Bounce rate</div>
+                            <div style="font-size: 1.5em; font-weight: bold">{{ section.bounce_rate.current }}%</div>
                             {% if section.bounce_rate.change %}
                                 <div style="font-size: 0.75em;
-                                            color: {{ section.bounce_rate.change.color }}">{{ section.bounce_rate.change.text }}</div>
+                                            color: {{ section.bounce_rate.change.color }}">
+                                    {{ section.bounce_rate.change.text }}
+                                </div>
                             {% endif %}
                         </td>
-                        <td align="center" style="text-align: center; padding: 8px; width: 20%;">
-                            <div style="font-size: 0.8em; color: #6b7280; margin-bottom: 4px;">Avg. duration</div>
-                            <div style="font-size: 1.5em; font-weight: bold;">{{ section.avg_session_duration.current }}</div>
+                        <td align="center" style="text-align: center; padding: 8px; width: 20%">
+                            <div style="font-size: 0.8em; color: #6b7280; margin-bottom: 4px">Avg. duration</div>
+                            <div style="font-size: 1.5em; font-weight: bold">{{ section.avg_session_duration.current }}</div>
                             {% if section.avg_session_duration.change %}
                                 <div style="font-size: 0.75em;
-                                            color: {{ section.avg_session_duration.change.color }}">{{ section.avg_session_duration.change.text }}</div>
+                                            color: {{ section.avg_session_duration.change.color }}">
+                                    {{ section.avg_session_duration.change.text }}
+                                </div>
                             {% endif %}
                         </td>
                     </tr>
@@ -84,7 +96,7 @@
                             border-radius: 8px;
                             padding: 20px;
                             margin-bottom: 8px">
-                    <h3 style="margin: 0 0 4px 0; text-align: left;">Top pages</h3>
+                    <h3 style="margin: 0 0 4px 0; text-align: left">Top pages</h3>
                     <p style="margin: 0 0 12px 0;
                               font-size: 0.85em;
                               color: #6b7280;
@@ -95,7 +107,7 @@
                            border="0"
                            style="border-collapse: collapse">
                         <thead>
-                            <tr style="border-bottom: 1px solid #e1e5e9;">
+                            <tr style="border-bottom: 1px solid #e1e5e9">
                                 <th align="left"
                                     style="padding: 8px 8px 8px 0;
                                            font-size: 0.75em;
@@ -124,13 +136,16 @@
                         </thead>
                         <tbody>
                             {% for page in section.top_pages %}
-                                <tr style="border-bottom: 1px solid #f3f4f6;">
+                                <tr style="border-bottom: 1px solid #f3f4f6">
                                     <td align="left"
                                         style="padding: 10px 8px 10px 0;
                                                vertical-align: middle;
                                                text-align: left;
                                                font-size: 0.9em;
-                                               color: #111827">{% if page.host %}<span style="color: #6b7280;">{{ page.host }}</span>{% endif %}{{ page.path|truncatechars:50 }}</td>
+                                               color: #111827">
+                                        {% if page.host %}<span style="color: #6b7280">{{ page.host }}</span>{% endif %}{{
+                                        page.path|truncatechars:50 }}
+                                    </td>
                                     <td align="right"
                                         style="padding: 10px 0 10px 8px;
                                                vertical-align: middle;
@@ -150,7 +165,7 @@
                             border-radius: 8px;
                             padding: 20px;
                             margin-bottom: 8px">
-                    <h3 style="margin: 0 0 4px 0; text-align: left;">Top sources</h3>
+                    <h3 style="margin: 0 0 4px 0; text-align: left">Top sources</h3>
                     <p style="margin: 0 0 12px 0;
                               font-size: 0.85em;
                               color: #6b7280;
@@ -161,7 +176,7 @@
                            border="0"
                            style="border-collapse: collapse">
                         <thead>
-                            <tr style="border-bottom: 1px solid #e1e5e9;">
+                            <tr style="border-bottom: 1px solid #e1e5e9">
                                 <th align="left"
                                     style="padding: 8px 8px 8px 0;
                                            font-size: 0.75em;
@@ -190,7 +205,7 @@
                         </thead>
                         <tbody>
                             {% for source in section.top_sources %}
-                                <tr style="border-bottom: 1px solid #f3f4f6;">
+                                <tr style="border-bottom: 1px solid #f3f4f6">
                                     <td align="left"
                                         style="padding: 10px 8px 10px 0;
                                                vertical-align: middle;
@@ -216,7 +231,7 @@
                             border-radius: 8px;
                             padding: 20px;
                             margin-bottom: 8px">
-                    <h3 style="margin: 0 0 4px 0; text-align: left;">Goals</h3>
+                    <h3 style="margin: 0 0 4px 0; text-align: left">Goals</h3>
                     <p style="margin: 0 0 12px 0;
                               font-size: 0.85em;
                               color: #6b7280;
@@ -227,7 +242,7 @@
                            border="0"
                            style="border-collapse: collapse">
                         <thead>
-                            <tr style="border-bottom: 1px solid #e1e5e9;">
+                            <tr style="border-bottom: 1px solid #e1e5e9">
                                 <th align="left"
                                     style="padding: 8px 8px 8px 0;
                                            font-size: 0.75em;
@@ -256,7 +271,7 @@
                         </thead>
                         <tbody>
                             {% for goal in section.goals %}
-                                <tr style="border-bottom: 1px solid #f3f4f6;">
+                                <tr style="border-bottom: 1px solid #f3f4f6">
                                     <td align="left"
                                         style="padding: 10px 8px 10px 0;
                                                vertical-align: middle;
@@ -319,14 +334,14 @@
                border="0"
                style="margin-bottom: 12px">
             <tr>
-                <td style="width: 50%; vertical-align: middle;">
-                    <div style="height: 1px; background-color: #d1d5db;"></div>
+                <td style="width: 50%; vertical-align: middle">
+                    <div style="height: 1px; background-color: #d1d5db"></div>
                 </td>
-                <td style="white-space: nowrap; padding: 0 16px; vertical-align: middle;">
-                    <span style="font-size: 0.9em; font-weight: 600; color: #6b7280;">Note</span>
+                <td style="white-space: nowrap; padding: 0 16px; vertical-align: middle">
+                    <span style="font-size: 0.9em; font-weight: 600; color: #6b7280">Note</span>
                 </td>
-                <td style="width: 50%; vertical-align: middle;">
-                    <div style="height: 1px; background-color: #d1d5db;"></div>
+                <td style="width: 50%; vertical-align: middle">
+                    <div style="height: 1px; background-color: #d1d5db"></div>
                 </td>
             </tr>
         </table>
@@ -335,7 +350,9 @@
                     padding: 20px;
                     margin-bottom: 16px">
             {% if disabled_project_names %}
-                <p style="margin: 0 0 8px 0; font-size: 0.9em; color: #6b7280;">This report did not include the following projects because they are disabled in your settings:</p>
+                <p style="margin: 0 0 8px 0; font-size: 0.9em; color: #6b7280">
+                    This report did not include the following projects because they are disabled in your settings:
+                </p>
                 <ul style="margin: 0 0 8px 0;
                            padding-left: 20px;
                            color: #6b7280;
@@ -346,7 +363,9 @@
                 </ul>
             {% endif %}
             {% if unavailable_project_names %}
-                <p style="margin: 0 0 8px 0; font-size: 0.9em; color: #6b7280;">We couldn't load data for the following projects this week. Their numbers are available on the dashboard:</p>
+                <p style="margin: 0 0 8px 0; font-size: 0.9em; color: #6b7280">
+                    We couldn't load data for the following projects this week. Their numbers are available on the dashboard:
+                </p>
                 <ul style="margin: 0;
                            padding-left: 20px;
                            color: #6b7280;
@@ -358,7 +377,7 @@
             {% endif %}
         </div>
     {% endif %}
-    <div style="margin-bottom: 16px; text-align: center;">
+    <div style="margin-bottom: 16px; text-align: center">
         <a href="{{ settings_url }}"
            style="color: #6b7280;
                   font-size: 0.85em;

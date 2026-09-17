@@ -20,9 +20,7 @@ export const Default: Story = {
         const [open, setOpen] = useState(true)
         return (
             <DropdownMenu open={open} onOpenChange={setOpen}>
-                <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
-                    Empty menu
-                </DropdownMenuTrigger>
+                <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>Empty menu</DropdownMenuTrigger>
                 <DropdownMenuContent>
                     <MenuEmpty>No items found</MenuEmpty>
                 </DropdownMenuContent>
@@ -61,9 +59,7 @@ export const WithFilteredResults: Story = {
 
         return (
             <DropdownMenu open={open} onOpenChange={setOpen}>
-                <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
-                    Filtered menu
-                </DropdownMenuTrigger>
+                <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>Filtered menu</DropdownMenuTrigger>
                 <DropdownMenuContent>
                     {filtered.length > 0 ? (
                         filtered.map((item) => <DropdownMenuItem key={item}>{item}</DropdownMenuItem>)

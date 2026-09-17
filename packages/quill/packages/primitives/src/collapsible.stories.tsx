@@ -78,16 +78,22 @@ export const Folder: Story = {
                 <p>Collapsible Trigger</p>
             </CollapsibleTrigger>
             <CollapsibleContent>
-                <Button left size="sm" className="w-full">A button here</Button>
+                <Button left size="sm" className="w-full">
+                    A button here
+                </Button>
                 <Collapsible variant="folder">
                     <CollapsibleTrigger>
                         <p>Collapsible Trigger</p>
                     </CollapsibleTrigger>
                     <CollapsibleContent>
-                        <Button left size="sm" className="w-full">A button here</Button>
+                        <Button left size="sm" className="w-full">
+                            A button here
+                        </Button>
                     </CollapsibleContent>
                 </Collapsible>
-                <Button left size="sm" className="w-full">A button here</Button>
+                <Button left size="sm" className="w-full">
+                    A button here
+                </Button>
             </CollapsibleContent>
         </Collapsible>
     ),

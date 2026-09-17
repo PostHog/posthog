@@ -26,11 +26,7 @@ export const Default: Story = {
                 </div>
                 <p className="text-sm text-muted-foreground">
                     These are the raw type tokens. For components that apply them, see the{' '}
-                    <Link
-                        className="underline"
-                        target="_top"
-                        href="./?path=/docs/typography-heading--docs"
-                    >
+                    <Link className="underline" target="_top" href="./?path=/docs/typography-heading--docs">
                         Heading
                     </Link>{' '}
                     and{' '}

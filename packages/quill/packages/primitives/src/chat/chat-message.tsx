@@ -1,6 +1,7 @@
+import './chat-message.css'
+
 import * as React from 'react'
 
-import './chat-message.css'
 import { cn } from '../lib/utils'
 
 /**
@@ -46,11 +47,4 @@ function ChatMessageFooter({ className, ...props }: React.ComponentProps<'div'>)
     return <div data-slot="message-footer" className={cn('quill-chat-message__footer', className)} {...props} />
 }
 
-export {
-    ChatMessageGroup,
-    ChatMessage,
-    ChatMessageAvatar,
-    ChatMessageContent,
-    ChatMessageFooter,
-    ChatMessageHeader,
-}
+export { ChatMessageGroup, ChatMessage, ChatMessageAvatar, ChatMessageContent, ChatMessageFooter, ChatMessageHeader }

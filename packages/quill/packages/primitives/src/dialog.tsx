@@ -1,3 +1,5 @@
+import './dialog.css'
+
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { mergeProps } from '@base-ui/react/merge-props'
 import { useRender } from '@base-ui/react/use-render'
@@ -5,7 +7,6 @@ import { XIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button } from './button'
-import './dialog.css'
 import { cn } from './lib/utils'
 import { ScrollArea } from './scroll-area'
 
@@ -86,7 +87,13 @@ function DialogContent({
 }
 
 function DialogHeader({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return <div data-slot="dialog-header" className={cn('quill-dialog__header flex flex-col gap-1', className)} {...props} />
+    return (
+        <div
+            data-slot="dialog-header"
+            className={cn('quill-dialog__header flex flex-col gap-1', className)}
+            {...props}
+        />
+    )
 }
 
 function DialogFooter({
@@ -164,7 +171,9 @@ function DialogBody({
 }
 
 function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props): React.ReactElement {
-    return <DialogPrimitive.Title data-slot="dialog-title" className={cn('quill-dialog__title', className)} {...props} />
+    return (
+        <DialogPrimitive.Title data-slot="dialog-title" className={cn('quill-dialog__title', className)} {...props} />
+    )
 }
 
 function DialogDescription({ className, ...props }: DialogPrimitive.Description.Props): React.ReactElement {

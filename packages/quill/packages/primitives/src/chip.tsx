@@ -1,10 +1,11 @@
+import './chip.css'
+
 import { type VariantProps } from 'class-variance-authority'
 import { XIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button, type buttonVariants } from './button'
 import { ButtonGroup, type buttonGroupVariants } from './button-group'
-import './chip.css'
 import { cn } from './lib/utils'
 
 type ChipProps = Omit<React.ComponentProps<typeof Button>, 'variant'> &
@@ -18,24 +19,22 @@ type ChipProps = Omit<React.ComponentProps<typeof Button>, 'variant'> &
  * a descendant. Styling still flows through `.quill-button` variants because
  * those rules are tag-agnostic (class-based).
  */
-const Chip = React.forwardRef<HTMLDivElement, ChipProps>(
-    ({ className, size = 'sm', children, ...props }, ref) => {
-        return (
-            <Button
-                ref={ref as React.Ref<HTMLButtonElement>}
-                render={<div />}
-                data-quill
-                data-slot="chip"
-                size={size}
-                variant="outline"
-                className={cn('quill-chip gap-1', className)}
-                {...props}
-            >
-                {children}
-            </Button>
-        )
-    }
-)
+const Chip = React.forwardRef<HTMLDivElement, ChipProps>(({ className, size = 'sm', children, ...props }, ref) => {
+    return (
+        <Button
+            ref={ref as React.Ref<HTMLButtonElement>}
+            render={<div />}
+            data-quill
+            data-slot="chip"
+            size={size}
+            variant="outline"
+            className={cn('quill-chip gap-1', className)}
+            {...props}
+        >
+            {children}
+        </Button>
+    )
+})
 Chip.displayName = 'Chip'
 
 const ChipClose = React.forwardRef<HTMLButtonElement, React.ComponentProps<typeof Button>>(

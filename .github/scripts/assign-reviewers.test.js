@@ -145,7 +145,10 @@ test('computeOwnerFootprints: ignores generated/excluded files and maps bare slu
 test('computeOwnerFootprints: skips resolutions with generated/vendored status', () => {
     const resolution = {
         'posthog/api/survey.py': resolved(['team-surveys'], 'products/surveys/product.yaml'),
-        'some/generated/tree/file.ts': { ...resolved(['team-devex'], 'some/generated/owners.yaml'), status: 'generated' },
+        'some/generated/tree/file.ts': {
+            ...resolved(['team-devex'], 'some/generated/owners.yaml'),
+            status: 'generated',
+        },
         'vendor/lib/thing.js': { ...resolved(['team-devex'], 'vendor/owners.yaml'), status: 'vendored' },
     }
     // An ownership file inside a generated tree resolves with that status too,
@@ -244,9 +247,7 @@ test('classifyOwners: promotes the largest owner when all are below the bar', ()
 })
 
 test('classifyOwners: caps requested teams at maxTeamsRequested, demoting the smallest', () => {
-    const footprints = Array.from({ length: CONFIG.maxTeamsRequested + 3 }, (_, i) =>
-        fp(`@PostHog/team-${i}`, 50 + i)
-    )
+    const footprints = Array.from({ length: CONFIG.maxTeamsRequested + 3 }, (_, i) => fp(`@PostHog/team-${i}`, 50 + i))
     const { requested, demoted } = classifyOwners(footprints)
 
     assert.equal(requested.filter((f) => f.type === 'team').length, CONFIG.maxTeamsRequested)
@@ -267,9 +268,7 @@ test('classifyOwners: caps requested teams at maxTeamsRequested, demoting the sm
 
 test('classifyOwners: never caps explicit users even when teams overflow the cap', () => {
     // All substantive, so the cap (teams-only) is the only thing that can demote.
-    const teams = Array.from({ length: CONFIG.maxTeamsRequested + 2 }, (_, i) =>
-        fp(`@PostHog/team-${i}`, 50 + i)
-    )
+    const teams = Array.from({ length: CONFIG.maxTeamsRequested + 2 }, (_, i) => fp(`@PostHog/team-${i}`, 50 + i))
     const users = [fp('@user-a', 20, 1, 'user'), fp('@user-b', 20, 1, 'user')]
     const { requested, demoted } = classifyOwners([...teams, ...users])
 

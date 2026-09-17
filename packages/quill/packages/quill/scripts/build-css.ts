@@ -45,10 +45,7 @@ const colorsScopedSource = resolve(packageRoot, 'node_modules/@posthog/quill-tok
  * be shipped with the umbrella — without it consumers see the BEM class
  * names but no styling.
  */
-const primitivesSource = resolve(
-    packageRoot,
-    'node_modules/@posthog/quill-primitives/dist/quill-primitives.css'
-)
+const primitivesSource = resolve(packageRoot, 'node_modules/@posthog/quill-primitives/dist/quill-primitives.css')
 
 for (const path of [tokensSource, colorsSource, tokensScopedSource, colorsScopedSource, primitivesSource]) {
     if (!existsSync(path)) {
@@ -123,7 +120,7 @@ writeFileSync(
         ' *   1. light / dark CSS custom property values (:root + .dark)',
         ' *   2. the @theme inline block that registers those values as',
         ' *      Tailwind v4 theme keys so `bg-fill-hover`, `rounded-md`,',
-        ' *      `text-xxs` etc. compile in the consumer\'s own Tailwind.',
+        " *      `text-xxs` etc. compile in the consumer's own Tailwind.",
         ' */',
         '',
         colors,
@@ -160,14 +157,14 @@ writeFileSync(
         '/* @posthog/quill — Tailwind source directive.',
         ' *',
         ' * Consumer imports this file from their Tailwind v4 entry. The',
-        ' * glob path is relative to THIS file\'s on-disk location (inside',
+        " * glob path is relative to THIS file's on-disk location (inside",
         ' * node_modules/@posthog/quill/dist after install), so it works',
         ' * under pnpm, hoisted, and Docker layouts without needing',
         ' * consumer-side `../node_modules/@posthog/quill/...` paths.',
         ' *',
         ' * Tailwind scans the compiled library JS for literal class',
         ' * strings (cva variants, `cn(...)` calls, template-less className',
-        ' * props) and generates the matching utilities in the consumer\'s',
+        " * props) and generates the matching utilities in the consumer's",
         ' * own `utilities` layer — no pre-compiled stylesheet, no',
         ' * cascade-layer fight with consumer Tailwind output.',
         ' */',

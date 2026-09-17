@@ -1,9 +1,10 @@
+import './radio-group.css'
+
 import { Radio as RadioPrimitive } from '@base-ui/react/radio'
 import { RadioGroup as RadioGroupPrimitive } from '@base-ui/react/radio-group'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
-import './radio-group.css'
 import { cn } from './lib/utils'
 
 const radioIndicatorVariants = cva('quill-radio-indicator', {

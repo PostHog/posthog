@@ -1,7 +1,8 @@
+import './dot.css'
+
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
-import './dot.css'
 import { cn } from './lib/utils'
 
 const dotVariants = cva('quill-dot relative inline-flex p-0.5 shrink-0 items-center justify-center whitespace-nowrap', {
@@ -30,12 +31,7 @@ function Dot({
     ...props
 }: React.ComponentProps<'span'> & VariantProps<typeof dotVariants>): React.ReactElement {
     return (
-        <span
-            data-quill
-            data-slot="dot"
-            className={cn(dotVariants({ variant, pulse }), className)}
-            {...props}
-        >
+        <span data-quill data-slot="dot" className={cn(dotVariants({ variant, pulse }), className)} {...props}>
             {pulse && (
                 <span
                     aria-hidden

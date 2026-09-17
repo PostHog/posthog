@@ -22,8 +22,8 @@ import {
     type BarRect,
     type DrawContext,
 } from '../../core/canvas-renderer'
-import { applyChartDefaults } from '../../core/chart-config'
 import { Chart } from '../../core/Chart'
+import { applyChartDefaults } from '../../core/chart-config'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { barColorAt } from '../../core/color-utils'
 import { type ComboChartPrivate, createComboScales, partitionByType, resolveSeriesType } from '../../core/combo-scales'
@@ -127,9 +127,7 @@ function ComboChartInner<Meta = unknown>({
         if (barLayout === 'percent') {
             return computePercentStackData(barSeries, labels)
         }
-        return divergingStack
-            ? computeDivergingStackData(barSeries, labels)
-            : computeStackData(barSeries, labels)
+        return divergingStack ? computeDivergingStackData(barSeries, labels) : computeStackData(barSeries, labels)
     }, [barLayout, divergingStack, series, labels, seriesTypeOf])
 
     // Per-axis topmost bar — only bar layers below the cap forgo corner rounding. Non-bar series are

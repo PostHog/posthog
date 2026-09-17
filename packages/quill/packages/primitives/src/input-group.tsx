@@ -1,9 +1,10 @@
+import './input-group.css'
+
 import { NumberField } from '@base-ui/react/number-field'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
 import { Button } from './button'
-import './input-group.css'
 import { Input } from './input'
 import { cn } from './lib/utils'
 import { Textarea } from './textarea'
@@ -128,11 +129,7 @@ interface InputGroupNumberInputProps extends Omit<NumberField.Root.Props, 'class
     inputRef?: React.Ref<HTMLInputElement>
 }
 
-function InputGroupNumberInput({
-    className,
-    inputRef,
-    ...rootProps
-}: InputGroupNumberInputProps): React.ReactElement {
+function InputGroupNumberInput({ className, inputRef, ...rootProps }: InputGroupNumberInputProps): React.ReactElement {
     return (
         <NumberField.Root {...rootProps}>
             <NumberField.ScrubArea data-slot="input-group-scrub-area" className="cursor-ew-resize">
@@ -149,4 +146,12 @@ function InputGroupNumberInput({
     )
 }
 
-export { InputGroup, InputGroupAddon, InputGroupButton, InputGroupText, InputGroupInput, InputGroupNumberInput, InputGroupTextarea }
+export {
+    InputGroup,
+    InputGroupAddon,
+    InputGroupButton,
+    InputGroupText,
+    InputGroupInput,
+    InputGroupNumberInput,
+    InputGroupTextarea,
+}

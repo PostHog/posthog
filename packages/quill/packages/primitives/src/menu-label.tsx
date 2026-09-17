@@ -1,9 +1,10 @@
+import './menu-label.css'
+
 import { mergeProps } from '@base-ui/react/merge-props'
 import { useRender } from '@base-ui/react/use-render'
 import * as React from 'react'
 
 import { cn } from './lib/utils'
-import './menu-label.css'
 
 // Section label for menus/lists. Defaults to a <div>; pass render=<label /> to
 // bind it to a control.

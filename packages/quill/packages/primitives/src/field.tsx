@@ -1,8 +1,9 @@
+import './field.css'
+
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 import { useMemo } from 'react'
 
-import './field.css'
 import { Label } from './label'
 import { cn } from './lib/utils'
 import { Separator } from './separator'
@@ -128,7 +129,12 @@ function FieldSeparator({
     children?: React.ReactNode
 }): React.ReactElement {
     return (
-        <div data-slot="field-separator" data-content={!!children} className={cn('quill-field__separator', className)} {...props}>
+        <div
+            data-slot="field-separator"
+            data-content={!!children}
+            className={cn('quill-field__separator', className)}
+            {...props}
+        >
             <Separator className="absolute inset-0 top-1/2" />
             {children && (
                 <span className="quill-field__separator-content" data-slot="field-separator-content">

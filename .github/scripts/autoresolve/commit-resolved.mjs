@@ -84,9 +84,7 @@ if (committed) {
         `🔀 Merged \`master\` and resolved conflicts ${how}.\n\n` +
         `Pushed as a signed commit (${additions.length} file(s) changed). **Review before merging** — ` +
         `auto-resolution is a starting point, not an approval.` +
-        (usedAgent
-            ? '\n\n> Conflicts needed judgment, so an agent resolved them — give the diff an extra look.'
-            : '')
+        (usedAgent ? '\n\n> Conflicts needed judgment, so an agent resolved them — give the diff an extra look.' : '')
 } else if (status === 'graphite') {
     body =
         `🔀 This is a Graphite stack, so it can't be brought up to date by merging \`master\` — it needs a restack, which only you can do:\n\n` +

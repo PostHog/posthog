@@ -59,7 +59,16 @@ function buildTrigger(context) {
 // GitHub App installation bucket (e.g. posthog-devex-general, the setup-action
 // offload bucket, 15k/hr). The buckets are independent, so downstream they're
 // a per-bucket time series.
-function buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId, trigger, source = DEFAULT_SOURCE }) {
+function buildProperties({
+    resource,
+    snapshot,
+    observedAt,
+    observedAtSeconds,
+    repo,
+    runId,
+    trigger,
+    source = DEFAULT_SOURCE,
+}) {
     const used = typeof snapshot.used === 'number' ? snapshot.used : snapshot.limit - snapshot.remaining
     const utilization = snapshot.limit > 0 ? used / snapshot.limit : 0
     return {
@@ -149,9 +158,22 @@ module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch, s
     let emitted = 0
     let failures = 0
     for (const [resource, snapshot] of Object.entries(resources)) {
-        if (!snapshot || typeof snapshot.limit !== 'number' || typeof snapshot.remaining !== 'number') {continue}
-        const properties = buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId, trigger, source })
-        core.info(`[${source}] ${resource}: ${properties.remaining}/${properties.limit} remaining (resets ${properties.reset_at})`)
+        if (!snapshot || typeof snapshot.limit !== 'number' || typeof snapshot.remaining !== 'number') {
+            continue
+        }
+        const properties = buildProperties({
+            resource,
+            snapshot,
+            observedAt,
+            observedAtSeconds,
+            repo,
+            runId,
+            trigger,
+            source,
+        })
+        core.info(
+            `[${source}] ${resource}: ${properties.remaining}/${properties.limit} remaining (resets ${properties.reset_at})`
+        )
         try {
             await captureEvent({
                 fetchImpl,

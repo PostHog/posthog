@@ -83,9 +83,9 @@ export const Checkboxes: Story = {
                         <ContextMenuCheckboxItem disabled>Checkbox Item 2</ContextMenuCheckboxItem>
                         <ContextMenuSeparator />
                         <ContextMenuItem>
-                                <ExpandIcon />
-                                Expand
-                            </ContextMenuItem>
+                            <ExpandIcon />
+                            Expand
+                        </ContextMenuItem>
                     </ContextMenuGroup>
                 </ContextMenuContent>
             </ContextMenu>
@@ -122,23 +122,48 @@ export const Radios: Story = {
 } satisfies Story
 
 const TIMEZONES = [
-    'Pacific/Midway', 'Pacific/Honolulu', 'America/Anchorage', 'America/Los_Angeles',
-    'America/Denver', 'America/Phoenix', 'America/Chicago', 'America/Mexico_City',
-    'America/New_York', 'America/Toronto', 'America/Halifax', 'America/Sao_Paulo',
-    'Atlantic/Azores', 'Europe/London', 'Europe/Dublin', 'Europe/Lisbon',
-    'Europe/Paris', 'Europe/Berlin', 'Europe/Madrid', 'Europe/Rome',
-    'Europe/Athens', 'Europe/Helsinki', 'Africa/Cairo', 'Europe/Moscow',
-    'Asia/Dubai', 'Asia/Karachi', 'Asia/Kolkata', 'Asia/Bangkok',
-    'Asia/Singapore', 'Asia/Hong_Kong', 'Asia/Shanghai', 'Asia/Tokyo',
-    'Asia/Seoul', 'Australia/Perth', 'Australia/Sydney', 'Pacific/Auckland',
+    'Pacific/Midway',
+    'Pacific/Honolulu',
+    'America/Anchorage',
+    'America/Los_Angeles',
+    'America/Denver',
+    'America/Phoenix',
+    'America/Chicago',
+    'America/Mexico_City',
+    'America/New_York',
+    'America/Toronto',
+    'America/Halifax',
+    'America/Sao_Paulo',
+    'Atlantic/Azores',
+    'Europe/London',
+    'Europe/Dublin',
+    'Europe/Lisbon',
+    'Europe/Paris',
+    'Europe/Berlin',
+    'Europe/Madrid',
+    'Europe/Rome',
+    'Europe/Athens',
+    'Europe/Helsinki',
+    'Africa/Cairo',
+    'Europe/Moscow',
+    'Asia/Dubai',
+    'Asia/Karachi',
+    'Asia/Kolkata',
+    'Asia/Bangkok',
+    'Asia/Singapore',
+    'Asia/Hong_Kong',
+    'Asia/Shanghai',
+    'Asia/Tokyo',
+    'Asia/Seoul',
+    'Australia/Perth',
+    'Australia/Sydney',
+    'Pacific/Auckland',
 ] as const
 
 export const Overflow: Story = {
     render: () => (
         <ContextMenu>
-            <ContextMenuTrigger render={<Button variant="outline" size="sm" />}>
-                Side-click me
-            </ContextMenuTrigger>
+            <ContextMenuTrigger render={<Button variant="outline" size="sm" />}>Side-click me</ContextMenuTrigger>
             <ContextMenuContent className="w-auto min-w-56">
                 <ContextMenuGroup>
                     {TIMEZONES.map((tz) => (

@@ -135,7 +135,9 @@ function main() {
     // U+2028/U+2029 are valid in JSON strings but only valid in JS string
     // literals under ES2019 JSON-superset parsing — escape them so the
     // generated scripts parse under any dialect.
-    const promptJson = JSON.stringify(prompt).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')
+    const promptJson = JSON.stringify(prompt)
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029')
 
     fs.writeFileSync(path.join(runDir, 'launch_first.js'), fill(FIRST_TEMPLATE, { PROMPT_JSON: promptJson }))
     fs.writeFileSync(

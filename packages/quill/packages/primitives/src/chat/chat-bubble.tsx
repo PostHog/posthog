@@ -1,9 +1,10 @@
+import './chat-bubble.css'
+
 import { mergeProps } from '@base-ui/react/merge-props'
 import { useRender } from '@base-ui/react/use-render'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
-import './chat-bubble.css'
 import { cn } from '../lib/utils'
 
 /**
@@ -40,7 +41,8 @@ function ChatBubble({
     align = 'start',
     className,
     ...props
-}: React.ComponentProps<'div'> & VariantProps<typeof bubbleVariants> & { align?: 'start' | 'end' }): React.ReactElement {
+}: React.ComponentProps<'div'> &
+    VariantProps<typeof bubbleVariants> & { align?: 'start' | 'end' }): React.ReactElement {
     return (
         <div
             data-quill

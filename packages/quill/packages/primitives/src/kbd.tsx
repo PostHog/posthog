@@ -1,7 +1,8 @@
+import './kbd.css'
+
 import * as React from 'react'
 
 import { buttonVariants } from './button'
-import './kbd.css'
 import { cn } from './lib/utils'
 
 function Kbd({ className, ...props }: React.ComponentProps<'kbd'>): React.ReactElement {

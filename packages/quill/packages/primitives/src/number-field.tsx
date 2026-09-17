@@ -1,14 +1,12 @@
+import './number-field.css'
+
 import { NumberField as NumberFieldPrimitive } from '@base-ui/react/number-field'
 import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { cn } from './lib/utils'
-import './number-field.css'
 
-function NumberFieldRoot({
-    className,
-    ...props
-}: NumberFieldPrimitive.Root.Props): React.ReactElement {
+function NumberFieldRoot({ className, ...props }: NumberFieldPrimitive.Root.Props): React.ReactElement {
     return (
         <NumberFieldPrimitive.Root
             data-quill
@@ -19,10 +17,7 @@ function NumberFieldRoot({
     )
 }
 
-function NumberFieldGroup({
-    className,
-    ...props
-}: NumberFieldPrimitive.Group.Props): React.ReactElement {
+function NumberFieldGroup({ className, ...props }: NumberFieldPrimitive.Group.Props): React.ReactElement {
     return (
         <NumberFieldPrimitive.Group
             data-slot="number-field-group"
@@ -78,10 +73,7 @@ function NumberFieldDecrement({
     )
 }
 
-function NumberFieldScrubArea({
-    className,
-    ...props
-}: NumberFieldPrimitive.ScrubArea.Props): React.ReactElement {
+function NumberFieldScrubArea({ className, ...props }: NumberFieldPrimitive.ScrubArea.Props): React.ReactElement {
     return (
         <NumberFieldPrimitive.ScrubArea
             data-slot="number-field-scrub-area"

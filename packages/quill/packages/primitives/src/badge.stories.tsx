@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { InfoIcon } from 'lucide-react'
 
 import { Badge } from './badge'
-import { InfoIcon } from 'lucide-react'
 import { Spinner } from './spinner'
 
 const meta = {
@@ -38,12 +38,20 @@ export const WithIcons = {
     render: () => (
         <div className="flex flex-col gap-4">
             <div className="flex flex-wrap gap-2">
-                <Badge variant="default"><InfoIcon data-icon="inline-start"/> Default</Badge>
-                <Badge variant="default"><Spinner data-icon="inline-start"/> Spinner</Badge>
+                <Badge variant="default">
+                    <InfoIcon data-icon="inline-start" /> Default
+                </Badge>
+                <Badge variant="default">
+                    <Spinner data-icon="inline-start" /> Spinner
+                </Badge>
             </div>
             <div className="flex flex-wrap gap-2">
-                <Badge variant="default">Default <InfoIcon data-icon="inline-end"/></Badge>
-                <Badge variant="default">Spinner <Spinner data-icon="inline-end"/></Badge>
+                <Badge variant="default">
+                    Default <InfoIcon data-icon="inline-end" />
+                </Badge>
+                <Badge variant="default">
+                    Spinner <Spinner data-icon="inline-end" />
+                </Badge>
             </div>
         </div>
     ),

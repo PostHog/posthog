@@ -1,7 +1,8 @@
+import './empty.css'
+
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
-import './empty.css'
 import { cn } from './lib/utils'
 
 function Empty({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {

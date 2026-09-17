@@ -38,10 +38,7 @@ const scopedOpts = { scope: '[data-quill]' }
 
 writeFileSync(resolve(distDir, 'color-system.scoped.css'), generateColorSystemCSS(undefined, scopedOpts))
 
-writeFileSync(
-    resolve(distDir, 'tailwind.scoped.css'),
-    generateStylesCSS({ includeBaseLayer: true, ...scopedOpts })
-)
+writeFileSync(resolve(distDir, 'tailwind.scoped.css'), generateStylesCSS({ includeBaseLayer: true, ...scopedOpts }))
 
 writeFileSync(
     resolve(distDir, 'tailwind-lib.scoped.css'),

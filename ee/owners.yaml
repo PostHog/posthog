@@ -7,8 +7,6 @@ rules:
       owners: team-analytics-platform
     - match: ['/clickhouse/queries/related_actors_query.py', '/clickhouse/views/groups.py']
       owners: team-product-analytics
-    - match: '/session_recordings/'
-      owners: team-replay
     - match: '/support_sidebar_max/'
       owners: team-self-driving
     - match: '/surveys/'

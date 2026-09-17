@@ -1,3 +1,5 @@
+import './toast.css'
+
 import { Toast } from '@base-ui/react/toast'
 import { CircleCheckIcon, InfoIcon, XIcon, TriangleAlertIcon } from 'lucide-react'
 import * as React from 'react'
@@ -5,7 +7,6 @@ import * as React from 'react'
 import { Button } from './button'
 import { cn } from './lib/utils'
 import { Spinner } from './spinner'
-import './toast.css'
 
 // ── Global manager ────────────────────────────────────────────────────
 type ToastActionData = {

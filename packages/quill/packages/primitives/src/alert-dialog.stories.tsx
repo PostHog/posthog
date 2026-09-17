@@ -34,7 +34,9 @@ export const Default: Story = {
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                     <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
-                    <AlertDialogClose render={<Button variant="destructive-outline" />}>Delete project</AlertDialogClose>
+                    <AlertDialogClose render={<Button variant="destructive-outline" />}>
+                        Delete project
+                    </AlertDialogClose>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>

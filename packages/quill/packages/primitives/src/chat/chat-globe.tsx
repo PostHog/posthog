@@ -1,7 +1,7 @@
 import * as React from 'react'
 
-import { cn } from '../lib/utils'
 import { useReducedMotion } from '../lib/use-reduced-motion'
+import { cn } from '../lib/utils'
 
 /**
  * A globe whose meridians sweep, reading as "browsing the web". Vendored from the aicss web-search

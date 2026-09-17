@@ -1,10 +1,11 @@
+import './scroll-area.css'
+
 import { ScrollArea as ScrollAreaPrimitive } from '@base-ui/react/scroll-area'
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp } from 'lucide-react'
 import * as React from 'react'
 
-import { cn } from './lib/utils'
-import './scroll-area.css'
 import { Button } from './button'
+import { cn } from './lib/utils'
 
 type ScrollEdge = 'top' | 'right' | 'bottom' | 'left'
 type ShowScrollToButton = ScrollEdge | 'all' | ReadonlyArray<ScrollEdge>
@@ -228,7 +229,7 @@ function ScrollArea({
             <ScrollAreaPrimitive.Viewport
                 ref={viewportRef}
                 data-slot="scroll-area-viewport"
-                className={cn("quill-scroll-area__viewport", viewportClassName)}
+                className={cn('quill-scroll-area__viewport', viewportClassName)}
             >
                 {children}
             </ScrollAreaPrimitive.Viewport>

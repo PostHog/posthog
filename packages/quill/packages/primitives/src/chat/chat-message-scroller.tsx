@@ -1,3 +1,5 @@
+import './chat-message-scroller.css'
+
 import {
     MessageScroller as MessageScrollerPrimitive,
     useMessageScroller,
@@ -7,7 +9,6 @@ import {
 import { ArrowDownIcon } from 'lucide-react'
 import * as React from 'react'
 
-import './chat-message-scroller.css'
 import { Button } from '../button'
 import { cn } from '../lib/utils'
 

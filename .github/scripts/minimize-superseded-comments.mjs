@@ -70,20 +70,52 @@ async function fetchCommentsAndReviews() {
     let reviewsCursor = null
     while (needComments || needReviews) {
         const data = await graphql(
-            `query($owner: String!, $name: String!, $pr: Int!, $commentsCursor: String, $reviewsCursor: String, $needComments: Boolean!, $needReviews: Boolean!) {
-                repository(owner: $owner, name: $name) {
-                    pullRequest(number: $pr) {
-                        comments(first: 100, after: $commentsCursor) @include(if: $needComments) {
-                            pageInfo { hasNextPage endCursor }
-                            nodes { id body createdAt isMinimized author { login } }
-                        }
-                        reviews(first: 100, after: $reviewsCursor) @include(if: $needReviews) {
-                            pageInfo { hasNextPage endCursor }
-                            nodes { id body createdAt isMinimized author { login } }
+            `
+                query (
+                    $owner: String!
+                    $name: String!
+                    $pr: Int!
+                    $commentsCursor: String
+                    $reviewsCursor: String
+                    $needComments: Boolean!
+                    $needReviews: Boolean!
+                ) {
+                    repository(owner: $owner, name: $name) {
+                        pullRequest(number: $pr) {
+                            comments(first: 100, after: $commentsCursor) @include(if: $needComments) {
+                                pageInfo {
+                                    hasNextPage
+                                    endCursor
+                                }
+                                nodes {
+                                    id
+                                    body
+                                    createdAt
+                                    isMinimized
+                                    author {
+                                        login
+                                    }
+                                }
+                            }
+                            reviews(first: 100, after: $reviewsCursor) @include(if: $needReviews) {
+                                pageInfo {
+                                    hasNextPage
+                                    endCursor
+                                }
+                                nodes {
+                                    id
+                                    body
+                                    createdAt
+                                    isMinimized
+                                    author {
+                                        login
+                                    }
+                                }
+                            }
                         }
                     }
                 }
-            }`,
+            `,
             { owner, name, pr: prNumber, commentsCursor, reviewsCursor, needComments, needReviews }
         )
         const pr = data.repository.pullRequest

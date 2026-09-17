@@ -68,7 +68,10 @@ test('buildImportMap resolves every import shape end-to-end (via the AST scanner
             'from posthog import schema\nx = schema.InsightVizNode\ny = schema.DataVisualizationNode\n'
         )
         // `import posthog.schema` + dotted ref
-        fs.writeFileSync(path.join(mk('alerts'), 'c.py'), 'import posthog.schema\ns = posthog.schema.AlertState["FIRING"]\n')
+        fs.writeFileSync(
+            path.join(mk('alerts'), 'c.py'),
+            'import posthog.schema\ns = posthog.schema.AlertState["FIRING"]\n'
+        )
         // module bound but used dynamically → wildcard
         fs.writeFileSync(path.join(mk('mystery'), 'd.py'), 'from posthog import schema\nregister(schema)\n')
         // noise: no schema usage at all

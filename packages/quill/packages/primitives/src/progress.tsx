@@ -1,8 +1,9 @@
+import './progress.css'
+
 import { Progress as ProgressPrimitive } from '@base-ui/react/progress'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
-import './progress.css'
 import { cn } from './lib/utils'
 
 const progressIndicatorVariants = cva('quill-progress__indicator', {

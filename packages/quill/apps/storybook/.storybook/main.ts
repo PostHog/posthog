@@ -1,7 +1,7 @@
 import type { StorybookConfig } from '@storybook/react-vite'
+import chokidar from 'chokidar'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import chokidar from 'chokidar'
 import path from 'path'
 import type { Plugin, ViteDevServer } from 'vite'
 

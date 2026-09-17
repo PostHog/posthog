@@ -1,5 +1,4 @@
 import type { ChartDimensions } from '../types'
-
 import { clearAndPrepare } from './clearCanvas'
 
 function makeCtx(backingWidth: number): {
