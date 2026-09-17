@@ -180,17 +180,25 @@ describe("NavRail", () => {
   });
 
   it.each([false, true])(
-    "shows Classic only when the host supports it: %s",
+    "shows Library and Tools only when the host supports them: %s",
     (available) => {
       mocks.classicAvailable = available;
       render(<NavRail />);
-      const classic = screen.queryByRole("button", { name: "Classic" });
+      const library = screen.queryByRole("button", { name: "Library" });
+      const tools = screen.queryByRole("button", { name: "Tools" });
+      expect(
+        screen.queryByRole("button", { name: "Classic" }),
+      ).not.toBeInTheDocument();
       if (available) {
-        expect(classic).toBeInTheDocument();
-        if (classic) fireEvent.click(classic);
-        expect(mocks.navigate).toHaveBeenCalledWith({ to: "/classic" });
+        expect(library).toBeInTheDocument();
+        expect(tools).toBeInTheDocument();
+        if (library) fireEvent.click(library);
+        expect(mocks.navigate).toHaveBeenCalledWith({ to: "/library" });
+        if (tools) fireEvent.click(tools);
+        expect(mocks.navigate).toHaveBeenCalledWith({ to: "/tools" });
       } else {
-        expect(classic).not.toBeInTheDocument();
+        expect(library).not.toBeInTheDocument();
+        expect(tools).not.toBeInTheDocument();
       }
     },
   );

@@ -1,83 +1,78 @@
-# Classic preview
+# Library and Tools preview
 
-Classic opens the PostHog web app inside the desktop app or its browser host.
-Select Classic below Loops and Context in the navigation rail.
-The web app owns the collapsible product navigation beside the rail.
-Desktop does not draw a second sidebar for Classic.
-One frame contains the existing web navigation, product tabs, scene layout, and page body.
-Products use their existing routes and views. They do not need a Classic adapter or a separate navigation entry.
+Library and Tools open existing PostHog web pages inside Desktop or its browser host.
+They replace the Classic rail item, below Loops and Context.
+Old `/classic` links redirect to `/library`.
 
-This proof of concept supports US and EU cloud projects.
-Sign in to the web app inside Classic with the same account as desktop.
-The web sign-in is separate from desktop OAuth and can have different permissions.
-External sign-in redirects and popup windows are blocked, so use an account with a direct PostHog sign-in for this preview.
-Desktop does not pass its access token to the page.
-The web session uses an in-memory partition per desktop account and cloud region.
-It does not persist after the app closes.
+## Library
 
-Project product pages, their tabs, settings, and normal scene panels use the web app.
-Use the web sidebar to move between products or return to the dashboard list.
-Classic adds no header, dashboard shortcut, or links to open the same page in a new window.
-The web app fills the available space. If loading fails, select **Reload Classic** in the error message.
-Web chat and the nested Desktop route are outside this preview.
-The shared web layout hides the Chat and Browse navigation tabs and disables the AI side panel.
-The product navigation stays visible without a Browse toggle.
-It keeps normal panels such as Actions, Activity logs, Access, and Discuss.
-Electron uses this layout too, not injected CSS.
-Both the Desktop build and the web app changes from this PR must be deployed together.
-Use the web sidebar's resize handle or press `[` inside Classic to collapse its navigation.
-The Desktop sidebar state stays unchanged for other destinations.
-Desktop's native project picker controls Classic's project.
-Classic hides the web account and project pickers, including in collapsed navigation and fullscreen views.
-Selecting another project in Desktop reloads Classic for that project.
-Organization-level document routes outside `/project/<id>/` and external sign-in or popup flows are not supported in this preview.
+Library lists saved objects registered with the web file system, including insights, dashboards, feature flags, experiments, notebooks, surveys, and cohorts.
+It uses the existing file system index and access checks, not a second object store.
+Objects that have not yet been indexed are imported through the web app's existing unfiled endpoint.
+Search, object type, sort order, and pagination use the server.
+The URL stores these filters, so browser back and forward can restore a list.
 
+Select an object to open its existing web detail page, including its tabs, editing controls, and normal panels.
+Select a type and **Open product view** to use the existing product list and its creation controls.
+Select **All objects** in the collapsible sidebar to return to the library.
+Objects without a supported project page are shown but cannot be opened in this preview.
+The library covers the web file system's registered objects, not every database row or raw event.
+
+## Tools
+
+Tools lists working pages from the web product and data registries.
+This includes SQL editor, analytics, data pipeline sources and destinations, and data management pages.
+Search and category filters narrow the list.
+Registered saved-object lists belong in Library; other working pages belong in Tools.
+The registry retains each tool's feature flag and access checks.
+New products can use the same registries and existing routes without a separate Desktop page.
+
+## Shared layout and isolation
+
+The web app owns the collapsible navigation beside the Desktop rail, the product tabs, and the page body.
+Desktop does not add a second sidebar for these destinations.
+Desktop's native project picker is authoritative.
+Selecting a different project reloads the frame for that project and account.
+The web project and account pickers, Browse toggle, and chat are hidden.
+Normal web pages outside an embed keep their existing layout.
+
+The transport retains the `__desktop_classic=1` and `__desktop_parent_origin` parameters for compatibility.
+`__desktop_section=library` or `__desktop_section=tools` selects the navigation and landing page.
+The embed preserves these parameters with browser history updates, without dispatching a second router action.
+
+The Electron host supports US and EU cloud projects through an isolated webview.
 The remote page has no preload script, Node access, or desktop IPC bridge.
-The host allows only the selected PostHog cloud origin for top-level navigation.
-Web security and the browser sandbox remain enabled.
+Web security and the browser sandbox stay enabled.
+External popups, organization-level document routes, and chat routes are not supported.
 
-## Browser preview
+The browser host uses a sandboxed iframe and the browser's web session, not the Desktop OAuth token.
+The frame stays hidden until its expected origin and window confirm the same account and project.
+No dashboard content or access token crosses this message channel.
+Sign in to PostHog in a separate browser tab with the same account if needed, then select **Reload** after a load failure.
+Browser privacy settings can block cross-site session cookies; use a same-site deployment for this preview.
 
-The browser host uses a sandboxed iframe instead of an Electron webview.
-It uses the browser's web session, not the Desktop OAuth token.
-If needed, sign in to your PostHog web app in a separate browser tab with the same account, then reload Classic.
-The frame stays hidden until a message from the expected frame and cloud origin confirms the same account and project.
-If the page cannot confirm this, Classic shows an error instead of an empty frame.
-Browser privacy settings can block session cookies in cross-site frames.
-Use a same-site deployment for this preview.
-
-The web app recognizes `__desktop_classic=1` with `__desktop_parent_origin` inside a frame.
-This layout keeps the full web navigation except chat, retains the parameters during navigation, and limits the body to the selected project's routes.
-It keeps the host parameters in browser history without sending another router action.
-Product tabs can replace their own search parameters without a loop between the product router and Classic.
-Normal top-level pages keep their existing layout.
-No dashboard content or access token is sent through frame messages.
-
-The CSP change applies only to project document routes with `__desktop_classic=1`, excluding chat and nested Desktop routes.
-It adds the app's own origin to the existing trusted frame parents.
-Local development and `*.dev.posthog.dev` also allow the browser host at `http://localhost:5273`.
-Production does not allow localhost or an origin supplied through a query parameter.
+The CSP exception applies only to supported project document routes with `__desktop_classic=1`.
+Local development and `*.dev.posthog.dev` allow `http://localhost:5273` as a parent.
+Production uses the app's own origin and existing trusted parents, never a parent supplied through the URL or localhost.
 Login, chat, API, and admin policies stay unchanged.
 
-To test both sides from this PR:
+## Local browser test
 
-1. Run the PostHog web app from this branch at `http://localhost:8010` with `DEBUG` enabled.
+1. Run PostHog web from this branch at `http://localhost:8010` with `DEBUG` enabled.
 2. From `products/desktop`, run `pnpm --filter @posthog/web dev`.
-3. Open `http://localhost:5273`, select **Local development**, and sign in. The local OAuth application must allow `http://localhost:5273/callback`. Configure the local RSA signing key as described in `docs/LOCAL-DEVELOPMENT.md`. See `apps/web/README.md` for browser OAuth and CORS requirements.
-4. Select **Classic**. If needed, sign in at `http://localhost:8010` in a separate browser tab to establish the local web session, then reload Classic.
-5. Open a dashboard, change a filter, open an insight, and use the web sidebar to return. Open another product from the web sidebar and check its tabs and views. Open a normal scene panel. Collapse the web sidebar and check a narrow window. Switch projects in Desktop and check that the frame reloads for that project.
+3. Open `http://localhost:5273`, select **Local development**, and sign in.
+4. Select **Library**. Search and filter the list, then open a dashboard, insight, flag, experiment, or notebook.
+5. Select **Tools**, search for SQL editor, and open it. Check sources and destinations through the tool navigation.
+6. Check product tabs, browser back and forward, sidebar collapse, narrow layouts, and native project switching.
 
-If sign-in returns **Mismatching redirect URI.**, add the browser callback to the existing local OAuth application before you retry.
-Follow the [browser redirect troubleshooting steps](./LOCAL-DEVELOPMENT.md#mismatching-redirect-uri-during-browser-sign-in).
-
-The browser host's existing organization-consent check can reject project-scoped development tokens before Classic opens.
+The local OAuth application must allow `http://localhost:5273/callback`.
+See [local development](./LOCAL-DEVELOPMENT.md#mismatching-redirect-uri-during-browser-sign-in) for redirect and RSA signing-key setup, and `apps/web/README.md` for OAuth and CORS requirements.
+The browser host's existing consent check can reject project-scoped development tokens before these views open.
 This preview does not change that check.
 
-For a hosted test, build the browser host with `pnpm --filter @posthog/web build` and serve `apps/web/dist` on the app's origin or an existing trusted parent origin.
-Deploy the web app changes from this PR too, and register that host's OAuth callback and CORS origin.
+A hosted test needs both the PostHog web changes and the browser host build from this PR.
+Serve `apps/web/dist` on the app's origin or an existing trusted parent, and register its OAuth callback and CORS origin.
 The `/code/channel/...` links open Desktop; they do not serve this browser build.
-This PR does not deploy a new public browser host.
+This PR does not deploy a public browser host.
 
-For review, check sign-in, dashboard filters, product navigation, tabs, normal scene panels, project switching, and sidebar collapse.
-Check both a full-width window and a narrow content area.
-The existing sidebar click event records Classic selection without dashboard content or URLs.
+The existing sidebar click event records Library and Tools selection separately, without object names or search text.

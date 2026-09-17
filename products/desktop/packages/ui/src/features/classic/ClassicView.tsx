@@ -48,7 +48,7 @@ export function ClassicContent({
   return (
     <section
       className="flex h-full min-w-0 flex-col"
-      aria-label="Classic web app"
+      aria-label="PostHog web app"
     >
       <div className="relative min-h-0 flex-1">
         <div
@@ -72,14 +72,13 @@ export function ClassicContent({
               <EmptyHeader>
                 <EmptyTitle>PostHog did not load</EmptyTitle>
                 <EmptyDescription>
-                  {errorDetail ??
-                    "Check your connection, then select Reload Classic."}
+                  {errorDetail ?? "Check your connection, then select Reload."}
                 </EmptyDescription>
               </EmptyHeader>
               <EmptyContent>
                 <Button variant="primary" onClick={reload}>
                   <ArrowClockwiseIcon />
-                  Reload Classic
+                  Reload
                 </Button>
               </EmptyContent>
             </Empty>
@@ -90,7 +89,11 @@ export function ClassicContent({
   );
 }
 
-export function ClassicView(): ReactElement {
+export function ClassicView({
+  section = "library",
+}: {
+  section?: "library" | "tools";
+}): ReactElement {
   const Frame = useServiceOptional<ClassicFrameComponent>(
     CLASSIC_FRAME_COMPONENT,
   );
@@ -107,9 +110,11 @@ export function ClassicView(): ReactElement {
     return (
       <Empty>
         <EmptyHeader>
-          <EmptyTitle>Classic is not available for this connection</EmptyTitle>
+          <EmptyTitle>
+            Web pages are not available for this connection
+          </EmptyTitle>
           <EmptyDescription>
-            Open the desktop app with a US or EU cloud project to use Classic.
+            Select a supported cloud connection, then try again.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -117,7 +122,7 @@ export function ClassicView(): ReactElement {
   }
   if (!projectId || !user) return <LoadingState label="Loading project" />;
 
-  const url = `${cloudUrl}/project/${projectId}/dashboard`;
+  const url = `${cloudUrl}/project/${projectId}/home?__desktop_section=${section}`;
   return (
     <ClassicContent
       key={`${user.uuid}:${url}`}

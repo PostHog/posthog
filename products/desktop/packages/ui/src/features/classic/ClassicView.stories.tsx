@@ -65,7 +65,7 @@ function ClassicPreview({
                 "spaces",
                 "loops",
                 "context",
-                ...(before ? [] : ["classic"]),
+                ...(before ? [] : ["library", "tools"]),
               ].includes(item.pane),
             )
             .map(({ pane, label, Icon }) => (
@@ -73,7 +73,7 @@ function ClassicPreview({
                 key={pane}
                 size="icon"
                 aria-label={label}
-                data-selected={pane === "classic" || undefined}
+                data-selected={pane === "library" || undefined}
                 className="data-selected:bg-fill-selected data-selected:text-foreground"
               >
                 <Icon size={18} />
@@ -83,7 +83,7 @@ function ClassicPreview({
         <div className="min-w-0 flex-1">
           {before ? (
             <div className="p-6 text-muted-foreground text-xs">
-              No Classic destination
+              No embedded web destinations
             </div>
           ) : (
             <ClassicContent
@@ -99,7 +99,7 @@ function ClassicPreview({
 }
 
 const meta = {
-  title: "Classic/Preview",
+  title: "Web views/Preview",
   component: ClassicPreview,
   parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof ClassicPreview>;

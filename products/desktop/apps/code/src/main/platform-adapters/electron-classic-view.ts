@@ -40,7 +40,7 @@ export function isAllowedClassicView(
     return (
       /^posthog-classic-[a-zA-Z0-9-]+$/.test(partition ?? "") &&
       isClassicNavigation(src, url.origin) &&
-      /^\/project\/\d+\/dashboards?\/?$/.test(url.pathname)
+      /^\/project\/\d+\/(?:home|dashboards?)\/?$/.test(url.pathname)
     );
   } catch {
     return false;
@@ -104,6 +104,8 @@ export function lockDownClassicView(
     ) {
       target.searchParams.set("__desktop_classic", "1");
       target.searchParams.set("__desktop_parent_origin", origin);
+      const section = new URL(entryUrl).searchParams.get("__desktop_section");
+      if (section) target.searchParams.set("__desktop_section", section);
       void guest
         .loadURL(target.href)
         .catch((error: unknown) =>

@@ -25,6 +25,7 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
 import { classicEmbedContext } from '~/layout/navigation-3000/classicEmbedContext'
+import { DesktopNavigation } from '~/layout/navigation-3000/DesktopNavigation'
 import {
     NavExperimentTab,
     PANEL_NAVBAR_COLLAPSE_THRESHOLD,
@@ -297,7 +298,13 @@ export function NavBar(): JSX.Element {
 
                     <div className="flex-1 overflow-hidden relative">
                         <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
-                            {isFlatNavEnabled ? <FlatNavBrowse /> : <NavTabBrowse />}
+                            {classicEmbedContext?.section ? (
+                                <DesktopNavigation />
+                            ) : isFlatNavEnabled ? (
+                                <FlatNavBrowse />
+                            ) : (
+                                <NavTabBrowse />
+                            )}
                         </Tabs.Panel>
                         {/* Lazy until first activated: the visited list only ever grows, so once
                             mounted the panel never unmounts — keepMounted then preserves it across

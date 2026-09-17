@@ -13,6 +13,8 @@ import { getCurrentMatches } from "./navigationBridge";
 
 export type AppViewType =
   | "classic"
+  | "library"
+  | "tools"
   | "task-detail"
   | "task-input"
   | "folder-settings"
@@ -81,6 +83,10 @@ function deriveFromMatches(matches: Match[]): AppView {
       return { type: "loops" };
     case "/classic":
       return { type: "classic" };
+    case "/library":
+      return { type: "library" };
+    case "/tools":
+      return { type: "tools" };
     case "/archived":
       return { type: "archived" };
     case "/command-center":

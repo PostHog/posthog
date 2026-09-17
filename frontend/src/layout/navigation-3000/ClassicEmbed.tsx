@@ -40,8 +40,11 @@ export function ClassicEmbed({
         const url = new URL(window.location.href)
         url.searchParams.set('__desktop_classic', '1')
         url.searchParams.set('__desktop_parent_origin', context.parentOrigin)
+        if (context.section) {
+            url.searchParams.set('__desktop_section', context.section)
+        }
         window.history.replaceState(window.history.state, '', url.href)
-    }, [context.parentOrigin, location.pathname, location.search, location.hash])
+    }, [context.parentOrigin, context.section, location.pathname, location.search, location.hash])
 
     useEffect(() => {
         const report = (): void => {
@@ -79,6 +82,8 @@ export function ClassicEmbed({
     return allowed ? (
         <>{children}</>
     ) : (
-        <LemonButton to={`/project/${context.projectId}/dashboard`}>Return to Classic</LemonButton>
+        <LemonButton to={`/project/${context.projectId}/home`}>
+            Return to {context.section === 'tools' ? 'Tools' : 'Library'}
+        </LemonButton>
     )
 }

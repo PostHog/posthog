@@ -37,6 +37,8 @@ export function useRailSurface(): RailSurface {
     pane,
     hasSidebar:
       pane !== "classic" &&
+      pane !== "library" &&
+      pane !== "tools" &&
       !inTriage &&
       (!channelsLayout || railPaneHasSidebar(pane)),
     showsActivityDetail: channelsLayout && pane === "activity",

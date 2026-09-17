@@ -2,6 +2,7 @@ import {
   ArchiveIcon,
   BellIcon,
   BookOpenTextIcon,
+  BooksIcon,
   BrainIcon,
   EnvelopeSimple,
   FileTextIcon,
@@ -11,6 +12,7 @@ import {
   RobotIcon,
   SquaresFourIcon,
   TrayIcon,
+  WrenchIcon,
 } from "@phosphor-icons/react";
 import type { AppViewType } from "@posthog/ui/router/useAppView";
 import type { ReactNode } from "react";
@@ -24,6 +26,8 @@ export type TabAppView = Extract<
   | "agents"
   | "loops"
   | "classic"
+  | "library"
+  | "tools"
   | "archived"
   | "command-center"
   | "context"
@@ -45,7 +49,9 @@ export const TAB_APP_VIEW_META: Record<
   report: { label: "Report", icon: <FileTextIcon size={14} /> },
   agents: { label: "Agents", icon: <RobotIcon size={14} /> },
   loops: { label: "Loops", icon: <RepeatIcon size={14} /> },
-  classic: { label: "Classic", icon: <SquaresFourIcon size={14} /> },
+  classic: { label: "Library", icon: <BooksIcon size={14} /> },
+  library: { label: "Library", icon: <BooksIcon size={14} /> },
+  tools: { label: "Tools", icon: <WrenchIcon size={14} /> },
   archived: { label: "Archived", icon: <ArchiveIcon size={14} /> },
   skills: { label: "Skills", icon: <BrainIcon size={14} /> },
   "mcp-servers": {

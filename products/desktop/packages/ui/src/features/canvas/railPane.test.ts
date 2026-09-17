@@ -39,6 +39,8 @@ describe("railPaneForPath", () => {
     ["/inbox/pulls/$reportId", "inbox"],
     ["/loops", "loops"],
     ["/classic", "classic"],
+    ["/library", "library"],
+    ["/tools", "tools"],
     ["/loops/$loopId/edit", "loops"],
     ["/feeds/", "feeds"],
     ["/feeds/$feedId", "feeds"],
@@ -138,6 +140,8 @@ describe("railPaneHasSidebar", () => {
         ["/inbox/triage?reportId=report-1", false],
         ["/inbox/reports", true],
         ["/classic", false],
+        ["/library", false],
+        ["/tools", false],
       ] as const) {
         routing.href = href;
         rerender();

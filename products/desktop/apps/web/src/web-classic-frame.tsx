@@ -13,7 +13,7 @@ export function WebClassicFrame({
     if (!mount) return;
     const target = new URL(url);
     const projectId = target.pathname.match(
-      /^\/project\/(\d+)\/dashboards?\/?$/,
+      /^\/project\/(\d+)\/(?:home|dashboards?)\/?$/,
     )?.[1];
     target.searchParams.set("__desktop_classic", "1");
     target.searchParams.set("__desktop_parent_origin", window.location.origin);
@@ -33,7 +33,7 @@ export function WebClassicFrame({
         () =>
           onStatusChange(
             "error",
-            "Open the web app and sign in with the same account. Then reload Classic. The web app must include Classic support and allow this browser host.",
+            "Sign in to PostHog with the same account in this browser, then reload. The PostHog web app must include desktop embed support and allow this browser host.",
           ),
         15000,
       );
@@ -64,7 +64,7 @@ export function WebClassicFrame({
       } else {
         onStatusChange(
           "error",
-          "This page or account does not match Classic. Open the web app to check your account and project, then reload Classic.",
+          "This page or account does not match the selected project. Check your PostHog sign-in, then reload.",
         );
       }
     };

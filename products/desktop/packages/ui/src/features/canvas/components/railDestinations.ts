@@ -1,13 +1,14 @@
 import {
   BellIcon,
   BookOpenTextIcon,
+  BooksIcon,
   EnvelopeSimple,
   HouseSimple,
   type IconProps,
   Lightning,
   ListMagnifyingGlassIcon,
   ShapesIcon,
-  SquaresFourIcon,
+  WrenchIcon,
 } from "@phosphor-icons/react";
 import type { RailVisit } from "@posthog/shared";
 import type { SidebarNavItem } from "@posthog/shared/analytics-events";
@@ -256,13 +257,24 @@ const RAIL_DESTINATIONS: readonly RailDestination[] = [
     enabled: (flags) => flags.context,
   },
   {
-    pane: "classic",
-    label: "Classic",
-    analyticsId: "classic",
-    Icon: SquaresFourIcon,
-    href: "/classic",
+    pane: "library",
+    label: "Library",
+    analyticsId: "library",
+    Icon: BooksIcon,
+    href: "/library",
     onPick: () => {
-      void getRouterOrNull()?.navigate({ to: "/classic" });
+      void getRouterOrNull()?.navigate({ to: "/library" });
+    },
+    enabled: (flags) => flags.classic === true,
+  },
+  {
+    pane: "tools",
+    label: "Tools",
+    analyticsId: "tools",
+    Icon: WrenchIcon,
+    href: "/tools",
+    onPick: () => {
+      void getRouterOrNull()?.navigate({ to: "/tools" });
     },
     enabled: (flags) => flags.classic === true,
   },

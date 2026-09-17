@@ -28,6 +28,21 @@ vi.mock("electron", () => ({
 describe("artifact preview webviews", () => {
   it.each([
     [
+      "https://us.posthog.com/project/1/home?__desktop_section=library",
+      "posthog-classic-account",
+      true,
+    ],
+    [
+      "https://eu.posthog.com/project/1/home?__desktop_section=tools",
+      "posthog-classic-account",
+      true,
+    ],
+    [
+      "https://example.com/project/1/home?__desktop_section=tools",
+      "posthog-classic-account",
+      false,
+    ],
+    [
       "https://us.posthog.com/project/1/dashboard",
       "posthog-classic-account",
       true,

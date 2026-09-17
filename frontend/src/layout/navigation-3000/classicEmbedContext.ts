@@ -1,6 +1,7 @@
 export interface ClassicEmbedContext {
     parentOrigin: string
     projectId: string
+    section?: 'library' | 'tools'
 }
 
 export function getClassicEmbedContext(location: URL, framed: boolean): ClassicEmbedContext | null {
@@ -13,7 +14,10 @@ export function getClassicEmbedContext(location: URL, framed: boolean): ClassicE
     if (location.hostname === 'localhost' || location.hostname.endsWith('.dev.posthog.dev')) {
         trustedOrigins.push('http://localhost:5273')
     }
-    return parentOrigin && projectId && trustedOrigins.includes(parentOrigin) ? { parentOrigin, projectId } : null
+    const section = location.searchParams.get('__desktop_section')
+    return parentOrigin && projectId && trustedOrigins.includes(parentOrigin)
+        ? { parentOrigin, projectId, ...(section === 'library' || section === 'tools' ? { section } : {}) }
+        : null
 }
 
 export const classicEmbedContext = getClassicEmbedContext(

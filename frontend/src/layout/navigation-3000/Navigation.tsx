@@ -1,6 +1,7 @@
 import './Navigation.scss'
 
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 import { ReactNode, useCallback, useEffect, useRef } from 'react'
 
 import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
@@ -24,6 +25,7 @@ import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 import { ClassicEmbed } from './ClassicEmbed'
 import { classicEmbedContext } from './classicEmbedContext'
 import { MinimalNavigation } from './components/MinimalNavigation'
+import { DesktopCatalog } from './DesktopCatalog'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { sidePanelStateLogic } from './sidepanel/sidePanelStateLogic'
@@ -46,6 +48,8 @@ export function Navigation({
     const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible, navbarWidth } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
     const { activeSceneId } = useValues(sceneLogic)
+    const { location } = useValues(router)
+    const showDesktopCatalog = classicEmbedContext?.section && location.pathname.endsWith('/home')
     const { registerScenePanelElement, registerSceneTakeoverElement } = useActions(sceneLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpenManual, sceneTakeoverActive } = useValues(sceneLayoutLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
@@ -209,7 +213,7 @@ export function Navigation({
                                     types lack `inert`, and its runtime serializes `inert={false}` to a
                                     string, which is still inert (presence-based attribute). */}
                                 <div className="contents" {...(sceneTakeoverActive ? { inert: '' } : {})}>
-                                    {!sceneMenuBarEnabled && !sceneConfig?.hideProjectNotice && (
+                                    {!sceneMenuBarEnabled && !showDesktopCatalog && !sceneConfig?.hideProjectNotice && (
                                         <div
                                             className={cn({
                                                 'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',
@@ -227,7 +231,7 @@ export function Navigation({
                                             />
                                         </div>
                                     )}
-                                    {children}
+                                    {showDesktopCatalog ? <DesktopCatalog /> : children}
                                 </div>
                                 <SidePanel />
                             </SceneLayout>
