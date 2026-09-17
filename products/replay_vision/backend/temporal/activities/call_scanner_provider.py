@@ -893,9 +893,14 @@ async def _run_step(
 
         text = (response.text or "").strip()
         parsed, error = _parse_and_validate(step, text)
+        capped = error is not None and _hit_output_cap(response)
+        if capped:
+            # The cap counts thoughts, so the usual "respond with raw JSON" correction would only re-run the
+            # same reasoning into the same wall. Name the cause so the re-prompt asks for less thinking.
+            error = "the response ran out of output tokens before the JSON was complete; reason more briefly"
         record_provider_call(
             **metric_labels,
-            outcome="ok" if error is None else "validation_failed",
+            outcome="ok" if error is None else "output_cap_hit" if capped else "validation_failed",
             seconds=time.monotonic() - started,
         )
 
@@ -915,7 +920,11 @@ async def _run_step(
             # Keep turn roles alternating on retry: the model's rejected answer is a model turn, then our
             # correction is the user turn. Without this, a turn that called a tool then returned bad JSON
             # would leave two consecutive user turns (the tool response and the correction).
-            convo.append(response.candidates[0].content)
+            # Thinking can consume the whole output cap and leave a candidate with no parts, which the API
+            # rejects on resend, so only a turn that carries something goes back into the conversation.
+            rejected = response.candidates[0].content
+            if rejected is not None and rejected.parts:
+                convo.append(rejected)
             convo.append(
                 types.Part(
                     text=(
@@ -960,6 +969,11 @@ async def _force_final_answer(*, generate: Any, convo: list[Any], exhausted: Any
     return await generate(convo)
 
 
+def _hit_output_cap(response: Any) -> bool:
+    candidates = getattr(response, "candidates", None) or []
+    return bool(candidates) and getattr(candidates[0], "finish_reason", None) == types.FinishReason.MAX_TOKENS
+
+
 def _step_config(
     step: MissionStep, cache_name: str | None, *, allow_tools: bool = True, tools: list[types.Tool] | None = None
 ) -> types.GenerateContentConfig:
@@ -978,6 +992,7 @@ def _step_config(
         # Return thought summaries so the model's reasoning is visible in LLM analytics. Answer parsing is
         # unaffected (`response.text` skips thought parts); models with thinking off just return none.
         "thinking_config": types.ThinkingConfig(include_thoughts=True),
+        "max_output_tokens": step.max_output_tokens,
     }
     if not allow_tools:
         return types.GenerateContentConfig(**kwargs)  # inline, no tool to call — the model must answer now
