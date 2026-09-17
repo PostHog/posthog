@@ -224,6 +224,22 @@ describe('messageTemplateLogic', () => {
             expect(logic.values.template.name).toBe('Saved here')
         })
 
+        // A failed reload leaves the stale copy on the form, so the conflict must stay visible with its retry.
+        it('shows the banner when the reload of a clean form fails', async () => {
+            useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': () => [500, { detail: 'nope' }] },
+            })
+
+            await expectLogic(logic, () => {
+                resourceEditedLogic.actions.resourceEdited(edited())
+            })
+                .toDispatchActions(['loadTemplateFailure'])
+                .toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({ externallyEdited: true, isSyncingExternalEdit: false })
+            expect(logic.values.template.name).toBe('Existing')
+        })
+
         it('reload from the banner replaces the unsaved edits with the server copy', async () => {
             logic.actions.setTemplateValue('name', 'My edit')
             await expectLogic(logic, () => {

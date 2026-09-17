@@ -176,7 +176,12 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 <LemonButton type="secondary" size="small" onClick={() => keepMyTemplateVersion()}>
                                     Keep mine
                                 </LemonButton>
-                                <LemonButton type="primary" size="small" onClick={() => syncExternalEdit()}>
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    onClick={() => syncExternalEdit()}
+                                    loading={isSyncingExternalEdit}
+                                >
                                     Reload
                                 </LemonButton>
                             </div>

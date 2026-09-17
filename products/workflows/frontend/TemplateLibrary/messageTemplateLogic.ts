@@ -385,7 +385,6 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             false,
             {
                 setSyncingExternalEdit: (_, { syncing }) => syncing,
-                loadTemplateFailure: () => false,
             },
         ],
         // An edit event that arrived while our own save or load was in flight. Replayed once it settles.
@@ -459,6 +458,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
         keepMyTemplateVersion: () => {
             actions.setExternallyEdited(false)
+        },
+        loadTemplateFailure: () => {
+            // The form is still the stale copy. The banner keeps the conflict visible and offers the retry.
+            if (values.isSyncingExternalEdit) {
+                actions.setSyncingExternalEdit(false)
+                actions.setExternallyEdited(true)
+            }
         },
         loadTemplateSuccess: ({ template }) => {
             if (values.isSyncingExternalEdit) {
