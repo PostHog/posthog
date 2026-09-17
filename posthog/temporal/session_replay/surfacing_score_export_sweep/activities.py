@@ -5,8 +5,8 @@ its encrypted `block-metadata/v2` catalog by, so the two join directly. With
 real ids there is no "opaque rows join to nothing" argument, so the export
 applies the mirror's own consent gate: only sessions of organizations with
 `is_ai_training_opted_in` set (NULL reads as opted out, as everywhere else)
-are written, and sessions started before the mirror's raw-id cutoff are cut,
-since the mirror holds those only under pseudonyms. Object keys are
+are written, and only sessions the mirror itself stored under raw ids, which
+it decides from the session id's UUIDv7 timestamp. Object keys are
 deterministic, so retries and the re-export window overwrite; an empty
 partition still writes an empty object so deleted sessions drop out rather
 than going stale.
@@ -15,6 +15,8 @@ than going stale.
 from __future__ import annotations
 
 import io
+import time
+import threading
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
@@ -30,18 +32,21 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
 from posthog.temporal.session_replay.surfacing_score_export_sweep import sql as export_sql
 from posthog.temporal.session_replay.surfacing_score_export_sweep.constants import (
+    BACKFILL_UNTIL,
     CH_EXPORT_QUERY_MAX_MEMORY_BYTES,
     CH_EXPORT_QUERY_TIMEOUT_S,
     DEFAULT_OF_CHUNKS,
     EXPORT_FLOOR_DAY,
     EXPORT_PAGE_MAX_ROWS,
-    RAW_SESSION_IDENTIFIERS_START,
     REEXPORT_WINDOW_DAYS,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.s3 import (
     score_export_destination,
     score_export_object_key,
     upload_parquet,
+)
+from posthog.temporal.session_replay.surfacing_score_export_sweep.session_identifier_format import (
+    uses_raw_session_identifiers,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.types import (
     ExportPartitionResult,
@@ -60,8 +65,9 @@ def _disabled_reason() -> str | None:
 
 
 def export_days(today: date) -> list[str]:
-    """Complete UTC days within the re-export window, never before the floor."""
-    first_day = max(EXPORT_FLOOR_DAY, today - timedelta(days=REEXPORT_WINDOW_DAYS))
+    """Complete UTC days within the re-export window and temporary cutoff-day backfill."""
+    window_start = EXPORT_FLOOR_DAY if today < BACKFILL_UNTIL else today - timedelta(days=REEXPORT_WINDOW_DAYS)
+    first_day = max(EXPORT_FLOOR_DAY, window_start)
     days = []
     day = first_day
     while day < today:
@@ -100,9 +106,25 @@ _PARQUET_SCHEMA = pa.schema(_PARQUET_FIELDS)
 _ScoredRow = tuple[int, str, datetime, float]
 
 
+# Match the mirror's consent refresh interval.
+OPTED_IN_TEAMS_TTL_S = 300
+
+_opted_in_teams_lock = threading.Lock()
+_opted_in_teams_cache: tuple[float, frozenset[int]] | None = None
+
+
 def _opted_in_team_ids() -> frozenset[int]:
-    """The ML mirror's consent gate; the column is nullable and NULL reads as opted out."""
-    return frozenset(Team.objects.filter(organization__is_ai_training_opted_in=True).values_list("id", flat=True))
+    """Return the mirror's consent gate, cached per worker across partition activities."""
+    global _opted_in_teams_cache
+    with _opted_in_teams_lock:
+        cached = _opted_in_teams_cache
+        if cached is not None and time.monotonic() - cached[0] < OPTED_IN_TEAMS_TTL_S:
+            return cached[1]
+        team_ids = frozenset(
+            Team.objects.filter(organization__is_ai_training_opted_in=True).values_list("id", flat=True)
+        )
+        _opted_in_teams_cache = (time.monotonic(), team_ids)
+        return team_ids
 
 
 def _as_utc(started_at: datetime) -> datetime:
@@ -110,8 +132,8 @@ def _as_utc(started_at: datetime) -> datetime:
 
 
 def exportable_rows(rows: list[_ScoredRow], opted_in_team_ids: frozenset[int]) -> tuple[list[_ScoredRow], int]:
-    """Rows the export may carry, plus how many were dropped for missing consent or a pre-cutoff start."""
-    kept = [row for row in rows if row[0] in opted_in_team_ids and _as_utc(row[2]) >= RAW_SESSION_IDENTIFIERS_START]
+    """Rows the export may carry, plus how many were dropped for missing consent or an id the mirror pseudonymized."""
+    kept = [row for row in rows if row[0] in opted_in_team_ids and uses_raw_session_identifiers(row[1])]
     return kept, len(rows) - len(kept)
 
 
