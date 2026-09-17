@@ -241,13 +241,19 @@ def _compile_population_filters(properties: list[dict[str, Any]]) -> _CompiledPo
         else:
             raise ValueError(f"Unsupported population property type '{prop_type}'. Supported: event, person")
 
+        operator = prop.get("operator", "exact")
+        if not isinstance(operator, str):
+            # The operator tables below are dicts, so an unhashable operator would raise
+            # TypeError before it reached the unsupported-operator path.
+            raise ValueError(f"Unsupported population property operator '{operator}'")
+
         # Bind the key as a value (parameterized subscript) — never interpolate it into SQL text.
         key_param = f"pop_k_{i}"
         values[key_param] = key
 
         compiled = _compile_filter_operator(
             f"{map_expr}[{{{key_param}}}]",
-            prop.get("operator", "exact"),
+            operator,
             prop.get("value"),
             key=key,
             param=f"pop_{i}",

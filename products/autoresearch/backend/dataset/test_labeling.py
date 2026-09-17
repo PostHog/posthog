@@ -115,6 +115,9 @@ class TestPopulationFilterCompilation(SimpleTestCase):
             ("missing_key", [{"type": "person", "operator": "is_set"}]),
             ("missing_type", [{"key": "plan", "operator": "exact", "value": "pro"}]),
             ("non_numeric_threshold", [{"key": "price", "type": "event", "operator": "gt", "value": "cheap"}]),
+            # An operator the operator tables cannot hash must still take the ValueError path.
+            ("list_operator", [{"key": "plan", "type": "person", "operator": ["exact"], "value": "pro"}]),
+            ("dict_operator", [{"key": "plan", "type": "person", "operator": {"op": "exact"}, "value": "pro"}]),
         ]
     )
     def test_uncompilable_filter_raises_instead_of_widening(self, _name: str, properties: list[dict[str, Any]]) -> None:
