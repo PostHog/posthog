@@ -5,6 +5,8 @@ from products.warehouse_sources.backend.facade.source_config import (
     ReleaseStatus,
     SourceFieldInputConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.etsy import EXPIRED_REFRESH_TOKEN_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.settings import ENDPOINTS, ETSY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.source import EtsySource
 
@@ -63,3 +65,21 @@ class TestEtsySourceClass:
         retryable_errors = EtsySource().get_retryable_errors()
 
         assert any(pattern in message for pattern in retryable_errors)
+
+    def test_dead_refresh_token_is_non_retryable_with_a_reauthorize_message(self) -> None:
+        # The marker EtsyClient raises for Etsy's invalid_grant must map to a reauthorize message so
+        # a genuinely dead token stops and tells the customer how to fix it.
+        non_retryable = EtsySource().get_non_retryable_errors()
+
+        assert error_message_matches(EXPIRED_REFRESH_TOKEN_ERROR, non_retryable)
+        assert "reauthorize" in non_retryable[EXPIRED_REFRESH_TOKEN_ERROR].lower()
+        assert not error_message_matches(EXPIRED_REFRESH_TOKEN_ERROR, EtsySource().get_retryable_errors())
+
+    def test_transient_token_endpoint_error_is_retryable_not_a_disable(self) -> None:
+        # A token-endpoint failure that isn't invalid_grant carries the token URL. It must classify
+        # retryable and NOT non-retryable, so a one-off token rejection retries instead of disabling
+        # a sync the customer never broke.
+        message = "400 Client Error: Bad Request for url: https://api.etsy.com/v3/public/oauth/token"
+
+        assert error_message_matches(message, EtsySource().get_retryable_errors())
+        assert not error_message_matches(message, EtsySource().get_non_retryable_errors())
