@@ -103,3 +103,15 @@ export const NoWarehouseAccess: Story = {
 export const LoadFailed: Story = {
     render: () => atWidths({ ...BASE, lineage: null, lineageProblem: 'failed' }),
 }
+
+const ISOLATED_METRIC_NODE = node({
+    id: '3',
+    name: 'weekly_active_accounts',
+    type: 'metric',
+    metric_id: 'metric-1',
+    lineage_issue: { kind: 'unresolved', detail: 'accounts_view', at: '2024-01-01T00:00:00Z' },
+})
+
+export const LineageIssue: Story = {
+    render: () => atWidths({ ...BASE, lineage: { nodes: [ISOLATED_METRIC_NODE], edges: [] } }),
+}
