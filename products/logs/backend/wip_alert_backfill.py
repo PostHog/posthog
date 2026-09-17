@@ -9,6 +9,8 @@ rather than duplicates, and a later comparison can line the two stacks up per al
 
 import structlog
 
+from posthog.dataclasses import frozen
+
 from products.alerts.backend.facade.contracts import SourceKind, WIPAlertUpsert
 from products.alerts.backend.facade.wip_alerts import upsert_configuration
 from products.logs.backend.models import LogsAlertConfiguration
@@ -16,8 +18,14 @@ from products.logs.backend.models import LogsAlertConfiguration
 logger = structlog.get_logger(__name__)
 
 
-def backfill_wip_alert_configurations(*, team_id: int | None = None) -> tuple[int, int]:
-    """Copies every logs alert configuration, or one team's. Returns (created, updated)."""
+@frozen
+class BackfillCounts:
+    created: int
+    updated: int
+
+
+def backfill_wip_alert_configurations(*, team_id: int | None = None) -> BackfillCounts:
+    """Copies every logs alert configuration, or one team's."""
     source = LogsAlertConfiguration.objects.all()
     if team_id is not None:
         source = source.filter(team_id=team_id)
@@ -50,4 +58,4 @@ def backfill_wip_alert_configurations(*, team_id: int | None = None) -> tuple[in
             updated += 1
 
     logger.info("wip_alert_backfill.complete", created=created, updated=updated, team_id=team_id)
-    return created, updated
+    return BackfillCounts(created=created, updated=updated)
