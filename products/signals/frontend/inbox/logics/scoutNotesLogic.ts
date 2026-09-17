@@ -13,6 +13,7 @@ import {
 import type { ScoutNoteApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { captureScoutAction } from '../inboxAnalytics'
+import { withPanelLoadTimeout } from '../utils/panelLoadTimeout'
 
 export interface ScoutNotesLogicProps {
     /** The scout these notes steer, or '' for the fleet-wide view. */
@@ -149,10 +150,16 @@ export const scoutNotesLogic = kea<scoutNotesLogicType>([
                     if (!teamId) {
                         return []
                     }
-                    return await signalsScoutNotesList(String(teamId), {
-                        limit: NOTES_FETCH_LIMIT,
-                        ...(props.skillName ? { skill_name: props.skillName } : {}),
-                    })
+                    return await withPanelLoadTimeout('scout_notes', (options) =>
+                        signalsScoutNotesList(
+                            String(teamId),
+                            {
+                                limit: NOTES_FETCH_LIMIT,
+                                ...(props.skillName ? { skill_name: props.skillName } : {}),
+                            },
+                            options
+                        )
+                    )
                 },
             },
         ],

@@ -10,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { PANEL_LOAD_TIMEOUT_MS } from '../utils/panelLoadTimeout'
 import {
     SCRATCHPAD_FETCH_LIMIT,
     SCRATCHPAD_PREVIEW_CHARS,
@@ -63,6 +64,7 @@ describe('scratchpadLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        jest.useRealTimers()
     })
 
     it('asks for previews rather than full bodies on the list read', async () => {
@@ -543,6 +545,20 @@ describe('scratchpadLogic', () => {
                       },
                   ]
         expect(describeLoadedSpan(entries)).toEqual(expected)
+    })
+
+    it('fails the window read when it never settles', async () => {
+        useMocks({ get: { [SCRATCHPAD_URL]: () => new Promise(() => {}) } })
+        jest.useFakeTimers()
+
+        logic.actions.loadEntries()
+        expect(logic.values.entriesLoading).toBe(true)
+
+        jest.advanceTimersByTime(PANEL_LOAD_TIMEOUT_MS)
+        await expectLogic(logic).toDispatchActions(['loadEntriesFailure'])
+
+        expect(logic.values.entriesLoading).toBe(false)
+        expect(logic.values.loadFailed).toBe(true)
     })
 
     it('keeps the card usable when the body lookup fails', async () => {

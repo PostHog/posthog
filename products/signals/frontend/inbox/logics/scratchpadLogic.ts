@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { signalsReportsRetrieve, signalsScoutScratchpadSearch } from 'products/signals/frontend/generated/api'
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { withPanelLoadTimeout } from '../utils/panelLoadTimeout'
 import { SCOUT_ROSTER_WINDOW_HOURS, isPipelineWriter } from '../utils/scoutRunsWindow'
 import { BOOKKEEPING_KINDS, isReportUuid, scratchpadKindOf, scratchpadTopicOf } from '../utils/scratchpadKeys'
 
@@ -368,11 +369,17 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                     if (!teamId) {
                         return []
                     }
-                    const page = await signalsScoutScratchpadSearch(String(teamId), {
-                        limit: SCRATCHPAD_FETCH_LIMIT,
-                        content_max_chars: SCRATCHPAD_PREVIEW_CHARS,
-                        ...dateFromParam(values.timeFilter),
-                    })
+                    const page = await withPanelLoadTimeout('scout_memory', (options) =>
+                        signalsScoutScratchpadSearch(
+                            String(teamId),
+                            {
+                                limit: SCRATCHPAD_FETCH_LIMIT,
+                                content_max_chars: SCRATCHPAD_PREVIEW_CHARS,
+                                ...dateFromParam(values.timeFilter),
+                            },
+                            options
+                        )
+                    )
                     // Drop a stale response if the span moved on while this request was in flight.
                     // A wider span is the slower read, so narrowing right after widening is the
                     // order that would otherwise let the older response answer last.
