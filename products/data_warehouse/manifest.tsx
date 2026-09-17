@@ -25,7 +25,7 @@ export const manifest: ProductManifest = {
             name: 'Models',
             import: () => import('../../frontend/src/scenes/models/ModelsScene'),
             projectBased: true,
-            description: 'Create and manage views and materialized views for transforming and organizing your data.',
+            description: 'Manage views and published endpoints, including their versions, lineage, and data quality.',
             iconType: 'sql_editor',
         },
         NodeDetail: {

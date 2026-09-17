@@ -50,6 +50,20 @@ describe('lineageSearch', () => {
         expect(matchNodesByName(nodes, 'orders')[0].name).toEqual('orders')
     })
 
+    it('anchors a published name and version without matching another version', () => {
+        const versions: DataModelingNode[] = [1, 2, 20].map((version) => ({
+            ...node(`version-${version}`, `internal_${version}`),
+            type: 'endpoint',
+            endpoint: { name: 'weekly_activity', version, is_materialized: false },
+        }))
+        const nodes = [node('events', 'events'), ...versions]
+        const edges = versions.map((version) => edge('events', version.id))
+        expect([...nodeIdsForLineageSearch(nodes, edges, parseLineageSearch('+weekly_activity v2+'))!].sort()).toEqual([
+            'events',
+            'version-2',
+        ])
+    })
+
     describe('nodeIdsForLineageSearch', () => {
         // EDGES is keyed by name, so the fixture names each node after its id.
         const nodes = ['events', 'orders', 'orders_daily', 'revenue_endpoint'].map((name) => node(name, name))

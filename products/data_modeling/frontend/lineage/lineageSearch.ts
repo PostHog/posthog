@@ -77,6 +77,10 @@ export function traverseLineage(startId: string, maps: AdjacencyMaps, mode: Line
     return reached
 }
 
+export function lineageNodeName(node: Pick<DataModelingNode, 'name' | 'endpoint'>): string {
+    return node.endpoint ? `${node.endpoint.name} v${node.endpoint.version}` : node.name
+}
+
 /** Nodes whose name contains the term, best match first so lineage anchors on the closest name. */
 export function matchNodesByName(nodes: DataModelingNode[], term: string): DataModelingNode[] {
     const needle = term.toLowerCase()
@@ -84,9 +88,13 @@ export function matchNodesByName(nodes: DataModelingNode[], term: string): DataM
         return []
     }
     return nodes
-        .filter((node) => node.name.toLowerCase().includes(needle))
+        .filter(
+            (node) => lineageNodeName(node).toLowerCase().includes(needle) || node.name.toLowerCase().includes(needle)
+        )
         .sort((a, b) => {
-            const exact = Number(b.name.toLowerCase() === needle) - Number(a.name.toLowerCase() === needle)
+            const exact =
+                Number(lineageNodeName(b).toLowerCase() === needle || b.name.toLowerCase() === needle) -
+                Number(lineageNodeName(a).toLowerCase() === needle || a.name.toLowerCase() === needle)
             return exact !== 0 ? exact : a.name.length - b.name.length
         })
 }

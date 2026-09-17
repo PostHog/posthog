@@ -22,6 +22,7 @@ from products.data_modeling.backend.logic.node_suspension import (
 )
 from products.data_modeling.backend.models import DAG, DataModelingJob, DataModelingJobEngine, Edge, Node, NodeType
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
 
@@ -304,6 +305,64 @@ class TestNodeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["dag_name"], self.dag_id)
+
+    @parameterized.expand([("stamped", True, True), ("legacy", False, True), ("legacy_origin", False, False)])
+    def test_endpoint_materialization_metadata_tracks_enable_and_disable(
+        self, _name: str, stamped: bool, endpoint_origin: bool
+    ) -> None:
+        endpoint = Endpoint.objects.create(team=self.team, name="published_model", created_by=self.user)
+        EndpointVersion.objects.create(
+            endpoint=endpoint, team=self.team, version=2, query=self.saved_query.query, saved_query=self.saved_query
+        )
+        self.saved_query.origin = DataWarehouseSavedQuery.Origin.ENDPOINT if endpoint_origin else None
+        self.saved_query.status = DataWarehouseSavedQuery.Status.COMPLETED
+        self.saved_query.save(update_fields=["origin", "status"])
+        self.view_node.type = NodeType.ENDPOINT
+        self.view_node.properties = {"endpoint": {"name": "stale_name", "version": 1}} if stamped else {}
+        self.view_node.save(update_fields=["type", "properties"])
+        for enabled in [False, True, False]:
+            with self.subTest(enabled=enabled):
+                self.saved_query.is_materialized = enabled
+                self.saved_query.save(update_fields=["is_materialized"])
+                response = self.client.get(f"/api/projects/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(
+                    response.json()["endpoint"],
+                    {"name": "published_model", "version": 2, "is_materialized": enabled},
+                )
+
+        for path, key in [("", "results"), (f"lineage/?node_id={self.view_node.id}", "nodes")]:
+            response = self.client.get(f"/api/projects/{self.team.id}/data_modeling_nodes/{path}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            node = next(node for node in response.json()[key] if node["id"] == str(self.view_node.id))
+            self.assertEqual(node["endpoint"], {"name": "published_model", "version": 2, "is_materialized": False})
+
+    @parameterized.expand([("run", {"direction": "upstream"}), ("materialize", {})])
+    def test_inline_endpoint_cannot_enable_materialization_through_node(self, action: str, body: dict) -> None:
+        self.saved_query.origin = DataWarehouseSavedQuery.Origin.ENDPOINT
+        self.saved_query.save(update_fields=["origin"])
+        result = self.client.post(
+            f"/api/projects/{self.team.id}/data_modeling_nodes/{self.view_node.id}/{action}/",
+            body,
+        )
+        assert result.status_code == 400
+        self.saved_query.refresh_from_db()
+        assert not self.saved_query.is_materialized
+
+    @parameterized.expand([("type", {"type": "view"}), ("name", {"name": "renamed"}), ("delete", None)])
+    def test_endpoint_node_identity_cannot_be_changed(self, operation: str, body: dict | None) -> None:
+        self.saved_query.origin = DataWarehouseSavedQuery.Origin.ENDPOINT
+        self.saved_query.save(update_fields=["origin"])
+        self.view_node.type = NodeType.ENDPOINT
+        self.view_node.save(update_fields=["type"])
+        url = f"/api/projects/{self.team.id}/data_modeling_nodes/{self.view_node.id}/"
+        result = (
+            self.client.delete(url) if body is None else self.client.patch(url, body, content_type="application/json")
+        )
+        assert result.status_code == 400
+        self.view_node.refresh_from_db()
+        assert self.view_node.type == NodeType.ENDPOINT
+        assert self.view_node.name == self.saved_query.name
 
     def test_run_requires_direction(self):
         response = self.client.post(

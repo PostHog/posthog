@@ -6,6 +6,8 @@ from uuid import UUID
 
 from django.conf import settings
 
+from products.endpoints.backend.facade.api import denied_endpoint_saved_query_ids
+
 from ..facade.contracts import SavedQuerySummary
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.edge import Edge
@@ -101,6 +103,9 @@ def _resolve_allowed_saved_query_ids(
     candidates = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True)
     if ids is not None:
         candidates = candidates.filter(id__in=ids)
+    candidates = candidates.exclude(
+        id__in=denied_endpoint_saved_query_ids(team_id, user_access_control, required_level, saved_query_ids=ids)
+    )
     saved_queries = list(candidates.only("id", "created_by_id"))
     user_access_control.preload_object_access_controls(list(saved_queries))
     return frozenset(

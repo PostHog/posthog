@@ -91,7 +91,8 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
     )
     subject_status = serializers.CharField(
         read_only=True,
-        help_text="'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted.",
+        help_text="Active when the check resolves. Orphaned when its subject is gone. "
+        "Needs review when a copied check does not resolve against its new endpoint version; edit or remove it before running.",
     )
     owner = serializers.SerializerMethodField(help_text="Email of the human accountable for this check, or null.")
     created_by = UserBasicSerializer(read_only=True, help_text="User who first created this check.")

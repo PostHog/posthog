@@ -267,7 +267,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Models]: {
         projectBased: true,
         name: 'Models',
-        description: 'Create and manage views and materialized views for transforming and organizing your data.',
+        description: 'Manage views and published endpoints, including their versions, lineage, and data quality.',
         iconType: 'sql_editor',
     },
     [Scene.MoveToPostHogCloud]: { name: 'Move to PostHog Cloud', hideProjectNotice: true },

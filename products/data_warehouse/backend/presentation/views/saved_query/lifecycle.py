@@ -16,6 +16,11 @@ logger = structlog.get_logger(__name__)
 def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
     from products.data_modeling.backend.facade.api import HasDependentsError, delete_node_from_dag
 
+    if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+        raise serializers.ValidationError(
+            "This model belongs to an endpoint version. Delete the endpoint from its endpoint page."
+        )
+
     if saved_query.managed_viewset is not None:
         raise serializers.ValidationError(
             "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."

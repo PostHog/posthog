@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
 import { IconEllipsis, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonMenu } from '@posthog/lemon-ui'
@@ -13,6 +14,7 @@ import {
     unsatisfiableReason,
     modeDisabledReason,
 } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
+import { urls } from 'scenes/urls'
 
 import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -123,6 +125,25 @@ export function MaterializationRunActions({
             }),
     }
     if (!savedQuery.is_materialized) {
+        if (kind === 'endpoint') {
+            return (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    to={
+                        savedQuery.endpoint
+                            ? combineUrl(urls.endpoint(savedQuery.endpoint.name), {
+                                  version: savedQuery.endpoint.version,
+                                  tab: 'configuration',
+                              }).url
+                            : urls.endpoints()
+                    }
+                    data-attr="node-detail-configure-endpoint"
+                >
+                    Configure endpoint
+                </LemonButton>
+            )
+        }
         const draftError =
             incrementalDraft.enabled && (!incrementalDraft.incrementalKey || !incrementalDraft.uniqueKey.length)
                 ? 'Select the incremental column and unique key columns'
@@ -149,9 +170,7 @@ export function MaterializationRunActions({
                         materializeDataWarehouseSavedQuery(
                             viewId,
                             defaultCadenceWithin(savedQuery.sync_frequency_bounds, initialSyncFrequency),
-                            !incrementalDraftTouched ||
-                                kind === 'endpoint' ||
-                                !featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
+                            !incrementalDraftTouched || !featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
                                 ? undefined
                                 : incrementalDraft.enabled && incrementalDraft.incrementalKey
                                   ? {
@@ -166,18 +185,16 @@ export function MaterializationRunActions({
                 >
                     Materialize
                 </LemonButton>
-                {kind !== 'endpoint' && (
-                    <LemonMenu items={[deleteItem]}>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconEllipsis />}
-                            loading={deletingView}
-                            aria-label="View actions"
-                            data-attr="node-detail-view-actions"
-                        />
-                    </LemonMenu>
-                )}
+                <LemonMenu items={[deleteItem]}>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconEllipsis />}
+                        loading={deletingView}
+                        aria-label="View actions"
+                        data-attr="node-detail-view-actions"
+                    />
+                </LemonMenu>
             </>
         )
     }

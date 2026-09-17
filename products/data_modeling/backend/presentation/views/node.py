@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Iterable
 from dataclasses import asdict
 from datetime import timedelta
 from typing import Any, cast
@@ -12,7 +13,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.pagination import PageNumberPagination
 from temporalio.common import RetryPolicy
 
@@ -21,17 +22,13 @@ from posthog.hogql.database.database import Database
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import User
+from posthog.permissions import is_service_auth
 from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
-from products.data_modeling.backend.facade.api import (
-    endpoint_link,
-    get_declared_target,
-    suspension_state,
-    unsuspend_nodes,
-)
+from products.data_modeling.backend.facade.api import get_declared_target, suspension_state, unsuspend_nodes
 from products.data_modeling.backend.facade.models import (
     DAG,
     DataModelingJob,
@@ -41,6 +38,7 @@ from products.data_modeling.backend.facade.models import (
     Node,
     NodeType,
 )
+from products.endpoints.backend.facade.api import denied_endpoint_saved_query_ids, get_endpoint_publications
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
@@ -55,13 +53,35 @@ class NodeResumeSerializer(serializers.Serializer):
 
 
 class NodeEndpointSerializer(serializers.Serializer):
-    name = serializers.CharField(help_text="Name of the endpoint this node's materialization backs.")
-    version = serializers.IntegerField(help_text="Endpoint version this node's materialization backs.")
+    name = serializers.CharField(help_text="Name of the endpoint published by this model.")
+    version = serializers.IntegerField(help_text="Endpoint version represented by this model.")
+    is_materialized = serializers.BooleanField(
+        help_text="Whether materialization is enabled for this endpoint version."
+    )
+
+
+class NodeListSerializer(serializers.ListSerializer):
+    def to_representation(self, data: models.Manager[Node] | Iterable[Node]) -> list[dict[str, Any]]:
+        nodes = list(data.all() if isinstance(data, models.Manager) else data)
+        if nodes:
+            self.context["endpoint_publications"] = get_endpoint_publications(
+                nodes[0].team_id,
+                [
+                    str(node.saved_query_id)
+                    for node in nodes
+                    if node.saved_query_id
+                    and (
+                        node.type == NodeType.ENDPOINT
+                        or (node.saved_query and node.saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT)
+                    )
+                ],
+            )
+        return super().to_representation(nodes)
 
 
 class NodeSerializer(serializers.ModelSerializer):
+    endpoint = serializers.SerializerMethodField(help_text="Endpoint publication represented by this node, if any.")
     suspended = serializers.SerializerMethodField(read_only=True)
-    endpoint = serializers.SerializerMethodField(read_only=True)
     upstream_count = serializers.SerializerMethodField(read_only=True)
     downstream_count = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
@@ -73,6 +93,7 @@ class NodeSerializer(serializers.ModelSerializer):
     dag = TeamScopedPrimaryKeyRelatedField(queryset=DAG.objects.all())
 
     class Meta:
+        list_serializer_class = NodeListSerializer
         model = Node
         fields = [
             "id",
@@ -107,6 +128,30 @@ class NodeSerializer(serializers.ModelSerializer):
             "saved_query_id",
         ]
 
+    @extend_schema_field(NodeEndpointSerializer(allow_null=True))
+    def get_endpoint(self, node: Node) -> dict[str, str | int | bool] | None:
+        endpoint = (node.properties or {}).get("endpoint")
+        if node.saved_query_id and (
+            node.type == NodeType.ENDPOINT
+            or (node.saved_query and node.saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT)
+        ):
+            publications = self.context.get("endpoint_publications")
+            if publications is None:
+                publications = get_endpoint_publications(node.team_id, [str(node.saved_query_id)])
+            endpoint = publications.get(str(node.saved_query_id), endpoint)
+        if (
+            isinstance(endpoint, dict)
+            and isinstance(endpoint.get("name"), str)
+            and isinstance(endpoint.get("version"), int)
+            and not isinstance(endpoint.get("version"), bool)
+        ):
+            return {
+                "name": endpoint["name"],
+                "version": endpoint["version"],
+                "is_materialized": bool(node.saved_query and node.saved_query.is_materialized),
+            }
+        return None
+
     @extend_schema_field(
         serializers.DictField(
             child=NodeSuspensionSerializer(),
@@ -116,16 +161,6 @@ class NodeSerializer(serializers.ModelSerializer):
     )
     def get_suspended(self, node: Node) -> dict[str, Any]:
         return {engine: NodeSuspensionSerializer(entry).data for engine, entry in suspension_state(node).items()}
-
-    @extend_schema_field(
-        NodeEndpointSerializer(
-            allow_null=True,
-            help_text="The endpoint version this node's materialization backs, or null for nodes that are not endpoints.",
-        )
-    )
-    def get_endpoint(self, node: Node) -> dict[str, Any] | None:
-        link = endpoint_link(node.properties)
-        return NodeEndpointSerializer(link).data if link else None
 
     def get_upstream_count(self, node: Node) -> int:
         counts = self.context.get("node_counts")
@@ -160,6 +195,12 @@ class NodeSerializer(serializers.ModelSerializer):
         return node.properties.get("user", {}).get("tag")
 
     def get_sync_interval(self, node: Node) -> str | None:
+        if (
+            node.saved_query
+            and node.saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT
+            and not node.saved_query.is_materialized
+        ):
+            return None
         # The node's freshness target is authoritative on tiered v2 teams (where the saved
         # query's interval is NULL); the saved-query interval covers v1 teams.
         target = get_declared_target(node)
@@ -173,6 +214,15 @@ class NodeSerializer(serializers.ModelSerializer):
         return node.dag.name
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if (
+            self.instance is not None
+            and self.instance.saved_query is not None
+            and self.instance.saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT
+            and {"name", "type", "dag"}.intersection(attrs)
+        ):
+            raise serializers.ValidationError(
+                "This node belongs to an endpoint version. Manage its identity from the endpoint page."
+            )
         # System-managed DAGs (e.g. Revenue Analytics) own their nodes; the internal sync path
         # maintains them directly via the ORM and bypasses this serializer. Block users from
         # editing managed nodes or moving any node into a managed DAG via the API.
@@ -316,10 +366,20 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset):
         qs = _annotate_latest_job(queryset.filter(team_id=self.team_id))
+        if not is_service_auth(self.request):
+            qs = qs.exclude(saved_query_id__in=denied_endpoint_saved_query_ids(self.team_id, self.user_access_control))
         dag_id = self._get_dag_id_param()
         if dag_id:
             qs = qs.filter(dag_id=dag_id)
         return qs.order_by(self.ordering)
+
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        node = self.get_object()
+        if node.saved_query and node.saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+            raise ValidationError(
+                "This node belongs to an endpoint version. Delete the endpoint from its endpoint page."
+            )
+        return super().destroy(request, *args, **kwargs)
 
     @action(methods=["POST"], detail=True)
     def run(self, req: request.Request, *args, **kwargs) -> response.Response:
@@ -339,6 +399,13 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"error": "direction must be 'upstream' or 'downstream'"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        if (
+            node.saved_query
+            and node.saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT
+            and not node.saved_query.is_materialized
+        ):
+            raise ValidationError("Enable materialization for this version on its endpoint page before running it.")
 
         if node.type == NodeType.TABLE:
             return response.Response(
@@ -428,7 +495,17 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # saved_query is a non-unique FK: a saved query synced into multiple DAGs has multiple nodes.
         # Order for a deterministic pick (the graphs are equivalent for lineage purposes).
-        node = Node.objects.filter(team_id=self.team_id, **lookup).order_by("created_at").first()
+        denied_ids = (
+            frozenset()
+            if is_service_auth(req)
+            else denied_endpoint_saved_query_ids(self.team_id, self.user_access_control)
+        )
+        node = (
+            Node.objects.filter(team_id=self.team_id, **lookup)
+            .exclude(saved_query_id__in=denied_ids)
+            .order_by("created_at")
+            .first()
+        )
         if node is None:
             return response.Response({"error": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -436,9 +513,14 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         downstream_ids = _get_downstream_nodes(node)
         all_ids = upstream_ids | downstream_ids | {str(node.id)}
 
-        nodes = _node_queryset_with_latest_job().filter(id__in=all_ids, team_id=self.team_id)
+        nodes = (
+            _node_queryset_with_latest_job()
+            .filter(id__in=all_ids, team_id=self.team_id)
+            .exclude(saved_query_id__in=denied_ids)
+        )
+        visible_ids = nodes.values("id")
         edges = Edge.objects.select_related("source", "target", "dag").filter(
-            team_id=self.team_id, source_id__in=all_ids, target_id__in=all_ids
+            team_id=self.team_id, source_id__in=visible_ids, target_id__in=visible_ids
         )
 
         return response.Response(
@@ -454,6 +536,13 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         from products.data_modeling.backend.facade.api import start_node_materialization
 
         node = self.get_object()
+
+        if (
+            node.saved_query
+            and node.saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT
+            and not node.saved_query.is_materialized
+        ):
+            raise ValidationError("Enable materialization for this version on its endpoint page before running it.")
 
         if node.type == NodeType.TABLE:
             return response.Response(

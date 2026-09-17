@@ -8,7 +8,7 @@ import { NODE_TYPE_TAG_SETTINGS } from './nodeStyles'
 const LEGEND_ENTRIES: { type: DataModelingNodeType; description: string }[] = [
     { type: 'view', description: 'A virtual table based on a SQL query' },
     { type: 'matview', description: 'A persisted view with improved query performance' },
-    { type: 'endpoint', description: 'A materialized endpoint for API access' },
+    { type: 'endpoint', description: 'A published query for API access' },
 ]
 
 export interface NodeTypeLegendProps {

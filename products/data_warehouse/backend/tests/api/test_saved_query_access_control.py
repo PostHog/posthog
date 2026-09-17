@@ -10,10 +10,17 @@ from rest_framework import status
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
-from products.data_modeling.backend.facade.api import mark_node_suspended, set_declared_target, suspension_state
+from products.data_modeling.backend.facade.api import (
+    allowed_saved_query_ids,
+    mark_node_suspended,
+    set_declared_target,
+    suspension_state,
+)
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
+from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -39,6 +46,52 @@ class TestDataWarehouseSavedQueryAccessControl(WarehouseAccessControlTestMixin):
             query={"kind": "HogQLQuery", "query": "select 1"},
             created_by=self.user,
         )
+
+    @parameterized.expand([("none", False), ("viewer", True)])
+    def test_endpoint_permission_applies_to_published_model(self, access_level: str, visible: bool) -> None:
+        self.saved_query.origin = DataWarehouseSavedQuery.Origin.ENDPOINT
+        self.saved_query.save(update_fields=["origin"])
+        endpoint = Endpoint.objects.create(team=self.team, name="published", created_by=self.user)
+        EndpointVersion.objects.create(
+            team=self.team,
+            endpoint=endpoint,
+            version=1,
+            query=self.saved_query.query,
+            saved_query=self.saved_query,
+            created_by=self.user,
+        )
+        dag = DAG.objects.create(team=self.team, name="published_models")
+        source = Node.objects.create(team=self.team, dag=dag, name="events", type=NodeType.TABLE)
+        node = Node.objects.create(team=self.team, dag=dag, saved_query=self.saved_query, type=NodeType.ENDPOINT)
+        edge = Edge.objects.create(team=self.team, dag=dag, source=source, target=node)
+        self._create_access_control(
+            self.viewer_user, resource="endpoint", resource_id=str(endpoint.id), access_level=access_level
+        )
+        self.client.force_login(self.viewer_user)
+
+        for route, object_id in [
+            ("warehouse_saved_queries", self.saved_query.id),
+            ("data_modeling_nodes", node.id),
+            ("data_modeling_edges", edge.id),
+        ]:
+            result = self.client.get(f"/api/environments/{self.team.id}/{route}/")
+            self.assertEqual(result.status_code, status.HTTP_200_OK, result.data)
+            self.assertEqual(str(object_id) in {row["id"] for row in result.data["results"]}, visible)
+            detail = self.client.get(f"/api/environments/{self.team.id}/{route}/{object_id}/")
+            self.assertEqual(
+                detail.status_code, status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND, detail.data
+            )
+
+        lineage = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={source.id}")
+        self.assertEqual(lineage.status_code, status.HTTP_200_OK, lineage.data)
+        self.assertEqual(str(node.id) in {row["id"] for row in lineage.data["nodes"]}, visible)
+        self.assertEqual(str(edge.id) in {row["id"] for row in lineage.data["edges"]}, visible)
+        direct_lineage = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?saved_query_id={self.saved_query.id}"
+        )
+        self.assertEqual(direct_lineage.status_code, status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND)
+        allowed = allowed_saved_query_ids(self.team.id, UserAccessControl(user=self.viewer_user, team=self.team))
+        self.assertEqual(self.saved_query.id in allowed, visible)
 
     def _list_url(self) -> str:
         return f"/api/environments/{self.team.pk}/warehouse_saved_queries/"

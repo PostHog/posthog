@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import api, { ApiConfig } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
@@ -30,6 +31,13 @@ const DEFAULT_DATA_FRESHNESS_SECONDS = 86400
 
 // Query types that support user-configurable breakdown filtering
 const BREAKDOWN_SUPPORTED_QUERY_TYPES = new Set([NodeKind.TrendsQuery, NodeKind.RetentionQuery])
+
+function isRequestedVersion(name: string, version: number): boolean {
+    return (
+        removeProjectIdIfPresent(router.values.location.pathname) === urls.endpoint(name) &&
+        Number(router.values.searchParams.version) === version
+    )
+}
 
 export function extractBreakdownPropertyNames(query: unknown): string[] {
     // Single source of truth for reading breakdown property names out of a query on the
@@ -121,6 +129,8 @@ export enum EndpointTab {
     PLAYGROUND = 'playground',
     LOGS = 'logs',
     HISTORY = 'history',
+    LINEAGE = 'lineage',
+    DATA_QUALITY = 'data_quality',
 }
 
 export interface MaterializationPreview {
@@ -668,7 +678,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             actions.setDataFreshness(endpoint?.data_freshness_seconds ?? DEFAULT_DATA_FRESHNESS_SECONDS)
             actions.resetOptionalBreakdownProperties(endpoint?.optional_breakdown_properties ?? [])
 
-            const { searchParams, hashParams } = router.values
+            const { searchParams } = router.values
 
             // Versions populate the File → Open version submenu, so always load them.
             if (endpoint?.name) {
@@ -684,11 +694,15 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 if (!isNaN(versionNumber) && versionNumber !== endpoint.current_version) {
                     try {
                         const versionData = await api.endpoint.get(endpoint.name, versionNumber)
-                        actions.setViewingVersion(versionData)
+                        if (isRequestedVersion(endpoint.name, versionNumber)) {
+                            actions.setViewingVersion(versionData)
+                        }
                     } catch {
-                        // Version not found, clear the param
-                        const { version: _, ...nextSearchParams } = searchParams
-                        router.actions.replace(urls.endpoint(endpoint.name), nextSearchParams, hashParams)
+                        if (!isRequestedVersion(endpoint.name, versionNumber)) {
+                            return
+                        }
+                        const { version: _, ...nextSearchParams } = router.values.searchParams
+                        router.actions.replace(urls.endpoint(endpoint.name), nextSearchParams, router.values.hashParams)
                         actions.setViewingVersion(null)
                     }
                 } else {
@@ -890,14 +904,17 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                         api.endpoint
                             .get(name, versionParam)
                             .then((versionData) => {
-                                // Only apply if this is still the requested version
-                                const currentParam = router.values.searchParams.version
-                                if (currentParam && parseInt(currentParam, 10) === requestedVersion) {
+                                if (isRequestedVersion(name, requestedVersion)) {
                                     actions.setViewingVersion(versionData)
                                 }
                             })
                             .catch(() => {
-                                // Version not found
+                                const { searchParams: currentSearchParams, hashParams } = router.values
+                                if (!isRequestedVersion(name, requestedVersion)) {
+                                    return
+                                }
+                                const { version: _, ...nextSearchParams } = currentSearchParams
+                                router.actions.replace(urls.endpoint(name), nextSearchParams, hashParams)
                                 actions.setViewingVersion(null)
                             })
                     } else {

@@ -5,10 +5,13 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, DataModelingEdge, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
+
+import { openModelNode } from 'products/data_modeling/frontend/modelNodeNavigation'
 
 import type { DataModelingNodeType } from '../../types'
 
@@ -307,7 +310,9 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 },
                 {
                     key: ['NodeDetail', node?.id || 'loading'],
-                    name: node?.name || 'Loading...',
+                    name: node?.endpoint
+                        ? `${node.endpoint.name} v${node.endpoint.version}`
+                        : node?.name || 'Loading...',
                 },
             ],
         ],
@@ -421,6 +426,15 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         // asking for one this model has no page for is corrected in place. Replace, not push: a
         // redirect the user did not ask for is not a history step.
         canonicalizeTab: () => {
+            const pathname = removeProjectIdIfPresent(router.values.location.pathname)
+            const modelPath = urls.nodeDetail(props.id)
+            if (pathname !== modelPath && !pathname.startsWith(`${modelPath}/`)) {
+                return
+            }
+            if (values.node && (values.node.type === 'endpoint' || values.node.endpoint)) {
+                openModelNode(values.node, values.currentTab ?? 'query', true)
+                return
+            }
             const tab = values.effectiveTab
             if (tab && tab !== values.currentTab) {
                 router.actions.replace(urls.nodeDetail(props.id, tab))

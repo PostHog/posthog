@@ -36,6 +36,7 @@ from products.data_warehouse.backend.presentation.views.saved_query.viewset impo
     SavedQueryMaterializeSerializer,
     SavedQueryResumeSchedulesRequestSerializer,
 )
+from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -629,7 +630,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertTrue(Node.objects.filter(id=node_a.id).exists())
         self.assertTrue(Node.objects.filter(id=node_b.id).exists())
 
-    def test_delete_folder_deletes_endpoint_views(self):
+    def test_delete_folder_preserves_endpoint_versions(self):
         folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Endpoints", created_by=self.user)
         endpoint_view = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -640,11 +641,11 @@ class TestSavedQuery(APIBaseTest):
 
         response = self.client.delete(f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/")
 
-        self.assertEqual(response.status_code, 204, response.content)
-        self.assertFalse(DataWarehouseSavedQueryFolder.objects.filter(id=folder.id).exists())
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertTrue(DataWarehouseSavedQueryFolder.objects.filter(id=folder.id).exists())
 
         endpoint_view.refresh_from_db()
-        self.assertTrue(endpoint_view.deleted)
+        self.assertFalse(endpoint_view.deleted)
 
     def test_rename_folder(self):
         folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Finance", created_by=self.user)
@@ -699,6 +700,63 @@ class TestSavedQuery(APIBaseTest):
         json = response.json()
 
         assert json["count"] == 1
+
+    @parameterized.expand(
+        [
+            ("query", {"query": {"kind": "HogQLQuery", "query": "SELECT 2 AS value"}}),
+            ("rename", {"name": "renamed_snapshot"}),
+            ("soft_delete", {"deleted": True}),
+            ("delete", None),
+            ("materialize", None),
+            ("revert_materialization", None),
+        ]
+    )
+    def test_endpoint_snapshots_cannot_be_changed_through_saved_queries(
+        self, operation: str, body: dict | None
+    ) -> None:
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="published_v1",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS value"},
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+        )
+        url = f"/api/projects/{self.team.id}/warehouse_saved_queries/{view.id}/"
+        if body is not None:
+            result = self.client.patch(url, body, content_type="application/json")
+        elif operation == "delete":
+            result = self.client.delete(url)
+        else:
+            result = self.client.post(url + operation + "/")
+        assert result.status_code == 400
+        view.refresh_from_db()
+        assert view.name == "published_v1"
+        assert view.query is not None
+        assert view.query["query"] == "SELECT 1 AS value"
+        assert not view.deleted
+
+    def test_endpoint_models_are_listed_with_version_identity(self) -> None:
+        endpoint = Endpoint.objects.create(team=self.team, name="published", current_version=2)
+        for version in [1, 2]:
+            model = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"unrelated_storage_name_{version}",
+                query={"kind": "HogQLQuery", "query": "SELECT 1 AS value"},
+                origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+            )
+            EndpointVersion.objects.create(
+                team=self.team if version == 2 else None,
+                endpoint=endpoint,
+                version=version,
+                saved_query=model,
+                query=model.query,
+            )
+        response = self.client.get(f"/api/projects/{self.team.id}/warehouse_saved_queries/")
+        assert response.status_code == 200
+        publications = sorted((row["endpoint"] for row in response.json()["results"]), key=lambda row: row["version"])
+        assert publications == [
+            {"name": "published", "version": 1, "is_current": False},
+            {"name": "published", "version": 2, "is_current": True},
+        ]
 
     def test_listing_many_queries(self):
         for i in range(150):

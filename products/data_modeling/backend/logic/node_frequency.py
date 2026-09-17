@@ -218,7 +218,7 @@ class FrequencyGraph:
 
 def build_frequency_graph(dag: DAG) -> FrequencyGraph:
     """Extract the freshness graph for a DAG: schedulable nodes, edges, targets, source floors."""
-    nodes = list(Node.objects.filter(dag=dag).exclude(saved_query__deleted=True))
+    nodes = list(Node.objects.filter(dag=dag).exclude(saved_query__deleted=True).select_related("saved_query"))
     edges = [
         (str(source_id), str(target_id))
         for source_id, target_id in Edge.objects.filter(dag=dag).values_list("source_id", "target_id")
@@ -228,6 +228,8 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
     declared_targets: dict[str, timedelta] = {}
     declared_anchors: dict[str, int] = {}
     for node in nodes:
+        if node.type == NodeType.ENDPOINT and node.saved_query and not node.saved_query.is_materialized:
+            continue
         target = get_declared_target(node)
         if target is not None:
             declared_targets[str(node.id)] = target
@@ -308,7 +310,12 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
 def schedulable_nodes(dag: DAG) -> QuerySet[Node]:
     """The DAG's schedulable nodes: everything that carries a live saved query (not a source
     table, not a soft-deleted query). The one definition of "what gets a freshness target"."""
-    return Node.objects.filter(dag=dag).exclude(type=NodeType.TABLE).exclude(saved_query__deleted=True)
+    return (
+        Node.objects.filter(dag=dag)
+        .exclude(type=NodeType.TABLE)
+        .exclude(saved_query__deleted=True)
+        .exclude(type=NodeType.ENDPOINT, saved_query__is_materialized=False)
+    )
 
 
 def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:

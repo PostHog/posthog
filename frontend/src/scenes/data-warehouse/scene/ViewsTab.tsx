@@ -1,7 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconEndpoints, IconInfo } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonSelect,
+    LemonTable,
+    LemonTag,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -10,6 +19,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { urls } from 'scenes/urls'
 
@@ -22,16 +32,16 @@ import {
     DataWarehouseSavedQueryRunHistory,
 } from '~/types'
 
-import { endpointModelUrl, parseEndpointModelName } from 'products/data_modeling/frontend/endpointModelName'
 import { NodeSuspensionApi } from 'products/data_modeling/frontend/generated/api.schemas'
 import { statusBackgroundClass } from 'products/data_modeling/frontend/lineage/nodeStyles'
 import { SEARCH_SYNTAX_HELP } from 'products/data_modeling/frontend/lineage/SearchSyntaxHelp'
 import { StatusTag } from 'products/data_modeling/frontend/lineage/StatusTag'
+import { ModelListRow } from 'products/data_modeling/frontend/modelList'
 
 import { TableCertificationTag } from '../TableCertificationBadge'
 import { PAGE_SIZE, ViewTypeFilter, viewsTabLogic } from './viewsTabLogic'
 
-type ViewColumn = LemonTableColumn<DataWarehouseSavedQuery, keyof DataWarehouseSavedQuery | undefined>
+type ViewColumn = LemonTableColumn<ModelListRow, keyof ModelListRow | undefined>
 
 const VIEW_TYPE_TOOLTIPS = {
     materialized: 'Refreshed on a schedule and stored as a table, so a read hits stored rows.',
@@ -40,8 +50,9 @@ const VIEW_TYPE_TOOLTIPS = {
 
 const TYPE_FILTER_OPTIONS: { value: ViewTypeFilter; label: string }[] = [
     { value: 'all', label: 'All types' },
-    { value: 'materialized', label: 'Materialized views' },
+    { value: 'materialized', label: 'Materialized' },
     { value: 'view', label: 'Views' },
+    { value: 'endpoint', label: 'Endpoints' },
 ]
 
 const getDisabledReason = (view: DataWarehouseSavedQuery): string | undefined => {
@@ -49,7 +60,7 @@ const getDisabledReason = (view: DataWarehouseSavedQuery): string | undefined =>
         return `Cannot delete a view that belongs to a managed viewset. You can turn the viewset off in the ${urls.dataWarehouseManagedViewsets()} page.`
     }
     if (view.origin === DataWarehouseSavedQueryOrigin.ENDPOINT) {
-        return `Cannot delete a view that belongs to an endpoint. You can disable materialization on this endpoint's page.`
+        return `Cannot delete a view that belongs to an endpoint. Manage this model on the endpoint's page.`
     }
     return undefined
 }
@@ -136,8 +147,14 @@ interface ViewsTabProps {
 export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {}): JSX.Element {
     const {
         filteredViews,
+        visibleModelRows,
         visibleViews,
+        sorting,
+        expandedEndpointNames,
         viewsLoading,
+        endpointsError,
+        modelEndpointVersions,
+        modelEndpointVersionsLoading,
         searchTerm,
         typeFilter,
         currentPage,
@@ -151,18 +168,34 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
         setSearchTerm,
         setTypeFilter,
         setPage,
+        setSorting,
         deleteView,
         runMaterialization,
         openAccessControlModal,
         closeAccessControlModal,
+        loadModelEndpoints,
+        toggleEndpointExpanded,
     } = useActions(viewsTabLogic)
+
+    const paginationState = usePagination(visibleViews, {
+        controlled: true,
+        pageSize: PAGE_SIZE,
+        currentPage,
+        entryCount: filteredViews.length,
+        onForward: () => setPage(currentPage + 1),
+        onBackward: () => setPage(currentPage - 1),
+    })
 
     const warehouseAccessControlEnabled = !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL]
 
-    const viewLink = (view: DataWarehouseSavedQuery): { to: string; description?: string } => {
-        if (view.origin === DataWarehouseSavedQueryOrigin.ENDPOINT) {
-            const endpointName = parseEndpointModelName(view.name)?.endpointName ?? view.name
-            return { to: endpointModelUrl(view.name), description: `Created by the ${endpointName} endpoint` }
+    const viewLink = (view: ModelListRow): { to: string; description?: string } => {
+        if (view.endpoint) {
+            return {
+                to: urls.endpoint(view.endpoint.name, view.endpoint.version),
+                description: view.endpointVersions
+                    ? `${view.endpointVersionCount ?? view.endpointVersions.length} ${(view.endpointVersionCount ?? view.endpointVersions.length) === 1 ? 'version' : 'versions'}`
+                    : undefined,
+            }
         }
         if (view.managed_viewset_kind !== null) {
             return {
@@ -173,44 +206,74 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
         return { to: getViewUrl?.(view) ?? urls.sqlEditor({ view_id: view.id }) }
     }
 
-    const columns: LemonTableColumns<DataWarehouseSavedQuery> = [
+    const columns: LemonTableColumns<ModelListRow> = [
+        {
+            key: 'expand',
+            width: 0,
+            render: (_, view) =>
+                view.endpointVersions && view.endpoint ? (
+                    <LemonButton
+                        size="xsmall"
+                        icon={
+                            expandedEndpointNames.includes(view.endpoint.name) ? (
+                                <IconChevronDown />
+                            ) : (
+                                <IconChevronRight />
+                            )
+                        }
+                        data-attr="models-toggle-endpoint-versions"
+                        aria-label={`${expandedEndpointNames.includes(view.endpoint.name) ? 'Collapse' : 'Expand'} ${view.endpoint.name}`}
+                        onClick={() => toggleEndpointExpanded(view.endpoint!.name)}
+                        loading={
+                            expandedEndpointNames.includes(view.endpoint.name) &&
+                            modelEndpointVersionsLoading &&
+                            !modelEndpointVersions[view.endpoint.name]
+                        }
+                    />
+                ) : null,
+        },
         {
             title: 'Name',
             key: 'name',
             render: (_, view) => {
                 const { to, description } = viewLink(view)
-                const endpointModel =
-                    view.origin === DataWarehouseSavedQueryOrigin.ENDPOINT ? parseEndpointModelName(view.name) : null
                 return (
                     <LemonTableLink
+                        className={view.endpoint && !view.endpointVersions ? 'pl-6' : undefined}
                         to={to}
                         title={
-                            <>
-                                {endpointModel?.endpointName ?? view.name}
-                                {endpointModel && (
-                                    <Tooltip title={`Version ${endpointModel.version} of this endpoint`}>
-                                        <LemonTag type="muted" size="small">
-                                            v{endpointModel.version}
+                            <span className="flex flex-wrap items-center gap-1 min-w-0">
+                                {view.endpointVersions && (
+                                    <Tooltip title="Endpoint">
+                                        <IconEndpoints className="shrink-0" />
+                                    </Tooltip>
+                                )}
+                                <span className="truncate">
+                                    {view.endpoint
+                                        ? view.endpointVersions
+                                            ? view.endpoint.name
+                                            : `v${view.endpoint.version}`
+                                        : view.name}
+                                </span>
+
+                                {view.endpoint?.is_current && !view.endpointVersions && (
+                                    <LemonTag type="primary" size="small">
+                                        Current
+                                    </LemonTag>
+                                )}
+                                {view.is_materialized && (
+                                    <Tooltip title={VIEW_TYPE_TOOLTIPS.materialized}>
+                                        <LemonTag type="highlight" size="small">
+                                            Materialized
                                         </LemonTag>
                                     </Tooltip>
                                 )}
-                                <Tooltip
-                                    title={
-                                        view.is_materialized ? VIEW_TYPE_TOOLTIPS.materialized : VIEW_TYPE_TOOLTIPS.view
-                                    }
-                                >
-                                    <LemonTag
-                                        type={view.is_materialized ? 'highlight' : 'option'}
-                                        size="small"
-                                        className="mr-1"
-                                    >
-                                        {view.is_materialized ? 'Materialized' : 'View'}
-                                    </LemonTag>
-                                </Tooltip>
                                 <TableCertificationTag certification={viewsMapById[view.id]?.certification} />
-                            </>
+                            </span>
                         }
-                        description={description}
+                        description={view.modelUnavailableReason ?? description}
+                        truncateTitle
+                        truncateDescription
                     />
                 )
             },
@@ -218,13 +281,21 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
         {
             title: 'Status',
             key: 'status',
-            render: (_, view) => <StatusCell view={view} suspension={suspensionByViewId?.[view.id]} />,
+            render: (_, view) =>
+                view.modelUnavailableReason ? (
+                    <Tooltip title={view.modelUnavailableReason}>
+                        <LemonTag type="warning">Model unavailable</LemonTag>
+                    </Tooltip>
+                ) : (
+                    <StatusCell view={view} suspension={suspensionByViewId?.[view.id]} />
+                ),
         } as ViewColumn,
         {
             title: 'Last run',
             key: 'last_run_at',
+            className: '@max-[48rem]/main-content:hidden',
             render: (_, view) => {
-                if (!view.is_materialized) {
+                if (!view.is_materialized || view.isEndpointPlaceholder) {
                     return <span className="text-muted">-</span>
                 }
                 return view.last_run_at ? (
@@ -237,67 +308,84 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
         {
             title: 'Run history',
             key: 'run_history',
+            className: '@max-[64rem]/main-content:hidden',
             tooltip: 'Up to 5 most recent runs, oldest first',
             render: (_, view) =>
-                view.is_materialized ? (
+                view.is_materialized && !view.isEndpointPlaceholder ? (
                     <RunHistoryDisplay runHistory={view.run_history} loading={runHistoryMapLoading} />
                 ) : (
                     <span className="text-muted">-</span>
                 ),
         } as ViewColumn,
-        createdByColumn<DataWarehouseSavedQuery>() as ViewColumn,
-        createdAtColumn<DataWarehouseSavedQuery>() as ViewColumn,
+        {
+            ...createdByColumn<ModelListRow>(),
+            sorter: true,
+            className: '@max-[64rem]/main-content:hidden',
+        } as ViewColumn,
+        {
+            ...createdAtColumn<ModelListRow>(),
+            sorter: true,
+            className: '@max-[64rem]/main-content:hidden',
+        } as ViewColumn,
         {
             key: 'actions',
             width: 0,
-            render: (_, view) => (
-                <More
-                    overlay={
-                        <>
-                            {view.is_materialized && (
+            render: (_, view) =>
+                view.endpoint ? null : (
+                    <More
+                        overlay={
+                            <>
+                                {view.is_materialized && (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.WarehouseObjects}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
+                                        <LemonButton
+                                            fullWidth
+                                            onClick={() => runMaterialization(view.id)}
+                                            disabledReason={
+                                                view.status === 'Running'
+                                                    ? 'Materialization is already running'
+                                                    : undefined
+                                            }
+                                        >
+                                            Sync now
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                )}
+                                {warehouseAccessControlEnabled && view.managed_viewset_kind === null && (
+                                    <LemonButton fullWidth onClick={() => openAccessControlModal(view)}>
+                                        Access control
+                                    </LemonButton>
+                                )}
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.WarehouseObjects}
                                     minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={view.user_access_level}
                                 >
                                     <LemonButton
                                         fullWidth
-                                        onClick={() => runMaterialization(view.id)}
-                                        disabledReason={
-                                            view.status === 'Running' ? 'Materialization is already running' : undefined
-                                        }
+                                        status="danger"
+                                        onClick={() => deleteView(view.id)}
+                                        disabledReason={getDisabledReason(view)}
                                     >
-                                        Sync now
+                                        Delete
                                     </LemonButton>
                                 </AccessControlAction>
-                            )}
-                            {warehouseAccessControlEnabled && view.managed_viewset_kind === null && (
-                                <LemonButton fullWidth onClick={() => openAccessControlModal(view)}>
-                                    Access control
-                                </LemonButton>
-                            )}
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.WarehouseObjects}
-                                minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={view.user_access_level}
-                            >
-                                <LemonButton
-                                    fullWidth
-                                    status="danger"
-                                    onClick={() => deleteView(view.id)}
-                                    disabledReason={getDisabledReason(view)}
-                                >
-                                    Delete
-                                </LemonButton>
-                            </AccessControlAction>
-                        </>
-                    }
-                />
-            ),
+                            </>
+                        }
+                    />
+                ),
         } as ViewColumn,
     ]
 
     return (
         <div className="space-y-4">
+            {endpointsError && (
+                <LemonBanner type="error" action={{ children: 'Retry', onClick: loadModelEndpoints }}>
+                    Could not load endpoints. Retry to see all your models.
+                </LemonBanner>
+            )}
             {editingAccessControlView ? (
                 <AccessControlObjectModal
                     isOpen={accessControlModalOpen}
@@ -330,13 +418,17 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
                 />
             </div>
             <LemonTable
-                dataSource={visibleViews}
+                footer={<PaginationControl {...paginationState} nouns={['model', 'models']} />}
+                dataSource={visibleModelRows}
+                sorting={sorting}
+                useURLForSorting={false}
+                onSort={setSorting}
                 loading={viewsLoading}
                 columns={columns}
-                rowKey="id"
+                rowKey={(view) => `${view.endpointVersions ? 'parent' : 'version'}-${view.id}`}
                 emptyState={
                     searchTerm || typeFilter !== 'all' ? (
-                        'No views match your filters.'
+                        'No models match your filters.'
                     ) : (
                         <div className="flex flex-col items-start gap-2">
                             <span>Create your first view to transform and organize your data warehouse tables.</span>
@@ -351,14 +443,6 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
                         </div>
                     )
                 }
-                pagination={{
-                    controlled: true,
-                    pageSize: PAGE_SIZE,
-                    currentPage,
-                    entryCount: filteredViews.length,
-                    onForward: () => setPage(currentPage + 1),
-                    onBackward: () => setPage(currentPage - 1),
-                }}
             />
         </div>
     )

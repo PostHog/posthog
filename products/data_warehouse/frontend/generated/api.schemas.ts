@@ -1131,6 +1131,15 @@ export const DataWarehouseSavedQueryStatusEnumApi = {
     Skipped: 'Skipped',
 } as const
 
+export interface SavedQueryEndpointApi {
+    /** Name of the endpoint that publishes this model. */
+    name: string
+    /** Endpoint version represented by this model. */
+    version: number
+    /** Whether this is the endpoint's current version. */
+    is_current: boolean
+}
+
 /**
  * * `data_warehouse` - Data Warehouse
  * * `endpoint` - Endpoint
@@ -1167,6 +1176,8 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly last_run_at: string | null
     /** @nullable */
     readonly managed_viewset_kind: string | null
+    /** Endpoint publication represented by this model, if any. */
+    readonly endpoint: SavedQueryEndpointApi | null
     /** @nullable */
     readonly folder_id: string | null
     /** @nullable */
@@ -1475,6 +1486,8 @@ export interface DataWarehouseSavedQueryApi {
     readonly last_run_at: string | null
     /** @nullable */
     readonly managed_viewset_kind: string | null
+    /** Endpoint publication represented by this model, if any. */
+    readonly endpoint: SavedQueryEndpointApi | null
     /**
      * Optional folder ID used to organize this view in the SQL editor sidebar.
      * @nullable
@@ -1602,6 +1615,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly last_run_at?: string | null
     /** @nullable */
     readonly managed_viewset_kind?: string | null
+    /** Endpoint publication represented by this model, if any. */
+    readonly endpoint?: SavedQueryEndpointApi | null
     /**
      * Optional folder ID used to organize this view in the SQL editor sidebar.
      * @nullable

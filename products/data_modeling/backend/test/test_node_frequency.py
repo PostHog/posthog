@@ -186,6 +186,20 @@ class TestSeedTargets(BaseTest):
         seeds = seed_targets(dag)
         self.assertEqual(seeds, {} if expected is None else {str(node.id): expected})
 
+    @parameterized.expand([(True,), (False,)])
+    def test_endpoint_versions_only_get_targets_when_materialized(self, materialized: bool) -> None:
+        dag, node = self._view_node_in_dag_with(saved_query_interval=H1, dag_interval=DAY)
+        node.type = NodeType.ENDPOINT
+        node.save(update_fields=["type"])
+        assert node.saved_query is not None
+        node.saved_query.is_materialized = materialized
+        node.saved_query.save(update_fields=["is_materialized"])
+        set_declared_target(node, H1)
+        assert seed_targets(dag) == ({str(node.id): H1} if materialized else {})
+        graph = build_frequency_graph(dag)
+        assert str(node.id) in graph.nodes
+        assert (str(node.id) in graph.declared_targets) is materialized
+
     def test_source_tables_are_never_seeded(self):
         dag = DAG.objects.create(team=self.team, name="seed-demo-src", sync_frequency_interval=H1)
         _table_node(self.team, dag, "events", {"origin": "posthog"})

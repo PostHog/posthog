@@ -1807,6 +1807,7 @@ class Database(BaseModel):
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
         from products.data_tools.backend.models.expression import DataWarehouseExpression  # noqa: PLC0415
         from products.data_tools.backend.models.join import DataWarehouseJoin  # noqa: PLC0415
+        from products.endpoints.backend.facade.api import denied_endpoint_saved_query_ids  # noqa: PLC0415
         from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
             DataWarehouseTable,
             ExternalDataSource,
@@ -2093,6 +2094,20 @@ class Database(BaseModel):
                     team_id=team.pk, name__in=names
                 ):
                     event_modifier_saved_queries[saved_query.name] = saved_query
+
+        if endpoint_saved_queries and not (
+            bypass_warehouse_access_control
+            or is_managed_warehouse_connection
+            or isinstance(user, SyntheticUser | SharedLinkUser)
+        ):
+            endpoint_ids = [query.id for query in endpoint_saved_queries]
+            denied_endpoint_ids = (
+                denied_endpoint_saved_query_ids(team.pk, user_access_control, saved_query_ids=endpoint_ids)
+                if user_access_control is not None
+                else frozenset(endpoint_ids)
+            )
+            saved_queries = [query for query in saved_queries if query.id not in denied_endpoint_ids]
+            endpoint_saved_queries = [query for query in endpoint_saved_queries if query.id not in denied_endpoint_ids]
 
         return HogQLDatabaseSources(
             team=team,

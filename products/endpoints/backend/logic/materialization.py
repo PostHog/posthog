@@ -31,14 +31,16 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from products.data_modeling.backend.facade.api import (
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
-    delete_node_from_dag,
+    get_node_ids_for_saved_queries,
     is_materialization_fresh,
     latest_saved_query_materialization_job,
     link_endpoint_nodes,
     saved_query_materialized_at,
     sync_saved_query_to_dag,
 )
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.modeling import UnknownParentError
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node
+from products.data_quality.backend.facade.api import copy_checks_to_saved_query
 from products.endpoints.backend.constants import DATA_FRESHNESS_BUCKETS
 from products.endpoints.backend.logic.activity import EndpointContext
 from products.endpoints.backend.logic.strategies import apply_where_filter, strategy_for
@@ -54,6 +56,7 @@ from products.endpoints.backend.materialization_transforms import (
 from products.endpoints.backend.metrics import ENDPOINT_MATERIALIZATION_EVENT_TOTAL
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import clear_endpoint_materialization_cache
+from products.warehouse_sources.backend.facade.hogql import hogql_type_name_for_clickhouse_type
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 logger = structlog.get_logger(__name__)
@@ -92,7 +95,7 @@ ELIGIBILITY_CHECK_FAILED_REASON = (
 
 def build_materialization_info(version: EndpointVersion, endpoint_name: str | None = None) -> dict:
     """Build the materialization status dict for a version."""
-    if version.saved_query:
+    if version.saved_query and version.saved_query.is_materialized:
         latest_job = latest_saved_query_materialization_job(version.saved_query)
         materialization_status = latest_job.status if latest_job else version.saved_query.status
         materialization_error = latest_job.error if latest_job else version.saved_query.latest_error
@@ -130,6 +133,7 @@ def build_materialization_info(version: EndpointVersion, endpoint_name: str | No
             "ready": False,
             "can_materialize": can_mat,
             "reason": reason if not can_mat else None,
+            "saved_query_id": str(version.saved_query_id) if version.saved_query_id else None,
         }
 
     if endpoint_name is not None:
@@ -154,13 +158,102 @@ class MaterializationPreview:
         return cls(can_materialize=False, reason=reason)
 
 
-class EndpointMaterializationService:
+class EndpointModelService:
+    def __init__(self, team: Team, user: User | None = None) -> None:
+        self.team = team
+        self.user = user
+
+    def _get_or_build_saved_query(self, version: EndpointVersion) -> DataWarehouseSavedQuery:
+        """Find this version's saved query, or build a new (unsaved) one.
+
+        SECURITY: only adopt a saved query that this endpoint owns (ENDPOINT origin and not
+        linked to a different version). Without this, a user-created saved query whose name
+        happens to collide with {endpoint}_v{n} would be silently taken over — its query
+        overwritten and served as the endpoint's data.
+        """
+        name = version.materialized_view_name
+        existing = version.saved_query
+        if existing is None:
+            existing = DataWarehouseSavedQuery.objects.filter(name=name, team=self.team, deleted=False).first()
+        if existing is None:
+            return DataWarehouseSavedQuery(
+                name=name,
+                team=self.team,
+                created_by_id=version.created_by_id or (self.user.pk if self.user else None),
+                origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+            )
+
+        is_foreign = (
+            existing.team_id != self.team.pk
+            or existing.origin != DataWarehouseSavedQuery.Origin.ENDPOINT
+            or (EndpointVersion.objects.filter(saved_query=existing).exclude(pk=version.pk).exists())
+        )
+        if is_foreign:
+            raise ValidationError(
+                f"A saved query named '{name}' already exists and is not managed by this endpoint. "
+                "Rename or delete it before enabling materialization."
+            )
+        return existing
+
+    def ensure_model(
+        self, endpoint: Endpoint, version: EndpointVersion, previous_version: EndpointVersion | None = None
+    ) -> None:
+        model_created = version.saved_query_id is None
+        if model_created:
+            if version.query.get("kind") != "HogQLQuery":
+                supported, _ = version.can_materialize()
+                if not supported:
+                    return
+            try:
+                query = build_endpoint_hogql(version.query, self.team, user=self.user)
+            except (ExposedHogQLError, MaterializationNotSupportedError):
+                return
+            with transaction.atomic():
+                saved_query = self._get_or_build_saved_query(version)
+                saved_query.query = query
+                try:
+                    column_types = EndpointVersion.extract_column_types(query, self.team.pk)
+                except Exception as error:
+                    capture_exception(error, {"endpoint_version_id": str(version.id), "team_id": self.team.pk})
+                else:
+                    saved_query.set_columns(
+                        {
+                            name: {
+                                "clickhouse": column_type,
+                                "hogql": hogql_type_name_for_clickhouse_type(column_type),
+                                "valid": True,
+                            }
+                            for name, column_type in column_types.items()
+                        }
+                    )
+                saved_query.save()
+                version.saved_query = saved_query
+                version.save(update_fields=["saved_query", "updated_at"])
+        assert version.saved_query is not None
+        saved_query = version.saved_query
+        try:
+            with transaction.atomic():
+                if model_created or not get_node_ids_for_saved_queries(self.team.pk, [saved_query.id]):
+                    sync_saved_query_to_dag(saved_query, reconcile=bool(saved_query.is_materialized))
+                link_endpoint_nodes(
+                    team_id=self.team.pk,
+                    saved_query_id=saved_query.id,
+                    endpoint_name=endpoint.name,
+                    version=version.version,
+                )
+        except (ExposedHogQLError, UnknownParentError, Node.DoesNotExist):
+            logger.info("endpoint_model_lineage_unavailable", endpoint_id=str(endpoint.id), version=version.version)
+        if model_created and previous_version and previous_version.saved_query_id:
+            copy_checks_to_saved_query(self.team.pk, str(previous_version.saved_query_id), str(saved_query.id))
+
+
+class EndpointMaterializationService(EndpointModelService):
     """Enable, disable, and preview materialization for endpoint versions."""
 
-    def __init__(self, team: Team, request: Request):
+    def __init__(self, team: Team, request: Request) -> None:
         self.team = team
         self.request = request
-        self.user = cast(User, request.user)
+        self.user: User = cast(User, request.user)
 
     def enable_materialization(
         self,
@@ -238,11 +331,8 @@ class EndpointMaterializationService:
         # is deferred to on_commit (tiered) or terminal (v1), so nothing rolls back after it fires.
         with transaction.atomic():
             saved_query = self._get_or_build_saved_query(version)
-            # No live saved query row means materialization is being stood up fresh (first
-            # enable, re-enable after disable, or a version bump). Only that case gets an
-            # immediate first run; a retained enable (e.g. a metadata-only endpoint update
-            # re-reconciling materialization) must not restart the workflow.
-            newly_materialized = saved_query._state.adding
+            # Metadata-only updates must not restart an already enabled workflow.
+            newly_materialized = not saved_query.is_materialized
             self._configure_saved_query(saved_query, version, data_freshness_seconds, bucket_overrides)
             version.enable_materialization(saved_query, bucket_overrides)
 
@@ -276,8 +366,7 @@ class EndpointMaterializationService:
 
             # NOTE: on v1, schedule_materialization only triggers an immediate run when it CREATES
             # the Temporal schedule; re-enabling an existing materialization just (re)syncs it.
-            # trigger_immediate_run mirrors that on v2: first run only for a newly created saved
-            # query (deferred to on_commit, so it sees the version link above).
+            # trigger_immediate_run mirrors that on v2 when an inline model becomes materialized.
             try:
                 saved_query.schedule_materialization(
                     trigger_immediate_run=newly_materialized, triggered_by_id=self.user.pk
@@ -298,33 +387,6 @@ class EndpointMaterializationService:
                     # tell them to retry, and would page on-call through the status="error" metric.
                     raise ValidationError(f"Cannot materialize endpoint. Reason: {sync_error}")
                 raise APIException(f"Failed to schedule materialization for endpoint {endpoint.name}.")
-
-    def _get_or_build_saved_query(self, version: EndpointVersion) -> DataWarehouseSavedQuery:
-        """Find this version's saved query, or build a new (unsaved) one.
-
-        SECURITY: only adopt a saved query that this endpoint owns (ENDPOINT origin and not
-        linked to a different version). Without this, a user-created saved query whose name
-        happens to collide with {endpoint}_v{n} would be silently taken over — its query
-        overwritten and served as the endpoint's data.
-        """
-        name = version.materialized_view_name
-        existing = DataWarehouseSavedQuery.objects.filter(name=name, team=self.team, deleted=False).first()
-        if existing is None:
-            return DataWarehouseSavedQuery(
-                name=name,
-                team=self.team,
-                origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
-            )
-
-        is_foreign = existing.origin != DataWarehouseSavedQuery.Origin.ENDPOINT or (
-            EndpointVersion.objects.filter(saved_query=existing).exclude(pk=version.pk).exists()
-        )
-        if is_foreign:
-            raise ValidationError(
-                f"A saved query named '{name}' already exists and is not managed by this endpoint. "
-                "Rename or delete it before enabling materialization."
-            )
-        return existing
 
     def _configure_saved_query(
         self,
@@ -349,26 +411,9 @@ class EndpointMaterializationService:
 
     def disable_materialization(self, endpoint: Endpoint, version: EndpointVersion) -> None:
         """Disable materialization for an endpoint version."""
-        if version.saved_query:
+        if version.saved_query and version.saved_query.is_materialized:
             saved_query_id = str(version.saved_query.id)
             saved_query_name = version.saved_query.name
-            try:
-                delete_node_from_dag(version.saved_query)
-            except Exception as e:
-                logger.exception(
-                    "Failed to remove endpoint node from DAG",
-                    endpoint_name=endpoint.name,
-                    saved_query_id=saved_query_id,
-                )
-                capture_exception(
-                    e,
-                    {
-                        "product": Product.ENDPOINTS,
-                        "team_id": self.team.pk,
-                        "endpoint_name": endpoint.name,
-                        "saved_query_id": saved_query_id,
-                    },
-                )
             try:
                 version.disable_materialization()
             except Exception:

@@ -126,6 +126,10 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
         """Delete dependents before their sources; the caller has already ruled out outside dependents."""
         from products.data_modeling.backend.facade.api import HasDependentsError
 
+        if any(view.origin == DataWarehouseSavedQuery.Origin.ENDPOINT for view in saved_queries):
+            raise serializers.ValidationError(
+                "This folder contains endpoint versions. Move them out of the folder before deleting it."
+            )
         remaining = {saved_query.id: saved_query for saved_query in saved_queries}
         while remaining:
             deleted_ids: list[uuid.UUID] = []

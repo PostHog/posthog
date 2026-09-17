@@ -124,3 +124,22 @@ export const SearchFocus: Story = {
         }
     },
 }
+
+export const InlineEndpoint: Story = {
+    render: () => (
+        <LineageGraph
+            nodes={[
+                mockNode({ id: 'events', name: 'events', type: 'table' }),
+                mockNode({
+                    id: 'published',
+                    name: 'weekly_activity_v2',
+                    type: 'endpoint',
+                    endpoint: { name: 'weekly_activity', version: 2, is_materialized: false },
+                    upstream_count: 1,
+                }),
+            ]}
+            edges={[mockEdge('dependency', 'events', 'published')]}
+            currentNodeId="published"
+        />
+    ),
+}

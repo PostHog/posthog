@@ -49,8 +49,13 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
     return (
         <>
             <SceneTitleSection
-                name={node?.name}
-                nameSuffix={typeTag && <LemonTag type={typeTag.type}>{typeTag.label}</LemonTag>}
+                name={node?.endpoint?.name ?? node?.name}
+                nameSuffix={
+                    <>
+                        {typeTag && <LemonTag type={typeTag.type}>{typeTag.label}</LemonTag>}
+                        {node?.endpoint && <LemonTag>v{node.endpoint.version}</LemonTag>}
+                    </>
+                }
                 actions={
                     // A failed saved query never resolves on its own, so the placeholder must not
                     // outlive it. The Materialization and Query tabs carry the retry.

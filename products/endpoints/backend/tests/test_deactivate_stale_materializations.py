@@ -87,10 +87,11 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         deactivate_stale_materializations()
 
         version.refresh_from_db()
-        assert version.saved_query is None
+        assert version.saved_query is not None
+        assert version.saved_query.is_materialized is False
 
-        saved_query = DataWarehouseSavedQuery.objects.get(name__startswith="POSTHOG_DELETED_")
-        assert saved_query.deleted is True
+        saved_query = DataWarehouseSavedQuery.objects.get(pk=version.saved_query.pk)
+        assert saved_query.deleted is False
         assert saved_query.is_materialized is False
 
     def test_keeps_endpoint_executed_recently(self):
@@ -197,7 +198,8 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         stale_version.refresh_from_db()
         active_version.refresh_from_db()
 
-        assert stale_version.saved_query is None  # Deactivated
+        assert stale_version.saved_query is not None
+        assert stale_version.saved_query.is_materialized is False
         assert active_version.saved_query is not None  # Kept
 
     def test_no_endpoints_found(self):
@@ -220,7 +222,8 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
 
         # Should be deactivated because it's at or past the threshold
         version.refresh_from_db()
-        assert version.saved_query is None
+        assert version.saved_query is not None
+        assert version.saved_query.is_materialized is False
 
     @parameterized.expand(
         [
@@ -308,7 +311,7 @@ class TestDeactivateEndpointMaterialization(BaseTest):
             "query": "SELECT event FROM events LIMIT 100",
         }
 
-    def test_deactivates_materialization_and_soft_deletes_saved_query(self):
+    def test_deactivates_materialization_and_retains_saved_query(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="to_deactivate",
@@ -344,11 +347,12 @@ class TestDeactivateEndpointMaterialization(BaseTest):
         _deactivate_version_materialization(version)
 
         version.refresh_from_db()
-        assert version.saved_query is None
+        assert version.saved_query is not None
+        assert version.saved_query.is_materialized is False
         assert version.is_materialized is False
 
         saved_query.refresh_from_db()
-        assert saved_query.deleted is True
+        assert saved_query.deleted is False
         assert saved_query.is_materialized is False
         assert saved_query.sync_frequency_interval is None
         assert saved_query.last_run_at is None

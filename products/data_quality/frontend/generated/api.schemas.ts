@@ -255,7 +255,7 @@ export interface DataQualityCheckApi {
     readonly subject_uuid: string | null
     /** Queryable name of the subject, refreshed on every run. */
     readonly subject_name: string
-    /** 'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted. */
+    /** Active when the check resolves. Orphaned when its subject is gone. Needs review when a copied check does not resolve against its new endpoint version; edit or remove it before running. */
     readonly subject_status: string
     /**
      * Column the check applies to. Omit for table-scoped types like row_count.
@@ -369,7 +369,7 @@ export interface PatchedDataQualityCheckApi {
     readonly subject_uuid?: string | null
     /** Queryable name of the subject, refreshed on every run. */
     readonly subject_name?: string
-    /** 'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted. */
+    /** Active when the check resolves. Orphaned when its subject is gone. Needs review when a copied check does not resolve against its new endpoint version; edit or remove it before running. */
     readonly subject_status?: string
     /**
      * Column the check applies to. Omit for table-scoped types like row_count.
@@ -589,7 +589,7 @@ export interface DataQualityOverviewCheckApi {
     readonly subject_uuid: string | null
     /** Queryable name of the subject, refreshed on every run. */
     readonly subject_name: string
-    /** 'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted. */
+    /** Active when the check resolves. Orphaned when its subject is gone. Needs review when a copied check does not resolve against its new endpoint version; edit or remove it before running. */
     readonly subject_status: string
     /**
      * Column the check applies to. Omit for table-scoped types like row_count.

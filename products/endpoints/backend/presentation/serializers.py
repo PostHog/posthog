@@ -124,7 +124,7 @@ class EndpointMaterializationSerializer(serializers.Serializer):
     saved_query_id = serializers.UUIDField(
         required=False,
         allow_null=True,
-        help_text="UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.",
+        help_text="UUID of the model backing this version, including versions that execute inline.",
     )
 
 
@@ -237,6 +237,13 @@ class EndpointResponseSerializer(serializers.Serializer):
         help_text="Whether the current version's results are pre-computed to S3.",
     )
     current_version = serializers.IntegerField(help_text="Latest version number.")
+    node_id = serializers.UUIDField(
+        allow_null=True, help_text="Data model node for this endpoint version, whether materialized or inline."
+    )
+    model_unavailable_reason = serializers.CharField(
+        allow_null=True,
+        help_text="Why lineage and data quality are unavailable for this version, or null when available.",
+    )
 
     current_version_id = serializers.UUIDField(
         required=False,

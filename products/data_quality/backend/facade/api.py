@@ -23,6 +23,7 @@ from ..logic.checks import (
 from ..logic.compiler import compile_check, related_subject_ref
 from ..logic.config import get_gate_config, set_gate_materialization_on_checks
 from ..logic.contracts import CompiledCheck, SubjectIdentity, SubjectRef
+from ..logic.copy_checks import copy_checks_to_saved_query
 from ..logic.errors import CheckConfigError, CheckEditConflict, SubjectUnresolvableError
 from ..logic.health import CheckStatusRow, roll_up_health
 from ..logic.navigation import SubjectKey, SubjectLocation, subject_locations
@@ -61,6 +62,7 @@ from ..logic.triggers import materialization_audit_mode as quality_audit_mode
 from .contracts import CheckTypeInfo, MetricSubject, OutputColumn
 
 __all__ = [
+    "copy_checks_to_saved_query",
     "log_metric_schedule_change",
     "MetricCheckSchedule",
     "ScheduleUnavailableError",

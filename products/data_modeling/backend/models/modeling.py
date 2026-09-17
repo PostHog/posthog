@@ -25,6 +25,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
+from products.data_modeling.backend.facade.contracts import UnknownParentError
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -749,16 +750,6 @@ class ModelPathCycleError(Exception):
         super().__init__(f"Adding {parent} as a parent of {child} would create a cycle in the DAG")
         self.child = child
         self.parent = parent
-
-
-class UnknownParentError(Exception):
-    """Exception raised when the parent for a model is not found."""
-
-    def __init__(self, parent: str, query: str):
-        super().__init__(
-            f"The parent name {parent} does not correspond to an existing PostHog table, Data Warehouse Table, or Data Warehouse Saved Query."
-        )
-        self.query = query
 
 
 class ModelPathAlreadyExistsError(Exception):

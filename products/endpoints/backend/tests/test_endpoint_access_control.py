@@ -1,17 +1,26 @@
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.database.database import Database
+
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
-from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
+from products.access_control.backend.facade.user_access_control import (
+    ACCESS_CONTROL_RESOURCES,
+    UserAccessControl,
+    model_to_resource,
+)
 from products.access_control.backend.models.access_control import AccessControl
+from products.endpoints.backend.facade.api import denied_endpoint_saved_query_ids
+from products.endpoints.backend.logic.materialization import EndpointModelService
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 
@@ -178,6 +187,17 @@ class TestEndpointAccessControl(ClickhouseTestMixin, APIBaseTest):
         names = [e["name"] for e in response.json()["results"]]
         self.assertIn(self.endpoint.name, names)
         self.assertNotIn(other_endpoint.name, names)
+
+        own_version = self.endpoint.get_version()
+        denied_version = other_endpoint.get_version()
+        EndpointModelService(self.team, self.user).ensure_model(self.endpoint, own_version)
+        EndpointModelService(self.team, other_user).ensure_model(other_endpoint, denied_version)
+        denied_ids = denied_endpoint_saved_query_ids(self.team.pk, UserAccessControl(self.user, self.team))
+        self.assertEqual(denied_ids, frozenset({denied_version.saved_query_id}))
+        with patch("posthog.hogql.database.database.feature_enabled_or_false", return_value=False):
+            database = Database.create_for(team=self.team, user=self.user)
+        self.assertTrue(database.has_table(own_version.materialized_view_name))
+        self.assertFalse(database.has_table(denied_version.materialized_view_name))
 
     def test_object_level_grant_works_through_project_default_none(self):
         # With the project default at "none", an object-level grant still lets the user read and

@@ -83,12 +83,13 @@ import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
 import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
-import type { NodeApiSuspended, NodeEndpointApi } from 'products/data_modeling/frontend/generated/api.schemas'
+import type { NodeApi, NodeApiSuspended } from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
+import type { EndpointResponseApi } from 'products/endpoints/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
@@ -2685,6 +2686,8 @@ export interface QueryBasedInsightModel<R extends Node<Record<string, any>> = No
 }
 
 export interface EndpointType extends WithAccessControl {
+    node_id?: EndpointResponseApi['node_id']
+    model_unavailable_reason?: EndpointResponseApi['model_unavailable_reason']
     id: string
     name: string
     description: string
@@ -6289,6 +6292,7 @@ export interface DataWarehouseSavedQueryDependencies {
 export type DataModelingNodeType = 'table' | 'view' | 'matview' | 'endpoint'
 
 export interface DataModelingNode {
+    endpoint?: NodeApi['endpoint']
     /** UUID */
     id: string
     name: string
@@ -6309,8 +6313,6 @@ export interface DataModelingNode {
     last_run_error?: string | null
     sync_interval?: DataModelingSyncInterval
     suspended?: NodeApiSuspended
-    /** Set on endpoint nodes stamped at materialization enable; older nodes carry only the name */
-    endpoint?: NodeEndpointApi | null
 }
 
 export interface DataModelingEdge {
@@ -6357,6 +6359,7 @@ export interface DataWarehouseSavedQuery {
     updated_at?: DataWarehouseSavedQueryApi['updated_at']
     run_history?: DataWarehouseSavedQueryRunHistory[]
     origin?: DataWarehouseSavedQueryOrigin
+    endpoint?: DataWarehouseSavedQueryApi['endpoint']
     is_test?: boolean
     expires_at?: string
     user_access_level?: AccessControlLevel
