@@ -285,6 +285,12 @@ describe('secure HTTP/2 requests', () => {
     }, 10000)
 
     it('shares one client for six cold image fetches and closes the idle client and its connections', async () => {
+        // The test budget must cover two six-request bursts as well as the wait for the idle timer. So the module
+        // reloads on a keep-alive timeout that is shorter than the one the rest of the file uses.
+        const idleTimeoutMs = 1000
+        process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS = String(idleTimeoutMs)
+        jest.resetModules()
+        requestModule = require('./request') as RequestModule
         const { HttpImageFetcher } =
             require('~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher') as typeof import('~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher')
         const { Client: UndiciClient } = jest.requireActual<typeof import('undici')>('undici')
@@ -340,7 +346,7 @@ describe('secure HTTP/2 requests', () => {
                 expect(idleClient.destroyed).toBe(true)
                 expect(openHttp2Sessions.size).toBe(0)
                 expect(openSockets.size).toBe(0)
-            }, keepAliveTimeoutMs * 3)
+            }, idleTimeoutMs * 3)
 
             await fetchBurst()
 
@@ -352,6 +358,7 @@ describe('secure HTTP/2 requests', () => {
             expect(openSockets.size).toBe(2)
         } finally {
             dispatchSpy.mockRestore()
+            process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS = String(keepAliveTimeoutMs)
         }
     }, 15000)
 
