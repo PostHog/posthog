@@ -231,6 +231,8 @@ jobs:
                   # A no-ci draft marked ready keeps its SHA, so its earlier skipped hand-off
                   # check is still on the commit. Only a check that started after this event counts.
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
+                  # Two open PRs can share a head SHA, so only this PR's hand-off counts.
+                  PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
                   # Must match the job name in .github/workflows/ci-backend.yml.
                   HANDOFF_CHECK: Hand off backend tests to Depot CI
                   GITHUB_ACTIONS_APP_ID: '15368'
@@ -253,7 +255,7 @@ jobs:
                           case "$code" in
                               200)
                                   mv /tmp/handoff-etag.new /tmp/handoff-etag
-                                  state=$(jq -r --arg since "$EVENT_AT" '[.check_runs[] | select((.started_at // "") >= $since)] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/handoff-body)
+                                  state=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" '[.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/handoff-body)
                                   ;;
                               304) ;;
                               401|403) echo "::warning::check-runs API returned $code; cannot read the hand-off"; break ;;
