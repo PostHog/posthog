@@ -347,6 +347,24 @@ jobs:
                         [ "$RUN_OWNERS" = "true" ] || { echo "tools/owners unchanged — skipping"; exit 0; }
                         pytest tools/owners/tests -v --junitxml=junit-owners.xml
 
+                  # A wheel in an empty venv cannot import anything else from the monorepo, so a
+                  # new import of host code fails here instead of for users of the published package.
+                  - name: Check the owners package runs outside the monorepo
+                    shell: bash
+                    run: |
+                        [ "$RUN_OWNERS" = "true" ] || { echo "tools/owners unchanged — skipping"; exit 0; }
+                        scratch=$(mktemp -d)
+                        uv build tools/owners --wheel --out-dir "$scratch/dist"
+                        uv venv "$scratch/venv"
+                        uv pip install --python "$scratch/venv/bin/python" "$scratch"/dist/*.whl
+                        repo="$scratch/repo"
+                        mkdir -p "$repo/billing"
+                        printf 'version: 1\nowners: team-platform\ngithub_org: example\n' > "$repo/owners.yaml"
+                        printf 'version: 1\nowners: team-billing\n' > "$repo/billing/owners.yaml"
+                        touch "$repo/billing/invoices.py"
+                        "$scratch/venv/bin/owners" lint --repo-root "$repo"
+                        "$scratch/venv/bin/owners" who --repo-root "$repo" billing/invoices.py | grep -q 'team-billing'
+
                   - name: Run query-performance-ai tests
                     shell: bash
                     run: |

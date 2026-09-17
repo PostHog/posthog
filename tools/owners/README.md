@@ -1,64 +1,221 @@
 # posthog-owners
 
-Resolver, linter, and formatter for PostHog's distributed `owners.yaml` ownership model.
-It walks the `owners.yaml` / `product.yaml` files a repo carries, merges them nearest-file-wins, and answers "who owns this path" as a library or CLI, plus a lint that catches schema errors, dead globs, conflicts, and coverage gaps.
-The ownership format and resolution semantics are documented in [`docs/internal/ownership-model-proposal.md`](../../docs/internal/ownership-model-proposal.md) and the `establishing-code-ownership` skill.
+Code ownership in small `owners.yaml` files next to the code, with a resolver, a linter, and a CODEOWNERS export.
 
-## CODEOWNERS projection
+Each directory declares its owners in a two-line file.
+The nearest file wins, so you can read any path's owner from that path and its parents.
+Bots, CI jobs, and chat alerts call one resolver instead of each parsing a CODEOWNERS file.
+GitHub's `CODEOWNERS` can stay in place for required approvals.
 
-Some tools read CODEOWNERS and nothing else. `owners:codeowners` projects the map into that format
-so they can attribute a file to a team:
+The format is defined in [SPEC.md](https://github.com/PostHog/posthog/blob/master/tools/owners/SPEC.md).
+PostHog's monorepo uses it for about 30 teams.
+The files route review requests, daily digests, flaky-test reports, and alerts.
 
-```bash
-hogli owners:codeowners                 # to stdout
-hogli owners:codeowners -o /tmp/x/CODEOWNERS
+## Quick start
+
+```yaml
+# billing/owners.yaml
+version: 1
+owners: [team-billing, '@alice']
 ```
 
-It covers test files only, because the consumer this exists for (Trunk Flaky Tests) looks up nothing
-else. A test file is spelled the way the runner that ran it writes the JUnit `file` attribute, which
-is relative to that runner's working directory, so a file can appear under more than one rule. A
-spelling two teams would both claim is dropped rather than guessed. An unowned file gets a rule with
-no owner after the pattern, which keeps an ancestor rule from claiming it.
-
-This never writes `.github/CODEOWNERS`. That file carries GitHub's blocking-approval semantics, is
-hand-maintained, and is not part of the resolver's walk.
-
-CI regenerates the projection per upload in `.github/scripts/trunk-codeowners.sh`, so the consumer
-never reads a stale map.
-
-## Use it from another repo
-
-The package is self-contained (stdlib + pyyaml + click), so any repo carrying `owners.yaml` files can run it without vendoring anything:
-
-```bash
-uvx --from "git+https://github.com/PostHog/posthog#subdirectory=tools/owners" owners lint
+```console
+$ uvx --from "git+https://github.com/PostHog/posthog#subdirectory=tools/owners" owners who billing/api/invoices.py
+path:    billing/api/invoices.py
+owners:  team-billing, @alice
+status:  active
+slack:   #team-billing
+source:  billing/owners.yaml
 ```
 
-Pin to a commit for CI so the resolver semantics can't shift under you: append `@<sha>` to the URL (`...posthog@<sha>#subdirectory=tools/owners`).
+## Why use it
 
-### From a consumer that is not Python
+A single `CODEOWNERS` file works well for small repos. In a large monorepo it has these problems:
 
-`python -m posthog_owners` answers the same question as JSON, with no click and no project sync. Stdlib plus pyyaml is enough.
-It reads repo-relative paths from stdin or argv and writes a single JSON object keyed by path:
+- **Line order changes the result.** The last matching line wins, so a broad pattern added at the bottom can take over the specific lines above it.
+- **One busy file.** Every team edits the same file, so it gets merge conflicts and nobody feels responsible for it.
+- **No lint.** Nothing reports a pattern that matches no files, a team that no longer exists, or a directory that nobody owns.
+- **Nothing but owners.** You can't say that code is generated or vendored, or which Slack channel a team uses.
+
+`owners.yaml` addresses these:
+
+- **The nearest file wins, field by field.** A child file that only sets `owners` keeps the `status` of its parent. `inherit: false` stops inheritance.
+- **Rules stay in their file.** A `rules:` pattern can only change paths below its own file, so one file and its parents explain any path.
+- **"Unowned" is a decision.** `owners: null` marks code that nobody owns on purpose. Everything else without an owner shows up in `owners unowned`.
+- **A lifecycle status.** `status: generated`, `vendored`, or `deprecated` lets a review bot skip generated files without its own ignore list.
+- **A team channel registry.** The root file maps a team to its Slack channels, with a separate channel for automation and a per-bot opt-out.
+- **One resolver for every tool.** A Python library, a CLI, and a JSON entrypoint that needs only PyYAML. The JSON entrypoint suits tools written in other languages.
+
+## Install
+
+The package is not on PyPI yet. Install it from GitHub:
 
 ```bash
-echo "posthog/models/team.py" | PYTHONPATH=/fetched/tools/owners python3 -m posthog_owners --repo-root /fetched
+uv tool install "git+https://github.com/PostHog/posthog#subdirectory=tools/owners"
+# or run it once
+uvx --from "git+https://github.com/PostHog/posthog#subdirectory=tools/owners" owners --help
 ```
 
-`PYTHONPATH` names the directory holding the `posthog_owners` package. `--repo-root` names the tree holding the ownership files; the example fetched both into one scratch directory, but they are independent.
-Any Python 3.10+ interpreter with pyyaml works, so `uv run --no-project --with pyyaml python` is enough if you would rather not install it.
+In CI, pin a commit so the resolution rules can't change under you: `...posthog@<sha>#subdirectory=tools/owners`.
+The install clones the full monorepo, so the first run takes a while.
 
-```json
+Requirements: Python 3.10 or later, PyYAML, and click.
+The commands read tracked files through `git`. Outside a git worktree, pass `--repo-root` and they read the files from disk.
+`lint --live` needs the [GitHub CLI](https://cli.github.com/), signed in.
+
+## Usage
+
+### Write ownership files
+
+The smallest file sets `version` and `owners`:
+
+```yaml
+version: 1
+owners: team-billing
+```
+
+A file can override its own subtree with `rules:`. Within one file, the last matching rule wins:
+
+```yaml
+version: 1
+owners: [team-billing, team-payments]
+rules:
+  - match: 'generated/**'
+    status: generated
+  - match: 'vendor/'
+    owners: null
+```
+
+The root file can also hold repository settings:
+
+```yaml
+version: 1
+owners: []
+github_org: acme
+producers: [review-bot]
+teams:
+  team-billing:
+    slack: '#billing'
+    notifications:
+      review-bot: '#billing-reviews'
+```
+
+[SPEC.md](https://github.com/PostHog/posthog/blob/master/tools/owners/SPEC.md) lists every field and the full resolution algorithm.
+For editor completion, point your YAML language server at [`owners.schema.json`](https://github.com/PostHog/posthog/blob/master/tools/owners/owners.schema.json).
+
+### Look up owners
+
+```console
+$ owners resolve --json billing/vendor/stripe.py web/app.ts
 {
-  "posthog/models/team.py": {
-    "owners": ["team-x"],
-    "status": "active",
-    "slack": "#team-x",
-    "source": "posthog/owners.yaml"
+  "billing/vendor/stripe.py": {
+    "owners": [],
+    "slack": null,
+    "source": "billing/owners.yaml",
+    "status": "active"
+  },
+  "web/app.ts": {
+    "owners": [
+      "team-platform"
+    ],
+    "slack": "#team-platform",
+    "source": "owners.yaml",
+    "status": "active"
   }
 }
 ```
 
-Without `--repo-root` the resolver locates the repo with `git rev-parse`, so it needs a real worktree.
-Pass the flag when the ownership files sit in a directory that is not one: a sparse fetch, an export, or a scratch copy of just the `owners.yaml` / `product.yaml` files.
-Add `--purpose notifications` to resolve `slack` to each team's automation channel instead of its people channel.
+`resolve` also reads paths from stdin, one per line. Add `--purpose notifications` to get the channel where automation posts.
+
+To list what nobody owns, run `owners unowned`. Paths under `owners: null` are left out.
+
+### Lint in CI
+
+```console
+$ owners lint
+⚠ coverage: 0 of 5 tracked file(s) resolve to unowned
+
+✓ owners.yaml lint passed (1 warning(s))
+```
+
+`lint` fails on schema errors, a directory with two ownership files, and `owners.yaml` files in reserved locations.
+It warns about rule patterns that match no tracked file, and it reports coverage.
+`lint --live` also checks each team slug and `@handle` against the GitHub organization in `github_org`, or in `--org`.
+Pass the changed ownership files as arguments to check only those.
+
+`owners fmt` shows where files could be merged or split without changing any resolution. It never writes.
+
+### Call it from other tools
+
+From Python:
+
+```python
+from posthog_owners import OwnersResolver
+
+resolution = OwnersResolver().resolve("billing/api/invoices.py")
+resolution.owners  # ['team-billing', '@alice']
+```
+
+From any language, with only PyYAML installed:
+
+```bash
+echo "billing/api/invoices.py" | PYTHONPATH=path/to/tools/owners python3 -m posthog_owners --repo-root path/to/repo
+```
+
+It prints one JSON object keyed by path, in the same shape as `owners resolve --json`.
+`--repo-root` lets a tool resolve against a directory that holds only the ownership files, such as a sparse fetch.
+
+### Export to CODEOWNERS
+
+Some tools read only CODEOWNERS.
+`owners codeowners -o CODEOWNERS.generated` writes the owners of every test file in CODEOWNERS syntax, for test analytics that attribute a failing test to a team.
+The export covers test files only and never writes `.github/CODEOWNERS`.
+
+### Add the commands to your own CLI
+
+Each command is a plain [click](https://click.palletsprojects.com/) command named `owners:<name>`, such as `posthog_owners.cli:cmd_lint`.
+A click-based CLI can register them directly.
+PostHog's `hogli` does this in its `hogli.yaml`:
+
+```yaml
+owners:
+  owners:lint:
+    click: posthog_owners.cli:cmd_lint
+    description: Validate owners.yaml files
+```
+
+## Compared with other tools
+
+|                        | GitHub CODEOWNERS              | Kubernetes/Prow OWNERS                  | [code_ownership](https://github.com/rubyatscale/code_ownership) | posthog-owners                     |
+| ---------------------- | ------------------------------ | --------------------------------------- | --------------------------------------------------------------- | ---------------------------------- |
+| Files                  | One central file               | One per directory                       | Per directory, per file annotation, or per package              | One per directory                  |
+| Resolution             | Last matching line in the file | Owners of all parent files are combined | One ownership source per file                                   | Nearest file, field by field       |
+| Patterns inside a file | Yes                            | Yes, regex `filters`                    | Yes, in the central config                                      | Yes, limited to the file's subtree |
+| Required approvals     | Yes, GitHub enforces them      | Yes, through Prow                       | Through the CODEOWNERS file it generates                        | No, routing only                   |
+| Coverage check         | No                             | No                                      | Yes                                                             | Yes                                |
+| Lifecycle status       | No                             | No                                      | No                                                              | Yes                                |
+| Team channel registry  | No                             | No                                      | Team config files                                               | Yes, Slack                         |
+| Generates CODEOWNERS   | n/a                            | No                                      | Yes, the whole repo                                             | Test files only                    |
+
+Other tools cover parts of this.
+[codeowners-validator](https://github.com/mszostok/codeowners-validator) lints a CODEOWNERS file.
+[codeowners-generator](https://github.com/gagoar/codeowners-generator) builds one from files spread across the repo.
+Backstage and other service catalogs track ownership per service, not per path.
+
+## When not to use it
+
+- **You need GitHub to block merges on an owner's approval.** Keep that in `.github/CODEOWNERS`. `owners.yaml` routes, it doesn't block. The CODEOWNERS export covers test files only.
+- **Your repo is small.** A CODEOWNERS file of a few dozen lines is easier to read than many small files.
+- **You use GitLab or Bitbucket code owner approvals.** The tool reads GitHub team slugs and `@handles`, and the live lint uses the GitHub API.
+- **You need a stable release channel today.** The package is at version 0.x and installs from the PostHog monorepo.
+
+## Project
+
+- [Changelog](https://github.com/PostHog/posthog/blob/master/tools/owners/CHANGELOG.md)
+- [Specification](https://github.com/PostHog/posthog/blob/master/tools/owners/SPEC.md)
+- [Issues](https://github.com/PostHog/posthog/issues)
+
+The package lives in the [PostHog monorepo](https://github.com/PostHog/posthog/tree/master/tools/owners). It has no dependencies on the rest of the monorepo.
+Run its tests with `uv run --no-project --with pyyaml --with click --with pytest pytest tools/owners/tests`.
+
+MIT licensed.

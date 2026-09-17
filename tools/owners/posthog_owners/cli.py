@@ -1,10 +1,13 @@
-"""hogli owners:* commands — resolve, who, unowned, lint, fmt."""
+"""The ``owners`` CLI: resolve, who, census, codeowners, unowned, lint, fmt.
+
+Each command is a plain click command named ``owners:<name>``, so a host CLI can register it
+directly. The ``owners`` console script groups the same commands without the prefix.
+"""
 
 from __future__ import annotations
 
 import sys
 import json
-import subprocess
 from collections import defaultdict
 from pathlib import Path
 from typing import cast
@@ -13,9 +16,48 @@ import click
 
 from .census import census
 from .codeowners import package_dirs_from, project
+from .github import GitHubLookupError, GitHubOrg
 from .matcher import compile_pattern, normalize_path
-from .resolver import OWNERS_FILENAME, PRODUCT_FILENAME, OwnersResolver, Purpose, read_stdin_paths, resolution_to_wire
-from .schema import is_simple_owners_file, normalize_product_owners
+from .resolver import (
+    OWNERS_FILENAME,
+    PRODUCT_FILENAME,
+    OwnersResolver,
+    Purpose,
+    RepoRootNotFound,
+    read_stdin_paths,
+    resolution_to_wire,
+)
+from .schema import RepoSettings, is_simple_owners_file, normalize_product_owners
+
+# GitHub Actions parses every YAML file under this directory as a workflow, in any repo.
+BUILTIN_RESERVED_DIRS = (".github/workflows/**",)
+
+repo_root_option = click.option(
+    "--repo-root",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Directory that holds the ownership files. Default: the enclosing git worktree.",
+)
+
+org_option = click.option(
+    "--org",
+    default=None,
+    help="GitHub organization of the team slugs. Default: `github_org` in the root owners.yaml.",
+)
+
+
+def _resolver(repo_root: Path | None, purpose: Purpose = "slack") -> OwnersResolver:
+    try:
+        return OwnersResolver(repo_root=repo_root, purpose=purpose)
+    except RepoRootNotFound as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _github_org(org: str | None, settings: RepoSettings) -> str:
+    resolved = org or settings.github_org
+    if not resolved:
+        raise click.ClickException("no GitHub organization: set `github_org` in the root owners.yaml or pass --org")
+    return resolved
 
 
 def _read_paths(paths: tuple[str, ...]) -> list[str]:
@@ -35,9 +77,10 @@ def _read_paths(paths: tuple[str, ...]) -> list[str]:
     default="slack",
     help="Which team channel `slack` resolves to: where people are, or where automation posts",
 )
+@repo_root_option
 @click.argument("paths", nargs=-1)
-def cmd_resolve(as_json: bool, purpose: str, paths: tuple[str, ...]) -> None:
-    resolver = OwnersResolver(purpose=cast(Purpose, purpose))
+def cmd_resolve(as_json: bool, purpose: str, repo_root: Path | None, paths: tuple[str, ...]) -> None:
+    resolver = _resolver(repo_root, cast(Purpose, purpose))
     targets = _read_paths(paths)
     result = {normalize_path(path): resolution_to_wire(resolver.resolve(path)) for path in targets}
     if as_json:
@@ -49,9 +92,10 @@ def cmd_resolve(as_json: bool, purpose: str, paths: tuple[str, ...]) -> None:
 
 
 @click.command(name="owners:who", help="Show who owns a single path")
+@repo_root_option
 @click.argument("path")
-def cmd_who(path: str) -> None:
-    r = OwnersResolver().resolve(path)
+def cmd_who(repo_root: Path | None, path: str) -> None:
+    r = _resolver(repo_root).resolve(path)
     click.echo(f"path:    {r.path}")
     if r.owners:
         click.echo(f"owners:  {', '.join(r.owners)}")
@@ -66,9 +110,10 @@ def cmd_who(path: str) -> None:
 
 @click.command(name="owners:census", help="Count test files per owning team")
 @click.option("--json", "as_json", is_flag=True, help="Emit a JSON list of per-team counts")
+@repo_root_option
 @click.argument("prefix", required=False)
-def cmd_census(as_json: bool, prefix: str | None) -> None:
-    resolver = OwnersResolver()
+def cmd_census(as_json: bool, repo_root: Path | None, prefix: str | None) -> None:
+    resolver = _resolver(repo_root)
     rows = census(resolver.tracked_files(prefix), resolver.repo_root)
     if as_json:
         click.echo(json.dumps([row.as_payload() for row in rows], indent=2))
@@ -87,10 +132,19 @@ def cmd_census(as_json: bool, prefix: str | None) -> None:
     type=click.Path(dir_okay=False, writable=True),
     help="Write to this file instead of stdout",
 )
-def cmd_codeowners(output: str | None) -> None:
-    resolver = OwnersResolver()
+@org_option
+@repo_root_option
+def cmd_codeowners(output: str | None, org: str | None, repo_root: Path | None) -> None:
+    resolver = _resolver(repo_root)
+    settings = resolver.settings()
     tracked = resolver.tracked_files()
-    projection = project(tracked, resolver, package_dirs_from(tracked))
+    projection = project(
+        tracked,
+        resolver,
+        org=_github_org(org, settings),
+        package_dirs=package_dirs_from(tracked),
+        settings=settings.codeowners,
+    )
     if output:
         Path(output).write_text(projection.render())
     else:
@@ -103,9 +157,10 @@ def cmd_codeowners(output: str | None) -> None:
 
 
 @click.command(name="owners:unowned", help="List unowned tracked files (respecting owners: null exemptions)")
+@repo_root_option
 @click.argument("prefix", required=False)
-def cmd_unowned(prefix: str | None) -> None:
-    resolver = OwnersResolver()
+def cmd_unowned(repo_root: Path | None, prefix: str | None) -> None:
+    resolver = _resolver(repo_root)
     files = resolver.tracked_files(prefix)
     unowned = resolver.unowned(files)
     for path in unowned:
@@ -113,50 +168,40 @@ def cmd_unowned(prefix: str | None) -> None:
     click.echo(f"\n{len(unowned)} unowned of {len(files)} tracked file(s)", err=True)
 
 
-def _validate_owners_live(all_owners: set[str]) -> list[str]:
+def _validate_owners_live(all_owners: set[str], github: GitHubOrg) -> list[str]:
     """Validate team slugs and @handles against the GitHub org. Returns error strings."""
-    # --live reaches back into the hogli-commands extension for the cached team-slug
-    # fetch. It is a dev/CI convenience gated behind the flag, so a standalone uvx
-    # install (no hogli-commands on the path) simply can't run --live; plain lint works.
-    from hogli_commands.product.gh import get_team_slugs  # noqa: PLC0415 — optional org-validation dep, only on --live
-
     errors: list[str] = []
     teams = {o for o in all_owners if not o.startswith("@")}
     handles = {o[1:] for o in all_owners if o.startswith("@")}
 
-    valid_slugs, slug_err = get_team_slugs()
-    if valid_slugs is None:
-        errors.append(f"could not validate team slugs: {slug_err}")
-    else:
-        for slug in sorted(teams - valid_slugs):
-            errors.append(f"unknown team slug: {slug}")
+    try:
+        valid_slugs = github.team_slugs()
+    except GitHubLookupError as exc:
+        return [f"could not validate team slugs: {exc}"]
+    for slug in sorted(teams - valid_slugs):
+        errors.append(f"unknown team slug: {slug}")
 
     for handle in sorted(handles):
-        # Org membership, not mere account existence: the assigner can only
-        # request reviews from members, so a non-member handle would pass a
-        # users/{handle} check yet silently drop at assignment time via the
-        # 422 fallback. (Repo-collaborator status would be tighter still, but
-        # the app token lacks that scope — same trade-off as get_team_slugs.)
-        result = subprocess.run(
-            ["gh", "api", f"orgs/PostHog/members/{handle}"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            errors.append(f"not a PostHog org member (unassignable): @{handle}")
+        # A review request to someone outside the org fails, so account existence is not enough.
+        try:
+            is_member = github.is_member(handle)
+        except GitHubLookupError as exc:
+            errors.append(f"could not validate @{handle}: {exc}")
+            continue
+        if not is_member:
+            errors.append(f"not a {github.org} org member (unassignable): @{handle}")
     return errors
 
 
-def _reserved_location_error(rel: str) -> str | None:
-    """Reject owners.yaml where other tooling globs every YAML in the directory:
-    Actions/actionlint treat all of .github/workflows/ as workflows, and
-    services/mcp generate-tools globs YAML in products/*/mcp/. Hoist ownership
-    into the parent's rules instead."""
-    if rel.startswith(".github/workflows/"):
-        return f"{rel}: owners.yaml is not allowed under .github/workflows/ (Actions parses every YAML there as a workflow); move it to .github/owners.yaml rules"
-    parts = rel.split("/")
-    if parts[0] == "products" and "mcp" in parts[:-1]:
-        return f"{rel}: owners.yaml is not allowed inside a products/*/mcp/ directory (mcp tooling globs every YAML there); move it to the product's product.yaml or a parent owners.yaml"
+def _reserved_location_error(rel: str, reserved_dirs: tuple[str, ...]) -> str | None:
+    """Reject an owners.yaml where other tooling reads every YAML file in the directory. Hoist its
+    ownership into a parent's rules instead."""
+    for pattern in (*BUILTIN_RESERVED_DIRS, *reserved_dirs):
+        if compile_pattern(pattern).test(rel):
+            return (
+                f"{rel}: owners.yaml is not allowed here, because the reserved pattern '{pattern}' matches it"
+                " (other tooling reads every YAML file there); move the ownership into a parent owners.yaml"
+            )
     return None
 
 
@@ -223,10 +268,13 @@ def _live_scope(owners_by_file: dict[str, set[str]], paths: tuple[str, ...]) -> 
 
 @click.command(name="owners:lint", help="Validate owners.yaml files, conflicts, dead globs, and coverage")
 @click.option("--live", is_flag=True, help="Also validate team slugs and @handles against the GitHub org")
+@org_option
+@repo_root_option
 @click.argument("paths", nargs=-1)
-def cmd_lint(live: bool, paths: tuple[str, ...]) -> None:
-    resolver = OwnersResolver()
+def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[str, ...]) -> None:
+    resolver = _resolver(repo_root)
     repo_root = resolver.repo_root
+    settings = resolver.settings()
     errors: list[str] = []
     warnings: list[str] = []
     owners_by_file: defaultdict[str, set[str]] = defaultdict(set)
@@ -247,12 +295,12 @@ def cmd_lint(live: bool, paths: tuple[str, ...]) -> None:
         parsed = entry.parsed
 
         if entry.name == OWNERS_FILENAME:
-            reserved_error = _reserved_location_error(rel)
+            reserved_error = _reserved_location_error(rel, settings.reserved_dirs)
             if reserved_error is not None:
                 errors.append(reserved_error)
 
         if entry.name == PRODUCT_FILENAME:
-            # Only flags a conflict; product.yaml owners are validated by product:lint:owners.
+            # Only flags a conflict. A host that scaffolds product.yaml validates its owners itself.
             if directory in owners_yaml_dirs:
                 errors.append(f"{directory or '<root>'}: has both product.yaml (with owners) and owners.yaml")
             if parsed and parsed.owners:
@@ -285,7 +333,8 @@ def cmd_lint(live: bool, paths: tuple[str, ...]) -> None:
                 warnings.append(f"{rel}: rule '{rule.match}' matches zero tracked files (dead glob)")
 
     if live:
-        errors.extend(_validate_owners_live(_live_scope(owners_by_file, paths)))
+        github = GitHubOrg(_github_org(org, settings))
+        errors.extend(_validate_owners_live(_live_scope(owners_by_file, paths), github))
 
     unowned = resolver.unowned(tracked)
     warnings.append(f"coverage: {len(unowned)} of {len(tracked)} tracked file(s) resolve to unowned")
@@ -316,10 +365,11 @@ def cmd_lint(live: bool, paths: tuple[str, ...]) -> None:
     name="owners:fmt",
     help="Dry-run oracle: show how the current owners.yaml layout differs from the canonical placement",
 )
-def cmd_fmt() -> None:
+@repo_root_option
+def cmd_fmt(repo_root: Path | None) -> None:
     from .fmt import ALPHA, GAMMA, MAX_RULES, CanonicalPlacer  # noqa: PLC0415 — keeps the DP off the CLI import path
 
-    placer = CanonicalPlacer(OwnersResolver())
+    placer = CanonicalPlacer(_resolver(repo_root))
     plan = placer.build()
 
     if plan.is_canonical:
@@ -348,14 +398,9 @@ def cmd_fmt() -> None:
 
 
 @click.group()
+@click.version_option(package_name="posthog-owners")
 def main() -> None:
-    """Distributed owners.yaml resolver, linter, and formatter.
-
-    The console-script entry point (``owners <subcommand>``). hogli registers the
-    same ``cmd_*`` functions directly under their ``owners:*`` names, so this group
-    only exists for the standalone install; the subcommands are named without the
-    ``owners:`` prefix here since the script itself already carries it.
-    """
+    """Resolve, lint, and format distributed owners.yaml ownership files."""
 
 
 main.add_command(cmd_census, name="census")

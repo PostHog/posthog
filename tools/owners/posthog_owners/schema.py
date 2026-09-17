@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, TypeGuard, get_args
+from typing import TypeGuard
 
 import yaml
 
@@ -19,17 +19,20 @@ from .matcher import compile_pattern
 VALID_STATUSES = ("active", "deprecated", "generated", "vendored")
 CHANGEME_SLUG = "team-CHANGEME"
 
+# Keys that only the repo-root owners.yaml may carry. They describe the repo, not a directory.
+ROOT_ONLY_KEYS = {"teams", "github_org", "producers", "reserved_dirs", "codeowners"}
 # Top-level keys allowed in owners.yaml. Rules allow the same set minus `version`
-# and `rules`, plus the required `match`. `teams` is root-only (see parse).
-_TOP_LEVEL_KEYS = {"version", "owners", "status", "inherit", "rules", "teams"}
+# and `rules`, plus the required `match`.
+TOP_LEVEL_KEYS = {"version", "owners", "status", "inherit", "rules"} | ROOT_ONLY_KEYS
 _RULE_KEYS = {"match", "owners", "status", "inherit"}
 _TEAMS_ENTRY_KEYS = {"slack", "notifications"}
-# Automation that posts to a team's notifications channel and can be silenced on its own. A
-# producer must be named here to be nameable in `notifications:`. Lint reports a typo where lint
-# runs; where it does not, an unreadable mapping silences rather than posts (see _validate_teams).
-Producer = Literal["stamphog", "visual_review"]
-PRODUCERS = frozenset(get_args(Producer))
-_KNOWN_PRODUCERS = ", ".join(sorted(PRODUCERS))
+_CODEOWNERS_KEYS = {"jest_root", "jest_root_tests", "jest_root_packages"}
+
+# The name of an automation that posts to a team's notifications channel, such as a review bot.
+# When the root file declares a `producers:` list, only a declared producer is nameable in
+# `notifications:`, so a typo is an error. Lint reports it where lint runs; where it does not, an
+# unreadable mapping silences rather than posts (see _validate_teams).
+Producer = str
 
 
 @dataclass(frozen=True)
@@ -69,6 +72,37 @@ class _Unset:
 UNSET = _Unset()
 
 
+@dataclass(frozen=True)
+class CodeownersSettings:
+    """How the CODEOWNERS projection spells test paths.
+
+    A Jest project can run the tests of other packages from its own directory. Its JUnit report
+    then spells those files relative to ``jest_root``. ``jest_root_tests`` is a glob of the test
+    files that run that way. ``jest_root_packages`` names the tree whose packages never run their
+    own suite, so their files get no package-relative spelling.
+    """
+
+    jest_root: str | None = None
+    jest_root_tests: str | None = None
+    jest_root_packages: str | None = None
+
+
+@dataclass(frozen=True)
+class RepoSettings:
+    """Repo-wide settings from the root ``owners.yaml``.
+
+    ``github_org`` turns a team slug into ``@org/slug`` and scopes the live lint. ``producers``
+    lists the automation names a team may address in ``notifications:``; ``None`` means the repo
+    declared no list, so any name is accepted. ``reserved_dirs`` lists
+    globs where an ``owners.yaml`` must not live, because other tooling reads every YAML file there.
+    """
+
+    github_org: str | None = None
+    producers: frozenset[str] | None = None
+    reserved_dirs: tuple[str, ...] = ()
+    codeowners: CodeownersSettings = field(default_factory=CodeownersSettings)
+
+
 @dataclass
 class OwnersRule:
     """A per-path override inside a file, evaluated last-match-wins within the file."""
@@ -94,6 +128,7 @@ class OwnersFile:
     # Root-only Slack registry: team slug -> TeamEntry. Empty everywhere but the repo-root
     # file; lets a team declare its channels once instead of per file.
     teams: dict[str, TeamEntry] = field(default_factory=dict)
+    settings: RepoSettings = field(default_factory=RepoSettings)
 
 
 def normalize_product_owners(owners: list[str]) -> list[str]:
@@ -123,7 +158,7 @@ def _is_valid_slack(raw: object) -> TypeGuard[str | bool]:
 
 
 def _validate_producer_map(
-    value: dict[object, object], where: str, key: str, errors: list[str]
+    value: dict[object, object], where: str, key: str, producers: frozenset[str] | None, errors: list[str]
 ) -> dict[str, str | bool]:
     """The producers a ``notifications:`` mapping names, without the entries it rejects."""
     if key != "notifications":
@@ -134,8 +169,11 @@ def _validate_producer_map(
         return {}
     declared: dict[str, str | bool] = {}
     for producer, raw in value.items():
-        if not isinstance(producer, str) or producer not in PRODUCERS:
-            errors.append(f"{where}: unknown producer '{producer}' (known: {_KNOWN_PRODUCERS})")
+        if not isinstance(producer, str) or not producer:
+            errors.append(f"{where}: producer names must be non-empty strings, got {producer!r}")
+        elif producers is not None and producer not in producers:
+            known = ", ".join(sorted(producers))
+            errors.append(f"{where}: unknown producer '{producer}' (declared in 'producers': {known})")
         elif _is_valid_slack(raw):
             declared[producer] = raw
         else:
@@ -143,7 +181,7 @@ def _validate_producer_map(
     return declared
 
 
-def _validate_teams(value: object, errors: list[str]) -> dict[str, TeamEntry]:
+def _validate_teams(value: object, producers: frozenset[str] | None, errors: list[str]) -> dict[str, TeamEntry]:
     """Validate the root-only ``teams:`` registry, a mapping of team slug to its channels.
 
     A slug registers only when it declares at least one channel. Membership of the returned
@@ -170,7 +208,7 @@ def _validate_teams(value: object, errors: list[str]) -> dict[str, TeamEntry]:
             if not isinstance(key, str) or key not in _TEAMS_ENTRY_KEYS:
                 errors.append(f"{where}: unknown field '{key}'")
             elif isinstance(raw, dict):
-                per_producer = _validate_producer_map(raw, where, key, errors)
+                per_producer = _validate_producer_map(raw, where, key, producers, errors)
                 if per_producer:
                     declared[key] = per_producer
                 elif key == "notifications":
@@ -185,6 +223,69 @@ def _validate_teams(value: object, errors: list[str]) -> dict[str, TeamEntry]:
         if declared:
             registry[slug] = TeamEntry(**declared)
     return registry
+
+
+def _validate_string_list(value: object, key: str, errors: list[str]) -> list[str]:
+    if isinstance(value, list) and all(isinstance(x, str) and x for x in value):
+        return [str(x) for x in value]
+    errors.append(f"'{key}' must be a list of non-empty strings")
+    return []
+
+
+def _validate_codeowners(value: object, errors: list[str]) -> CodeownersSettings:
+    if not isinstance(value, dict):
+        errors.append(f"'codeowners' must be a mapping with keys {', '.join(sorted(_CODEOWNERS_KEYS))}")
+        return CodeownersSettings()
+    declared: dict[str, str] = {}
+    for key, raw in value.items():
+        if key not in _CODEOWNERS_KEYS:
+            errors.append(f"codeowners: unknown field '{key}'")
+        elif not isinstance(raw, str) or not raw:
+            errors.append(f"codeowners: '{key}' must be a non-empty string")
+        elif key == "jest_root_tests":
+            try:
+                compile_pattern(raw)
+            except ValueError as exc:
+                errors.append(f"codeowners: invalid jest_root_tests pattern '{raw}': {exc}")
+                continue
+            declared[key] = raw
+        else:
+            declared[key] = raw.strip("/")
+    return CodeownersSettings(**declared)
+
+
+def _validate_settings(data: dict[object, object], errors: list[str]) -> RepoSettings:
+    """Read the root-only repo settings. An invalid value is reported and left at its default."""
+    github_org: str | None = None
+    if "github_org" in data:
+        raw_org = data["github_org"]
+        if isinstance(raw_org, str) and raw_org and "/" not in raw_org:
+            github_org = raw_org
+        else:
+            errors.append("'github_org' must be a GitHub organization name, such as 'my-org'")
+
+    producers = (
+        frozenset(_validate_string_list(data["producers"], "producers", errors)) if "producers" in data else None
+    )
+
+    reserved_dirs: list[str] = []
+    for pattern in (
+        _validate_string_list(data["reserved_dirs"], "reserved_dirs", errors) if "reserved_dirs" in data else []
+    ):
+        try:
+            compile_pattern(pattern)
+        except ValueError as exc:
+            errors.append(f"reserved_dirs: invalid pattern '{pattern}': {exc}")
+            continue
+        reserved_dirs.append(pattern)
+
+    codeowners = _validate_codeowners(data["codeowners"], errors) if "codeowners" in data else CodeownersSettings()
+    return RepoSettings(
+        github_org=github_org,
+        producers=producers,
+        reserved_dirs=tuple(reserved_dirs),
+        codeowners=codeowners,
+    )
 
 
 def _validate_status(value: object, where: str, errors: list[str]) -> str | _Unset:
@@ -267,7 +368,7 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
         return None, ["owners.yaml must be a YAML mapping"]
 
     for key in data:
-        if key not in _TOP_LEVEL_KEYS:
+        if key not in TOP_LEVEL_KEYS:
             errors.append(f"unknown top-level field '{key}'")
 
     if data.get("version") != 1:
@@ -288,13 +389,15 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
         inherit = _validate_inherit(data["inherit"], "inherit", errors)
         file.inherit = True if isinstance(inherit, _Unset) else inherit
 
-    if "teams" in data:
-        # The registry is a single repo-wide lookup, so it only makes sense at the
-        # root; a nested file carrying it would silently do nothing.
-        if directory != "":
-            errors.append("'teams' is only allowed in the repo-root owners.yaml")
-        else:
-            file.teams = _validate_teams(data["teams"], errors)
+    # Repo-wide settings and the team registry are single lookups, so they only make sense at
+    # the root; a nested file carrying them would silently do nothing.
+    if directory != "":
+        for key in sorted(ROOT_ONLY_KEYS & data.keys()):
+            errors.append(f"'{key}' is only allowed in the repo-root owners.yaml")
+    else:
+        file.settings = _validate_settings(data, errors)
+        if "teams" in data:
+            file.teams = _validate_teams(data["teams"], file.settings.producers, errors)
 
     if "rules" in data:
         raw_rules = data["rules"]

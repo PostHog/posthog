@@ -1,5 +1,16 @@
 version: 1
 owners: []
+# Team slugs below are GitHub teams in this organization.
+github_org: PostHog
+# Automation that a team can redirect or silence under `notifications:`.
+producers: [stamphog, visual_review]
+# services/mcp generate-tools reads every YAML file in a product's mcp/ directory.
+reserved_dirs: ['products/**/mcp/**']
+# frontend/ runs the Jest suites of the product frontends, so their JUnit paths start from there.
+codeowners:
+    jest_root: frontend
+    jest_root_tests: 'products/**/frontend/**'
+    jest_root_packages: products
 # Slack channel per team, declared once for the whole repo (root-only registry).
 # A team only needs an entry where the derived '#<slug>' is wrong or missing; the
 # other 22 slugs in use derive correctly and are deliberately absent.

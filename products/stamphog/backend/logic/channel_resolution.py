@@ -232,7 +232,7 @@ def resolve_destination(context: RoutingContext, audience_key: str, repository: 
     if _silenced(answer):
         logger.info("stamphog_routing_silenced_by_config", audience_key=audience_key, repository=repository)
         return None
-    if answer.declared:
+    if answer.declared and answer.channel is not None:
         # A registry entry can name a channel for a team the declaring repo does not own, so the
         # shared-channel guard stays on: an externally shared match here leaves the workspace.
         return _match(context, answer.channel, ChannelResolutionSource.OWNERS_CONTACT, allow_shared=False)

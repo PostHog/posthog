@@ -1,0 +1,112 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://github.com/PostHog/posthog/blob/master/tools/owners/owners.schema.json",
+    "title": "owners.yaml",
+    "description": "Code ownership for a directory, version 1. See SPEC.md. Keys under 'Repository settings' are valid only in the repository root file.",
+    "type": "object",
+    "required": ["version", "owners"],
+    "additionalProperties": false,
+    "properties": {
+        "version": { "const": 1, "description": "The format version." },
+        "owners": { "$ref": "#/$defs/owners" },
+        "status": { "$ref": "#/$defs/status" },
+        "inherit": {
+            "type": "boolean",
+            "description": "Whether fields fall through from ancestor files. Default true."
+        },
+        "rules": {
+            "type": "array",
+            "description": "Per-path overrides inside this directory. The last matching rule applies.",
+            "items": { "$ref": "#/$defs/rule" }
+        },
+        "teams": {
+            "type": "object",
+            "description": "Repository settings: team slug to its channels.",
+            "propertyNames": { "not": { "pattern": "^@" } },
+            "additionalProperties": { "$ref": "#/$defs/teamEntry" }
+        },
+        "github_org": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^/]+$",
+            "description": "Repository settings: the GitHub organization of the team slugs."
+        },
+        "producers": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "description": "Repository settings: automation names a team can address in notifications."
+        },
+        "reserved_dirs": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/pattern" },
+            "description": "Repository settings: patterns where owners.yaml must not be placed."
+        },
+        "codeowners": {
+            "type": "object",
+            "description": "Repository settings: how the posthog-owners CODEOWNERS export spells test paths.",
+            "additionalProperties": false,
+            "properties": {
+                "jest_root": { "type": "string", "minLength": 1 },
+                "jest_root_tests": { "$ref": "#/$defs/pattern" },
+                "jest_root_packages": { "type": "string", "minLength": 1 }
+            }
+        }
+    },
+    "$defs": {
+        "owners": {
+            "description": "Team slugs or @handles, primary owner first. null means unowned by design.",
+            "oneOf": [
+                { "type": "string", "minLength": 1 },
+                { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                { "type": "null" }
+            ]
+        },
+        "status": {
+            "enum": ["active", "deprecated", "generated", "vendored"],
+            "description": "The lifecycle of the code. Default active."
+        },
+        "pattern": {
+            "type": "string",
+            "minLength": 1,
+            "not": { "pattern": "\\*\\*\\*" },
+            "description": "A GitHub CODEOWNERS pattern."
+        },
+        "rule": {
+            "type": "object",
+            "required": ["match"],
+            "additionalProperties": false,
+            "properties": {
+                "match": {
+                    "oneOf": [
+                        { "$ref": "#/$defs/pattern" },
+                        { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/pattern" } }
+                    ]
+                },
+                "owners": { "$ref": "#/$defs/owners" },
+                "status": { "$ref": "#/$defs/status" },
+                "inherit": { "type": "boolean" }
+            }
+        },
+        "channel": {
+            "description": "A Slack channel, or false for no channel.",
+            "oneOf": [{ "type": "string", "pattern": "^#" }, { "const": false }]
+        },
+        "teamEntry": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "slack": { "$ref": "#/$defs/channel" },
+                "notifications": {
+                    "oneOf": [
+                        { "$ref": "#/$defs/channel" },
+                        {
+                            "type": "object",
+                            "minProperties": 1,
+                            "additionalProperties": { "$ref": "#/$defs/channel" }
+                        }
+                    ]
+                }
+            }
+        }
+    }
+}

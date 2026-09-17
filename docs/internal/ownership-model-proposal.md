@@ -2,6 +2,11 @@
 
 Status: implemented (landed with the PR that introduced this document)
 
+The format itself is now specified in [`tools/owners/SPEC.md`](../../tools/owners/SPEC.md), and the package README covers usage.
+This document keeps the design reasoning and how the PostHog monorepo wires the resolver in.
+PostHog's repo settings (`github_org`, `producers`, `reserved_dirs`, `codeowners`) live in the root `owners.yaml`.
+CI regenerates the CODEOWNERS projection before each Trunk test upload in `.github/scripts/trunk-codeowners.sh`, so Trunk Flaky Tests can attribute a test to a team.
+
 Design a single ownership source of truth that multiple consumers (review automation, CI validation, lookup CLIs, service catalogs, future tools) can read, instead of each tool re-parsing `CODEOWNERS-soft` and `product.yaml` on its own.
 
 Scope decisions (locked):
@@ -143,7 +148,7 @@ Every value is a string starting with `#`, or `false` to mean "no channel, don't
 
 `notifications` may also be a mapping of producer name to channel, so a team can silence or redirect one bot on its own.
 A producer the mapping does not name falls through to `slack`.
-Only a producer the schema knows may be named, so a typo is a lint error rather than an opt-out that never applies.
+Only a producer listed in the root `producers:` setting may be named, so a typo is a lint error rather than an opt-out that never applies.
 
 ```yaml
 # owners.yaml (repo root only)
@@ -211,7 +216,7 @@ The stability guarantee is architectural: **consumers never parse ownership file
 
 - **Resolver**: single implementation in the installable `posthog-owners` package at `tools/owners/` exposing `resolve(path)`, `map()`, `unowned()` as a library, and `hogli owners:resolve --json <path...>` (paths also accepted on stdin) as the CLI. Rationale: hogli already lints ownership, and two of the four consumers are Python, so this makes lint, lookup, and the pr-approval agent native library callers with zero subprocess hops. Glob matching for `rules:` uses gitignore-style semantics implemented (and documented) here — the vendored JS matcher stays only for the hard-CODEOWNERS overlay parsing, or is replaced by an equivalent Python CODEOWNERS parser.
 - **JS consumers** shell out to the CLI and read JSON — `assign-reviewers.js` feeds the PR's changed files in and gets resolved owners back; the `establishing-code-ownership` skill does the same. The auto-assign workflow gains a Python/uv setup step (it is node-only today). `gates.py` imports the library directly. No committed lock file, so no freshness-check machinery; if one is ever wanted (offline consumers, Backstage `catalog-info.yaml` emitters), it is a trivial fold over `map()` added later.
-- **Validator**: `hogli owners:lint` — schema check, team slugs and `@handles` against the live GitHub org (reusing `product/gh.py`), dead `rules:` globs (match zero files), same-directory `product.yaml`/`owners.yaml` conflicts, reserved-location rejection (see below), and full-tree coverage (every `git ls-files` path resolves or is `owners: null`). It also prints advisory consolidation suggestions when it spots a cluster of single-purpose owners.yaml files a single parent could absorb (never affects the exit code).
+- **Validator**: `hogli owners:lint` — schema check, team slugs and `@handles` against the live GitHub org (`posthog_owners.github`, which `product/gh.py` reuses), dead `rules:` globs (match zero files), same-directory `product.yaml`/`owners.yaml` conflicts, reserved-location rejection (see below), and full-tree coverage (every `git ls-files` path resolves or is `owners: null`). It also prints advisory consolidation suggestions when it spots a cluster of single-purpose owners.yaml files a single parent could absorb (never affects the exit code).
 
 **Reserved locations.** `owners.yaml` must not live in a directory whose own tooling globs every YAML file there — GitHub Actions/actionlint treat everything under `.github/workflows/` as a workflow, and the `services/mcp` generate-tools step globs YAML configs under `products/*/mcp/`. Lint rejects `owners.yaml` in those spots; hoist the ownership into the parent's `rules:` instead (e.g. a `/workflows/` rule in `.github/owners.yaml`).
 

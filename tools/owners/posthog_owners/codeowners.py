@@ -1,8 +1,8 @@
 """A CODEOWNERS projection of the distributed owners.yaml map.
 
-Some tools read CODEOWNERS and nothing else. Trunk Flaky Tests is the one this exists for: it
-attributes each test to an owner by matching the JUnit ``file`` attribute against a CODEOWNERS file
-in the checkout, so the repo's real ownership map is invisible to it.
+Some tools read CODEOWNERS and nothing else. Test analytics tools such as Trunk Flaky Tests
+attribute each test to an owner by matching the JUnit ``file`` attribute against a CODEOWNERS file
+in the checkout, so the repo's real ownership map is invisible to them.
 
 The projection covers test files only, because that is all a test-attribution consumer looks up, and
 it never writes to ``.github/CODEOWNERS``, which carries GitHub's blocking-approval semantics and
@@ -16,49 +16,55 @@ from dataclasses import dataclass
 from posixpath import dirname
 
 from .census import runner_for_path
+from .matcher import compile_pattern
 from .resolver import OwnersResolver
-
-GITHUB_ORG = "PostHog"
-
-# The jest project that runs the product frontends, so their tests are spelled from here and not
-# from the product package that holds them.
-JEST_PROJECT_DIR = "frontend"
+from .schema import CodeownersSettings
 
 
-def owner_handle(owner: str, org: str = GITHUB_ORG) -> str:
+def owner_handle(owner: str, org: str) -> str:
     """A CODEOWNERS handle for one owners.yaml owner: a team slug becomes ``@org/slug``,
     an ``@handle`` for an individual is already in CODEOWNERS form."""
     return owner if owner.startswith("@") else f"@{org}/{owner}"
 
 
-def _package_relative(path: str, package_dirs: tuple[str, ...]) -> str | None:
+def _package_relative(path: str, package_dirs: tuple[str, ...], settings: CodeownersSettings) -> str | None:
     """``path`` as the nearest enclosing Node package would spell it, else None.
 
-    A package under `products/` is excluded: its frontend tests belong to JEST_PROJECT_DIR.
+    A package under ``jest_root_packages`` is excluded, because ``jest_root`` runs its tests.
     """
+    excluded = settings.jest_root_packages
     for directory in package_dirs:
         if path.startswith(f"{directory}/"):
-            if directory.startswith("products/"):
+            if excluded is not None and directory.startswith(f"{excluded}/"):
                 return None
             return path[len(directory) + 1 :]
     return None
 
 
-def spellings(path: str, package_dirs: tuple[str, ...] = ()) -> list[str]:
+def _jest_root_relative(path: str, settings: CodeownersSettings) -> str | None:
+    """``path`` as a suite running from ``jest_root`` spells it, for a file ``jest_root_tests`` matches."""
+    if settings.jest_root is None or settings.jest_root_tests is None:
+        return None
+    if not compile_pattern(settings.jest_root_tests).test(path):
+        return None
+    depth = len(settings.jest_root.split("/"))
+    return "../" * depth + path
+
+
+def spellings(path: str, package_dirs: tuple[str, ...] = (), settings: CodeownersSettings | None = None) -> list[str]:
     """Every way a test runner can spell ``path`` in a JUnit ``file`` attribute.
 
     jest-junit writes the attribute relative to the working directory the suite ran from, which is
     not always the package that holds the file. pytest runs from the repo root, so a Python test
     has one spelling.
     """
+    settings = settings or CodeownersSettings()
     found = [path]
     if runner_for_path(path) != "jest":
         return found
-    relative = _package_relative(path, package_dirs)
-    if relative is not None:
-        found.append(relative)
-    if path.startswith("products/") and f"/{JEST_PROJECT_DIR}/" in path:
-        found.append(f"../{path}")
+    for spelling in (_package_relative(path, package_dirs, settings), _jest_root_relative(path, settings)):
+        if spelling is not None:
+            found.append(spelling)
     return found
 
 
@@ -73,7 +79,7 @@ class CodeownersProjection:
 
     def render(self) -> str:
         header = [
-            "# Generated from the repo's owners.yaml map by `hogli owners:codeowners`. Do not edit.",
+            "# Generated from the repo's owners.yaml map by `owners codeowners`. Do not edit.",
             "# Test files only, for tools that attribute a test to a team through CODEOWNERS.",
             "# GitHub reads .github/CODEOWNERS for review assignment, never this file.",
             "",
@@ -88,8 +94,9 @@ def _rule_depth(pattern: str) -> int:
 def project(
     paths: Iterable[str],
     resolver: OwnersResolver,
+    org: str,
     package_dirs: tuple[str, ...] = (),
-    org: str = GITHUB_ORG,
+    settings: CodeownersSettings | None = None,
 ) -> CodeownersProjection:
     """Project the ownership of every test file in ``paths`` into CODEOWNERS rules.
 
@@ -112,7 +119,7 @@ def project(
         # An unowned file keeps an empty tuple, which renders as a rule with no owner after the
         # pattern. CODEOWNERS reads that as "nobody owns this", so an ancestor rule cannot claim it.
         handles = tuple(owner_handle(owner, org) for owner in owners or ())
-        for spelling in spellings(path, package_dirs):
+        for spelling in spellings(path, package_dirs, settings):
             previous = owners_by_spelling.get(spelling)
             if previous is not None and previous != handles:
                 ambiguous.add(spelling)

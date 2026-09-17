@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from click.testing import CliRunner
 from posthog_owners import (
     census,
     first_team_owner,
@@ -17,11 +18,17 @@ from posthog_owners import (
     runner_for_path,
     spellings,
 )
-from posthog_owners.cli import _consolidation_suggestions, _live_scope, _reserved_location_error
+from posthog_owners.cli import _consolidation_suggestions, _live_scope, _reserved_location_error, main
 from posthog_owners.fmt import CanonicalPlacer, CanonicalPlan
 from posthog_owners.matcher import path_matches_pattern
 from posthog_owners.resolver import OwnersResolver, team_channel
-from posthog_owners.schema import TeamEntry, is_simple_owners_file, parse_owners_file
+from posthog_owners.schema import (
+    TOP_LEVEL_KEYS,
+    CodeownersSettings,
+    TeamEntry,
+    is_simple_owners_file,
+    parse_owners_file,
+)
 
 
 @pytest.mark.parametrize(
@@ -270,13 +277,49 @@ def test_slack_registry_precedence(registry_repo: Path, path: str, purpose: str,
     assert OwnersResolver(repo_root=registry_repo, purpose=purpose).resolve(path).slack == slack
 
 
-def test_teams_registry_is_root_only(tmp_path: Path) -> None:
-    text = "version: 1\nowners: [team-a]\nteams:\n  team-a:\n    slack: '#a'\n"
+def test_teams_registry_and_settings_are_root_only(tmp_path: Path) -> None:
+    text = (
+        "version: 1\nowners: [team-a]\ngithub_org: acme\nproducers: [bot]\n"
+        "reserved_dirs: ['gen/**']\ncodeowners:\n  jest_root: web\n"
+        "teams:\n  team-a:\n    slack: '#a'\n"
+    )
     _, sub_errors = parse_owners_file(text, path=tmp_path / "sub/owners.yaml", directory="sub")
-    assert any("only allowed in the repo-root" in e for e in sub_errors)
+    assert sorted(e.split("'")[1] for e in sub_errors if "only allowed in the repo-root" in e) == [
+        "codeowners",
+        "github_org",
+        "producers",
+        "reserved_dirs",
+        "teams",
+    ]
     root, root_errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
     assert root_errors == []
     assert root is not None and root.teams == {"team-a": TeamEntry(slack="#a")}
+    assert root.settings.github_org == "acme"
+    assert root.settings.producers == frozenset({"bot"})
+    assert root.settings.reserved_dirs == ("gen/**",)
+    assert root.settings.codeowners == CodeownersSettings(jest_root="web")
+
+
+def test_json_schema_accepts_the_same_top_level_keys_as_the_parser() -> None:
+    schema = json.loads((Path(__file__).parent.parent / "owners.schema.json").read_text())
+    assert set(schema["properties"]) == TOP_LEVEL_KEYS
+
+
+@pytest.mark.parametrize(
+    "settings_yaml,needle",
+    [
+        ("github_org: acme/repo\n", "'github_org' must be a GitHub organization name"),
+        ("producers: bot\n", "'producers' must be a list"),
+        ("reserved_dirs: ['a***b']\n", "reserved_dirs: invalid pattern"),
+        ("codeowners:\n  jest_dir: web\n", "codeowners: unknown field 'jest_dir'"),
+    ],
+)
+def test_invalid_repo_settings_are_schema_errors(tmp_path: Path, settings_yaml: str, needle: str) -> None:
+    file, errors = parse_owners_file(
+        "version: 1\nowners: []\n" + settings_yaml, path=tmp_path / "owners.yaml", directory=""
+    )
+    assert any(needle in e for e in errors), errors
+    assert file is not None
 
 
 @pytest.mark.parametrize(
@@ -297,7 +340,7 @@ def test_teams_registry_is_root_only(tmp_path: Path) -> None:
     ],
 )
 def test_teams_registry_invalid_shapes(tmp_path: Path, teams_yaml: str, needle: str) -> None:
-    text = "version: 1\nowners: []\n" + teams_yaml
+    text = "version: 1\nowners: []\nproducers: [stamphog, visual_review]\n" + teams_yaml
     file, errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
     assert any(needle in e for e in errors)
     assert file is not None  # a bad registry entry doesn't make the file unusable
@@ -358,10 +401,19 @@ def test_team_channel_derives_for_an_unregistered_slug() -> None:
 def test_an_unreadable_producer_map_registers_as_silence(tmp_path: Path) -> None:
     # Dropping the key instead would fall through to the derived channel, so a typo in a repo our
     # lint never reads would post the digest the team asked to be left out of.
-    text = "version: 1\nowners: []\nteams:\n  team-a:\n    notifications:\n      stamphogg: false\n"
+    text = (
+        "version: 1\nowners: []\nproducers: [stamphog]\nteams:\n  team-a:\n    notifications:\n      stamphogg: false\n"
+    )
     file, errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
     assert any("unknown producer" in e for e in errors)
     assert file is not None and file.teams == {"team-a": TeamEntry(notifications=False)}
+
+
+def test_a_repo_without_a_producers_list_accepts_any_producer(tmp_path: Path) -> None:
+    text = "version: 1\nowners: []\nteams:\n  team-a:\n    notifications:\n      reviewbot: '#a-bots'\n"
+    file, errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
+    assert errors == []
+    assert file is not None and file.teams == {"team-a": TeamEntry(notifications={"reviewbot": "#a-bots"})}
 
 
 def test_teams_registry_pins_file_as_non_simple(tmp_path: Path) -> None:
@@ -385,7 +437,7 @@ def test_teams_registry_pins_file_as_non_simple(tmp_path: Path) -> None:
     ],
 )
 def test_reserved_location_error(rel: str, reserved: bool) -> None:
-    assert (_reserved_location_error(rel) is not None) is reserved
+    assert (_reserved_location_error(rel, ("products/**/mcp/**",)) is not None) is reserved
 
 
 @pytest.mark.parametrize(
@@ -865,7 +917,11 @@ def _codeowners_lookup(rendered: str, path: str) -> list[str]:
 
 @pytest.fixture
 def projection_repo(tmp_path: Path) -> Path:
-    _write(tmp_path, "owners.yaml", "version: 1\nowners: []\n")
+    _write(
+        tmp_path,
+        "owners.yaml",
+        "version: 1\nowners: []\ngithub_org: PostHog\n",
+    )
     _write(tmp_path, "posthog/security/owners.yaml", "version: 1\nowners: [team-security]\n")
     _write(tmp_path, "posthog/security/test/owners.yaml", "version: 1\nowners: null\n")
     _write(tmp_path, "products/alpha/owners.yaml", "version: 1\nowners: [team-alpha, '@someone']\n")
@@ -873,6 +929,11 @@ def projection_repo(tmp_path: Path) -> Path:
     _write(tmp_path, "frontend/owners.yaml", "version: 1\nowners: [team-web]\n")
     _write(tmp_path, "nodejs/owners.yaml", "version: 1\nowners: [team-pipeline]\n")
     return tmp_path
+
+
+JEST_ROOT_SETTINGS = CodeownersSettings(
+    jest_root="frontend", jest_root_tests="products/**/frontend/**", jest_root_packages="products"
+)
 
 
 @pytest.mark.parametrize(
@@ -888,7 +949,8 @@ def projection_repo(tmp_path: Path) -> Path:
     ids=["pytest-runs-from-the-repo-root", "jest-runs-from-its-package", "product-frontends-run-from-frontend"],
 )
 def test_spellings_cover_how_each_runner_writes_the_file_attribute(path: str, expected: list[str]) -> None:
-    assert spellings(path, package_dirs_from(["frontend/package.json", "products/alpha/package.json"])) == expected
+    package_dirs = package_dirs_from(["frontend/package.json", "products/alpha/package.json"])
+    assert spellings(path, package_dirs, JEST_ROOT_SETTINGS) == expected
 
 
 def test_projection_resolves_every_spelling_to_what_the_resolver_says(projection_repo: Path) -> None:
@@ -905,14 +967,16 @@ def test_projection_resolves_every_spelling_to_what_the_resolver_says(projection
     ]
     resolver = OwnersResolver(projection_repo)
 
-    projection = project(tracked, resolver, package_dirs_from(tracked))
+    projection = project(
+        tracked, resolver, org="PostHog", package_dirs=package_dirs_from(tracked), settings=JEST_ROOT_SETTINGS
+    )
     rendered = projection.render()
 
     for path in tracked:
         if runner_for_path(path) is None:
             continue
-        expected = [owner_handle(owner) for owner in resolver.resolve(path).owners or []]
-        for spelling in spellings(path, package_dirs_from(tracked)):
+        expected = [owner_handle(owner, "PostHog") for owner in resolver.resolve(path).owners or []]
+        for spelling in spellings(path, package_dirs_from(tracked), JEST_ROOT_SETTINGS):
             assert _codeowners_lookup(rendered, spelling) == expected, f"{spelling} resolved wrongly"
     assert projection.owned_file_count == 5
     assert projection.unowned_file_count == 1
@@ -929,7 +993,9 @@ def test_projection_drops_a_spelling_two_teams_would_both_claim(projection_repo:
         "frontend/src/solo.test.ts",
     ]
 
-    projection = project(tracked, OwnersResolver(projection_repo), package_dirs_from(tracked))
+    projection = project(
+        tracked, OwnersResolver(projection_repo), org="PostHog", package_dirs=package_dirs_from(tracked)
+    )
     rendered = projection.render()
 
     assert projection.ambiguous_spellings == ["src/shared.test.ts"]
@@ -937,3 +1003,35 @@ def test_projection_drops_a_spelling_two_teams_would_both_claim(projection_repo:
     assert _codeowners_lookup(rendered, "src/solo.test.ts") == ["@PostHog/team-web"]
     assert _codeowners_lookup(rendered, "frontend/src/shared.test.ts") == ["@PostHog/team-web"]
     assert _codeowners_lookup(rendered, "nodejs/src/shared.test.ts") == ["@PostHog/team-pipeline"]
+
+
+def test_cli_lints_a_tree_that_is_not_a_git_worktree(registry_repo: Path) -> None:
+    _write(registry_repo, "reg/code.py", "")
+    _write(registry_repo, "loose/code.py", "")
+
+    result = CliRunner().invoke(main, ["lint", "--repo-root", str(registry_repo)])
+
+    assert result.exit_code == 0, result.output
+    # The walk finds the six ownership files plus the two code files, and only loose/code.py is unowned.
+    assert "coverage: 2 of 8 tracked file(s) resolve to unowned" in result.output
+
+
+@pytest.mark.parametrize(
+    "args,message",
+    [
+        (["lint"], "not inside a git worktree"),
+        (["codeowners", "--repo-root", "."], "no GitHub organization"),
+        (["lint", "--live", "--repo-root", "."], "no GitHub organization"),
+    ],
+    ids=["no-repo-root", "codeowners-without-org", "live-lint-without-org"],
+)
+def test_cli_reports_missing_context_without_a_traceback(tmp_path: Path, args: list[str], message: str) -> None:
+    _write(tmp_path, "owners.yaml", "version: 1\nowners: [team-a]\n")
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path) as cwd:
+        _write(Path(cwd), "owners.yaml", "version: 1\nowners: [team-a]\n")
+        result = runner.invoke(main, args)
+
+    assert result.exit_code == 1
+    assert message in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
