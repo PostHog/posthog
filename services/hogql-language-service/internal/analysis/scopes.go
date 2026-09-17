@@ -8,6 +8,8 @@ import (
 	clickhouse "github.com/orian/clickhouse-sql-parser/parser"
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/propertyresolver"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/querylimits"
 )
 
 type Relation struct {
@@ -21,10 +23,17 @@ type cteBinding struct {
 	query      *clickhouse.SelectQuery
 	scope      *queryScope
 	budget     *projectionBudget
-	fields     []catalog.Entry
-	fieldIndex map[string]catalog.Entry
+	fields     []projectedField
+	entries    []catalog.Entry
+	fieldIndex map[string]projectedField
 	fieldsDone bool
 	resolving  bool
+}
+
+type projectedField struct {
+	entry             catalog.Entry
+	propertyNamespace string
+	ambiguous         bool
 }
 
 type projectionBudget struct {
@@ -35,16 +44,25 @@ type projectionBudget struct {
 }
 
 type queryScope struct {
-	query    *clickhouse.SelectQuery
-	parent   *queryScope
-	bindings map[string]Relation
-	sources  []Source
-	visible  map[string]Relation
-	unique   []Relation
-	budget   *projectionBudget
-	ctes     []*cteBinding
-	cteRoot  bool
-	aliases  map[string]selectAlias
+	query              *clickhouse.SelectQuery
+	parent             *queryScope
+	bindings           map[string]Relation
+	sources            []Source
+	visible            map[string]Relation
+	unique             []Relation
+	budget             *projectionBudget
+	ctes               []*cteBinding
+	cteRoot            bool
+	aliases            map[string]selectAlias
+	propertyNamespaces map[string]propertyNamespace
+	sourceNames        map[string]int
+	duplicateSources   []Source
+}
+
+type propertyNamespace struct {
+	name    string
+	ok      bool
+	matched bool
 }
 
 var tableReferencePattern = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.$]*)`)
@@ -52,7 +70,7 @@ var tableReferencePattern = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+([A-Za-z_]
 func queryScopes(statement clickhouse.Expr, budget *projectionBudget) []*queryScope {
 	var scopes []*queryScope
 	byQuery := map[*clickhouse.SelectQuery]*queryScope{}
-	clickhouse.Walk(statement, func(node clickhouse.Expr) bool {
+	walkIncludingExcept(statement, func(node clickhouse.Expr) bool {
 		if query, ok := node.(*clickhouse.SelectQuery); ok {
 			scope := &queryScope{query: query, bindings: map[string]Relation{}, budget: budget}
 			scopes = append(scopes, scope)
@@ -68,6 +86,9 @@ func queryScopes(statement clickhouse.Expr, budget *projectionBudget) []*querySc
 			if scope.parent == nil || span(candidate.query) < span(scope.parent.query) {
 				scope.parent = candidate
 			}
+		}
+		if scope.parent != nil && (scope.parent.query.UnionAll == scope.query || scope.parent.query.UnionDistinct == scope.query || scope.parent.query.Except == scope.query) {
+			scope.cteRoot = true
 		}
 	}
 	for _, scope := range scopes {
@@ -90,14 +111,55 @@ func queryScopes(statement clickhouse.Expr, budget *projectionBudget) []*querySc
 	return scopes
 }
 
-func addBinding(scope *queryScope, name, alias string, binding Relation) {
+func walkIncludingExcept(expr clickhouse.Expr, visit func(clickhouse.Expr) bool) {
+	var exceptBranches []*clickhouse.SelectQuery
+	seenExcept := map[*clickhouse.SelectQuery]bool{}
+	wrapper := func(node clickhouse.Expr) bool {
+		walkChildren := visit(node)
+		if query, ok := node.(*clickhouse.SelectQuery); ok && walkChildren && query.Except != nil && !seenExcept[query.Except] {
+			seenExcept[query.Except] = true
+			exceptBranches = append(exceptBranches, query.Except)
+		}
+		return walkChildren
+	}
+	clickhouse.Walk(expr, wrapper)
+	for len(exceptBranches) > 0 {
+		branch := exceptBranches[0]
+		exceptBranches = exceptBranches[1:]
+		clickhouse.Walk(branch, wrapper)
+	}
+}
+
+func addBinding(scope *queryScope, name, alias string, binding Relation, start, end int) {
 	scope.bindings[strings.ToLower(name)] = binding
-	source := Source{name: name, relation: binding}
+	source := Source{name: name, relation: binding, start: start, end: end}
 	if alias != "" {
 		scope.bindings[strings.ToLower(alias)] = binding
 		source.name = alias
 	}
 	scope.sources = append(scope.sources, source)
+	if scope.sourceNames == nil {
+		scope.sourceNames = map[string]int{}
+	}
+	scope.sourceNames[source.name]++
+	if scope.sourceNames[source.name] == 2 && len(scope.duplicateSources) < querylimits.MaxDiagnostics {
+		scope.duplicateSources = append(scope.duplicateSources, source)
+	}
+}
+
+func (s *queryScope) hasDuplicateSource(name string) bool {
+	for current := s; current != nil; current = current.parent {
+		if !s.budget.lookup(len(name) + 1) {
+			return true
+		}
+		if count, visible := current.sourceNames[name]; visible {
+			return count > 1
+		}
+		if current.cteRoot {
+			break
+		}
+	}
+	return false
 }
 
 func (s *queryScope) visibleCTEs(position int) []*cteBinding {
@@ -176,6 +238,67 @@ func (s *queryScope) uniqueBindings() []Relation {
 	return s.unique
 }
 
+func (s *queryScope) provenanceSources(name string) []Relation {
+	if s == nil {
+		return nil
+	}
+	var sources []Relation
+	seen := map[string]bool{}
+	for current := s; current != nil; current = current.parent {
+		currentNames := map[string]bool{}
+		for _, source := range current.sources {
+			if !s.budget.lookup(len(name) + 1) {
+				return nil
+			}
+			key := strings.ToLower(source.name)
+			if seen[key] {
+				continue
+			}
+			currentNames[key] = true
+			sources = append(sources, source.relation)
+		}
+		for key := range currentNames {
+			seen[key] = true
+		}
+		if current.cteRoot {
+			break
+		}
+	}
+	return sources
+}
+
+func (s *queryScope) unqualifiedPropertyNamespace(name string) (string, bool, bool) {
+	if s == nil {
+		return "", false, false
+	}
+	key := foldedFieldName(name)
+	if namespace, ok := s.propertyNamespaces[key]; ok {
+		return namespace.name, namespace.ok, namespace.matched
+	}
+	if s.propertyNamespaces == nil {
+		s.propertyNamespaces = map[string]propertyNamespace{}
+	}
+	resolved := propertyNamespace{}
+	matches := 0
+	for _, binding := range s.provenanceSources(name) {
+		if _, ok := bindingField(binding, name); !ok {
+			continue
+		}
+		matches++
+		resolved.matched = true
+		if matches > 1 {
+			resolved = propertyNamespace{matched: true}
+			break
+		}
+		resolved.name, resolved.ok = bindingPropertyNamespace(binding, name)
+	}
+	if matches != 1 {
+		resolved = propertyNamespace{matched: matches > 0}
+	}
+	s.propertyNamespaces[key] = resolved
+	return resolved.name, resolved.ok, resolved.matched
+}
+
 func normalizeHogQLTableReferences(query string) (string, map[string]string) {
 	normalized := []byte(query)
 	originalNames := map[string]string{}
@@ -236,7 +359,7 @@ func bindSubquery(expr *clickhouse.TableExpr, scopes []*queryScope, budget *proj
 		inner.cteRoot = true
 		if alias != "" {
 			derived := &cteBinding{name: alias, query: subquery.Select, scope: inner, budget: budget}
-			addBinding(inner.parent, alias, "", Relation{name: alias, cte: derived})
+			addBinding(inner.parent, alias, "", Relation{name: alias, cte: derived}, int(expr.Pos()), int(expr.End()))
 		}
 	}
 	return true
@@ -265,19 +388,48 @@ func bindingField(binding Relation, name string) (catalog.Entry, bool) {
 		return catalog.Entry{}, false
 	}
 	if c.fieldIndex == nil {
-		c.fieldIndex = make(map[string]catalog.Entry, len(fields))
+		c.fieldIndex = make(map[string]projectedField, len(fields))
 		for _, field := range fields {
-			if !c.budget.lookup(len(field.Name) + 1) {
+			if !c.budget.lookup(len(field.entry.Name) + 1) {
 				return catalog.Entry{}, false
 			}
-			key := foldedFieldName(field.Name)
-			if _, exists := c.fieldIndex[key]; !exists {
+			key := foldedFieldName(field.entry.Name)
+			if existing, exists := c.fieldIndex[key]; !exists {
 				c.fieldIndex[key] = field
+			} else {
+				existing.propertyNamespace = ""
+				existing.ambiguous = true
+				c.fieldIndex[key] = existing
 			}
 		}
 	}
 	field, ok := c.fieldIndex[foldedFieldName(name)]
-	return field, ok
+	return field.entry, ok
+}
+
+func bindingPropertyNamespace(binding Relation, name string) (string, bool) {
+	if binding.table != nil {
+		if _, ok := binding.table.Fields.Exact(name); !ok {
+			return "", false
+		}
+		return propertyresolver.Resolve([]string{binding.name, name, "property"}, map[string]string{strings.ToLower(binding.name): binding.name})
+	}
+	if binding.cte == nil {
+		return "", false
+	}
+	c := binding.cte
+	_ = c.projectedFields()
+	if !c.fieldsDone || !c.budget.lookup(len(name)+1) {
+		return "", false
+	}
+	if c.fieldIndex == nil {
+		_, _ = bindingField(binding, name)
+	}
+	if c.budget.exceeded || c.budget.lookupExceeded {
+		return "", false
+	}
+	field, ok := c.fieldIndex[foldedFieldName(name)]
+	return field.propertyNamespace, ok && !field.ambiguous && field.propertyNamespace != ""
 }
 
 func bindingFields(binding Relation) []catalog.Entry {
@@ -287,17 +439,25 @@ func bindingFields(binding Relation) []catalog.Entry {
 	if binding.cte == nil {
 		return nil
 	}
-	return binding.cte.projectedFields()
+	projected := binding.cte.projectedFields()
+	if binding.cte.entries == nil && len(projected) > 0 {
+		binding.cte.entries = make([]catalog.Entry, 0, len(projected))
+		for _, field := range projected {
+			binding.cte.entries = append(binding.cte.entries, field.entry)
+		}
+	}
+	return binding.cte.entries
 }
 
-func (c *cteBinding) projectedFields() []catalog.Entry {
+func (c *cteBinding) projectedFields() []projectedField {
 	if c.fieldsDone || c.resolving || c.scope == nil || c.budget.exceeded || c.budget.lookupExceeded {
 		return c.fields
 	}
 	c.resolving = true
 	for _, item := range c.query.SelectItems {
 		if item.Alias != nil {
-			c.appendField(catalog.Entry{Name: item.Alias.Name, Type: projectedType(c.scope, item.Expr)})
+			namespace, _ := projectedPropertyNamespace(c.scope, item.Expr, int(item.Expr.Pos()))
+			c.appendField(projectedField{entry: catalog.Entry{Name: item.Alias.Name, Type: projectedType(c.scope, item.Expr)}, propertyNamespace: namespace})
 			if c.budget.exceeded || c.budget.lookupExceeded {
 				break
 			}
@@ -308,22 +468,26 @@ func (c *cteBinding) projectedFields() []catalog.Entry {
 			if expr.Name == "*" {
 				c.appendWildcardFields(c.scope, "")
 			} else {
-				c.appendField(catalog.Entry{Name: expr.Name, Type: projectedType(c.scope, expr)})
+				namespace, _ := projectedPropertyNamespace(c.scope, expr, int(expr.Pos()))
+				c.appendField(projectedField{entry: catalog.Entry{Name: expr.Name, Type: projectedType(c.scope, expr)}, propertyNamespace: namespace})
 			}
 		case *clickhouse.Path:
 			if len(expr.Fields) > 0 {
-				c.appendField(catalog.Entry{Name: expr.Fields[len(expr.Fields)-1].Name, Type: projectedType(c.scope, expr)})
+				namespace, _ := projectedPropertyNamespace(c.scope, expr, int(expr.Pos()))
+				c.appendField(projectedField{entry: catalog.Entry{Name: expr.Fields[len(expr.Fields)-1].Name, Type: projectedType(c.scope, expr)}, propertyNamespace: namespace})
 			}
 		case *clickhouse.NestedIdentifier:
 			if expr.DotIdent != nil && expr.DotIdent.Name == "*" {
 				c.appendWildcardFields(c.scope, expr.Ident.Name)
 			} else if expr.DotIdent != nil {
-				c.appendField(catalog.Entry{Name: expr.DotIdent.Name, Type: projectedType(c.scope, expr)})
+				namespace, _ := projectedPropertyNamespace(c.scope, expr, int(expr.Pos()))
+				c.appendField(projectedField{entry: catalog.Entry{Name: expr.DotIdent.Name, Type: projectedType(c.scope, expr)}, propertyNamespace: namespace})
 			} else {
-				c.appendField(catalog.Entry{Name: expr.Ident.Name, Type: projectedType(c.scope, expr)})
+				namespace, _ := projectedPropertyNamespace(c.scope, expr, int(expr.Pos()))
+				c.appendField(projectedField{entry: catalog.Entry{Name: expr.Ident.Name, Type: projectedType(c.scope, expr)}, propertyNamespace: namespace})
 			}
 		default:
-			c.appendField(catalog.Entry{Name: item.Expr.String()})
+			c.appendField(projectedField{entry: catalog.Entry{Name: item.Expr.String()}})
 		}
 		if c.budget.exceeded || c.budget.lookupExceeded {
 			break
@@ -334,13 +498,13 @@ func (c *cteBinding) projectedFields() []catalog.Entry {
 	return c.fields
 }
 
-func (c *cteBinding) appendField(field catalog.Entry) {
+func (c *cteBinding) appendField(field projectedField) {
 	if c.budget.take(1) == 1 {
 		c.fields = append(c.fields, field)
 	}
 }
 
-func (c *cteBinding) appendFields(fields []catalog.Entry) {
+func (c *cteBinding) appendFields(fields []projectedField) {
 	count := c.budget.take(len(fields))
 	c.fields = append(c.fields, fields[:count]...)
 }
@@ -348,20 +512,84 @@ func (c *cteBinding) appendFields(fields []catalog.Entry) {
 func (c *cteBinding) appendWildcardFields(scope *queryScope, qualifier string) {
 	bindings := visibleBindings(scope)
 	if qualifier != "" {
-		c.appendFields(bindingFields(bindings[strings.ToLower(qualifier)]))
+		c.appendBindingFields(bindings[strings.ToLower(qualifier)], scope.hasDuplicateSource(qualifier))
 		return
 	}
 	seen := map[string]bool{}
-	for _, binding := range bindings {
-		if seen[binding.name] {
-			continue
+	for current := scope; current != nil; current = current.parent {
+		for _, source := range current.sources {
+			key := strings.ToLower(source.name)
+			if current != scope && seen[key] {
+				continue
+			}
+			seen[key] = true
+			c.appendBindingFields(source.relation, false)
+			if c.budget.exceeded {
+				return
+			}
 		}
-		seen[binding.name] = true
-		c.appendFields(bindingFields(binding))
-		if c.budget.exceeded {
-			return
+		if current.cteRoot {
+			break
 		}
 	}
+}
+
+func (c *cteBinding) appendBindingFields(binding Relation, suppressProvenance bool) {
+	if binding.table != nil {
+		fields := binding.table.Fields.Entries()
+		count := c.budget.take(len(fields))
+		for _, field := range fields[:count] {
+			namespace, _ := bindingPropertyNamespace(binding, field.Name)
+			if suppressProvenance {
+				namespace = ""
+			}
+			c.fields = append(c.fields, projectedField{entry: field, propertyNamespace: namespace})
+		}
+		return
+	}
+	if binding.cte != nil {
+		fields := binding.cte.projectedFields()
+		if !suppressProvenance {
+			c.appendFields(fields)
+			return
+		}
+		count := c.budget.take(len(fields))
+		for _, field := range fields[:count] {
+			field.propertyNamespace = ""
+			c.fields = append(c.fields, field)
+		}
+	}
+}
+
+func projectedPropertyNamespace(scope *queryScope, expr clickhouse.Expr, position int) (string, bool) {
+	bindings := visibleBindings(scope)
+	switch typed := expr.(type) {
+	case *clickhouse.Ident:
+		if alias, ok := (Bindings{scope: scope, position: position}).selectAlias(typed.Name); ok {
+			return alias.propertyNamespace, alias.propertyNamespace != ""
+		}
+		namespace, ok, _ := scope.unqualifiedPropertyNamespace(typed.Name)
+		return namespace, ok
+	case *clickhouse.Path:
+		if len(typed.Fields) == 2 {
+			if scope.hasDuplicateSource(typed.Fields[0].Name) {
+				return "", false
+			}
+			if binding, ok := bindings[strings.ToLower(typed.Fields[0].Name)]; ok {
+				return bindingPropertyNamespace(binding, typed.Fields[1].Name)
+			}
+		}
+	case *clickhouse.NestedIdentifier:
+		if typed.DotIdent != nil {
+			if scope.hasDuplicateSource(typed.Ident.Name) {
+				return "", false
+			}
+			if binding, ok := bindings[strings.ToLower(typed.Ident.Name)]; ok {
+				return bindingPropertyNamespace(binding, typed.DotIdent.Name)
+			}
+		}
+	}
+	return "", false
 }
 
 func (b *projectionBudget) take(count int) int {
