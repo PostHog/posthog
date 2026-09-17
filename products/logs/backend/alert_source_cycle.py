@@ -5,8 +5,9 @@ product's own tables are never touched: the production logs fleet evaluates the 
 against `LogsAlertConfiguration` on its own queue, so the two stacks keep separate state and
 neither can notify on the other's behalf. Delivery stops at a recorded preview.
 
-Cohorting, query execution and the lifecycle decision reuse the production helpers, so an
-evaluation says what the logs stack would have said given the same configuration.
+Cohorting and query execution reuse the production helpers, so an evaluation says what the
+logs stack would have said given the same configuration. The lifecycle decision comes from
+the shared machine configured with this source's policy, not from the logs product.
 """
 
 from collections.abc import Sequence
@@ -25,6 +26,14 @@ from products.alerts.backend.facade.contracts import (
     WIPAlertOutcome,
 )
 from products.alerts.backend.facade.destinations import list_active_alert_destinations
+from products.alerts.backend.facade.lifecycle import (
+    LOGS_ALERT_POLICY,
+    AlertSnapshot,
+    AlertState,
+    CheckInput,
+    NotificationAction,
+    evaluate_alert_check,
+)
 from products.alerts.backend.facade.wip_alerts import due_checks, record_outcomes
 from products.logs.backend.alert_check_query import (
     BatchedAlertCheckQuery,
@@ -35,13 +44,6 @@ from products.logs.backend.alert_check_query import (
     rolling_check_lookback_minutes,
 )
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
-from products.logs.backend.alert_state_machine import (
-    AlertSnapshot,
-    AlertState,
-    CheckResult,
-    NotificationAction,
-    evaluate_alert_check,
-)
 from products.logs.backend.alert_utils import next_allowed_check_at
 
 # Private to the production activity. Reimplementing either would let this path drift from
@@ -99,12 +101,12 @@ def _is_in_quiet_hours(check: WIPAlertCheck, team: Team, now: datetime) -> bool:
 def _snapshot(check: WIPAlertCheck, prior_breached: tuple[bool, ...]) -> AlertSnapshot:
     return AlertSnapshot(
         state=AlertState(check.state),
-        evaluation_periods=check.evaluation_periods,
-        datapoints_to_alarm=check.datapoints_to_alarm,
-        cooldown_minutes=check.cooldown_minutes,
+        cooldown=timedelta(minutes=check.cooldown_minutes),
         last_notified_at=check.last_notified_at,
         snooze_until=check.snooze_until,
         consecutive_failures=check.consecutive_failures,
+        evaluation_periods=check.evaluation_periods,
+        datapoints_to_alarm=check.datapoints_to_alarm,
         recent_events_breached=prior_breached,
     )
 
@@ -116,10 +118,13 @@ def _evaluate_one(
         buckets, check.threshold_count, check.threshold_operator, check.evaluation_periods
     ) or (False,)
 
+    # `LOGS_ALERT_POLICY` is how the shared machine expresses this source's semantics, so the
+    # decision is the one the logs stack reaches without routing through the logs product.
     outcome = evaluate_alert_check(
         _snapshot(check, tuple(prior_windows_breached)),
-        CheckResult(result_count=None, threshold_breached=current_breached),
+        CheckInput(threshold_breached=current_breached),
         now,
+        policy=LOGS_ALERT_POLICY,
     )
     recorded = WIPAlertOutcome(
         configuration_id=check.id,
