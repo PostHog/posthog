@@ -21,7 +21,14 @@ class TestDoItSource:
     def setup_method(self):
         self.source = DoItSource()
 
-    @pytest.mark.parametrize("pattern", ["Report no longer exists", "Request to get report failed with status: 404"])
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "Report no longer exists",
+            "Request to get report failed with status: 404",
+            "invalid or revoked access key",
+        ],
+    )
     def test_non_retryable_errors_includes_pattern(self, pattern):
         errors = self.source.get_non_retryable_errors()
 
