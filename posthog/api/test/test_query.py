@@ -925,6 +925,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         api_response = self.client.post(f"/api/environments/{self.team.id}/query/")
         self.assertEqual(api_response.status_code, 400)
 
+    @parameterized.expand(
+        [
+            ("double_encoded_query", "query", '"{\\"query\\": {\\"kind\\": \\"HogQLQuery\\"}}"'),
+            ("null_query", "query", "null"),
+            ("list_query", "query", '[{"query": {"kind": "HogQLQuery"}}]'),
+            ("double_encoded_upgrade", "query/upgrade", '"{\\"query\\": {\\"kind\\": \\"HogQLQuery\\"}}"'),
+        ]
+    )
+    def test_non_object_body_is_rejected(self, _name: str, path: str, body: str):
+        api_response = self.client.post(
+            f"/api/environments/{self.team.id}/{path}/", data=body, content_type="application/json"
+        )
+        self.assertEqual(api_response.status_code, 400, api_response.content)
+        self.assertIn("Query body must be a JSON object", api_response.json()["detail"])
+
     @snapshot_clickhouse_queries
     def test_full_hogql_query_view(self):
         with time_machine.travel("2020-01-10 12:00:00", tick=False):
