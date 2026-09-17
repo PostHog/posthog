@@ -90,15 +90,15 @@ pub fn decompress_gzip_to_bytes(compressed: &[u8], limit: usize) -> Result<Vec<u
 pub fn decompress_lz64_to_string(payload: &[u8], limit: usize) -> Result<String, CaptureError> {
     let b64_payload = std::str::from_utf8(payload).unwrap_or("INVALID_UTF8");
 
-    // The cap counts UTF-16 code units against a byte limit deliberately: UTF-8
-    // is never shorter than the UTF-16 it encodes, so nothing that would have
-    // fit under `limit` bytes gets rejected here.
+    // The cap is the same byte budget gzip enforces. The decoder counts the
+    // UTF-8 size of what it emits, so a payload of multi-byte characters cannot
+    // clear the cap as code units and then exceed the budget once converted.
     let decomp_utf16 = match decompress_lz64_capped(b64_payload, limit) {
         Ok(units) => units,
-        Err(CompressionError::Lz64OutputTooLarge { units, .. }) => {
+        Err(CompressionError::Lz64OutputTooLarge { bytes, .. }) => {
             metrics::counter!(METRIC_PAYLOAD_SIZE_EXCEEDED, "kind" => "lz64").increment(1);
             metrics::histogram!("capture_full_payload_size", "oversize" => "true")
-                .record(units as f64);
+                .record(bytes as f64);
             report_dropped_events("event_too_big", 1);
 
             return Err(CaptureError::EventTooBig(format!(
@@ -130,9 +130,14 @@ pub fn decompress_lz64_to_string(payload: &[u8], limit: usize) -> Result<String,
         }
     };
 
-    // UTF-8 can be longer than the capped UTF-16, so the byte limit is its own check
+    // The decoder already charged these bytes against `limit`, so this holds for
+    // any payload it accepted. It stays as a backstop because an accounting bug
+    // in the decoder would otherwise reach the rest of the pipeline unbounded,
+    // and it records the same sample the decoder's own rejection records.
     if decompressed.len() > limit {
         metrics::counter!(METRIC_PAYLOAD_SIZE_EXCEEDED, "kind" => "lz64").increment(1);
+        metrics::histogram!("capture_full_payload_size", "oversize" => "true")
+            .record(decompressed.len() as f64);
         report_dropped_events("event_too_big", 1);
         return Err(CaptureError::EventTooBig(String::from(
             "lz64 request payload size limit exceeded",

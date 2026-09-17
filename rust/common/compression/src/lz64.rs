@@ -25,20 +25,25 @@ const CLOSE_CODE: u32 = 2;
 const MAX_CODE_BITS: u8 = 31;
 
 /// Decompress a string produced by lz-string's `compressToBase64`, refusing any
-/// stream that would emit more than `max_output_units` UTF-16 code units.
+/// stream that would emit more than `max_output_bytes` bytes of UTF-8.
 ///
 /// Returns the raw UTF-16 units, as `lz_str::decompress_from_base64` does, so
-/// callers convert to a `String` themselves.
+/// callers convert to a `String` themselves. The cap is denominated in UTF-8
+/// bytes rather than UTF-16 units because the caller's budget is a byte budget
+/// and the two differ by up to 3x: a BMP character above U+07FF occupies one
+/// UTF-16 unit and three UTF-8 bytes. Counting units against a byte budget would
+/// let such a payload reach three times the budget once converted.
 ///
 /// The dictionary holds ranges into the output rather than its own copies, so
 /// peak memory stays a small multiple of the cap instead of paying a heap
 /// allocation per entry.
 pub fn decompress_lz64_capped(
     compressed: &str,
-    max_output_units: usize,
+    max_output_bytes: usize,
 ) -> Result<Vec<u16>, CompressionError> {
-    // Ranges into the output are u32, so a larger cap could not be enforced.
-    let limit = max_output_units.min(u32::MAX as usize);
+    // Ranges into the output are u32. Every unit is at least one UTF-8 byte, so
+    // bounding bytes by u32::MAX also bounds the unit count that indexes them.
+    let limit = max_output_bytes.min(u32::MAX as usize);
 
     // Characters outside the alphabet are skipped, matching lz-string.
     let input = compressed.encode_utf16().filter_map(|c| {
@@ -62,12 +67,12 @@ pub fn decompress_lz64_capped(
         _ => return Err(CompressionError::Lz64Invalid),
     };
 
-    let mut out: Vec<u16> = Vec::new();
+    let mut out = Output::new();
     // The three reserved codes above are intercepted before any lookup, so these
     // placeholder ranges are never read. They only keep dictionary indexes aligned.
     let mut dictionary: Vec<(u32, u32)> = vec![(0, 0); 3];
 
-    push_unit(&mut out, first, limit)?;
+    out.push(first, limit)?;
     dictionary.push((0, 1));
 
     let mut w: (u32, u32) = (0, 1);
@@ -88,12 +93,12 @@ pub fn decompress_lz64_capped(
             U8_CODE | U16_CODE => {
                 literal = Some(read_literal(&mut reader, code)?);
                 // The literal's entry is the single unit emitted below.
-                dictionary.push((out_len(&out), 1));
+                dictionary.push((out.len(), 1));
                 code = u32::try_from(dictionary.len() - 1)
                     .map_err(|_| CompressionError::Lz64Invalid)?;
                 enlarge_in -= 1;
             }
-            CLOSE_CODE => return Ok(out),
+            CLOSE_CODE => return Ok(out.units),
             _ => {}
         }
 
@@ -103,18 +108,18 @@ pub fn decompress_lz64_capped(
         }
 
         let entry = if let Some(unit) = literal {
-            push_unit(&mut out, unit, limit)?;
-            (out_len(&out) - 1, 1)
+            out.push(unit, limit)?;
+            (out.len() - 1, 1)
         } else if let Some(&(start, len)) = dictionary.get(code as usize) {
-            copy_range(&mut out, start, len, limit)?;
-            (out_len(&out) - len, len)
+            out.copy_range(start, len, limit)?;
+            (out.len() - len, len)
         } else if code as usize == dictionary.len() {
             // LZW's "code we are about to define" case: w plus w's first unit.
             let (start, len) = w;
-            copy_range(&mut out, start, len, limit)?;
-            let first_unit = out[start as usize];
-            push_unit(&mut out, first_unit, limit)?;
-            (out_len(&out) - len - 1, len + 1)
+            out.copy_range(start, len, limit)?;
+            let first_unit = out.units[start as usize];
+            out.push(first_unit, limit)?;
+            (out.len() - len - 1, len + 1)
         } else {
             return Err(CompressionError::Lz64Invalid);
         };
@@ -188,37 +193,73 @@ fn read_literal<I: Iterator<Item = u16>>(
     u16::try_from(value).map_err(|_| CompressionError::Lz64Invalid)
 }
 
-/// The cap keeps the output within `u32::MAX` units, so this never truncates.
-fn out_len(out: &[u16]) -> u32 {
-    out.len() as u32
+/// The decoded units and the size of their UTF-8 encoding, held together so the
+/// buffer cannot grow without the cap seeing it.
+struct Output {
+    units: Vec<u16>,
+    utf8_len: usize,
 }
 
-fn push_unit(out: &mut Vec<u16>, unit: u16, limit: usize) -> Result<(), CompressionError> {
-    check_capacity(out.len(), 1, limit)?;
-    out.push(unit);
-    Ok(())
-}
-
-fn copy_range(
-    out: &mut Vec<u16>,
-    start: u32,
-    len: u32,
-    limit: usize,
-) -> Result<(), CompressionError> {
-    let (start, len) = (start as usize, len as usize);
-    check_capacity(out.len(), len, limit)?;
-    out.extend_from_within(start..start + len);
-    Ok(())
-}
-
-fn check_capacity(current: usize, adding: usize, limit: usize) -> Result<(), CompressionError> {
-    if current + adding > limit {
-        return Err(CompressionError::Lz64OutputTooLarge {
-            units: current + adding,
-            limit,
-        });
+impl Output {
+    fn new() -> Self {
+        Output {
+            units: Vec::new(),
+            utf8_len: 0,
+        }
     }
-    Ok(())
+
+    /// The cap keeps the output within `u32::MAX` units, so this never truncates.
+    fn len(&self) -> u32 {
+        self.units.len() as u32
+    }
+
+    fn push(&mut self, unit: u16, limit: usize) -> Result<(), CompressionError> {
+        self.charge(utf8_len_of(unit), limit)?;
+        self.units.push(unit);
+        Ok(())
+    }
+
+    fn copy_range(&mut self, start: u32, len: u32, limit: usize) -> Result<(), CompressionError> {
+        let (start, len) = (start as usize, len as usize);
+        let range = start..start + len;
+        let added: usize = self.units[range.clone()]
+            .iter()
+            .copied()
+            .map(utf8_len_of)
+            .sum();
+
+        self.charge(added, limit)?;
+        self.units.extend_from_within(range);
+        Ok(())
+    }
+
+    /// Adds to the running UTF-8 size, or refuses when that would pass the cap.
+    /// Charging before the write is what keeps the buffer bounded.
+    fn charge(&mut self, bytes: usize, limit: usize) -> Result<(), CompressionError> {
+        let total = self.utf8_len + bytes;
+        if total > limit {
+            return Err(CompressionError::Lz64OutputTooLarge {
+                bytes: total,
+                limit,
+            });
+        }
+
+        self.utf8_len = total;
+        Ok(())
+    }
+}
+
+/// UTF-8 length of one UTF-16 code unit. A surrogate is half of a pair that
+/// encodes as four UTF-8 bytes, so each half counts two and the pair sums to
+/// four. An unpaired surrogate never reaches a `String`, because the caller's
+/// UTF-16 to UTF-8 conversion rejects it.
+fn utf8_len_of(unit: u16) -> usize {
+    match unit {
+        0x0000..=0x007F => 1,
+        0x0080..=0x07FF => 2,
+        0xD800..=0xDFFF => 2,
+        _ => 3,
+    }
 }
 
 #[cfg(test)]
@@ -327,11 +368,49 @@ mod tests {
     }
 
     #[test]
-    fn rejects_output_one_unit_over_the_limit() {
+    fn rejects_output_one_byte_over_the_limit() {
         let compressed = lz_str::compress_to_base64(&"b".repeat(4097));
 
         assert!(matches!(
             decompress_lz64_capped(&compressed, 4096),
+            Err(CompressionError::Lz64OutputTooLarge { .. })
+        ));
+    }
+
+    /// The cap is a byte budget, so a payload of characters that cost more than
+    /// one byte each has to be charged for what it costs. Counting code units
+    /// here would let a caller's byte budget be exceeded threefold, which is the
+    /// whole allocation this cap exists to prevent.
+    #[test]
+    fn charges_multi_byte_characters_by_their_utf8_size() {
+        // U+4E00: one UTF-16 code unit, three UTF-8 bytes.
+        let payload = "\u{4E00}".repeat(1000);
+        let compressed = lz_str::compress_to_base64(&payload);
+        assert_eq!(payload.len(), 3000);
+
+        assert_eq!(decompress_to_string(&compressed, 3000).unwrap(), payload);
+
+        // A code-unit cap would accept this, because the payload is 1000 units.
+        assert!(matches!(
+            decompress_lz64_capped(&compressed, 2999),
+            Err(CompressionError::Lz64OutputTooLarge { limit, .. }) if limit == 2999
+        ));
+    }
+
+    /// A surrogate pair is two code units and four UTF-8 bytes, so each half
+    /// costs two. Charging three per unit, as a non-surrogate BMP character
+    /// costs, would reject payloads that fit.
+    #[test]
+    fn charges_surrogate_pairs_by_their_utf8_size() {
+        // U+1F600: two UTF-16 code units, four UTF-8 bytes.
+        let payload = "\u{1F600}".repeat(500);
+        let compressed = lz_str::compress_to_base64(&payload);
+        assert_eq!(payload.len(), 2000);
+
+        assert_eq!(decompress_to_string(&compressed, 2000).unwrap(), payload);
+
+        assert!(matches!(
+            decompress_lz64_capped(&compressed, 1999),
             Err(CompressionError::Lz64OutputTooLarge { .. })
         ));
     }

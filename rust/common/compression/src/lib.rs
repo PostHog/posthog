@@ -41,8 +41,8 @@ pub enum CompressionError {
     #[error("lz-string data could not be decompressed")]
     Lz64Invalid,
 
-    #[error("lz-string output exceeded limit ({units} > {limit} UTF-16 code units)")]
-    Lz64OutputTooLarge { units: usize, limit: usize },
+    #[error("lz-string output exceeded limit ({bytes} > {limit} bytes of UTF-8)")]
+    Lz64OutputTooLarge { bytes: usize, limit: usize },
 }
 
 /// Gzip decompression with **no output cap**.
