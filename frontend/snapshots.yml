@@ -6280,6 +6280,22 @@ snapshots:
         hash: v1.k794b7964.f7b919b2c420a09ce82ea731390a821c0ec23fea52a26cb7b73c279ff906e2be.kYxfbLWv0vgLI4RPXovyFzobM6K04qFePwZ61e2wkEk
     products-tracing-operationstable--loading--light:
         hash: v1.k794b7964.04bcc55cb9522d72f548084a92d35c0aba20ff4995949bd8b2ee8686f96cb6ac.P_KhZ-T4DKSiE8XyxMJSgUEUR9bDfDvgYnGqSOiR860
+    products-tracing-spanerrorsbadge--one-error--dark:
+        hash: v1.k794b7964.e0e79a77be55d932e351dd624093d0107d0fc1737ad2377ff59625f8c9d2919f.1kPC96NYK5FnS-qAPmFe5Vilt5aDnR_LOwvKi4SCHhw
+    products-tracing-spanerrorsbadge--one-error--light:
+        hash: v1.k794b7964.b816e38267a9feb005f365b0826180703192d0d7e1775020b201aa4b9c4a1832.fdUpUCRt8BNJMhVn-pVXvDtl7VL7OG6HNG1pzM621eU
+    products-tracing-spanerrorsbadge--session-tier--dark:
+        hash: v1.k794b7964.13255a21b0a89044711d43ad7eb7656bfa27780850612e2240ac5134ca655113.oahlSM-Db9HEzwv1RZ-hwmYT3YIGjGvdcpu0uTZIWNc
+    products-tracing-spanerrorsbadge--session-tier--light:
+        hash: v1.k794b7964.cc9c455a795e90f532f860835be59a78303f0aa59d41b94f5af2d50ca5a946bd.ZWyddRTjWYSYmz9XtbBcIK4nSTv8ixQwju_6-4utwQI
+    products-tracing-spanerrorsbadge--span-tier--dark:
+        hash: v1.k794b7964.e0e79a77be55d932e351dd624093d0107d0fc1737ad2377ff59625f8c9d2919f.MGVEuCnBxCAT14UwteNd9Rl3BG6A36Mi2YCuNej22BE
+    products-tracing-spanerrorsbadge--span-tier--light:
+        hash: v1.k794b7964.b816e38267a9feb005f365b0826180703192d0d7e1775020b201aa4b9c4a1832.htGoLWOj1PFYZ_cIuyahVh-15Lto4YBpb-h8aqqZNp4
+    products-tracing-spanerrorsbadge--trace-tier--dark:
+        hash: v1.k794b7964.e0e79a77be55d932e351dd624093d0107d0fc1737ad2377ff59625f8c9d2919f.uzDepTBFYU-pXEYJVCD0Ya_KaJzjKbvqtp1608gntps
+    products-tracing-spanerrorsbadge--trace-tier--light:
+        hash: v1.k794b7964.b816e38267a9feb005f365b0826180703192d0d7e1775020b201aa4b9c4a1832.358lw8N4eo9oKE_fz5YzCB6liehGpscOXtxfbgqWaus
     products-tracing-virtualizedspanlist--default--dark:
         hash: v1.k794b7964.d6cf5ccbc379f67404b237b878878ce7e60512d45869c05c24dfab7784335406.zEh7cw_wZ10BGEuJkOUdjqS8SiWt7386-Cuz4Qc0Les
     products-tracing-virtualizedspanlist--default--light:
@@ -6288,6 +6304,10 @@ snapshots:
         hash: v1.k794b7964.5590e8e6497de2fefefa74cf07edd5f814a798deb8f7e5f0102a383f5e8ac6c8.ZvuooUS3qT6kDX8yW2_oQ1iDgO1DwVFMAWM517bhCHw
     products-tracing-virtualizedspanlist--empty--light:
         hash: v1.k794b7964.72ff685c9162da170263d416510a2cc5229c999691288c0b8038143000a40f15.ebvPm2A_7cN8QvjEaroudYEO1lp9qFUooW98MMcDBwY
+    products-tracing-virtualizedspanlist--with-error-badges--dark:
+        hash: v1.k794b7964.42abb3fdc9a580251a24fb411200fd29c62129989c435d24c92b88daf82b3886.bdomWMdvS-XzhaZRXAUC6CdeuNq2sAFSW9pmpYVSD7M
+    products-tracing-virtualizedspanlist--with-error-badges--light:
+        hash: v1.k794b7964.15d4fc501256abd83be7a13b59db0073a1d175aeec62177d327a92024d0186d9.XHqEWOoFuCaN7-Uc2dZ5PlU9VHycCpsiv3pS6Silirw
     products-web-analytics-content-autopilot-proposal-card--blocking-validation--dark:
         hash: v1.k794b7964.8209374f939a22b6b211c2a21698ca15c4d6e18eda905eafc2c826539fa6a6f3.iZuZv-_mdz_BoFNzarvgUmumBKyNRvbdYMCWKcRQ5Bs
     products-web-analytics-content-autopilot-proposal-card--blocking-validation--light:
