@@ -1038,6 +1038,19 @@ class TestHasDuplicatePrimaryKeys:
             assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is None
         mock_capture.assert_not_called()
 
+    def test_insufficient_privilege_is_not_reported(self, impl: Any, cursor: Any, logger: Any) -> None:
+        # The connecting role lacks SELECT on the relation (or a materialized view's base table) —
+        # a customer permission-config issue, not an actionable bug. The probe is best-effort, so
+        # skip gracefully without reporting the expected error to error tracking.
+        cursor.execute.side_effect = psycopg.errors.InsufficientPrivilege(
+            'permission denied for materialized view base relation "some_mv"'
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
+        ) as mock_capture:
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is None
+        mock_capture.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Listing — exercise impl methods that take a real cursor mock
