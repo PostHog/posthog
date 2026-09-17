@@ -1079,6 +1079,9 @@ owners:
     owners:census:
         click: posthog_owners.cli:cmd_census
         description: Count test files per owning team (optional PREFIX; --json for machine output)
+    owners:codeowners:
+        click: posthog_owners.cli:cmd_codeowners
+        description: Emit a CODEOWNERS projection of test-file ownership for tools that only read CODEOWNERS (-o writes a file)
     owners:unowned:
         click: posthog_owners.cli:cmd_unowned
         description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX)

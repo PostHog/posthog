@@ -128,6 +128,31 @@ class TestTicketMessageSignals(BaseTest):
         self.ticket.refresh_from_db()
         assert self.ticket.ai_triage["human_outcome"] == "used"
 
+    def test_human_reply_clears_awaiting_clarification(self, mock_on_commit):
+        Ticket.objects.filter(id=self.ticket.id).update(
+            ai_triage={"status": "awaiting_clarification", "result": "clarified"}
+        )
+        self._create_team_message("Taking this.")
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["status"] == "done"
+        assert self.ticket.ai_triage["result"] == "clarified"
+
+    def test_private_human_note_clears_awaiting_clarification(self, mock_on_commit):
+        Ticket.objects.filter(id=self.ticket.id).update(
+            ai_triage={"status": "awaiting_clarification", "result": "clarified"}
+        )
+        self._create_team_message("Taking this.", is_private=True)
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["status"] == "done"
+
+    def test_customer_reply_does_not_clear_awaiting_clarification(self, mock_on_commit):
+        Ticket.objects.filter(id=self.ticket.id).update(
+            ai_triage={"status": "awaiting_clarification", "result": "clarified"}
+        )
+        self._create_customer_message("We're on the JavaScript SDK.")
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["status"] == "awaiting_clarification"
+
     @patch("products.conversations.backend.signals.capture_message_sent")
     @patch(
         "products.conversations.backend.signals.maybe_record_human_outcome",

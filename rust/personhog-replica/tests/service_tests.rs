@@ -280,6 +280,7 @@ async fn test_get_distinct_ids_for_person() {
             person_id: person.id,
             read_options: None,
             limit: None,
+            cursor_id: None,
         }))
         .await
         .expect("RPC failed");
@@ -315,10 +316,116 @@ async fn test_get_distinct_ids_for_person_with_limit(
             person_id: person.id,
             read_options: None,
             limit,
+            cursor_id: None,
         }))
         .await
         .expect("RPC failed");
     assert_eq!(response.into_inner().distinct_ids.len(), expected_count);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_distinct_ids_for_person_cursor_pagination() {
+    let ctx = ServiceTestContext::new().await;
+    // Mix of anonymous-format UUIDs and identified strings. The anonymous-
+    // deprioritizing sort would reorder these differently than ORDER BY id ASC.
+    let person = ctx
+        .insert_person("0190f8e1-1234-7abc-89de-f0123456789a", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "user@example.com")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "another_identified")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "01234567-abcd-efab-cdef-0123456789ab")
+        .await
+        .unwrap();
+
+    let resp1 = ctx
+        .service
+        .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
+            team_id: ctx.team_id,
+            person_id: person.id,
+            read_options: None,
+            limit: Some(2),
+            cursor_id: Some(0),
+        }))
+        .await
+        .expect("page 1 failed");
+    let page1 = resp1.into_inner();
+    assert_eq!(page1.distinct_ids.len(), 2);
+    assert!(
+        page1.next_cursor_id.is_some(),
+        "page was full, next_cursor_id should be present"
+    );
+
+    let cursor1 = page1.next_cursor_id.unwrap();
+    let resp2 = ctx
+        .service
+        .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
+            team_id: ctx.team_id,
+            person_id: person.id,
+            read_options: None,
+            limit: Some(2),
+            cursor_id: Some(cursor1),
+        }))
+        .await
+        .expect("page 2 failed");
+    let page2 = resp2.into_inner();
+    assert_eq!(page2.distinct_ids.len(), 2);
+    assert!(page2.next_cursor_id.is_some());
+
+    let cursor2 = page2.next_cursor_id.unwrap();
+    let resp3 = ctx
+        .service
+        .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
+            team_id: ctx.team_id,
+            person_id: person.id,
+            read_options: None,
+            limit: Some(2),
+            cursor_id: Some(cursor2),
+        }))
+        .await
+        .expect("page 3 failed");
+    let page3 = resp3.into_inner();
+    assert_eq!(page3.distinct_ids.len(), 1);
+    assert!(
+        page3.next_cursor_id.is_none(),
+        "last page should have no cursor"
+    );
+
+    let mut all_dids: Vec<String> = page1
+        .distinct_ids
+        .iter()
+        .chain(page2.distinct_ids.iter())
+        .chain(page3.distinct_ids.iter())
+        .map(|d| d.distinct_id.clone())
+        .collect();
+    all_dids.sort();
+    let mut expected = vec![
+        "0190f8e1-1234-7abc-89de-f0123456789a",
+        "01234567-abcd-efab-cdef-0123456789ab",
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "another_identified",
+        "user@example.com",
+    ];
+    expected.sort();
+    assert_eq!(all_dids, expected);
+
+    for page in [&page1.distinct_ids, &page2.distinct_ids] {
+        for pair in page.windows(2) {
+            assert!(
+                pair[0].id.unwrap() < pair[1].id.unwrap(),
+                "rows within a page should be in ascending id order"
+            );
+        }
+    }
 
     ctx.cleanup().await.ok();
 }
@@ -690,6 +797,7 @@ async fn test_get_distinct_ids_for_person_limit_keeps_identified() {
             person_id: person.id,
             read_options: None,
             limit: Some(1),
+            cursor_id: None,
         }))
         .await
         .expect("RPC failed");

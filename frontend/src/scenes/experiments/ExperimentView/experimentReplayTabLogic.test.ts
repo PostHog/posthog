@@ -38,6 +38,7 @@ import {
 } from '../utils'
 import { viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogic'
 import {
+    type ExperimentRecordingsNarrowingAction,
     type ExperimentReplayRecording,
     ExperimentReplayListEmptyReason,
     experimentReplayTabLogic,
@@ -201,13 +202,35 @@ const listsRendered = (captureSpy: jest.SpyInstance, experimentId: number): any[
             event === 'experiment recordings list rendered' && (properties as any)?.experiment_id === experimentId
     )
 
+type TabLogic = ReturnType<typeof experimentReplayTabLogic.build>
+
+// The three narrowings the viewer controls, shared by the cases below and by the narrowing-action
+// cases under them, so the two tables cannot end up describing different tabs.
+const selectTestVariant = (logic: TabLogic): void => logic.actions.setSelectedVariantKey('test')
+
+const narrowToInSession = (logic: TabLogic): void => logic.actions.setExposureScope('in_session')
+
+const addFilterBarFilter = (logic: TabLogic): void =>
+    logic.actions.playlistFiltersChanged({
+        ...logic.values.recordingsFilters,
+        filter_group: {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+                },
+            ],
+        },
+    })
+
 interface EmptyReasonCase {
     reason: ExperimentReplayListEmptyReason
     /** One per case: the logic is keyed per experiment, and each case mounts its own. */
     experimentId: number
     experiment: Partial<Experiment>
     team?: Partial<TeamType>
-    setup?: (logic: ReturnType<typeof experimentReplayTabLogic.build>) => void
+    setup?: (logic: TabLogic) => void
 }
 
 // The team's retention period is the mock default of 30 days, which the run windows are set against.
@@ -267,19 +290,7 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         reason: ExperimentReplayListEmptyReason.FiltersNarrowed,
         experimentId: 147,
         experiment: { start_date: daysAgo(10), end_date: null },
-        setup: (logic) =>
-            logic.actions.playlistFiltersChanged({
-                ...logic.values.recordingsFilters,
-                filter_group: {
-                    type: FilterLogicalOperator.And,
-                    values: [
-                        {
-                            type: FilterLogicalOperator.And,
-                            values: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
-                        },
-                    ],
-                },
-            }),
+        setup: addFilterBarFilter,
     },
     {
         reason: ExperimentReplayListEmptyReason.EndedPastRetention,
@@ -291,17 +302,39 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         experimentId: 125,
         experiment: { start_date: daysAgo(1), end_date: null },
     },
+    // The same young run, narrowed by the viewer. A list this young is usually empty for every
+    // variant, every scope and every filter, so the age of the run stays the reason and the
+    // narrowing is not named on a guess. The banner hands back the narrowing's way out instead,
+    // which the narrowing-action cases below cover.
+    {
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        experimentId: 149,
+        experiment: { start_date: daysAgo(1), end_date: null },
+        setup: selectTestVariant,
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        experimentId: 150,
+        experiment: { start_date: daysAgo(1), end_date: null },
+        setup: narrowToInSession,
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        experimentId: 151,
+        experiment: { start_date: daysAgo(1), end_date: null },
+        setup: addFilterBarFilter,
+    },
     {
         reason: ExperimentReplayListEmptyReason.VariantHasNone,
         experimentId: 141,
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
-        setup: (logic) => logic.actions.setSelectedVariantKey('test'),
+        setup: selectTestVariant,
     },
     {
         reason: ExperimentReplayListEmptyReason.InSessionHasNone,
         experimentId: 142,
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
-        setup: (logic) => logic.actions.setExposureScope('in_session'),
+        setup: narrowToInSession,
     },
     {
         reason: ExperimentReplayListEmptyReason.UnknownInWindow,
@@ -314,6 +347,53 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         reason: ExperimentReplayListEmptyReason.UnknownInWindow,
         experimentId: 128,
         experiment: { start_date: daysAgo(60), end_date: null },
+    },
+]
+
+// The way out the banner has to offer for each narrowing. Read on a young run, where the reason is
+// the age of the run rather than the narrowing, so this is the only thing that gets a viewer who
+// narrowed the list back out of it.
+const NARROWING_ACTION_CASES: {
+    narrowing: string
+    experimentId: number
+    team?: Partial<TeamType>
+    setup?: (logic: TabLogic) => void
+    reason: ExperimentReplayListEmptyReason
+    action: ExperimentRecordingsNarrowingAction | null
+}[] = [
+    {
+        narrowing: 'a filter added above',
+        experimentId: 152,
+        setup: addFilterBarFilter,
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        action: 'clear_filters',
+    },
+    {
+        narrowing: 'a selected variant',
+        experimentId: 153,
+        setup: selectTestVariant,
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        action: 'show_all_variants',
+    },
+    {
+        narrowing: 'the in-session scope',
+        experimentId: 154,
+        setup: narrowToInSession,
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        action: 'all_sessions',
+    },
+    { narrowing: 'nothing', experimentId: 155, reason: ExperimentReplayListEmptyReason.TooEarly, action: null },
+    {
+        // Replay off names its own cause, and its banner offers the settings link alone. The
+        // variant still narrows the tab, so reading the narrowing rather than the reason would
+        // report a button this viewer was never given, and every reason's click-through rate would
+        // be measured against renders that offered nothing.
+        narrowing: 'a selected variant under replay off',
+        experimentId: 156,
+        team: { session_recording_opt_in: false },
+        setup: selectTestVariant,
+        reason: ExperimentReplayListEmptyReason.ReplayDisabled,
+        action: null,
     },
 ]
 
@@ -878,6 +958,31 @@ describe('experimentReplayTabLogic', () => {
         }
     )
 
+    it.each(NARROWING_ACTION_CASES)(
+        'reports $action as the way out of a young run narrowed by $narrowing',
+        async ({ experimentId, team, setup, reason, action }) => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ...team })
+            const young = experimentReplayTabLogic({
+                experiment: { ...EXPERIMENT, id: experimentId, start_date: daysAgo(1), end_date: null } as Experiment,
+            })
+            young.mount()
+            setup?.(young)
+            await expectLogic(young).toFinishAllListeners()
+
+            young.actions.recordingsLoaded([])
+            await expectLogic(young).toFinishAllListeners()
+
+            // The banner and the report both resolve the action from the reason, so a viewer who
+            // was handed a way out and a render counted as offering one cannot come apart.
+            expect(listsRendered(captureSpy, experimentId)[0][1]).toMatchObject({
+                empty_reason: reason,
+                narrowing_action: action,
+            })
+            young.unmount()
+        }
+    )
+
     it('reports no reason for the hidden-recordings action, and the reason for the others', async () => {
         // `show_hidden` is offered when rows came back and the browser hid them, so the list is not
         // empty. Sending the reason there would count a cause of emptiness against a list that had
@@ -899,9 +1004,13 @@ describe('experimentReplayTabLogic', () => {
                 event === 'experiment recordings empty state action clicked' &&
                 (properties as any)?.experiment_id === 143
         )
-        expect(clicks.map(([, properties]) => (properties as any).empty_reason)).toEqual([
-            null,
-            ExperimentReplayListEmptyReason.TooEarly,
+        expect(clicks.map(([, properties]) => properties as any)).toMatchObject([
+            { action: 'show_hidden', empty_reason: null, days_since_start: 1 },
+            {
+                action: 'replay_settings',
+                empty_reason: ExperimentReplayListEmptyReason.TooEarly,
+                days_since_start: 1,
+            },
         ])
 
         empty.unmount()
@@ -928,6 +1037,7 @@ describe('experimentReplayTabLogic', () => {
             experiment_id: 111,
             result_count: 2,
             empty_reason: null,
+            narrowing_action: null,
             days_since_start: 10,
             days_since_end: 2,
             retention_period: '90d',
@@ -938,6 +1048,8 @@ describe('experimentReplayTabLogic', () => {
             duration_filter_operator: 'gt',
             duration_filter_count: 1,
             duration_filter_customized: false,
+            filters_customized: false,
+            hide_viewed_recordings: 'off',
             exposure_linkable: true,
             variant: 'test',
             exposure_scope: 'all_exposed',
