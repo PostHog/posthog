@@ -92,10 +92,13 @@ export function TaskComposer(): JSX.Element {
                 >
                     {/* Repo/branch picker sits 8px above the input it configures. */}
                     <div className="w-full flex flex-col gap-2">
-                        <RepositorySelector
-                            value={newTaskData.repositoryConfig}
-                            onChange={(config) => setNewTaskData({ repositoryConfig: config })}
-                        />
+                        {/* A question about a focused chart or cell runs no code against a repo. */}
+                        {!focus && (
+                            <RepositorySelector
+                                value={newTaskData.repositoryConfig}
+                                onChange={(config) => setNewTaskData({ repositoryConfig: config })}
+                            />
+                        )}
                         <ComposerModeShortcut
                             onCycle={() =>
                                 setNewTaskData({
