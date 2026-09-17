@@ -12,7 +12,9 @@ import {
     enrichLogRecordWithJsonAttributes,
     extractJsonAttributesFromBody,
     flattenJson,
+    logsJsonAttributeSniffCounter,
     processLogMessageBuffer,
+    sniffJsonLogAttributes,
 } from './log-record-avro'
 
 const LOG_RECORD_SCHEMA = avro.parse(`{
@@ -111,6 +113,34 @@ const LOG_RECORD_SCHEMA = avro.parse(`{
 }`)
 
 describe('log-record-avro', () => {
+    describe('sniffJsonLogAttributes', () => {
+        it.each([
+            [null, 'missing_key'],
+            [{}, 'missing_key'],
+            [{ payload: '{}' }, 'missing_key'],
+            [{ 'payload.json': '{}' }, 'looks_like_json'],
+            [{ 'payload.json': ' \n\t[1]' }, 'looks_like_json'],
+            [{ 'payload.json': JSON.stringify('{"nested":true}') }, 'looks_like_json'],
+            [{ 'payload.json': JSON.stringify('\n\t [1]') }, 'looks_like_json'],
+            [{ 'payload.json': '{not valid JSON' }, 'looks_like_json'],
+            [{ 'payload.json': '"ordinary text"' }, 'other'],
+            [{ 'payload.json': 'null' }, 'other'],
+            [{ 'payload.json': '' }, 'other'],
+            [{ 'payload.json': ' '.repeat(64) + '{}' }, 'other'],
+        ] as const)('classifies %j as %s without mutating the record', async (attributes, outcome) => {
+            logsJsonAttributeSniffCounter.reset()
+            const record = Object.freeze({ attributes: attributes && Object.freeze(attributes) })
+
+            sniffJsonLogAttributes([record], 'payload.json', 123)
+            sniffJsonLogAttributes([record, record], 'payload.json', 456)
+
+            expect((await logsJsonAttributeSniffCounter.get()).values).toEqual([
+                expect.objectContaining({ labels: { team_id: '123', outcome }, value: 1 }),
+                expect.objectContaining({ labels: { team_id: '456', outcome }, value: 2 }),
+            ])
+        })
+    })
+
     describe('flattenJson', () => {
         it.each([
             ['flattens simple object', { a: 'b', c: 'd' }, { a: 'b', c: 'd' }],

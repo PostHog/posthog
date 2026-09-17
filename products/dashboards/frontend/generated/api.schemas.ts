@@ -1623,6 +1623,8 @@ export interface HogQLQueryModifiersApi {
     bounceRateDurationSeconds?: number | null
     bounceRatePageViewMode?: BounceRatePageViewModeApi | null
     convertToProjectTimezone?: boolean | null
+    /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
+    cookielessTrafficIsRegular?: boolean | null
     customBotDefinitions?: CustomBotRuleApi[] | null
     customChannelTypeRules?: CustomChannelRuleApi[] | null
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
@@ -2762,6 +2764,15 @@ export const AggregationAxisFormatApi = {
     Short: 'short',
 } as const
 
+export type AnnotationScopeApi = (typeof AnnotationScopeApi)[keyof typeof AnnotationScopeApi]
+
+export const AnnotationScopeApi = {
+    DashboardItem: 'dashboard_item',
+    Dashboard: 'dashboard',
+    Project: 'project',
+    Organization: 'organization',
+} as const
+
 export type CurveApi = (typeof CurveApi)[keyof typeof CurveApi]
 
 export const CurveApi = {
@@ -2769,9 +2780,18 @@ export const CurveApi = {
     Smooth: 'smooth',
 } as const
 
+export type SeriesColorModeApi = (typeof SeriesColorModeApi)[keyof typeof SeriesColorModeApi]
+
+export const SeriesColorModeApi = {
+    Palette: 'palette',
+    Opacity: 'opacity',
+} as const
+
 export interface ChartStyleApi {
     /** Line interpolation: straight segments or a smoothed curve through the points. */
     curve?: CurveApi | null
+    /** How series are told apart: one color per series, or one color at stepped opacities. */
+    seriesColorMode?: SeriesColorModeApi | null
 }
 
 export type DetailedResultsAggregationTypeApi =
@@ -2915,6 +2935,8 @@ export interface TrendsFilterApi {
     aggregationAxisPostfix?: string | null
     /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
     aggregationAxisPrefix?: string | null
+    /** Render only annotations with this scope. Unset renders every scope. */
+    annotationsScope?: AnnotationScopeApi | null
     breakdown_histogram_bin_count?: number | null
     /** Chart rendering style overrides (line shape). */
     chartStyle?: ChartStyleApi | null
@@ -3287,6 +3309,8 @@ export const FunnelLayoutApi = {
 export type FunnelsFilterApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface FunnelsFilterApi {
+    /** Render only annotations with this scope. Only applies to historical-trends funnels. */
+    annotationsScope?: AnnotationScopeApi | null
     binCount?: number | null
     breakdownAttributionType?: BreakdownAttributionTypeApi | null
     breakdownAttributionValue?: number | null
@@ -3694,6 +3718,8 @@ export interface RetentionFilterApi {
     returningEntity?: RetentionEntityApi | null
     /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
     selectedInterval?: number | null
+    /** Draw the mean across cohorts as one line on the retention graph. */
+    showMeanLine?: boolean | null
     showTrendLines?: boolean | null
     targetEntity?: RetentionEntityApi | null
     /** The time window mode to use for retention calculations */
@@ -10481,6 +10507,10 @@ export const DashboardTemplatesListScope = {
 
 export type DashboardsListParams = {
     /**
+     * Optional. Exclude dashboards that PostHog generated.
+     */
+    exclude_generated?: boolean
+    /**
      * Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included.
      */
     folder?: string
@@ -10493,6 +10523,10 @@ export type DashboardsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Optional. Return only pinned dashboards.
+     */
+    pinned?: boolean
     /**
      * Optional. Match against dashboard `name`, `description`, and tag names. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Results are then ordered by relevance, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
      */

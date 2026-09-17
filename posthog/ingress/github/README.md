@@ -28,15 +28,24 @@ Two apps share this incarnation, each subscribed to its own event types in GitHu
 
 A consumer registers against an app name, so the two apps share no consumers.
 
+Each region runs its own `posthog` App, with its own webhook URL and its own secret.
+GitHub already delivers an installation's events to the region that holds it.
+The `stamphog` App is one App, and one region serves its endpoint.
+
 ## Quirks
 
 The status codes are the defaults: 403 on a bad signature, 500 when unconfigured, 202 on success.
 The installation lifecycle is a core consumer rather than a product one, because it keeps PostHog's own integration rows in step with GitHub.
+A GitHub delivery is never forwarded to the other region, so no consumer here declares `ownership`.
+The other region verifies against its own App's secret, so it would answer a replayed delivery 403 and count it as an invalid signature.
+An installation this region does not hold is an installation this region never receives deliveries for.
+See [Regional forwarding](../README.md#regional-forwarding) for the lane the providers with one callback URL use.
 
 ## Consumers
 
 - `posthog/ingress/github/provider.py` registers `installation_lifecycle` and `installation_repositories` on the `posthog` app.
+- `products/{tasks,conversations,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
 - `products/stamphog/backend/webhook_consumers.py` registers `stamphog_review` on the `stamphog` app.
 
-The remaining GitHub consumers move to ingress one product at a time.
-The [Endpoints table](../README.md#endpoints) lists them.
+The [Endpoints table](../README.md#endpoints) lists the consumer names per event type.
+PR analytics shared by those consumers live in `posthog/github/`, see its README.

@@ -97,6 +97,8 @@ def _summarize(*, comments: list[str], team_id: int, distinct_id: str) -> _LlmFe
     # Runs inline in a web worker during suggestion generation, so a hung provider call must time out.
     client = genai.Client(
         api_key=api_key,
+        # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
+        posthog_privacy_mode=True,
         posthog_client=posthoganalytics.default_client,
         http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
     )

@@ -364,6 +364,11 @@
         "params": ["accountId"],
         "scope": "project"
     },
+    "customerAnalyticsAccountByExternalId": {
+        "template": "/customer_analytics/accounts/by-external-id/{externalId}",
+        "params": ["externalId"],
+        "scope": "project"
+    },
     "customerAnalyticsAccounts": {
         "template": "/customer_analytics/accounts",
         "params": [],

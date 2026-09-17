@@ -29,7 +29,7 @@ from products.notebooks.backend.models import (
     NotebookWidgetInstance,
 )
 from products.notebooks.backend.sql_v2 import SQLV2KernelNotRunning, SQLV2PageError, fetch_sql_v2_page
-from products.notebooks.backend.sql_v2_state import extract_cells
+from products.notebooks.backend.sql_v2_state import extract_cells, get_dataframe_owners
 from products.notebooks.backend.temporal.client import start_widget_generation_workflow
 from products.notebooks.backend.util import (
     _create_stable_markdown_node_id,
@@ -299,18 +299,7 @@ def assert_widget_node_exists(notebook: Notebook, node_id: str) -> None:
 
 
 def _dataframe_owners(notebook: Notebook) -> dict[str, str]:
-    cells = extract_cells(notebook.content)
-    eligible_cells = [cell for cell in cells if _INPUT_NAME.fullmatch(cell.dataframe_name)]
-    preferred_owners: dict[str, str] = {}
-    for cell_type in ("sql", "python"):
-        for cell in eligible_cells:
-            if cell.cell_type == cell_type:
-                preferred_owners.setdefault(cell.dataframe_name, cell.node_id)
-    owners: dict[str, str] = {}
-    for cell in eligible_cells:
-        if preferred_owners.get(cell.dataframe_name) == cell.node_id:
-            owners.setdefault(cell.dataframe_name, cell.node_id)
-    return owners
+    return get_dataframe_owners(extract_cells(notebook.content))
 
 
 def infer_widget_inputs(notebook: Notebook, node_id: str) -> list[str]:

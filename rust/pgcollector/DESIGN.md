@@ -109,7 +109,7 @@ Planned Tier B collectors:
 
 | Interval | Module | Tier | Source |
 |---|---|---|---|
-| 10s | activity samples | A | `pg_stat_activity` — counts by (state, wait_event_type, wait_event, query_id, usename, datname); raw rows kept for sessions > 5s or blocked |
+| 10s | activity samples | A | `pg_stat_activity` — counts by (state, wait_event_type, wait_event, query_id, query tags, usename, datname); raw rows kept for sessions > 5s or blocked |
 | 10s | lock waits | A | `pg_locks` joined to `pg_blocking_pids()`; only emits when blocking exists |
 | 60s | query stats | B | `pg_stat_statements` deltas keyed by (queryid, userid, dbid, toplevel) |
 | 60s | database stats | A | `pg_stat_database` + `age(datfrozenxid)` |
@@ -161,6 +161,15 @@ which we surface as an event rather than silently splitting history.
 on the hot path and a second lookup only for unseen ids. A `fingerprint` from
 `pg_query` normalisation allows grouping the same shape across servers.
 Literals are stripped in the collector before anything leaves the process.
+
+**Query tags** — key/value pairs in a SQL comment (`/* route='/api/x' */`,
+`/* nodejs:PERSONS_WRITE<updatePersonsBatch> */`) name the code path that ran a
+statement. They are parsed once in the collector (`src/tags.rs`) and stored as a
+`tags` jsonb column on every table that carries statement text: activity samples
+and sessions, logged durations, plans, errors and temp files, and `cur_queries`.
+`pg_stat_statements` cannot split its counters by tag (comments are not part of
+the query id), so per-tag load comes from the sampled sources. Format, vocabulary
+and limits are in `docs/query-tags.md`.
 
 **Query latency: what you can and cannot get.** `pg_stat_statements` exposes
 `calls`, `total`, `min`, `max`, `mean`, `stddev` per query — no per-call

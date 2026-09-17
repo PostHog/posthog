@@ -306,6 +306,7 @@ export interface scoutFleetLogicValues {
     rosterEvaluatedAt: number
     rosterGroupCounts: Record<ScoutGroupKey, number>
     rosterScouts: ScoutRosterRow[]
+    rosterScoutsBeforeSearch: ScoutRosterRow[]
     runningChatType: ScoutChatType | null
     runsWindow: {
         complete: boolean
@@ -600,16 +601,16 @@ export interface scoutFleetLogicMeta {
         activeScoutTags: (selectedScoutTags: string[], scoutTagOptions: ScoutTagOption[]) => string[]
         scoutOwnerOptions: (scoutConfigs: SignalScoutConfigApi[] | null) => ScoutOwnerOption[]
         activeScoutOwner: (selectedScoutOwner: string | null, scoutOwnerOptions: ScoutOwnerOption[]) => string | null
-        rosterScouts: (
+        rosterScoutsBeforeSearch: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>,
             rosterEvaluatedAt: number,
             activeScoutTags: string[],
             activeScoutOwner: string | null,
-            scoutSearch: string,
             scoutEnabledFilter: ScoutEnabledFilter,
             scoutRosterSort: ScoutRosterSort
         ) => ScoutRosterRow[]
+        rosterScouts: (rosterScoutsBeforeSearch: ScoutRosterRow[], scoutSearch: string) => ScoutRosterRow[]
         rosterGroupCounts: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>,
@@ -1224,19 +1225,20 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 scoutOwnerOptions.some((option) => option.uuid === selectedScoutOwner) ? selectedScoutOwner : null,
         ],
         /**
-         * The roster as one alphabetical list, each row tagged with its lifecycle group and narrowed
-         * by the roster's own chrome (search and the tag, owner, and on/off filters).
+         * The roster as one sorted list, each row tagged with its lifecycle group and narrowed by
+         * every piece of the roster's chrome except search: the tag, owner, and on/off filters.
          * `rosterEvaluatedAt` advances only when time changes a lifecycle group, so settled polls keep
          * this selector's output stable.
+         * Search sits in `rosterScouts` on top of this, so a keystroke only re-runs a name match:
+         * the sort does not run again, and every row that still matches keeps its object identity.
          */
-        rosterScouts: [
+        rosterScoutsBeforeSearch: [
             (s) => [
                 s.scoutConfigs,
                 s.rollups,
                 s.rosterEvaluatedAt,
                 s.activeScoutTags,
                 s.activeScoutOwner,
-                s.scoutSearch,
                 s.scoutEnabledFilter,
                 s.scoutRosterSort,
             ],
@@ -1246,11 +1248,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 rosterEvaluatedAt: number,
                 activeScoutTags: string[],
                 activeScoutOwner: string | null,
-                scoutSearch: string,
                 scoutEnabledFilter: ScoutEnabledFilter,
                 scoutRosterSort: ScoutRosterSort
             ): ScoutRosterRow[] => {
-                const query = scoutSearch.trim().toLowerCase()
                 const now = new Date(rosterEvaluatedAt)
                 const rows = [...(scoutConfigs ?? [])]
                     .filter((config) => configMatchesScoutTags(config, activeScoutTags))
@@ -1259,13 +1259,6 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         (config) =>
                             scoutEnabledFilter === 'all' || config.enabled === (scoutEnabledFilter === 'enabled')
                     )
-                    .filter(
-                        (config) =>
-                            !query ||
-                            scoutDisplayName(config).toLowerCase().includes(query) ||
-                            config.skill_name.toLowerCase().includes(query) ||
-                            (config.description ?? '').toLowerCase().includes(query)
-                    )
                     .sort(compareScoutsByName)
                     .map((config) => ({ config, group: scoutGroup(config, rollups.get(config.skill_name), now) }))
                 if (scoutRosterSort === 'status') {
@@ -1273,6 +1266,24 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     rows.sort((a, b) => SCOUT_GROUP_ORDER.indexOf(a.group) - SCOUT_GROUP_ORDER.indexOf(b.group))
                 }
                 return rows
+            },
+        ],
+        /**
+         * The roster the list renders: the filtered rows narrowed by the search box.
+         * Search matches the name on the card and nothing else. A scout whose `skill_name` or
+         * description holds the query, while its card reads something different, is not a match. A
+         * returned card whose name misses the query reads as a broken search.
+         */
+        rosterScouts: [
+            (s) => [s.rosterScoutsBeforeSearch, s.scoutSearch],
+            (rosterScoutsBeforeSearch: ScoutRosterRow[], scoutSearch: string): ScoutRosterRow[] => {
+                const query = scoutSearch.trim().toLowerCase()
+                if (!query) {
+                    return rosterScoutsBeforeSearch
+                }
+                return rosterScoutsBeforeSearch.filter((row) =>
+                    scoutDisplayName(row.config).toLowerCase().includes(query)
+                )
             },
         ],
         /**

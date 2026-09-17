@@ -8,9 +8,32 @@ structured LLM response schemas used by the draft sandbox step.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from products.conversations.backend.temporal.ai_reply.constants import DRAFT_VERDICTS, MAX_CLARIFYING_QUESTIONS
+
+_T = TypeVar("_T")
+
+
+def coerce_dataclass(cls: type[_T], value: object) -> _T:
+    """Rebuild a dataclass from a typed instance or a raw dict.
+
+    Temporal's converter usually applies field defaults, but a rolling deploy can
+    deliver an activity payload as a dict. Reconstructing here fills omitted fields
+    and drops unknown keys so gating can read verdict/blocker without AttributeError.
+    """
+    if isinstance(value, cls):
+        return value
+    if isinstance(value, dict):
+        known = set(getattr(cls, "__dataclass_fields__", {}))
+        kwargs = {key: val for key, val in value.items() if key in known and val is not None}
+        try:
+            return cls(**kwargs)
+        except TypeError as exc:
+            raise TypeError(f"Could not coerce into {cls.__name__} (keys={sorted(value)}): {exc}") from exc
+    raise TypeError(f"Unexpected type {type(value).__name__}; expected {cls.__name__} or dict")
 
 
 @dataclass
@@ -114,9 +137,13 @@ class DraftOutput:
     sources: list[dict[str, str]] = field(default_factory=list)
     # The Tasks TaskRun id for this draft session -- join key to LLMA cost data.
     task_run_id: str = ""
-    # Wall time of the sandbox session, recorded for ai_triage.cost. Defaults so
-    # histories from before this field still deserialize.
+    # Wall time of the sandbox session, recorded for ai_triage.cost.
     sandbox_seconds: float = 0.0
+    # Default blocked_on_knowledge so a missing verdict cannot auto-send.
+    verdict: str = "blocked_on_knowledge"
+    clarifying_questions: list[str] = field(default_factory=list)
+    investigation_summary: str = ""
+    unknowns: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -139,9 +166,11 @@ class ValidateOutput:
     confidence: float
     missing: list[str]
     llm_attempts: int = 1
+    # Default knowledge so a missing blocker cannot auto-send.
+    blocker: str = "knowledge"
 
 
-@dataclass
+@dataclass(frozen=False)
 class PersistReplyInput:
     team_id: int
     ticket_id: str
@@ -150,6 +179,11 @@ class PersistReplyInput:
     confidence: float
     ticket_type: str = "how_to"
     allow_bot_reply: bool = False
+    persist_as: Literal["reply", "findings"] = "reply"
+    investigation_summary: str = ""
+    unknowns: list[str] = field(default_factory=list)
+    clarifying_questions: list[str] = field(default_factory=list)
+    findings_reason: str = ""
 
 
 @dataclass
@@ -215,3 +249,33 @@ class SupportReplyDraft(BaseModel):
         default_factory=list,
         description="Every source used, each with the exact supporting excerpt, so the reply can be validated",
     )
+    verdict: Literal["answerable", "blocked_on_customer", "blocked_on_knowledge", "out_of_scope"] = Field(
+        default="blocked_on_knowledge",
+        description="Whether the ticket can be answered now, or what blocks an answer",
+    )
+    clarifying_questions: list[str] = Field(
+        default_factory=list,
+        description="At most two questions that would unblock a blocked_on_customer verdict",
+    )
+    investigation_summary: str = Field(
+        default="",
+        description="What was checked and found, for a human reading a private note",
+    )
+    unknowns: list[str] = Field(
+        default_factory=list,
+        description="Facts that remain unknown after the investigation",
+    )
+
+    @field_validator("verdict", mode="before")
+    @classmethod
+    def _coerce_verdict(cls, value: object) -> str:
+        if isinstance(value, str) and value in DRAFT_VERDICTS:
+            return value
+        return "blocked_on_knowledge"
+
+    @field_validator("clarifying_questions", mode="before")
+    @classmethod
+    def _cap_clarifying_questions(cls, value: object) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(item) for item in value if item][:MAX_CLARIFYING_QUESTIONS]
