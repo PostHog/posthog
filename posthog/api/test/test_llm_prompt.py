@@ -23,6 +23,7 @@ from posthog.api.llm_prompt_serializers import (
 from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
+from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptDependency, LLMPromptLabel
 from products.ai_observability.backend.prompt_references import MAX_PROMPT_REFERENCES
@@ -2132,3 +2133,24 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json()["reference_name"] == "agent"
+
+    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
+    def test_repeated_tags_cost_one_lookup_and_one_provenance_entry(self, _flag):
+        self._make_prompt("guardrails", prompt="G.", label="production")
+        tag = "@@@prompt:name=guardrails|label=production@@@"
+        self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "agent", "prompt": f"{tag}\n{tag}\n{tag}"},
+            format="json",
+        )
+
+        with patch(
+            "products.ai_observability.backend.prompt_references.get_prompt_by_name_from_cache",
+            side_effect=get_prompt_by_name_from_cache,
+        ) as cache_read:
+            response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/agent/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["prompt"] == "G.\nG.\nG."
+        assert response.json()["resolved_references"] == [{"name": "guardrails", "version": 1, "label": "production"}]
+        assert cache_read.call_count == 1

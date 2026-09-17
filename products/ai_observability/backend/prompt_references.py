@@ -278,43 +278,59 @@ def assemble_prompt_payload(team: Team, payload: dict[str, Any]) -> dict[str, An
         return {**payload, "resolved_references": []}
 
     resolved: list[dict[str, Any]] = []
+    # Publish validation caps unique references, not occurrences: a 1 MB body
+    # can hold ~35k copies of one small tag whose label later moves to a large
+    # version. Memoizing bounds the cache reads to the unique references, and
+    # the running size check aborts before a large assembly is materialized,
+    # so a fetch never allocates more than the payload cap.
+    memoized: dict[tuple[str, str | None, str | None], str] = {}
+    spliced_bytes = 0
+    base_bytes = len(content.encode("utf-8"))
 
     def _splice(match: re.Match[str]) -> str:
+        nonlocal spliced_bytes
         name = match.group("name")
         version = match.group("version")
         label = match.group("label")
-        child = get_prompt_by_name_from_cache(team, name, int(version) if version is not None else None, label=label)
-        if child is None:
-            selector = f"version {version}" if version is not None else f"label '{label}'"
-            raise PromptReferenceResolutionError(
-                reference_name=name,
-                message=f"This prompt references '{name}' at {selector}, which no longer exists.",
-                missing=True,
+        key = (name, version, label)
+        child_content = memoized.get(key)
+        if child_content is None:
+            child = get_prompt_by_name_from_cache(
+                team, name, int(version) if version is not None else None, label=label
             )
-        child_content = child.get("prompt")
-        if not isinstance(child_content, str):
+            if child is None:
+                selector = f"version {version}" if version is not None else f"label '{label}'"
+                raise PromptReferenceResolutionError(
+                    reference_name=name,
+                    message=f"This prompt references '{name}' at {selector}, which no longer exists.",
+                    missing=True,
+                )
+            child_content = child.get("prompt")
+            if not isinstance(child_content, str):
+                raise PromptReferenceResolutionError(
+                    reference_name=name,
+                    message=f"The referenced prompt '{name}' is not plain text and cannot be spliced in.",
+                    missing=False,
+                )
+            if PROMPT_REFERENCE_REGEX.search(child_content):
+                raise PromptReferenceResolutionError(
+                    reference_name=name,
+                    message=f"The referenced prompt '{name}' contains references of its own and cannot be spliced in.",
+                    missing=False,
+                )
+            memoized[key] = child_content
+            resolved.append({"name": name, "version": child["version"], "label": label})
+        spliced_bytes += len(child_content.encode("utf-8"))
+        if base_bytes + spliced_bytes > MAX_PROMPT_PAYLOAD_BYTES:
             raise PromptReferenceResolutionError(
-                reference_name=name,
-                message=f"The referenced prompt '{name}' is not plain text and cannot be spliced in.",
+                reference_name=payload["name"],
+                message=(
+                    f"The prompt with all referenced content included exceeds {MAX_PROMPT_PAYLOAD_BYTES} bytes. "
+                    "Shorten the prompt or its referenced prompts."
+                ),
                 missing=False,
             )
-        if PROMPT_REFERENCE_REGEX.search(child_content):
-            raise PromptReferenceResolutionError(
-                reference_name=name,
-                message=f"The referenced prompt '{name}' contains references of its own and cannot be spliced in.",
-                missing=False,
-            )
-        resolved.append({"name": name, "version": child["version"], "label": label})
         return child_content
 
     assembled = PROMPT_REFERENCE_REGEX.sub(_splice, content)
-    if len(assembled.encode("utf-8")) > MAX_PROMPT_PAYLOAD_BYTES:
-        raise PromptReferenceResolutionError(
-            reference_name=payload["name"],
-            message=(
-                f"The prompt with all referenced content included exceeds {MAX_PROMPT_PAYLOAD_BYTES} bytes. "
-                "Shorten the prompt or its referenced prompts."
-            ),
-            missing=False,
-        )
     return {**payload, "prompt": assembled, "resolved_references": resolved}
