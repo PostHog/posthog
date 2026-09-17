@@ -454,6 +454,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_hide_feature_flag_insights_filter(self) -> None:
         from posthog.helpers.dashboard_templates import (
+            FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION,
+            FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
+            FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
             FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
             FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
         )
@@ -462,56 +465,49 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
+        generated = [
+            (
+                FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
+                "Shows the number of total calls made on feature flag with key: my-flag",
+            ),
+            (
+                FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
+                "Shows the number of unique user calls made on feature flag per variant with key: my-flag",
+            ),
+            # A group-aggregated flag names its entity instead of "users"
+            (
+                "Feature Flag calls made by unique organizations per variant",
+                "Shows the number of unique organization calls made on feature flag per variant with key: my-flag",
+            ),
+            (FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME, FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION),
+            (FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME, FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION),
+        ]
+        # A generated name a person can reuse, which the description tells apart
+        kept = [
+            ("Regular Insight", ""),
+            (FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME, "My own copy of this chart"),
+            (FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME, "My own copy of this chart"),
+        ]
 
-        # Create feature flag insights
-        Insight.objects.create(
-            name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
-            description="Shows the number of total calls made on feature flag with key: my-flag",
-            filters=Filter(data=filter_dict).to_dict(),
-            saved=True,
-            team=self.team,
-            created_by=self.user,
-        )
+        for name, description in generated + kept:
+            Insight.objects.create(
+                name=name,
+                description=description,
+                filters=Filter(data=filter_dict).to_dict(),
+                saved=True,
+                team=self.team,
+                created_by=self.user,
+            )
 
-        Insight.objects.create(
-            name=FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
-            description="Shows the number of unique user calls made on feature flag per variant with key: my-flag",
-            filters=Filter(data=filter_dict).to_dict(),
-            saved=True,
-            team=self.team,
-            created_by=self.user,
-        )
-
-        # Create a regular insight
-        Insight.objects.create(
-            name="Regular Insight",
-            filters=Filter(data=filter_dict).to_dict(),
-            saved=True,
-            team=self.team,
-            created_by=self.user,
-        )
-
-        # An insight a user wrote that happens to carry a generated name
-        Insight.objects.create(
-            name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
-            description="My own copy of this chart",
-            filters=Filter(data=filter_dict).to_dict(),
-            saved=True,
-            team=self.team,
-            created_by=self.user,
-        )
-
-        # Without filter, should return all 4 insights
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 4)
+        self.assertEqual(len(response.json()["results"]), len(generated) + len(kept))
 
-        # With filter, should exclude the generated insights and keep the rest
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true&hide_feature_flag_insights=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            sorted(result["name"] for result in response.json()["results"]),
-            sorted(["Regular Insight", FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME]),
+            sorted((result["name"], result["description"]) for result in response.json()["results"]),
+            sorted(kept),
         )
 
     def test_get_insight_in_dashboard_context(self) -> None:
