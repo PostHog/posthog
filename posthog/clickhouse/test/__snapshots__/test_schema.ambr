@@ -327,7 +327,15 @@
       inserted_at DateTime64(6, 'UTC')
   )
   ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_flag_evaluations_test', kafka_group_name = 'clickhouse_flag_evaluations', kafka_format = 'JSONEachRow')
-  SETTINGS kafka_skip_broken_messages = 100
+  -- Smaller block/poll sizes than the precalculated Kafka tables on this role: each
+  -- row carries the full event-properties JSON, so large blocks cost far more memory.
+  SETTINGS
+      kafka_max_block_size = 10000,
+      kafka_poll_max_batch_size = 10000,
+      kafka_poll_timeout_ms = 10000,
+      kafka_flush_interval_ms = 7500,
+      kafka_num_consumers = 1,
+      kafka_skip_broken_messages = 100
   
   '''
 # ---
@@ -2628,7 +2636,15 @@
       inserted_at DateTime64(6, 'UTC')
   )
   ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_flag_evaluations_test', kafka_group_name = 'clickhouse_flag_evaluations', kafka_format = 'JSONEachRow')
-  SETTINGS kafka_skip_broken_messages = 100
+  -- Smaller block/poll sizes than the precalculated Kafka tables on this role: each
+  -- row carries the full event-properties JSON, so large blocks cost far more memory.
+  SETTINGS
+      kafka_max_block_size = 10000,
+      kafka_poll_max_batch_size = 10000,
+      kafka_poll_timeout_ms = 10000,
+      kafka_flush_interval_ms = 7500,
+      kafka_num_consumers = 1,
+      kafka_skip_broken_messages = 100
   
   '''
 # ---
