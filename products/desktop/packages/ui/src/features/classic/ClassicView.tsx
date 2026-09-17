@@ -1,8 +1,9 @@
-import { ArrowClockwiseIcon, SquaresFourIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon } from "@phosphor-icons/react";
 import { useServiceOptional } from "@posthog/di/react";
 import {
   Button,
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyTitle,
@@ -10,7 +11,6 @@ import {
 import { getCloudUrlFromRegion } from "@posthog/shared";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
-import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { type ReactElement, useCallback, useState } from "react";
 import {
@@ -50,40 +50,6 @@ export function ClassicContent({
       className="flex h-full min-w-0 flex-col"
       aria-label="Classic web app"
     >
-      <ChromeBar
-        actions={
-          <>
-            <Button
-              nativeButton={false}
-              render={(props) => (
-                <a {...props} href={url} target="_blank" rel="noreferrer">
-                  Open web app
-                </a>
-              )}
-            />
-            <Button
-              size="icon"
-              aria-label="Reload Classic"
-              onClick={reload}
-              disabled={status === "loading"}
-            >
-              <ArrowClockwiseIcon />
-            </Button>
-          </>
-        }
-      >
-        <SquaresFourIcon className="shrink-0" />
-        <Button
-          variant="default"
-          onClick={reload}
-          disabled={status === "loading"}
-        >
-          Dashboards
-        </Button>
-        <span className="truncate text-muted-foreground text-xs">
-          Classic has its own web sign-in.
-        </span>
-      </ChromeBar>
       <div className="relative min-h-0 flex-1">
         <div
           className={status === "ready" ? "size-full" : "invisible size-full"}
@@ -102,7 +68,7 @@ export function ClassicContent({
         )}
         {status === "error" && (
           <div className="absolute inset-0 bg-background">
-            <Empty>
+            <Empty className="h-full rounded-none border-0">
               <EmptyHeader>
                 <EmptyTitle>PostHog did not load</EmptyTitle>
                 <EmptyDescription>
@@ -110,6 +76,12 @@ export function ClassicContent({
                     "Check your connection, then select Reload Classic."}
                 </EmptyDescription>
               </EmptyHeader>
+              <EmptyContent>
+                <Button variant="primary" onClick={reload}>
+                  <ArrowClockwiseIcon />
+                  Reload Classic
+                </Button>
+              </EmptyContent>
             </Empty>
           </div>
         )}

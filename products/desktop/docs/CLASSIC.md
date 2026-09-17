@@ -16,7 +16,9 @@ The web session uses an in-memory partition per desktop account and cloud region
 It does not persist after the app closes.
 
 Project product pages, their tabs, settings, and normal scene panels use the web app.
-Select Dashboards in the page header to return to the dashboard list.
+Use the web sidebar to move between products or return to the dashboard list.
+Classic adds no header, dashboard shortcut, or links to open the same page in a new window.
+The web app fills the available space. If loading fails, select **Reload Classic** in the error message.
 Web chat and the nested Desktop route are outside this preview.
 The shared web layout hides the Chat and Browse navigation tabs and disables the AI side panel.
 The product navigation stays visible without a Browse toggle.
@@ -38,7 +40,7 @@ Web security and the browser sandbox remain enabled.
 
 The browser host uses a sandboxed iframe instead of an Electron webview.
 It uses the browser's web session, not the Desktop OAuth token.
-Select **Open web app** to sign in with the same account, then select **Reload Classic**.
+If needed, sign in to your PostHog web app in a separate browser tab with the same account, then reload Classic.
 The frame stays hidden until a message from the expected frame and cloud origin confirms the same account and project.
 If the page cannot confirm this, Classic shows an error instead of an empty frame.
 Browser privacy settings can block session cookies in cross-site frames.
@@ -62,8 +64,8 @@ To test both sides from this PR:
 1. Run the PostHog web app from this branch at `http://localhost:8010` with `DEBUG` enabled.
 2. From `products/desktop`, run `pnpm --filter @posthog/web dev`.
 3. Open `http://localhost:5273`, select **Local development**, and sign in. The local OAuth application must allow `http://localhost:5273/callback`. Configure the local RSA signing key as described in `docs/LOCAL-DEVELOPMENT.md`. See `apps/web/README.md` for browser OAuth and CORS requirements.
-4. Select **Classic**. If needed, select **Open web app** to establish the local web session, then reload Classic.
-5. Open a dashboard, change a filter, open an insight, and use **Dashboards** to return. Open another product from the web sidebar and check its tabs and views. Open a normal scene panel. Collapse the web sidebar and check a narrow window. Switch projects in Desktop and check that the frame reloads for that project.
+4. Select **Classic**. If needed, sign in at `http://localhost:8010` in a separate browser tab to establish the local web session, then reload Classic.
+5. Open a dashboard, change a filter, open an insight, and use the web sidebar to return. Open another product from the web sidebar and check its tabs and views. Open a normal scene panel. Collapse the web sidebar and check a narrow window. Switch projects in Desktop and check that the frame reloads for that project.
 
 If sign-in returns **Mismatching redirect URI.**, add the browser callback to the existing local OAuth application before you retry.
 Follow the [browser redirect troubleshooting steps](./LOCAL-DEVELOPMENT.md#mismatching-redirect-uri-during-browser-sign-in).
