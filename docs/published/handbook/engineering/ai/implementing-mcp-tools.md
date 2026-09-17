@@ -339,6 +339,10 @@ Product teams own their definitions and control which operations are exposed as 
    next call lives inside them and no offset replaces it.
    Write those tool descriptions against `next`.
 
+   A `response_type` override opts a tool out as well, because codegen reads the override in
+   place of the OpenAPI response and cannot see the envelope through a wrapper such as `Omit<>`.
+   That tool keeps its links too, so write its description against `next`.
+
    For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
    `detail_args` keys against the tool's input schema snapshot, so a wrong argument
    name fails generation instead of silently dropping the argument at runtime.
