@@ -368,10 +368,11 @@ class TestSharedVapiWebhook(APIBaseTest):
         assert interview.interviewee_emails == []
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.vapi_events.posthoganalytics.capture")
-    def test_session_id_rides_on_the_lifecycle_event(self, mock_capture) -> None:
+    @patch("products.user_interviews.backend.vapi_events.ph_scoped_capture")
+    def test_session_id_rides_on_the_lifecycle_event(self, mock_scoped_capture) -> None:
         # session_id isn't persisted on the model — it's attached to the conversation event as
         # $session_id so the interview associates with the session recording.
+        mock_capture = mock_scoped_capture.return_value.__enter__.return_value
         config = self._shared_config()
         self.client.logout()
         response = self._signed_post(

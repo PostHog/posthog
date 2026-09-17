@@ -11,7 +11,6 @@ from typing import Any
 from django.db import connection, transaction
 
 import structlog
-import posthoganalytics
 
 from posthog.schema import EmbeddingModelName
 
@@ -19,6 +18,7 @@ from posthog.api.embedding_worker import emit_embedding_request
 from posthog.event_usage import groups
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
+from posthog.ph_client import ph_scoped_capture
 
 from products.user_interviews.backend.classification import derive_auto_classifications
 from products.user_interviews.backend.logic import (
@@ -188,13 +188,17 @@ def _capture_user_interview_event(
     if extra_properties:
         properties.update(extra_properties)
     try:
-        posthoganalytics.capture(
-            distinct_id=f"user_interview:{interviewee_context.id}",
-            event=event,
-            properties=properties,
-            timestamp=received_at,
-            groups=groups(organization=sharing_config.team.organization, team=sharing_config.team),
-        )
+        # This runs in the Celery task, where the global client's background flush may never run
+        # before the worker exits, so the event is lost without a word. The scoped client flushes
+        # when the context exits. A run emits at most one event, so the client is opened once.
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=f"user_interview:{interviewee_context.id}",
+                event=event,
+                properties=properties,
+                timestamp=received_at,
+                groups=groups(organization=sharing_config.team.organization, team=sharing_config.team),
+            )
     except Exception:
         logger.exception(
             "user_interviews_event_capture_failed",

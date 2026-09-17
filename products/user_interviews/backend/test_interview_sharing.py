@@ -771,9 +771,10 @@ class TestVapiWebhook(APIBaseTest):
         self.assertLess(locks[0], inserts[0])
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.vapi_events.posthoganalytics.capture")
+    @patch("products.user_interviews.backend.vapi_events.ph_scoped_capture")
     @patch("products.user_interviews.backend.tasks.tasks.handle_vapi_webhook.delay")
-    def test_lifecycle_event_carries_the_delivery_time_not_the_run_time(self, mock_delay, mock_capture):
+    def test_lifecycle_event_carries_the_delivery_time_not_the_run_time(self, mock_delay, mock_scoped_capture):
+        mock_capture = mock_scoped_capture.return_value.__enter__.return_value
         share = self._create_share()
         self.client.logout()
         received_at = datetime.datetime(2026, 5, 14, 12, 0, tzinfo=datetime.UTC)
@@ -917,8 +918,9 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(UserInterview.objects.count(), 0)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.vapi_events.posthoganalytics.capture")
-    def test_webhook_status_update_in_progress_captures_started_event(self, mock_capture):
+    @patch("products.user_interviews.backend.vapi_events.ph_scoped_capture")
+    def test_webhook_status_update_in_progress_captures_started_event(self, mock_scoped_capture):
+        mock_capture = mock_scoped_capture.return_value.__enter__.return_value
         share = self._create_share()
         self.client.logout()
         response = self._signed_post(
@@ -944,12 +946,13 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(kwargs["properties"]["call_id"], "call_xyz")
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.vapi_events.posthoganalytics.capture")
-    def test_webhook_status_update_duplicate_in_progress_emits_same_insert_id(self, mock_capture):
+    @patch("products.user_interviews.backend.vapi_events.ph_scoped_capture")
+    def test_webhook_status_update_duplicate_in_progress_emits_same_insert_id(self, mock_scoped_capture):
         # Vapi re-fires `status-update / in-progress` on transient drops + warm-transfer flows.
         # We tag every started event with `$insert_id` = "user_interview_conversation_started:<call_id>"
         # so PostHog dedupes the second delivery at ingest. Both captures fire here (we don't
         # de-dup client-side); the contract is that they share an insert_id.
+        mock_capture = mock_scoped_capture.return_value.__enter__.return_value
         share = self._create_share()
         self.client.logout()
         payload = {
@@ -967,8 +970,9 @@ class TestVapiWebhook(APIBaseTest):
 
     @parameterized.expand([("ringing",), ("ended",), ("queued",), ("forwarding",), ("scheduled",)])
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.vapi_events.posthoganalytics.capture")
-    def test_webhook_status_update_other_statuses_do_not_capture(self, call_status: str, mock_capture):
+    @patch("products.user_interviews.backend.vapi_events.ph_scoped_capture")
+    def test_webhook_status_update_other_statuses_do_not_capture(self, call_status: str, mock_scoped_capture):
+        mock_capture = mock_scoped_capture.return_value.__enter__.return_value
         share = self._create_share()
         self.client.logout()
         response = self._signed_post(
@@ -985,8 +989,9 @@ class TestVapiWebhook(APIBaseTest):
         mock_capture.assert_not_called()
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.vapi_events.posthoganalytics.capture")
-    def test_webhook_end_of_call_report_captures_ended_event(self, mock_capture):
+    @patch("products.user_interviews.backend.vapi_events.ph_scoped_capture")
+    def test_webhook_end_of_call_report_captures_ended_event(self, mock_scoped_capture):
+        mock_capture = mock_scoped_capture.return_value.__enter__.return_value
         share = self._create_share()
         self.client.logout()
         response = self._signed_post("topsecret", self._end_of_call_payload(share.access_token))
