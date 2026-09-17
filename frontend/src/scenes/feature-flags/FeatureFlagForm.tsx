@@ -649,8 +649,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                         <>
                                                             Filters which SDKs receive this flag. It is not an access
                                                             control: anyone with your public project API key can request
-                                                            any flag. To keep a value away from clients, use server-side
-                                                            local evaluation or remote config.{' '}
+                                                            any flag. To keep a value away from clients, use a remote
+                                                            config flag and encrypt the payload. Only a personal API key
+                                                            can read it.{' '}
                                                             <Link
                                                                 to="https://posthog.com/docs/feature-flags/creating-feature-flags#step-5-configure-evaluation-runtime-and-environments-optional"
                                                                 target="_blank"

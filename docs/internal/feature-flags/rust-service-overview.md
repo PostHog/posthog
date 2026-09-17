@@ -187,7 +187,10 @@ Do not build an access decision on it, in this service or in a caller.
 `override_flags_definitions` in the same struct shows the shape a real restriction takes.
 `handler::mod` reads it only when `authentication::is_internal_request` passes, and drops it otherwise.
 A control on a public endpoint needs a credential the caller cannot mint.
-The two that exist for flag data are server-side local evaluation and remote config, both behind the project secret API key.
+Server-side local evaluation is one: `/flags/definitions` needs the project secret token or a personal API key, so flag definitions never travel under the public key.
+Remote config is one only when the payload is encrypted.
+`flags::feature_flag_list` drops a flag from the `/flags` list only when `is_remote_configuration` and `has_encrypted_payloads` are both true, so a plaintext remote config payload still travels under the public project API key.
+Reading an encrypted payload back needs a personal API key: `api::remote_config` sets `should_decrypt: false` for a project secret key and substitutes `REDACTED_PAYLOAD_VALUE`.
 
 #### GeoIP enrichment of `person_properties`
 
