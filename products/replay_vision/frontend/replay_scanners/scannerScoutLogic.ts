@@ -816,9 +816,9 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                             }
                         }
                     }
-                    const created = { config: config! }
-                    const named = await applyDisplayName(created.config, form.name)
-                    const delivered = await reconcileDelivery(created.config, form)
+                    const created = config!
+                    const named = await applyDisplayName(created, form.name)
+                    const delivered = await reconcileDelivery(created, form)
                     lemonToast.success(
                         delivered && named
                             ? 'Scout created. Its first report arrives after the next scheduled run.'
