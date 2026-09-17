@@ -350,6 +350,14 @@ class TestComparisonTeamChoice(SimpleTestCase):
                 Basis.PULL_REQUEST,
             ),
             (
+                "every_team_the_focus_pull_request_asked_stays",
+                {"team-a", "team-b", "team-c"},
+                {"team-a": 5, "team-b": 1},
+                {"team-a", "team-b"},
+                ["team-a", "team-b"],
+                Basis.PULL_REQUEST,
+            ),
+            (
                 "the_most_requested_team_wins",
                 {"team-a", "team-b"},
                 {"team-a": 1, "team-b": 4},

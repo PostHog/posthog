@@ -1687,7 +1687,7 @@ class ComparisonTeamBasis(StrEnum):
     with evidence of owning code (the ownership census or a review request), or every team of an author
     without such a team."""
 
-    # The pull request in focus asked one of the author's teams to review.
+    # The pull request in focus asked these teams of the author's to review.
     PULL_REQUEST = "pull_request"
     # The author's team that the author's pull requests asked to review most often in the window. Ties
     # keep every tied team.

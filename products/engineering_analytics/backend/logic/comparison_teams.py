@@ -42,7 +42,7 @@ def choose_comparison_teams(
         return TeamChoice(teams=ranked, basis=ComparisonTeamBasis.ONLY_TEAM)
     focus = [team for team in ranked if team in focus_requested]
     if focus:
-        return TeamChoice(teams=_most_requested(focus, requested_prs), basis=ComparisonTeamBasis.PULL_REQUEST)
+        return TeamChoice(teams=focus, basis=ComparisonTeamBasis.PULL_REQUEST)
     requested = [team for team in ranked if requested_prs.get(team)]
     if requested:
         return TeamChoice(teams=_most_requested(requested, requested_prs), basis=ComparisonTeamBasis.REVIEW_REQUESTS)

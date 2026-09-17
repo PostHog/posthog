@@ -475,7 +475,7 @@ def _synced_tables_by_repo(*, team: Team, source: ExternalDataSource) -> dict[st
     """
     legacy_repo = _source_repository(source) or None
     by_repo: dict[str, dict[str, str]] = {}
-    team_request_repos: set[str] = set()
+    team_requests_by_repo: dict[str, bool] = {}
     for schema in _synced_schemas(team=team, source=source):
         repository, endpoint = github_schema_repo_endpoint(schema.schema_metadata, schema.name, legacy_repo)
         if endpoint not in _CURATED_ENDPOINTS:
@@ -483,9 +483,10 @@ def _synced_tables_by_repo(*, team: Team, source: ExternalDataSource) -> dict[st
         table = schema.table
         if table is not None and not table.deleted and _IDENTIFIER.match(table.name):
             by_repo.setdefault(repository or "", {})[endpoint] = table.name
-            if endpoint == ISSUE_EVENTS_SCHEMA and REQUESTED_TEAM_COLUMN in (table.columns or {}):
-                team_request_repos.add(repository or "")
+            # Set together with the table name, so a later schema row for the same endpoint replaces both.
+            if endpoint == ISSUE_EVENTS_SCHEMA:
+                team_requests_by_repo[repository or ""] = REQUESTED_TEAM_COLUMN in (table.columns or {})
     return {
-        repository: _RepoTables(names=names, issue_events_team_requests=repository in team_request_repos)
+        repository: _RepoTables(names=names, issue_events_team_requests=team_requests_by_repo.get(repository, False))
         for repository, names in by_repo.items()
     }
