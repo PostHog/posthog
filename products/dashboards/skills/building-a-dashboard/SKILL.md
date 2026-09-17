@@ -59,10 +59,10 @@ Prefer reusing existing insights over recreating them.
   that hierarchy.
 - Reflow: use `dashboard-reorder-tiles` only when the user explicitly asks to reorder tiles or make every tile the
   same size. Its layout modes give every tile a uniform box. For mixed widths or heights, use `dashboard-update`.
-- Tile sizes: send `tiles` through `dashboard-update` with each tile's `id` and one or both layout boxes. A layout update
-  changes only the submitted breakpoint. For example, `layouts.xs` preserves the stored `layouts.sm` box. Send a complete
-  `layouts.sm` box when a tile has no desktop placement. The API stores only `x`, `y`, `w`, and `h`. It does not resolve
-  overlaps, so plan the grid before you send it.
+- Tile sizes: send `tiles` through `dashboard-update` with each tile's `id` and a complete `layouts.sm` box. `sm` is
+  required whenever you send `layouts`, because a write replaces the tile's whole layout. `sm` controls desktop
+  placement, and the dashboard derives the mobile layout from the `sm` order and heights, so set only `sm`. The API
+  stores only `x`, `y`, `w`, and `h`. It does not resolve overlaps, so plan the grid before you send it.
 - Verify with `dashboard-insights-run` to confirm the tiles return data, then summarize what you built and invite the
   user to refine it.
 
