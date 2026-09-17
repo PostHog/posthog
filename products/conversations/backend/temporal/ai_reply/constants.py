@@ -28,7 +28,7 @@ SUGGEST_THRESHOLD = 0.5
 
 DRAFT_VERDICTS = ("answerable", "blocked_on_customer", "blocked_on_knowledge", "out_of_scope")
 VALIDATE_BLOCKERS = ("none", "customer_info", "knowledge", "contradiction")
-RERANK_TOP_K = 5
+RERANK_TOP_K = 8
 # Ticket types whose replies may ever be published to the (untrusted) ticket author.
 # diagnostic/account_billing draw on project data and must stay private regardless of settings.
 PUBLISHABLE_TICKET_TYPES = {"how_to"}

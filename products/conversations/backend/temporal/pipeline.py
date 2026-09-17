@@ -349,8 +349,8 @@ class SupportReplyWorkflow:
                 )
 
                 # Don't short-circuit on empty in-process retrieval — the draft agent has
-                # read-only MCP tools (PostHog docs via docs-search, the team's business
-                # knowledge) and can find sources itself. Seed chunks are just a head start.
+                # read-only MCP tools (team business knowledge, and docs-search when this
+                # team uses PostHog docs) and can find sources itself. Seed chunks are a head start.
                 if not retrieve_output.chunk_ids:
                     workflow.logger.info("support_reply: no seed chunks; drafting via MCP tools only")
 
@@ -371,6 +371,8 @@ class SupportReplyWorkflow:
                             diagnostics_allowed=ctx_output.diagnostics_allowed,
                             auto_publishable=auto_publishable,
                             clarification_round=input.clarification_round,
+                            docs_source=ctx_output.docs_source,
+                            custom_instructions=ctx_output.custom_instructions,
                         ),
                         start_to_close_timeout=timedelta(minutes=20),
                         retry_policy=RetryPolicy(maximum_attempts=2),
@@ -798,6 +800,16 @@ class SupportReplyWorkflow:
                         "llm_calls": llm_calls,
                     },
                 }
+                if last_draft is not None:
+                    last_draft = coerce_dataclass(DraftOutput, last_draft)
+                    if last_draft.playbook_content_hash:
+                        triage_patch["playbook"] = {
+                            "layers": list(last_draft.playbook_layers),
+                            "default_version": last_draft.playbook_default_version,
+                            "posthog_overlay_version": last_draft.playbook_posthog_overlay_version,
+                            "content_hash": last_draft.playbook_content_hash,
+                            "warnings": list(last_draft.playbook_warnings),
+                        }
                 followup_reopen = input.clarification_round >= 1
                 if followup_reopen:
                     triage_patch["clear_clarification"] = True

@@ -48,6 +48,10 @@ def _build_context_sync(team_id: int, ticket_id: str, clarification_round: int =
 
     settings_dict = team.conversations_settings or {}
     diagnostics_allowed = bool(settings_dict.get("ai_diagnostics_enabled", False))
+    raw_docs_source = settings_dict.get("docs_source")
+    docs_source = raw_docs_source if isinstance(raw_docs_source, str) else ""
+    raw_custom = settings_dict.get("ai_reply_custom_instructions")
+    custom_instructions = raw_custom if isinstance(raw_custom, str) else ""
 
     auto_publish_ticket_types = [
         tt for tt in PUBLISHABLE_TICKET_TYPES if channel_allows_bot_reply(ticket=ticket, ticket_type=tt)
@@ -67,4 +71,6 @@ def _build_context_sync(team_id: int, ticket_id: str, clarification_round: int =
         prior_ticket_type=prior_ticket_type or "",
         prior_needs_diagnostics=prior_needs_diagnostics,
         followup_cancelled=followup_cancelled,
+        docs_source=docs_source,
+        custom_instructions=custom_instructions,
     )

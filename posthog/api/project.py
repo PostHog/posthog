@@ -651,6 +651,10 @@ class ProjectBackwardCompatSerializer(
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
             validate_authorized_url_wildcards(value["widget_domains"])
+        from products.conversations.backend.api.ai_reply_playbook import validate_playbook_conversations_settings
+
+        existing = getattr(self.instance, "conversations_settings", None) if self.instance is not None else None
+        validate_playbook_conversations_settings(value, existing=existing if isinstance(existing, dict) else None)
         return value
 
     class Meta:

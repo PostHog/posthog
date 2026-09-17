@@ -804,6 +804,8 @@ export interface ConversationsSettings {
     ai_diagnostics_enabled?: boolean
     ai_resolution_channels?: string[] | null
     ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
+    ai_reply_custom_instructions?: string | null
+    docs_source?: 'posthog' | null
 }
 
 export interface LogsSettings {

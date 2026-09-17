@@ -14,6 +14,7 @@ import { SlackChannelType, UserBasicType } from '~/types'
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import { TicketChannel } from '../../types'
+import type { SupportPlaybook } from '../../types'
 
 const BASE_AI_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack']
 
@@ -71,6 +72,13 @@ export interface supportSettingsLogicValues {
     aiResolutionChannels: TicketChannel[]
     aiSuggestionsEnabled: boolean
     aiSuggestionsLoading: boolean
+    playbook: SupportPlaybook | null
+    playbookLoading: boolean
+    playbookDraft: string
+    playbookSaving: boolean
+    playbookError: string | null
+    playbookDirty: boolean
+    aiReplyCustomized: boolean
     conversationsDomains: string[]
     conversationsEnabledLoading: boolean
     domainInputValue: string
@@ -395,6 +403,33 @@ export interface supportSettingsLogicActions {
     saveSlackTicketEmoji: () => {
         value: true
     }
+    savePlaybook: () => {
+        value: true
+    }
+    resetPlaybook: () => {
+        value: true
+    }
+    setPlaybookDraft: (value: string) => {
+        value: string
+    }
+    setPlaybookSaving: (saving: boolean) => {
+        saving: boolean
+    }
+    loadPlaybook: () => any
+    loadPlaybookFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPlaybookSuccess: (
+        playbook: SupportPlaybook | null,
+        payload?: any
+    ) => {
+        playbook: SupportPlaybook | null
+        payload?: any
+    }
     sendTestEmail: (configId: string) => {
         configId: string
     }
@@ -573,6 +608,8 @@ export interface supportSettingsLogicMeta {
         aiReplyModes: (
             currentTeam: TeamPublicType | TeamType | null
         ) => Record<string, Record<string, 'bot_reply' | 'private_note'>>
+        playbookDirty: (playbookDraft: string, playbook: SupportPlaybook | null) => boolean
+        aiReplyCustomized: (currentTeam: TeamPublicType | TeamType | null, playbook: SupportPlaybook | null) => boolean
     }
 }
 
@@ -589,7 +626,13 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         values: [teamLogic, ['currentTeam', 'currentTeamLoading'], featureFlagLogic, ['featureFlags']],
         actions: [
             teamLogic,
-            ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'updateCurrentTeamFailure', 'loadCurrentTeam'],
+            [
+                'updateCurrentTeam',
+                'updateCurrentTeamSuccess',
+                'updateCurrentTeamFailure',
+                'loadCurrentTeam',
+                'loadCurrentTeamSuccess',
+            ],
         ],
     })),
     actions({
@@ -684,6 +727,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             ticketType,
             mode,
         }),
+        setPlaybookDraft: (value: string) => ({ value }),
+        setPlaybookSaving: (saving: boolean) => ({ saving }),
+        savePlaybook: true,
+        resetPlaybook: true,
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -880,6 +927,27 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 updateCurrentTeamFailure: () => false,
             },
         ],
+        playbookDraft: [
+            '',
+            {
+                setPlaybookDraft: (_, { value }) => value,
+                loadPlaybookSuccess: (_, { playbook }) => playbook?.custom_instructions ?? '',
+            },
+        ],
+        playbookSaving: [
+            false,
+            {
+                setPlaybookSaving: (_, { saving }) => saving,
+            },
+        ],
+        playbookError: [
+            null as string | null,
+            {
+                loadPlaybookSuccess: () => null,
+                loadPlaybookFailure: () =>
+                    "Couldn't load the support playbook. Refresh the page, and if it keeps happening contact support.",
+            },
+        ],
         slackTicketEmojiValue: [
             null as string | null,
             {
@@ -930,6 +998,19 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                         lemonToast.error('Failed to load GitHub repositories')
                         return values.githubRepos
                     }
+                },
+            },
+        ],
+        playbook: [
+            null as SupportPlaybook | null,
+            {
+                loadPlaybook: async () => {
+                    const teamId = values.currentTeam?.id
+                    if (!teamId) {
+                        return null
+                    }
+                    // nosemgrep: prefer-codegen-api
+                    return await api.get<SupportPlaybook>(`api/projects/${teamId}/conversations/ai_reply_playbook/`)
                 },
             },
         ],
@@ -1196,8 +1277,27 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 return currentTeam?.conversations_settings?.ai_reply_modes ?? {}
             },
         ],
+        aiReplyCustomized: [
+            (s) => [s.currentTeam, s.playbook],
+            (
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
+                playbook: SupportPlaybook | null
+            ): boolean => {
+                if (playbook) {
+                    return !!playbook.is_customized
+                }
+                const saved = currentTeam?.conversations_settings?.ai_reply_custom_instructions
+                return typeof saved === 'string' && saved.trim().length > 0
+            },
+        ],
+        playbookDirty: [
+            (s) => [s.playbookDraft, s.playbook],
+            (playbookDraft: string, playbook: SupportPlaybook | null): boolean => {
+                return playbookDraft !== (playbook?.custom_instructions ?? '')
+            },
+        ],
     }),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         connectSlack: async ({ nextPath }) => {
             const query = encodeURIComponent(nextPath)
             // nosemgrep: prefer-codegen-api
@@ -1625,6 +1725,41 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 },
             })
         },
+        savePlaybook: () => {
+            if (values.playbookSaving || cache.savingPlaybook) {
+                return
+            }
+            const trimmed = values.playbookDraft.trim()
+            const next = trimmed || null
+            cache.savingPlaybook = true
+            actions.setPlaybookSaving(true)
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ai_reply_custom_instructions: next,
+                },
+            })
+        },
+        resetPlaybook: () => {
+            if (values.playbookSaving || cache.savingPlaybook) {
+                return
+            }
+            cache.savingPlaybook = true
+            actions.setPlaybookSaving(true)
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ai_reply_custom_instructions: null,
+                },
+            })
+        },
+        updateCurrentTeamFailure: () => {
+            if (cache.savingPlaybook) {
+                cache.savingPlaybook = false
+                actions.setPlaybookSaving(false)
+                lemonToast.error("Couldn't save the support playbook. Try again.")
+            }
+        },
         connectGithub: async ({ integrationId }) => {
             try {
                 // nosemgrep: prefer-codegen-api
@@ -1655,7 +1790,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.error('Failed to save repository selection')
             }
         },
-        updateCurrentTeamSuccess: ({ payload }) => {
+        loadCurrentTeamSuccess: () => {
+            // The initial afterMount load returns null when the team isn't ready yet (cold
+            // navigation). Backfill once the team arrives so the editor doesn't stay empty.
+            if (!values.playbook && !values.playbookLoading) {
+                actions.loadPlaybook()
+            }
+        },
+        updateCurrentTeamSuccess: ({ currentTeam, payload }) => {
             actions.setGreetingInputValue(null)
             actions.setIdentificationFormTitleValue(null)
             actions.setIdentificationFormDescriptionValue(null)
@@ -1663,6 +1805,17 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.setSlackTicketEmojiValue(null)
             actions.setSlackBotIconUrlValue(null)
             actions.setSlackBotDisplayNameValue(null)
+            if (cache.savingPlaybook) {
+                cache.savingPlaybook = false
+                actions.setPlaybookSaving(false)
+                const custom = currentTeam?.conversations_settings?.ai_reply_custom_instructions
+                lemonToast.success(
+                    typeof custom === 'string' && custom.trim()
+                        ? 'Support playbook saved'
+                        : 'Reset to default instructions'
+                )
+                actions.loadPlaybook()
+            }
             if (payload?.conversations_enabled) {
                 const storedSource = sessionStorage.getItem('support_activation_source')
                 const source = storedSource ? JSON.parse(storedSource) : { source: 'support_settings' }
@@ -1693,5 +1846,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         if (values.githubConnected) {
             actions.loadGithubRepos()
         }
+        actions.loadPlaybook()
     }),
 ])

@@ -429,4 +429,12 @@ describe('RequestStateResolver MCP client contexts', () => {
                 : expect.not.arrayContaining([...TASKS_CONTEXT_TOOL_NAMES])
         )
     })
+
+    it('merges request excludeTools into catalog filter options', async () => {
+        const { resolver, getFilteredTools } = makeResolverWithCatalog()
+
+        await resolver.resolve(makeProps({ excludeTools: ['docs-search'] }))
+
+        expect(getFilteredTools.mock.calls[0]?.[0]?.excludeTools).toEqual(expect.arrayContaining(['docs-search']))
+    })
 })

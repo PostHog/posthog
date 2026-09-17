@@ -11,6 +11,16 @@ import { TeamType } from '~/types'
 
 import { aiAllChannelsForFeatureFlags, supportSettingsLogic } from './supportSettingsLogic'
 
+const PLAYBOOK_GET = {
+    inherited_instructions: 'Default playbook.',
+    custom_instructions: null,
+    is_customized: false,
+    default_version: 1,
+    posthog_overlay_version: null,
+    docs_source: null,
+    max_chars: 8000,
+}
+
 describe('supportSettingsLogic', () => {
     let logic: ReturnType<typeof supportSettingsLogic.build>
 
@@ -18,6 +28,7 @@ describe('supportSettingsLogic', () => {
         useMocks({
             get: {
                 '/api/conversations/v1/email/status': { configs: [] },
+                '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
             },
             post: {
                 '/api/environments/:team_id/': async ({ request }) => [200, await request.json()],
@@ -71,6 +82,7 @@ describe('supportSettingsLogic', () => {
             useMocks({
                 get: {
                     '/api/conversations/v1/email/status': { configs: [] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
                 },
                 post: {
                     '/api/conversations/v1/email/connect': () => [400, body],
@@ -343,6 +355,7 @@ describe('supportSettingsLogic', () => {
             useMocks({
                 get: {
                     '/api/conversations/v1/email/status': { configs: [] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
                 },
                 post: {
                     '/api/environments/:team_id/': async ({ request }) => [200, await request.json()],
@@ -377,6 +390,114 @@ describe('supportSettingsLogic', () => {
             } as unknown as TeamType)
 
             expect(logic.values.teamsChannelPairs).toEqual(updatedChannels)
+        })
+    })
+
+    describe('support playbook', () => {
+        it('loads the inherited playbook on mount', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.playbook).toEqual(PLAYBOOK_GET)
+            expect(logic.values.playbookDraft).toBe('')
+            expect(logic.values.aiReplyCustomized).toBe(false)
+        })
+
+        it('loads a custom addendum into the draft without the default playbook', async () => {
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': { configs: [] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': {
+                        ...PLAYBOOK_GET,
+                        custom_instructions: 'Always greet first.',
+                        is_customized: true,
+                    },
+                },
+            })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.playbookDraft).toBe('Always greet first.')
+            expect(logic.values.aiReplyCustomized).toBe(true)
+            expect(logic.values.playbookDirty).toBe(false)
+        })
+
+        it('saves custom instructions and ignores a second submit while in flight', async () => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setPlaybookDraft('Always greet first.')
+
+            await expectLogic(logic, () => {
+                logic.actions.savePlaybook()
+            })
+                .toDispatchActions(['setPlaybookSaving', 'updateCurrentTeam'])
+                .toMatchValues({ playbookSaving: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.savePlaybook()
+            }).toNotHaveDispatchedActions(['updateCurrentTeam'])
+        })
+
+        it('resets by PATCHing null custom instructions', async () => {
+            initKeaTests(true, {
+                conversations_settings: { ai_reply_custom_instructions: 'Always greet first.' },
+            } as unknown as TeamType)
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetPlaybook()
+            }).toDispatchActions(['setPlaybookSaving', 'updateCurrentTeam'])
+        })
+
+        it('toasts and reloads after a successful playbook save', async () => {
+            const successToastSpy = jest.spyOn(lemonToast, 'success').mockImplementation((() => '') as any)
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.cache.savingPlaybook = true
+            logic.actions.setPlaybookSaving(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.updateCurrentTeamSuccess({
+                    conversations_settings: { ai_reply_custom_instructions: 'Always greet first.' },
+                } as unknown as TeamType)
+            }).toDispatchActions(['loadPlaybook'])
+
+            expect(successToastSpy).toHaveBeenCalledWith('Support playbook saved')
+            expect(logic.values.playbookSaving).toBe(false)
+            successToastSpy.mockRestore()
+        })
+
+        it('does not treat an unrelated team update as a playbook save', async () => {
+            const successToastSpy = jest.spyOn(lemonToast, 'success').mockImplementation((() => '') as any)
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setPlaybookSaving(true)
+
+            logic.actions.updateCurrentTeamSuccess({} as TeamType)
+
+            expect(successToastSpy).not.toHaveBeenCalledWith('Support playbook saved')
+            expect(logic.values.playbookSaving).toBe(true)
+            successToastSpy.mockRestore()
+        })
+
+        it('toasts on playbook save failure', async () => {
+            const errorToastSpy = jest.spyOn(lemonToast, 'error').mockImplementation((() => '') as any)
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.cache.savingPlaybook = true
+            logic.actions.setPlaybookSaving(true)
+
+            logic.actions.updateCurrentTeamFailure('update failed')
+            expect(errorToastSpy).toHaveBeenCalledWith("Couldn't save the support playbook. Try again.")
+            expect(logic.cache.savingPlaybook).toBe(false)
+            expect(logic.values.playbookSaving).toBe(false)
+            errorToastSpy.mockRestore()
         })
     })
 })
