@@ -146,12 +146,14 @@ function cancelScheduledAnalysis() {
 
 function scheduleAnalysis() {
     cancelScheduledAnalysis()
-    if (!byId('auto-analyze').checked || composing || !editor.value.trim()) {
+    if (!byId('auto-analyze').checked || composing) {
         return
     }
     analysisTimer = setTimeout(() => {
         analysisTimer = null
-        validate()
+        if (editor.value.trim()) {
+            validate()
+        }
         complete()
     }, 300)
 }

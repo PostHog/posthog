@@ -478,11 +478,7 @@ export default function NewTaskScreen() {
     return (
       <View className="flex-1 bg-background">
         <View style={{ paddingTop: insets.top + 56 }} className="flex-1">
-          <GitHubConnectionPrompt
-            onConnected={refetch}
-            title="Connect GitHub to continue"
-            description="You need to connect your GitHub account before creating tasks. This allows PostHog to work on your repositories."
-          />
+          <GitHubConnectionPrompt onConnected={refetch} />
         </View>
       </View>
     );

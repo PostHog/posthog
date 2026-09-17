@@ -194,8 +194,6 @@ django.HttpRequest products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data
 django.HttpRequest products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane_status facade-accepts(request) 1
 django.HttpResponse products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane facade-returns 1
 django.HttpResponse products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane_status facade-returns 1
-django.HttpResponse products.tasks.backend.facade.webhooks.handle_pull_request_event facade-returns 1
-django.HttpResponse products.tasks.backend.facade.webhooks.handle_pull_request_review_event facade-returns 1
 django.HttpResponseBase products.exports.backend.facade.api.get_export_asset_content_response facade-returns 1
 django.JsonResponse products.notebooks.backend.facade.sql_v2.notebook_sql_v2_callback facade-returns 1
 django.JsonResponse products.tasks.backend.facade.agent_proxy.agent_proxy_callback facade-returns 1

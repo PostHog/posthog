@@ -341,6 +341,7 @@ class RunState(BaseModel, extra="allow"):
     fast_mode: bool | None = None
     claude_model_access: Literal["posthog-gateway", "own-subscription"] | None = None
     resume_from_run_id: str | None = None
+    resume_from_import_run: bool = False
     same_run_resume: bool = False
     same_run_resume_idle: bool = False
     snapshot_external_id: str | None = None

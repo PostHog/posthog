@@ -7,7 +7,7 @@ import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import type { TrendsFilter } from '~/queries/schema/schema-general'
+import type { RetentionFilter, TrendsFilter } from '~/queries/schema/schema-general'
 import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
@@ -280,9 +280,20 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
     if (showAlertThresholdLinesConfig && !isBoxPlot) {
         overlayItems.push(DisplayOptions.AlertThresholdLines)
     }
+    if (isRetention && isLineChartInsight) {
+        overlayItems.push(DisplayOptions.RetentionMeanLine)
+    }
     const linesSections: DisplayOptionSection[] = []
     if (styleItems.length > 0) {
         linesSections.push({ key: 'style', title: 'Style', items: styleItems })
+    }
+    if (isRetention && isLineChartInsight) {
+        linesSections.push({
+            key: 'retention-series-colors',
+            title: 'Cohort line colors',
+            tooltip: 'One shade draws every cohort in the same color, with the newest cohort the most solid.',
+            items: [DisplayOptions.RetentionSeriesColorMode],
+        })
     }
     if (overlayItems.length > 0) {
         linesSections.push({
@@ -322,7 +333,11 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         showTrendLinesConfig && !isBoxPlot && (insightFilter as TrendsFilter | undefined)?.showTrendLines,
         showStatisticalOverlays && showMovingAverage,
         showStatisticalOverlays && showConfidenceIntervals,
-        showAlertThresholdLinesConfig && !isBoxPlot && showAlertThresholdLines
+        showAlertThresholdLinesConfig && !isBoxPlot && showAlertThresholdLines,
+        isRetention &&
+            isLineChartInsight &&
+            (insightFilter as TrendsFilter | undefined)?.chartStyle?.seriesColorMode === 'opacity',
+        isRetention && isLineChartInsight && (insightFilter as RetentionFilter | undefined)?.showMeanLine
     )
 
     const allTabs: DisplayOptionTab[] = [
