@@ -1536,8 +1536,11 @@ def _backfill_thread_replies(
     )
 
 
-# Must stay in step with ticket_deep_link, which writes the URLs this matches.
-_TICKET_URL_PATH_RE = re.compile(r"^/project/(?P<project_id>\d+)/support/tickets/(?P<ticket_number>\d+)/?$")
+# Must stay in step with ticket_deep_link, which writes the URLs this matches. The digit bounds
+# are load-bearing: this runs on any pasted link before the gates below, and int() raises above
+# 4300 digits, so \d+ would let a crafted URL raise and leave a retried event behind. Ten digits
+# covers everything the ticket_number column can hold.
+_TICKET_URL_PATH_RE = re.compile(r"^/project/(?P<project_id>\d{1,10})/support/tickets/(?P<ticket_number>\d{1,10})/?$")
 
 # Anything that puts someone outside this workspace in the room: Slack Connect, an invitation
 # to it, Enterprise Grid cross-workspace sharing, and direct messages. A DM cannot reach us

@@ -1656,6 +1656,13 @@ class TestTicketLinkUnfurl(BaseTest):
     def test_our_own_ticket_url_resolves(self):
         assert ticket_number_from_url(self.url, self.team) == self.ticket.ticket_number
 
+    def test_an_absurdly_long_number_is_not_a_ticket(self):
+        # int() raises above 4300 digits, and this runs ahead of the gates, so a crafted link
+        # has to resolve to nothing rather than raise and leave a retried event behind.
+        url = f"{settings.SITE_URL}/project/{self.team.id}/support/tickets/{'9' * 5000}"
+
+        assert ticket_number_from_url(url, self.team) is None
+
     def test_host_match_ignores_case(self):
         # Hosts are case-insensitive, so a typed-out host is still our own link.
         scheme, _, rest = self.url.partition("://")
