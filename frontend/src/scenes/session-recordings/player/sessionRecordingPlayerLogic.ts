@@ -3645,7 +3645,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
     })),
 
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, cache }) => ({
         hasOversizedMutations: (detected: boolean) => {
             if (detected) {
                 posthog.capture('recording player skipped oversized mutations', {
@@ -3697,6 +3697,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (values.pauseForced) {
                     actions.setPause()
                 }
+            }
+            // The backoff and the retry threshold must measure the wait the viewer sees, and other
+            // states outrank BUFFER in this selector: the player is READY while the metadata loads,
+            // and a scrub shows the play state instead. A cadence that ran through such a stretch
+            // restarts from the shortest delay here, so the overlay gets its first re-evaluation one
+            // second after it appears. The flag keeps this a restart of a running cadence rather than
+            // a second way to arm one.
+            if (value === SessionPlayerState.BUFFER && cache.bufferingReevaluationArmed) {
+                actions.armBufferingReevaluation(0)
             }
             // Update tracking state whenever player state changes
             actions.updatePlayerTimeTracking()

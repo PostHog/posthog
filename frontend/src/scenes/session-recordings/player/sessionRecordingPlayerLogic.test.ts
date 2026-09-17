@@ -15,7 +15,7 @@ import { makeLogger } from 'scenes/session-recordings/player/utils/player-loggin
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { ExporterFormat, RecordingSegment, RecordingSnapshot } from '~/types'
+import { ExporterFormat, RecordingSegment, RecordingSnapshot, SessionPlayerState } from '~/types'
 
 import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analysisNudgeLogic'
 import { isUsableHeatmapUrl } from 'products/web_analytics/frontend/heatmaps/replayIframeData'
@@ -1008,6 +1008,41 @@ describe('sessionRecordingPlayerLogic', () => {
                 // long enough for several backing-off re-evaluations, far short of a flat safety interval
                 jest.advanceTimersByTime(6000)
 
+                expect(logic.values.isBuffering).toBe(true)
+                expect(logic.values.isBufferingStalled).toBe(true)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('measures the retry delay from the buffering overlay, not from an earlier hidden wait', () => {
+            // The cadence can run while another state outranks BUFFER, so the overlay is not on
+            // screen. That stretch must not consume the delays, or the retry action appears at the
+            // same moment as the overlay and the next re-evaluation is seconds away.
+            jest.useFakeTimers()
+            try {
+                seedRecording(null, [inc(START + 61000), inc(START + 62000)])
+                logic.actions.setPause()
+                logic.actions.seekToTimestamp(START + 61500)
+                expect(logic.values.isBuffering).toBe(true)
+
+                // re-arm the cadence on the fake clock, since mount armed it on the real one
+                logic.actions.endBuffer()
+                logic.actions.startBuffer()
+
+                // scrubbing shows the play state, so the viewer waits without a buffering overlay
+                logic.actions.startScrub()
+                jest.advanceTimersByTime(6000)
+                expect(logic.values.currentPlayerState).not.toBe(SessionPlayerState.BUFFER)
+                expect(logic.values.isBufferingStalled).toBe(true)
+
+                // the overlay appears now, so its own five seconds start here
+                logic.actions.endScrub()
+                expect(logic.values.currentPlayerState).toBe(SessionPlayerState.BUFFER)
+                expect(logic.values.isBufferingStalled).toBe(false)
+
+                // and the restarted cadence still reaches the retry action
+                jest.advanceTimersByTime(6000)
                 expect(logic.values.isBuffering).toBe(true)
                 expect(logic.values.isBufferingStalled).toBe(true)
             } finally {
