@@ -689,8 +689,11 @@ describe('notebook cell tools', () => {
             expect(inserted).toContain(`nodeId="${result.node_id}"`)
         })
 
-        it('re-locates the paragraph by its text when the read offsets no longer fit', async () => {
-            const state = makeState(DOC)
+        it.each([
+            { label: 'LF', doc: DOC },
+            { label: 'CRLF', doc: DOC.replaceAll('\n', '\r\n') },
+        ])('re-locates the paragraph by its text in a $label document', async ({ doc }) => {
+            const state = makeState(doc)
             // An edit above the anchor shifts every later span, so the offsets the caller read
             // point into the wrong place while the block itself is untouched.
             state.stateCells = [{ ...FIRST, start: FIRST.start + 12, end: FIRST.end + 12 }]
@@ -704,9 +707,8 @@ describe('notebook cell tools', () => {
             })
 
             const inserted = state.saveBodies[0].content.content[0].attrs.markdown
-            expect(inserted).toBe(
-                `# Doc\n\n\nFirst paragraph.\n\n\n<!--ph:${result.node_id}-->\nInserted note.\n\n\nSecond paragraph.\n`
-            )
+            const [before, after] = doc.split(/(?<=First paragraph\.)[\r\n]+/)
+            expect(inserted).toBe(`${before}\n\n\n<!--ph:${result.node_id}-->\nInserted note.\n\n\n${after}`)
         })
 
         it.each([
