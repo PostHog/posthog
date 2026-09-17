@@ -334,10 +334,10 @@ export interface llmPromptLogicActions {
         errorObject?: any
     }
     loadResolvedPreviewSuccess: (
-        resolvedPreview: LLMPromptPublicApi | null,
+        resolvedPreview: LLMPromptPublicApi,
         payload?: any
     ) => {
-        resolvedPreview: LLMPromptPublicApi | null
+        resolvedPreview: LLMPromptPublicApi
         payload?: any
     }
     openLabelPicker: (version: number) => {
@@ -604,6 +604,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 toggleResolvedPreview: (state: boolean) => !state,
                 setMode: () => false,
                 loadPromptSuccess: () => false,
+                // A failed resolution must not present the raw source as resolved content.
+                loadResolvedPreviewFailure: () => false,
             },
         ],
         isRenderingMarkdown: [
@@ -713,18 +715,13 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         resolvedPreview: {
             __default: null as LLMPromptPublicApi | null,
             loadResolvedPreview: async () => {
-                try {
-                    const viewedVersion =
-                        values.prompt && isPrompt(values.prompt) ? { version: values.prompt.version } : undefined
-                    return await llmPromptsNameRetrieve(
-                        String(ApiConfig.getCurrentTeamId()),
-                        props.promptName,
-                        viewedVersion
-                    )
-                } catch (error) {
-                    lemonToast.error(getApiErrorDetail(error) ?? 'Could not resolve this prompt. Try again.')
-                    return null
-                }
+                const viewedVersion =
+                    values.prompt && isPrompt(values.prompt) ? { version: values.prompt.version } : undefined
+                return await llmPromptsNameRetrieve(
+                    String(ApiConfig.getCurrentTeamId()),
+                    props.promptName,
+                    viewedVersion
+                )
             },
         },
     })),
@@ -1246,6 +1243,9 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             if (values.isShowingResolvedPreview) {
                 actions.loadResolvedPreview()
             }
+        },
+        loadResolvedPreviewFailure: ({ errorObject }) => {
+            lemonToast.error(getApiErrorDetail(errorObject) ?? 'Could not resolve this prompt. Try again.')
         },
         requestSetLabel: ({ labelName, version }) => {
             const existing = values.promptLabels.find((label) => label.name === labelName)
