@@ -352,6 +352,47 @@ mod tests {
         }
     }
 
+    /// A corrupted stream still decodes far enough to reach the dictionary
+    /// lookups, which a truncated one never does. The port has to agree with
+    /// lz-str on where such a stream stops: stopping later than lz-str ingests
+    /// bytes the sender never wrote, and stopping earlier drops events a client
+    /// on a lossy connection did write.
+    #[test]
+    fn matches_lz_str_on_corrupted_streams() {
+        let compressed = lz_str::compress_to_base64(&r#"{"event":"$pageview","i":0},"#.repeat(40));
+        let bytes = compressed.as_bytes();
+
+        let mut seed: u64 = 0xC0FFEE;
+        let mut next = move || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (seed >> 33) as usize
+        };
+
+        for case_index in 0..300 {
+            let at = next() % bytes.len();
+            let mut corrupted = compressed.clone();
+            match case_index % 3 {
+                // Swap in another alphabet character, so the bit stream stays
+                // readable and decodes into different codes.
+                0 => corrupted.replace_range(
+                    at..at + 1,
+                    &(BASE64_KEY[next() % BASE64_KEY.len()] as char).to_string(),
+                ),
+                // Outside the alphabet, which both decoders skip, shortening the stream.
+                1 => corrupted.insert(at, '!'),
+                _ => {
+                    corrupted.remove(at);
+                }
+            }
+
+            assert_eq!(
+                decompress_lz64_capped(&corrupted, GENEROUS_LIMIT).ok(),
+                lz_str::decompress_from_base64(&corrupted),
+                "diverged from lz-str on corrupted case {case_index}"
+            );
+        }
+    }
+
     #[test]
     fn input_with_no_alphabet_characters_decodes_to_nothing() {
         // lz-string skips characters outside its alphabet, so these are empty streams.
