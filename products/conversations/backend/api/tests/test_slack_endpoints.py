@@ -45,6 +45,12 @@ def _signed_headers(body: bytes) -> dict[str, str]:
     return {"x-slack-request-timestamp": timestamp, "x-slack-signature": f"v0={signature}"}
 
 
+def _forged_headers(signed_body: bytes | None) -> dict[str, str]:
+    if signed_body is None:
+        return {"x-slack-request-timestamp": "", "x-slack-signature": ""}
+    return _signed_headers(signed_body)
+
+
 class TestSupportSlackEventsAPI(BaseTest):
     client: APIClient
 
@@ -86,14 +92,18 @@ class TestSupportSlackEventsAPI(BaseTest):
     def _event_row(self) -> ConversationInboundEvent:
         return ConversationInboundEvent.objects.for_team(self.team.id).get()
 
-    def test_invalid_signature_returns_403(self):
-        response = self.client.post(
-            "/api/conversations/v1/slack/events",
-            data=json.dumps({"type": "event_callback"}),
-            content_type="application/json",
-        )
+    @parameterized.expand(
+        [
+            ("missing_headers", None),
+            ("signature_of_another_body", b"another body"),
+        ]
+    )
+    @patch(WAKE_INBOUND_EVENT)
+    def test_invalid_signature_returns_403(self, _name: str, signed_body: bytes | None, mock_wake: MagicMock):
+        response = self._post({"type": "event_callback", "event_id": "Ev_forged"}, headers=_forged_headers(signed_body))
 
         assert response.status_code == 403
+        mock_wake.assert_not_called()
 
     @patch(WAKE_INBOUND_EVENT)
     def test_slack_retry_is_recorded_and_processed(self, mock_wake: MagicMock):
@@ -403,12 +413,14 @@ class TestSupportSlackInteractivityAPI(BaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             return self._post(payload, **kwargs)
 
-    def test_invalid_signature_returns_403(self):
-        response = self.client.post(
-            "/api/conversations/v1/slack/interactivity",
-            data=urlencode({"payload": json.dumps({"type": "block_actions"})}),
-            content_type="application/x-www-form-urlencoded",
-        )
+    @parameterized.expand(
+        [
+            ("missing_headers", None),
+            ("signature_of_another_body", b"another body"),
+        ]
+    )
+    def test_invalid_signature_returns_403(self, _name: str, signed_body: bytes | None):
+        response = self._post({"type": "block_actions"}, headers=_forged_headers(signed_body))
 
         assert response.status_code == 403
 
