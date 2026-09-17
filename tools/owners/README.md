@@ -1,4 +1,4 @@
-# posthog-owners
+# owners-yaml
 
 Code ownership in small `owners.yaml` files next to the code, with a resolver, a linter, and a CODEOWNERS export.
 
@@ -20,7 +20,7 @@ owners: [team-billing, '@alice']
 ```
 
 ```console
-$ uvx posthog-owners who billing/api/invoices.py
+$ uvx owners-yaml who billing/api/invoices.py
 path:    billing/api/invoices.py
 owners:  team-billing, @alice
 status:  active
@@ -49,12 +49,12 @@ A single `CODEOWNERS` file works well for small repos. In a large monorepo it ha
 ## Install
 
 ```bash
-uv tool install posthog-owners   # or: pipx install posthog-owners
-uvx posthog-owners --help         # run it once without installing
+uv tool install owners-yaml   # or: pipx install owners-yaml
+uvx owners-yaml --help        # run it once without installing
 ```
 
-The package installs two identical commands, `owners` and `posthog-owners`.
-In CI, pin the version (`posthog-owners==0.2.0`), because a new release can change how paths resolve.
+The package installs two identical commands, `owners` and `owners-yaml`.
+In CI, pin the version (`owners-yaml==0.2.0`), because a new release can change how paths resolve.
 
 Requirements: Python 3.10 or later, PyYAML, and click.
 The commands read tracked files through `git`. Outside a git worktree, pass `--repo-root` and they read the files from disk.
@@ -147,20 +147,57 @@ Pass the changed ownership files as arguments to check only those.
 From Python:
 
 ```python
-from posthog_owners import OwnersResolver
+from owners_yaml import OwnersResolver
 
 resolution = OwnersResolver().resolve("billing/api/invoices.py")
 resolution.owners  # ['team-billing', '@alice']
 ```
 
+The names exported from the top-level `owners_yaml` package are the public API.
+Submodules can change between minor releases.
+
 From any language, with only PyYAML installed:
 
 ```bash
-echo "billing/api/invoices.py" | PYTHONPATH=path/to/tools/owners python3 -m posthog_owners --repo-root path/to/repo
+echo "billing/api/invoices.py" | PYTHONPATH=path/to/tools/owners python3 -m owners_yaml --repo-root path/to/repo
 ```
 
 It prints one JSON object keyed by path, in the same shape as `owners resolve --json`.
 `--repo-root` lets a tool resolve against a directory that holds only the ownership files, such as a sparse fetch.
+
+### Resolve without a checkout
+
+The resolver reads ownership files through a source, so it does not need a worktree.
+Implement `read(path)` on anything that can return a file's text: a repository API, an unpacked archive, or a dict in tests.
+`read` returns `None` when the file does not exist.
+
+```python
+from owners_yaml import OwnersResolver
+
+files = {
+    "owners.yaml": "version: 1\nowners: [team-platform]\n",
+    "billing/owners.yaml": "version: 1\nowners: [team-billing]\n",
+}
+
+
+class DictSource:
+    def read(self, path: str) -> str | None:
+        return files.get(path)
+
+
+resolver = OwnersResolver(source=DictSource())
+for path, resolution in resolver.map(["billing/api/invoices.py", "web/app.ts"]).items():
+    print(path, resolution.owners)
+```
+
+```console
+billing/api/invoices.py ['team-billing']
+web/app.ts ['team-platform']
+```
+
+A source that pays per read, such as one that fetches over the network, can also implement `read_all(paths)`.
+`map()` calls it once with the whole batch's ownership files before it reads any of them, so the source can fetch them together.
+To prefetch yourself instead, ask `ownership_file_paths(paths)` for the same list.
 
 ### Export to CODEOWNERS
 
@@ -170,20 +207,20 @@ The export covers test files only and never writes `.github/CODEOWNERS`.
 
 ### Add the commands to your own CLI
 
-Each command is a plain [click](https://click.palletsprojects.com/) command named `owners:<name>`, such as `posthog_owners.cli:cmd_lint`.
+Each command is a plain [click](https://click.palletsprojects.com/) command named `owners:<name>`, such as `owners_yaml.cli:cmd_lint`.
 A click-based CLI can register them directly.
 PostHog's `hogli` does this in its `hogli.yaml`:
 
 ```yaml
 owners:
   owners:lint:
-    click: posthog_owners.cli:cmd_lint
+    click: owners_yaml.cli:cmd_lint
     description: Validate owners.yaml files
 ```
 
 ## Compared with other tools
 
-|                        | GitHub CODEOWNERS              | Kubernetes/Prow OWNERS                  | [code_ownership](https://github.com/rubyatscale/code_ownership) | posthog-owners                     |
+|                        | GitHub CODEOWNERS              | Kubernetes/Prow OWNERS                  | [code_ownership](https://github.com/rubyatscale/code_ownership) | owners-yaml                        |
 | ---------------------- | ------------------------------ | --------------------------------------- | --------------------------------------------------------------- | ---------------------------------- |
 | Files                  | One central file               | One per directory                       | Per directory, per file annotation, or per package              | One per directory                  |
 | Resolution             | Last matching line in the file | Owners of all parent files are combined | One ownership source per file                                   | Nearest file, field by field       |

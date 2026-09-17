@@ -12,7 +12,7 @@ import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Protocol, TypedDict
+from typing import Literal, Protocol, TypedDict, runtime_checkable
 
 from .matcher import compile_pattern, normalize_path
 from .schema import (
@@ -117,7 +117,7 @@ class Resolution:
 
 class WireResolution(TypedDict):
     """The JSON wire shape shared by ``hogli owners:resolve --json`` and the
-    dependency-light ``python -m posthog_owners`` entrypoint. Both emit
+    dependency-light ``python -m owners_yaml`` entrypoint. Both emit
     exactly this dict per path so consumers see one format."""
 
     owners: list[str]
@@ -189,6 +189,14 @@ class OwnershipSource(Protocol):
     through this; lint and format still walk a real worktree."""
 
     def read(self, path: str) -> str | None: ...
+
+
+@runtime_checkable
+class BatchOwnershipSource(OwnershipSource, Protocol):
+    """A source that pays per read, such as one that fetches over a network. ``read_all`` hands it
+    every file a batch can need before the resolver reads any, so it can fetch them together."""
+
+    def read_all(self, paths: list[str]) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -389,6 +397,8 @@ class OwnersResolver:
         return path.relative_to(self.repo_root).as_posix()
 
     def map(self, paths: list[str]) -> dict[str, Resolution]:
+        if isinstance(self.source, BatchOwnershipSource):
+            self.source.read_all(self.ownership_file_paths(paths))
         return {p: self.resolve(p) for p in paths}
 
     def unowned(self, paths: list[str]) -> list[str]:

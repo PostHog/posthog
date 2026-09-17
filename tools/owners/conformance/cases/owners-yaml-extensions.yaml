@@ -1,4 +1,4 @@
-# These cases cover posthog-owners behavior that is not part of the format (SPEC section 8).
+# These cases cover owners-yaml behavior that is not part of the format (SPEC section 8).
 cases:
     - name: the team-CHANGEME placeholder is removed from an owners.yaml list
       files:

@@ -1,6 +1,6 @@
 # Changelog
 
-Notable changes to the `posthog-owners` package. The format follows
+Notable changes to the `owners-yaml` package. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
@@ -9,7 +9,7 @@ the GitHub Release body, so add the entry here before you cut the tag.
 
 ## 0.2.0
 
-First release on PyPI.
+First release on PyPI, as `owners-yaml`. The package was developed in the monorepo as `posthog-owners` and never published under that name.
 
 ### Added
 
@@ -20,8 +20,10 @@ First release on PyPI.
 - Root-only repo settings in `owners.yaml`: `github_org`, `producers`, `reserved_dirs`, and `codeowners`.
 - `--repo-root` on every CLI command, and `--org` on `lint` and `codeowners`.
 - A tree that is not a git worktree is read from disk, so the CLI works on an export or a scratch copy.
-- `posthog_owners.github.GitHubOrg` validates team slugs and handles without any host tooling.
-- A `posthog-owners` console script, so `uvx posthog-owners` works without `--from`.
+- `owners_yaml.github.GitHubOrg` validates team slugs and handles without any host tooling.
+- An `owners-yaml` console script, so `uvx owners-yaml` works without `--from`.
+- `BatchOwnershipSource`, a source that fetches a batch's ownership files together. `OwnersResolver.map()` calls its `read_all` before it reads any file.
+- The top-level `owners_yaml` package exports the full public API, so consumers do not import submodules.
 - `py.typed`, so type checkers read the package's annotations.
 
 ### Changed

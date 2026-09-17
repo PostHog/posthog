@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "posthog-owners"
+name = "owners-yaml"
 version = "0.2.0"
 description = "Code ownership in owners.yaml files next to the code: resolver, linter, and CODEOWNERS export"
 readme = "README.md"
@@ -38,9 +38,9 @@ dev = [
 ]
 
 [project.scripts]
-owners = "posthog_owners.cli:main"
-# Lets `uvx posthog-owners` work without `--from`.
-posthog-owners = "posthog_owners.cli:main"
+owners = "owners_yaml.cli:main"
+# Lets `uvx owners-yaml` work without `--from`.
+owners-yaml = "owners_yaml.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/PostHog/posthog"
@@ -51,7 +51,7 @@ Repository = "https://github.com/PostHog/posthog/tree/master/tools/owners"
 Issues = "https://github.com/PostHog/posthog/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["posthog_owners"]
+packages = ["owners_yaml"]
 
 [tool.uv]
 exclude-newer = "7 days"
@@ -59,7 +59,7 @@ exclude-newer = "7 days"
 # the stale wheel in the cache and uv installs it again. List the sources to key on them too.
 cache-keys = [
     { file = "pyproject.toml" },
-    { file = "posthog_owners/**/*.py" },
+    { file = "owners_yaml/**/*.py" },
 ]
 
 [tool.pytest.ini_options]

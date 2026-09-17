@@ -16,9 +16,9 @@ from django.core.cache import cache
 
 import requests
 import structlog
-from posthog_owners import OwnershipSource, OwnersResolver
-from posthog_owners.matcher import normalize_path
-from posthog_owners.resolver import teams_registry
+from owners_yaml import OwnershipSource, OwnersResolver
+from owners_yaml.matcher import normalize_path
+from owners_yaml.resolver import teams_registry
 from requests.adapters import HTTPAdapter
 
 from posthog.dataclasses import frozen

@@ -60,7 +60,7 @@ function resolveOwners(filenames) {
     // interpreter's site-packages (where the workflow installs pyyaml) stays
     // importable.
     const launcher =
-        "import sys, runpy; sys.path.insert(0, 'tools/owners'); runpy.run_module('posthog_owners', run_name='__main__')"
+        "import sys, runpy; sys.path.insert(0, 'tools/owners'); runpy.run_module('owners_yaml', run_name='__main__')"
     const result = spawnSync(python, ['-I', '-c', launcher], {
         input: filenames.join('\n'),
         encoding: 'utf8',

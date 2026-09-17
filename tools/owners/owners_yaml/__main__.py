@@ -19,7 +19,7 @@ consumer that fetched only the ``owners.yaml`` / ``product.yaml`` files into a
 scratch directory passes the flag instead.
 
 Kept off click on purpose (stdlib + pyyaml only) so a workflow can run it with
-``python -m posthog_owners`` after installing just pyyaml, with no project sync.
+``python -m owners_yaml`` after installing just pyyaml, with no project sync.
 The click CLI (``owners resolve --json``) emits the identical shape; both build it
 via ``resolution_to_wire`` so there is one format.
 """
@@ -38,7 +38,7 @@ from .resolver import DEFAULT_PURPOSE, OwnersResolver, Purpose, RepoRootNotFound
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="python -m posthog_owners")
+    parser = argparse.ArgumentParser(prog="python -m owners_yaml")
     parser.add_argument("--purpose", choices=["slack", "notifications"], default=DEFAULT_PURPOSE)
     parser.add_argument(
         "--repo-root",

@@ -1071,25 +1071,25 @@ desktop:
 
 owners:
     owners:resolve:
-        click: posthog_owners.cli:cmd_resolve
+        click: owners_yaml.cli:cmd_resolve
         description: Resolve ownership for paths (args or newline-delimited stdin); --json for machine output
     owners:who:
-        click: posthog_owners.cli:cmd_who
+        click: owners_yaml.cli:cmd_who
         description: Show who owns a single path (owners, status, slack, source)
     owners:census:
-        click: posthog_owners.cli:cmd_census
+        click: owners_yaml.cli:cmd_census
         description: Count test files per owning team (optional PREFIX; --json for machine output)
     owners:codeowners:
-        click: posthog_owners.cli:cmd_codeowners
+        click: owners_yaml.cli:cmd_codeowners
         description: Emit a CODEOWNERS projection of test-file ownership for tools that only read CODEOWNERS (-o writes a file)
     owners:unowned:
-        click: posthog_owners.cli:cmd_unowned
+        click: owners_yaml.cli:cmd_unowned
         description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX)
     owners:lint:
-        click: posthog_owners.cli:cmd_lint
+        click: owners_yaml.cli:cmd_lint
         description: Validate owners.yaml schema, product.yaml conflicts, dead globs, coverage (--live checks the GitHub org)
     owners:fmt:
-        click: posthog_owners.cli:cmd_fmt
+        click: owners_yaml.cli:cmd_fmt
         description: Dry-run oracle showing how the owners.yaml layout differs from canonical placement (never writes)
 devex:
     devex:feedback:

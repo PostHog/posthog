@@ -1,4 +1,4 @@
-name: Publish posthog-owners to PyPI
+name: Publish owners-yaml to PyPI
 
 on:
     push:
@@ -73,8 +73,9 @@ jobs:
               run: |
                   tag_version="${TAG_REF#owners-v}"
                   uv venv /tmp/owners-smoke
-                  uv pip install --python /tmp/owners-smoke/bin/python --find-links dist "posthog-owners==$tag_version"
+                  uv pip install --python /tmp/owners-smoke/bin/python --find-links dist "owners-yaml==$tag_version"
                   /tmp/owners-smoke/bin/owners --version
+                  /tmp/owners-smoke/bin/owners-yaml --version
                   /tmp/owners-smoke/bin/owners lint --repo-root .
 
             - name: Generate build provenance attestation

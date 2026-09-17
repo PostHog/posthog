@@ -4,7 +4,7 @@ Version: 1
 Status: stable
 
 This document defines the `owners.yaml` file format and how a tool resolves the owner of a path from it.
-`posthog-owners` is the reference implementation.
+`owners-yaml` is the reference implementation.
 A JSON Schema for editors is in [`owners.schema.json`](https://github.com/PostHog/posthog/blob/master/tools/owners/owners.schema.json).
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in BCP 14 [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) [RFC 8174](https://www.rfc-editor.org/rfc/rfc8174) when, and only when, they appear in all capitals, as shown here.
@@ -176,7 +176,7 @@ Only the root file MAY carry these fields. A tool MUST report them as errors in 
 | `github_org`    | string           | The GitHub organization of the team slugs.                                                                |
 | `producers`     | list of strings  | The automation names a team can address in `notifications`.                                               |
 | `reserved_dirs` | list of patterns | Extra locations where `owners.yaml` MUST NOT be placed. The patterns are relative to the repository root. |
-| `codeowners`    | mapping          | How a CODEOWNERS export spells test file paths. This field is specific to `posthog-owners` (section 8).   |
+| `codeowners`    | mapping          | How a CODEOWNERS export spells test file paths. This field is specific to `owners-yaml` (section 8).      |
 
 ### 5.1 `github_org`
 
@@ -223,14 +223,14 @@ For an alias file:
 ## 7. Resolver interface
 
 This section applies to an implementation that answers resolution requests from other programs through a command.
-In `posthog-owners`, both `owners resolve --json` and `python -m posthog_owners` implement it.
+In `owners-yaml`, both `owners resolve --json` and `python -m owners_yaml` implement it.
 
 ### 7.1 Request
 
 1. The caller MAY pass paths as command arguments.
 2. When the caller passes no path arguments, the resolver MUST read paths from standard input, one path per line. It MUST remove whitespace at the start and end of each line and MUST skip empty lines.
 3. The caller MAY name the repository root. Without one, the resolver MAY find the root itself, for example from the git worktree.
-4. The caller MAY name the purpose of the channel: people or notifications (section 5.2). The default is people. `posthog-owners` spells these `--purpose slack` and `--purpose notifications`.
+4. The caller MAY name the purpose of the channel: people or notifications (section 5.2). The default is people. `owners-yaml` spells these `--purpose slack` and `--purpose notifications`.
 
 ### 7.2 Response
 
@@ -260,8 +260,9 @@ In `posthog-owners`, both `owners resolve --json` and `python -m posthog_owners`
 1. A consumer MUST ignore members that it does not know.
 2. An implementation MAY add members to a value.
 3. Removing a member, renaming it, or changing its meaning requires a new version of this specification.
+4. For the Python library, the names exported from the top-level `owners_yaml` package are the public API. Submodules can change between minor releases.
 
-## 8. The posthog-owners implementation
+## 8. The owners-yaml reference implementation
 
 This section describes the reference implementation. It is not part of the format.
 

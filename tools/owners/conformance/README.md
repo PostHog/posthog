@@ -82,14 +82,14 @@ Before a run, a runner can validate each case file against `case.schema.json`.
 ## Cases that apply only to some implementations
 
 - `aliases.yaml` applies only to an implementation that reads `product.yaml` as an alias file ([SPEC.md sections 6 and 8](https://github.com/PostHog/posthog/blob/master/tools/owners/SPEC.md#6-alias-files)).
-- `posthog-owners-extensions.yaml` is not part of the format. It tests the `team-CHANGEME` placeholder of `posthog-owners` ([SPEC.md section 8](https://github.com/PostHog/posthog/blob/master/tools/owners/SPEC.md#8-the-posthog-owners-implementation)). Other implementations skip this file.
+- `owners-yaml-extensions.yaml` is not part of the format. It tests the `team-CHANGEME` placeholder of `owners-yaml` ([SPEC.md section 8](https://github.com/PostHog/posthog/blob/master/tools/owners/SPEC.md#8-the-owners-yaml-reference-implementation)). Other implementations skip this file.
 - A case with a `producer` applies only to an implementation that accepts a producer.
 
 All other files apply to every implementation.
 
 ## Reference runner
 
-The `posthog-owners` runner is [`tests/test_conformance.py`](https://github.com/PostHog/posthog/blob/master/tools/owners/tests/test_conformance.py).
+The `owners-yaml` runner is [`tests/test_conformance.py`](https://github.com/PostHog/posthog/blob/master/tools/owners/tests/test_conformance.py).
 From the repository root, run it with this command:
 
 ```sh

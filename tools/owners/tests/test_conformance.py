@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 import yaml
-from posthog_owners.resolver import OWNERS_FILENAME, OwnersResolver, Purpose, team_channel, teams_registry
+from owners_yaml.resolver import OWNERS_FILENAME, OwnersResolver, Purpose, team_channel, teams_registry
 
 CONFORMANCE_DIR = Path(__file__).parent.parent / "conformance"
 CASE_FILES = sorted((CONFORMANCE_DIR / "cases").glob("*.yaml"))

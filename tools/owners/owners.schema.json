@@ -43,7 +43,7 @@
         },
         "codeowners": {
             "type": "object",
-            "description": "Repository settings: how the posthog-owners CODEOWNERS export spells test paths.",
+            "description": "Repository settings: how the owners-yaml CODEOWNERS export spells test paths.",
             "additionalProperties": false,
             "properties": {
                 "jest_root": { "type": "string", "minLength": 1 },

@@ -398,7 +398,7 @@ def cmd_fmt(repo_root: Path | None) -> None:
 
 
 @click.group()
-@click.version_option(package_name="posthog-owners")
+@click.version_option(package_name="owners-yaml")
 def main() -> None:
     """Resolve, lint, and format distributed owners.yaml ownership files."""
 

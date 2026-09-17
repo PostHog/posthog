@@ -26,7 +26,7 @@ from dataclasses import field
 from datetime import date, datetime
 from enum import StrEnum
 
-from posthog_owners.schema import TeamEntry
+from owners_yaml.schema import TeamEntry
 from pydantic.dataclasses import dataclass
 
 from posthog.hogql.database.models import FieldOrTable

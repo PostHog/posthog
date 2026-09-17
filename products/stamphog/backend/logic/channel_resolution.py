@@ -7,7 +7,7 @@ morning's digest follows it.
 The order is proximity, not alphabet. For an audience's merges that came from repository R:
 
 1. A ``repo:`` audience takes the channel R declared under ``digest:`` in ``.stamphog/policy.yml``.
-2. A team slug takes R's own root ``owners.yaml`` registry, read through ``posthog_owners``. A
+2. A team slug takes R's own root ``owners.yaml`` registry, read through ``owners_yaml``. A
    repository that carries a registry answers for its own pull requests completely, including by
    omission: a registry lists the teams whose derived name is wrong, so a slug missing from it
    means "the derived name is right" rather than "no opinion".
@@ -32,8 +32,8 @@ from django.db import router
 from django.db.models import Q
 
 import structlog
-from posthog_owners.resolver import Purpose, TeamChannel, team_channel, teams_registry
-from posthog_owners.schema import Producer, TeamEntry
+from owners_yaml.resolver import Purpose, TeamChannel, team_channel, teams_registry
+from owners_yaml.schema import Producer, TeamEntry
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
@@ -47,7 +47,7 @@ from .github_client import StamphogGitHubClient
 
 logger = structlog.get_logger(__name__)
 
-# The distributed-ownership registry lives only in the repo-root file (posthog_owners.schema).
+# The distributed-ownership registry lives only in the repo-root file (owners_yaml.schema).
 _OWNERS_FILE_PATH = "owners.yaml"
 
 # The digest is automation, so it asks the registry where automation posts rather than where the

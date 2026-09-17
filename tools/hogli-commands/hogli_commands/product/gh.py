@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from posthog_owners.github import GitHubLookupError, GitHubOrg
+from owners_yaml.github import GitHubLookupError, GitHubOrg
 
 _ORG = GitHubOrg("PostHog")
 

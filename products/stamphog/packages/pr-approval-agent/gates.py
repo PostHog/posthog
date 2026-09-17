@@ -20,9 +20,9 @@ from typing import TYPE_CHECKING, Protocol
 from policy import OwnershipSource, load_policy
 
 if TYPE_CHECKING:
-    from posthog_owners.resolver import OwnersResolver
+    from owners_yaml.resolver import OwnersResolver
 
-# The resolver lives in the posthog-owners package. This script's uv env does not install it, so the
+# The resolver lives in the owners-yaml package. This script's uv env does not install it, so the
 # code puts it on the path and imports it as a library. It needs only pyyaml, which review_pr.py
 # declares. _build_hogli_resolver defers the import, because downstream repos vendor this directory
 # (plus .stamphog/) without tools/owners. A module-level import would disable their stamphog copy
@@ -209,10 +209,10 @@ def _build_hogli_resolver(repo_root: Path, source: OwnershipSource) -> _HogliRes
     try:
         # Deferred (PLC0415) because the package is absent in vendored copies and is needed only
         # once a policy declares this ownership format.
-        from posthog_owners.resolver import OwnersResolver  # noqa: PLC0415
+        from owners_yaml.resolver import OwnersResolver  # noqa: PLC0415
     except ImportError as exc:
         raise RuntimeError(
-            "ownership format 'hogli-resolver' requires the posthog-owners package: "
+            "ownership format 'hogli-resolver' requires the owners-yaml package: "
             "vendor tools/owners alongside this directory, or drop the "
             "hogli-resolver source from .stamphog/policy.yml"
         ) from exc
@@ -259,7 +259,7 @@ TEAM_FILE_SAMPLE = 10
 # rather than whether code is safe to approve. A bare `generated/` match would also catch
 # hand-editable directories elsewhere in the tree, which is the case AGENTS.md warns about.
 #
-# The ownership registry has a `status: generated` value (posthog_owners.schema) that would be the
+# The ownership registry has a `status: generated` value (owners_yaml.schema) that would be the
 # right home for this, but no owners.yaml or product.yaml declares it today, so reading it would
 # exclude nothing.
 _GENERATED_PATH_RE = re.compile(r"^products/[^/]+/frontend/generated/")

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from click.testing import CliRunner
-from posthog_owners import (
+from owners_yaml import (
     census,
     first_team_owner,
     fmt as fmt_module,
@@ -18,16 +18,10 @@ from posthog_owners import (
     runner_for_path,
     spellings,
 )
-from posthog_owners.cli import _consolidation_suggestions, _live_scope, _reserved_location_error, main
-from posthog_owners.fmt import CanonicalPlacer, CanonicalPlan
-from posthog_owners.resolver import OwnersResolver, team_channel
-from posthog_owners.schema import (
-    TOP_LEVEL_KEYS,
-    CodeownersSettings,
-    TeamEntry,
-    is_simple_owners_file,
-    parse_owners_file,
-)
+from owners_yaml.cli import _consolidation_suggestions, _live_scope, _reserved_location_error, main
+from owners_yaml.fmt import CanonicalPlacer, CanonicalPlan
+from owners_yaml.resolver import OwnersResolver, team_channel
+from owners_yaml.schema import TOP_LEVEL_KEYS, CodeownersSettings, TeamEntry, is_simple_owners_file, parse_owners_file
 
 
 def _write(root: Path, rel: str, text: str) -> None:
@@ -674,6 +668,34 @@ def test_resolver_reads_through_an_injected_source() -> None:
     assert resolver.resolve("posthog/temporal/test_run.py").source == "posthog/temporal/owners.yaml"
 
 
+def test_map_prefetches_a_batch_through_read_all_before_any_read() -> None:
+    calls: list[tuple[str, object]] = []
+
+    class BatchDictSource:
+        def read(self, path: str) -> str | None:
+            calls.append(("read", path))
+            return "version: 1\nowners: [team-root]\n" if path == "owners.yaml" else None
+
+        def read_all(self, paths: list[str]) -> None:
+            calls.append(("read_all", list(paths)))
+
+    resolver = OwnersResolver(source=BatchDictSource())
+    resolver.map(["a/b/x.py"])
+
+    assert calls[0] == (
+        "read_all",
+        [
+            "a/b/owners.yaml",
+            "a/b/product.yaml",
+            "a/owners.yaml",
+            "a/product.yaml",
+            "owners.yaml",
+            "product.yaml",
+        ],
+    )
+    assert all(c[0] == "read" for c in calls[1:])
+
+
 def test_census_counts_test_files_per_team_and_folds_gaps_into_unowned(tmp_path: Path) -> None:
     _write(tmp_path, "owners.yaml", "version: 1\nowners: []\n")
     _write(tmp_path, "products/a/owners.yaml", "version: 1\nowners: [team-a]\n")
@@ -703,7 +725,7 @@ def test_first_team_owner_skips_handles() -> None:
 
 def _run_entrypoint(repo: Path, *args: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-m", "posthog_owners", *args],
+        [sys.executable, "-m", "owners_yaml", *args],
         cwd=repo,
         input=stdin,
         capture_output=True,
