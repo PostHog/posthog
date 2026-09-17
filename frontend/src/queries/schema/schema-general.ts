@@ -526,6 +526,8 @@ export interface HogQLQueryModifiers {
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     customBotDefinitions?: CustomBotRule[]
+    /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
+    cookielessTrafficIsRegular?: boolean | null
     useWebAnalyticsPreAggregatedTables?: boolean
     /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
     webAnalyticsFirstPageviewFilters?: boolean
@@ -1712,6 +1714,8 @@ export type TrendsFormulaNode = {
 export interface ChartStyle {
     /** Line interpolation: straight segments or a smoothed curve through the points. */
     curve?: 'linear' | 'smooth'
+    /** How series are told apart: one color per series, or one color at stepped opacities. */
+    seriesColorMode?: 'palette' | 'opacity'
 }
 
 export type TrendsFilter = {
@@ -2179,6 +2183,8 @@ export type RetentionFilter = {
     display?: ChartDisplayType
     dashboardDisplay?: RetentionDashboardDisplayType
     showTrendLines?: boolean
+    /** Draw the mean across cohorts as one line on the retention graph. */
+    showMeanLine?: boolean
     /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
     selectedInterval?: integer | null
     goalLines?: GoalLine[]
@@ -7751,6 +7757,10 @@ export interface MarketingAnalyticsRetentionQuery extends Omit<
     'orderBy' | 'compareFilter' | 'interval' | 'conversionGoal' | 'doPathCleaning' | 'sampling' | 'samplingFactor'
 > {
     kind: NodeKind.MarketingAnalyticsRetentionQuery
+    /** Return session-based 7/30-day metrics instead of the cohort matrix. Defaults to false. */
+    summary?: boolean
+    /** Include the previous acquisition period in summary mode. Defaults to false. */
+    comparePreviousPeriod?: boolean
     /** Cohort dimension, read off each person's first session. Defaults to channel. */
     breakdownBy?: MarketingAnalyticsAttributionBreakdown
     /** Period for both the cohort rows and the return columns. Defaults to week. */
@@ -7797,8 +7807,24 @@ export interface MarketingAnalyticsRetentionRow {
     values: MarketingAnalyticsRetentionCell[]
 }
 
+export interface MarketingAnalyticsRetentionSummaryRow {
+    breakdownValue: string
+    previous: boolean
+    acquired: integer
+    eligible7d: integer
+    returned7d: integer
+    eligible30d: integer
+    returned30d: integer
+    /** Median elapsed days to a second session within 30 days, among observed returners. */
+    medianReturnDays: number | null
+    /** People with an observed second session within 30 days, including incomplete windows. */
+    returners: integer
+}
+
 export interface MarketingAnalyticsRetentionQueryResponse extends AnalyticsQueryResponseBase {
     results: MarketingAnalyticsRetentionRow[]
+    /** Only populated in summary mode. Rates use the corresponding eligible population. */
+    summary?: MarketingAnalyticsRetentionSummaryRow[]
     /** Column count. Every row's values array has this length. */
     intervalCount: integer
     interval: MarketingAnalyticsRetentionInterval

@@ -1030,7 +1030,10 @@ class CDCExtractActivity:
         """Mark CDC schemas as Running at the start."""
         for schema in self.cdc_schemas:
             schema.status = ExternalDataSchema.Status.RUNNING
-            schema.save(update_fields=["status", "updated_at"])
+            # skip_activity_log avoids the extra _get_before_update SELECT, which raises
+            # OperationalError when the transaction pooler has dropped the connection since the
+            # last activity attempt — see ExternalDataSchema.save.
+            schema.save(update_fields=["status", "updated_at"], skip_activity_log=True)
 
     def _reconcile_orphaned_prior_jobs(self) -> None:
         """Finalize this source's prior RUNNING jobs that were stranded mid-run.

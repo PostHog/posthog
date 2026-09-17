@@ -10,15 +10,15 @@ export type MlWireVersion = '1' | '2'
 
 export interface MlSessionIdentity {
     teamId: number
-    organizationId: string
     sessionId: string
 }
 
 export interface MlKeyIdentity {
     teamId: number
-    organizationId: string
     sessionId?: string
     sessionMonth?: string
+    /** Only on keys wrapped while the organization was part of the KMS context. A team can change organization mid-session, so new keys leave it out, and a stored key carries the one it was wrapped under. */
+    organizationId?: string
 }
 
 export interface TableKey {
@@ -69,7 +69,7 @@ export function wrappingContext(identity: MlKeyIdentity): Record<string, string>
     return {
         purpose: identity.sessionId ? 'ai-research-session' : 'ai-research-image',
         team_id: String(identity.teamId),
-        organization_id: identity.organizationId,
+        ...(identity.organizationId ? { organization_id: identity.organizationId } : {}),
         ...(identity.sessionId ? { session_id: identity.sessionId } : {}),
         ...(identity.sessionMonth ? { session_month: identity.sessionMonth } : {}),
     }

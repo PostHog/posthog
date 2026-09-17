@@ -1,4 +1,5 @@
 import math
+from datetime import timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 
@@ -50,6 +51,7 @@ from posthog.api.team import (
     handle_experiments_config,
     handle_logs_config,
     handle_tracing_config,
+    heatmaps_screenshot_secret_for_reader,
     report_conversations_settings_changes,
     team_event_ingestion_restrictions_view,
     validate_secret_token_generation,
@@ -567,8 +569,17 @@ class ProjectSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     class Meta:
         model = Project
         # Keep this serializer narrow; legacy Team-compatible fields live on ProjectBackwardCompatSerializer.
-        fields = ["id", "organization_id", "name", "product_description", "created_at", "is_pending_deletion", "tags"]
-        read_only_fields = ["id", "organization_id", "created_at", "is_pending_deletion"]
+        fields = [
+            "id",
+            "organization_id",
+            "name",
+            "product_description",
+            "created_at",
+            "is_pending_deletion",
+            "deletion_scheduled_at",
+            "tags",
+        ]
+        read_only_fields = ["id", "organization_id", "created_at", "is_pending_deletion", "deletion_scheduled_at"]
 
 
 class ProjectBackwardCompatSerializer(
@@ -594,6 +605,13 @@ class ProjectBackwardCompatSerializer(
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
     person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
+    heatmaps_screenshot_secret = serializers.SerializerMethodField(
+        help_text=(
+            "Value this project's heatmap screenshots send as a cookie scoped to your domain, "
+            "so bot protection can allow them. Only project admins can read it; null for "
+            "everyone else and when none has been generated."
+        ),
+    )  # Compat with TeamSerializer
     # project_id mirrors TeamSerializer.project_id; for a Project it equals its own id (Project ↔ Team is 1:1)
     project_id = serializers.IntegerField(
         source="id", read_only=True, help_text="ID of the project this environment belongs to."
@@ -701,6 +719,7 @@ class ProjectBackwardCompatSerializer(
             "flags_persistence_default",  # Compat with TeamSerializer
             "secret_api_token",  # Compat with TeamSerializer
             "secret_api_token_backup",  # Compat with TeamSerializer
+            "heatmaps_screenshot_secret",  # Compat with TeamSerializer
             "receive_org_level_activity_logs",  # Compat with TeamSerializer
             "business_model",  # Compat with TeamSerializer
             "conversations_enabled",  # Compat with TeamSerializer
@@ -709,6 +728,7 @@ class ProjectBackwardCompatSerializer(
             "proactive_tasks_enabled",  # Compat with TeamSerializer
             "available_setup_task_ids",  # Compat with TeamSerializer
             "is_pending_deletion",
+            "deletion_scheduled_at",
             "project_id",  # Compat with TeamSerializer
             "user_access_level",  # Compat with TeamSerializer
             "managed_viewsets",  # Compat with TeamSerializer
@@ -734,6 +754,7 @@ class ProjectBackwardCompatSerializer(
             "uuid",
             "organization",
             "is_pending_deletion",
+            "deletion_scheduled_at",
             "effective_membership_level",
             "has_group_types",
             "group_types",
@@ -747,6 +768,7 @@ class ProjectBackwardCompatSerializer(
             "product_intents",
             "secret_api_token",
             "secret_api_token_backup",
+            "heatmaps_screenshot_secret",
             "available_setup_task_ids",
             "project_id",
             "user_access_level",
@@ -964,6 +986,10 @@ class ProjectBackwardCompatSerializer(
         user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
         return get_or_mint_live_events_token(team, user_id)
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_heatmaps_screenshot_secret(self, project: Project) -> Optional[str]:
+        return heatmaps_screenshot_secret_for_reader(project.passthrough_team, self.user_permissions)
+
     @extend_schema_field(
         {
             "type": "array",
@@ -1004,10 +1030,8 @@ class ProjectBackwardCompatSerializer(
         )
         # Trim the stored side too: names created before this validation (or via the ORM) may carry
         # surrounding whitespace and must still count as duplicates of their trimmed form.
-        duplicates = (
-            Project.objects.annotate(trimmed_name=Trim("name"))
-            .filter(organization_id=organization_id, trimmed_name__iexact=value)
-            .exclude(is_pending_deletion=True)
+        duplicates = Project.objects.annotate(trimmed_name=Trim("name")).filter(
+            organization_id=organization_id, trimmed_name__iexact=value
         )
         if self.instance is not None:
             duplicates = duplicates.exclude(pk=self.instance.pk)
@@ -1549,7 +1573,7 @@ class ProjectViewSet(
                 "Project deletion is temporarily disabled during database migration. Please try again later."
             )
 
-        if project.is_pending_deletion:
+        if project.is_deletion_pending():
             raise exceptions.ValidationError("This project is already being deleted.")
 
         # Block deletion of the last project in an org with an active subscription (cloud only).
@@ -1595,20 +1619,37 @@ class ProjectViewSet(
             if warehouse_block_reason:
                 raise exceptions.ValidationError(warehouse_block_reason)
 
-        # Mark as pending deletion so the UI locks this project out until the async task removes it.
+        from posthog.temporal.delete_teams.dispatch import PROJECT_DELETION_DELAY, start_delete_project_data_workflow
+
+        deletion_scheduled_at = timezone.now() + PROJECT_DELETION_DELAY
+        claimed_project = Project.objects.filter(pk=project.pk, is_pending_deletion=False).update(
+            is_pending_deletion=True,
+            deletion_scheduled_at=deletion_scheduled_at,
+        )
+        if not claimed_project:
+            raise exceptions.ValidationError("This project is already being deleted.")
         project.is_pending_deletion = True
-        project.save(update_fields=["is_pending_deletion"])
+        project.deletion_scheduled_at = deletion_scheduled_at
 
         # Hand off all deletion work (bulky postgres, batch exports, project/team records,
         # ClickHouse, email) to the durable Temporal workflow.
-        from posthog.temporal.delete_teams.dispatch import start_delete_project_data_workflow
 
-        start_delete_project_data_workflow(
-            team_ids=team_ids,
-            project_id=project_id,
-            user_id=user.id,
-            project_name=project_name,
-        )
+        try:
+            start_delete_project_data_workflow(
+                team_ids=team_ids,
+                project_id=project_id,
+                user_id=user.id,
+                project_name=project_name,
+                start_delay=max(deletion_scheduled_at - timezone.now(), timedelta()),
+            )
+        except Exception:
+            Project.objects.filter(pk=project.pk, deletion_scheduled_at=deletion_scheduled_at).update(
+                is_pending_deletion=False,
+                deletion_scheduled_at=None,
+            )
+            project.is_pending_deletion = False
+            project.deletion_scheduled_at = None
+            raise
 
         for team in teams:
             log_activity(
@@ -1640,6 +1681,93 @@ class ProjectViewSet(
             request=self.request,
         )
 
+    @extend_schema(
+        description="Cancel a scheduled project deletion and restore access to the project.",
+        request=None,
+        responses={200: ProjectSerializer},
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="cancel-deletion",
+        permission_classes=[TeamMemberLightManagementPermission],
+    )
+    def cancel_deletion(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        project = cast(Project, self.get_object())
+        membership_level = self.user_permissions.team(project.passthrough_team).effective_membership_level
+        if membership_level is None or membership_level < OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("You don't have sufficient permissions in the project.")
+        now = timezone.now()
+        if not project.is_deletion_pending():
+            raise exceptions.ValidationError("This project is not pending deletion.")
+        if not project.can_cancel_deletion(at=now):
+            raise exceptions.ValidationError("This project deletion has already started.")
+
+        deletion_scheduled_at = project.deletion_scheduled_at
+        cancellation_claimed_at = now
+        claimed_cancellation = Project.objects.filter(
+            pk=project.pk,
+            is_pending_deletion=True,
+            deletion_scheduled_at=deletion_scheduled_at,
+            deletion_scheduled_at__gt=now,
+        ).update(deletion_scheduled_at=cancellation_claimed_at)
+        if not claimed_cancellation:
+            raise exceptions.ValidationError(
+                "This project deletion can no longer be canceled. Refresh the page to see its current status."
+            )
+
+        from posthog.temporal.delete_teams.dispatch import cancel_delete_project_data_workflow
+
+        try:
+            cancel_delete_project_data_workflow(project_id=project.pk)
+        except Exception:
+            Project.objects.filter(
+                pk=project.pk,
+                is_pending_deletion=True,
+                deletion_scheduled_at=cancellation_claimed_at,
+            ).update(deletion_scheduled_at=deletion_scheduled_at)
+            logger.exception("Failed to cancel the project deletion workflow", project_id=project.pk)
+            raise exceptions.ValidationError("Project deletion could not be canceled. Please try again.")
+
+        cleared_cancellation = Project.objects.filter(
+            pk=project.pk,
+            is_pending_deletion=True,
+            deletion_scheduled_at=cancellation_claimed_at,
+        ).update(is_pending_deletion=False, deletion_scheduled_at=None)
+        if not cleared_cancellation:
+            raise exceptions.ValidationError(
+                "This project deletion can no longer be canceled. Refresh the page to see its current status."
+            )
+
+        project.is_pending_deletion = False
+        project.deletion_scheduled_at = None
+
+        user = cast(User, request.user)
+        was_impersonated = is_impersonated(request)
+        for team in project.teams.only("id", "name"):
+            log_activity(
+                organization_id=cast(UUIDT, project.organization_id),
+                team_id=team.pk,
+                user=user,
+                was_impersonated=was_impersonated,
+                scope="Team",
+                item_id=team.pk,
+                activity="restored",
+                detail=Detail(name=str(team.name)),
+            )
+        log_activity(
+            organization_id=cast(UUIDT, project.organization_id),
+            team_id=project.pk,
+            user=user,
+            was_impersonated=was_impersonated,
+            scope="Project",
+            item_id=project.pk,
+            activity="restored",
+            detail=Detail(name=str(project.name)),
+        )
+
+        return response.Response(ProjectSerializer(project, context=self.get_serializer_context()).data)
+
     @action(
         methods=["PATCH"],
         detail=True,
@@ -1663,6 +1791,20 @@ class ProjectViewSet(
         project = self.get_object()
         validate_secret_token_generation(project.passthrough_team, cast(User, request.user))
         project.passthrough_team.rotate_secret_token_and_save(
+            user=request.user, is_impersonated_session=is_impersonated(request)
+        )
+        return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
+
+    @extend_schema(request=None, responses=ProjectBackwardCompatSerializer)
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def rotate_heatmaps_screenshot_secret(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        project = self.get_object()
+        project.passthrough_team.rotate_heatmaps_screenshot_secret_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)

@@ -1691,6 +1691,42 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     @parameterized.expand(
         [
+            (None, "DESC"),
+            ("created_at", "ASC"),
+            ("-created_at", "DESC"),
+            ("title", "ASC"),
+            ("-title", "DESC"),
+            ("next_delivery_date", "ASC"),
+            ("-created_by__email", "DESC"),
+        ]
+    )
+    def test_list_subscriptions_break_sort_ties_on_id(self, ordering, expected_direction):
+        first = self._create_subscription(title="Tied subscription")
+        second = self._create_subscription(title="Tied subscription")
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_201_CREATED
+        first_id = first.json()["id"]
+        second_id = second.json()["id"]
+        tied_at = datetime(2030, 1, 1, tzinfo=UTC)
+        Subscription.objects.filter(id__in=[first_id, second_id]).update(
+            created_at=tied_at,
+            next_delivery_date=tied_at,
+        )
+
+        params = {"limit": 1}
+        if ordering:
+            params["ordering"] = ordering
+        first_page = self.client.get(f"/api/projects/{self.team.id}/subscriptions/", params)
+        second_page = self.client.get(f"/api/projects/{self.team.id}/subscriptions/", {**params, "offset": 1})
+        assert first_page.status_code == status.HTTP_200_OK
+        assert second_page.status_code == status.HTTP_200_OK
+
+        page_ids = [first_page.json()["results"][0]["id"], second_page.json()["results"][0]["id"]]
+        expected_ids = [first_id, second_id] if expected_direction == "ASC" else [second_id, first_id]
+        assert page_ids == expected_ids
+
+    @parameterized.expand(
+        [
             ("title",),
             ("-title",),
             ("created_at",),

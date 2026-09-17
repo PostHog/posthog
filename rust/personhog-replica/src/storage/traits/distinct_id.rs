@@ -13,6 +13,7 @@ pub trait DistinctIdLookup: Send + Sync {
         person_id: i64,
         consistency: ConsistencyLevel,
         limit: Option<i64>,
+        cursor_id: Option<i64>,
     ) -> StorageResult<Vec<DistinctIdWithVersion>>;
 
     async fn get_distinct_ids_for_persons(

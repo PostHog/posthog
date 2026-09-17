@@ -709,6 +709,11 @@ class Curve(StrEnum):
     SMOOTH = "smooth"
 
 
+class SeriesColorMode(StrEnum):
+    PALETTE = "palette"
+    OPACITY = "opacity"
+
+
 class ColorMode(StrEnum):
     LIGHT = "light"
     DARK = "dark"

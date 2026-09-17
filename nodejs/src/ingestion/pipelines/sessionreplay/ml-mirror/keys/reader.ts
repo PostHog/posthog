@@ -16,15 +16,15 @@ export class MlKeyReader {
                 continue
             }
             const teamId = Number(item.team_id?.N)
-            const organizationId = item.organization_id?.S
-            if (!Number.isSafeInteger(teamId) || !organizationId) {
+            if (!Number.isSafeInteger(teamId)) {
                 throw new Error('Invalid ML key record')
             }
             const sessionId = item.sk.S?.startsWith('session:') ? item.sk.S.slice('session:'.length) : undefined
+            const organizationId = item.organization_id?.S
             identities.set(id, {
                 teamId,
-                organizationId,
                 ...(sessionId ? { sessionId } : { sessionMonth: item.session_month?.S }),
+                ...(organizationId ? { organizationId } : {}),
             })
         }
         const state = await this.db.read([...identities.values()].map((identity) => teamBlockId(identity.teamId)))

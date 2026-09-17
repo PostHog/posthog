@@ -47,3 +47,15 @@ export const TaskOnly: Story = {
         logItem: logItem({ trigger: { job_type: 'agent', job_id: AGENT_TASK_ID, payload: {} } }),
     },
 }
+
+export const IntentOnly: Story = {
+    args: {
+        logItem: logItem({
+            trigger: {
+                job_type: 'agent',
+                job_id: '',
+                payload: { intent: 'Renaming the dashboard for the weekly review' },
+            },
+        }),
+    },
+}
