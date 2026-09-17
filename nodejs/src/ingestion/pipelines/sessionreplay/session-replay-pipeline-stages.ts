@@ -2,6 +2,7 @@ import { OverflowOutput } from '~/common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { ChunkPipelineBuilder, PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
+import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 
 import { NewSessionFlag, Recordable, SessionReplayHeaders } from './pipeline-types'
@@ -12,6 +13,7 @@ import { createTrackAndGateStep } from './session-batch-track-and-gate-step'
 import type { SessionReplayPipelineConfig, SessionReplayPipelineInput } from './session-replay-pipeline'
 import { createResolveKeyStep } from './session-resolve-key-step'
 import { RetentionPeriod } from './shared/constants'
+import { RetentionService } from './shared/retention/retention-service'
 import { createTeamFilterStep } from './team-filter-step'
 import { TeamForReplay } from './teams/types'
 import { createValidateSessionReplayHeadersStep } from './validate-headers-step'
@@ -43,6 +45,12 @@ export function addSessionReplayPreprocessing<C>(
     )
 }
 
+type SessionResolutionConfig = Pick<
+    SessionReplayPipelineConfig,
+    'sessionTracker' | 'sessionFilter' | 'keyStore' | 'sessionKeyResolutionMaxConcurrency'
+>
+
+/** Resolves each session's retention, tracks and rate-limits sessions, and resolves their keys. */
 export function addSessionReplaySessionResolution<
     TInput,
     T extends ValidatedReplayInput,
@@ -52,10 +60,7 @@ export function addSessionReplaySessionResolution<
     D,
 >(
     builder: ChunkPipelineBuilder<TInput, T, CInput, COutput, R, D>,
-    config: Pick<
-        SessionReplayPipelineConfig,
-        'retentionService' | 'sessionTracker' | 'sessionFilter' | 'keyStore' | 'sessionKeyResolutionMaxConcurrency'
-    >
+    config: SessionResolutionConfig & { retentionService: RetentionService }
 ): ChunkPipelineBuilder<
     TInput,
     Recordable<T & { retentionPeriod: RetentionPeriod } & NewSessionFlag>,
@@ -63,13 +68,57 @@ export function addSessionReplaySessionResolution<
     COutput,
     R,
     D
+>
+/** The same without the retention lookup, for a lane whose storage and keys do not depend on retention. Its elements carry a null retention, which the sinks that need one refuse. */
+export function addSessionReplaySessionResolution<
+    TInput,
+    T extends ValidatedReplayInput,
+    CInput,
+    COutput,
+    R extends string,
+    D,
+>(
+    builder: ChunkPipelineBuilder<TInput, T, CInput, COutput, R, D>,
+    config: SessionResolutionConfig,
+    options: { resolveRetention: false }
+): ChunkPipelineBuilder<TInput, Recordable<T & { retentionPeriod: null } & NewSessionFlag>, CInput, COutput, R, D>
+export function addSessionReplaySessionResolution<
+    TInput,
+    T extends ValidatedReplayInput,
+    CInput,
+    COutput,
+    R extends string,
+    D,
+>(
+    builder: ChunkPipelineBuilder<TInput, T, CInput, COutput, R, D>,
+    config: SessionResolutionConfig & { retentionService?: RetentionService },
+    options?: { resolveRetention: false }
+): ChunkPipelineBuilder<
+    TInput,
+    Recordable<T & { retentionPeriod: RetentionPeriod | null } & NewSessionFlag>,
+    CInput,
+    COutput,
+    R,
+    D
 > {
     const { retentionService, sessionTracker, sessionFilter, keyStore, sessionKeyResolutionMaxConcurrency } = config
+    const withRetention: ChunkPipelineBuilder<
+        TInput,
+        T & { retentionPeriod: RetentionPeriod | null },
+        CInput,
+        COutput,
+        R,
+        D
+    > =
+        options?.resolveRetention === false || !retentionService
+            ? builder.pipeChunk(function skipRetention(values) {
+                  return Promise.resolve(values.map((value) => ok({ ...value, retentionPeriod: null })))
+              })
+            : builder.pipeChunk(createResolveRetentionStep(retentionService), {
+                  retry: { tries: 3, sleepMs: 100 },
+              })
     return (
-        builder
-            .pipeChunk(createResolveRetentionStep(retentionService), {
-                retry: { tries: 3, sleepMs: 100 },
-            })
+        withRetention
             // Track sessions and rate-limit new ones for the whole batch, tagging the survivors with
             // isNewSession and dropping the blocked ones right here (they carry no key, so nothing
             // downstream acts on them). Its own retry scope means a later key-resolution failure never

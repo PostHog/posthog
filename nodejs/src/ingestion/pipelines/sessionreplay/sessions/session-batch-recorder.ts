@@ -28,7 +28,7 @@ interface SessionBatchEntry {
     consoleLogRecorder: SessionConsoleLogRecorder
     featureRecorder: SessionFeatureRecorder
     sessionKey: SessionKey
-    retentionPeriod: RetentionPeriod
+    retentionPeriod: RetentionPeriod | null
 }
 
 /**
@@ -101,15 +101,16 @@ export class SessionBatchRecorder {
      * Appends events into the appropriate session
      *
      * @param message - The message to record, including team context
-     * @param retentionPeriod - The session's retention, resolved upstream; sets the key expiry and
-     *   routes the flush to the matching per-retention storage.
+     * @param retentionPeriod - The session's retention, resolved upstream; routes the flush to the
+     *   matching per-retention storage. Null for a lane that resolves no retention, whose storage must not
+     *   route by it.
      * @param sessionKey - The session's encryption key, resolved upstream by the track-and-gate and
      *   resolve-key steps (which also drop blocked/deleted sessions before they reach here).
      * @returns Number of raw bytes written (without compression)
      */
     public async record(
         message: MessageWithTeam,
-        retentionPeriod: RetentionPeriod,
+        retentionPeriod: RetentionPeriod | null,
         sessionKey: SessionKey
     ): Promise<number> {
         const { partition } = message.message.metadata
@@ -221,7 +222,7 @@ export class SessionBatchRecorder {
      * batch already placed here.
      */
     public getRetention(teamId: number, sessionId: string): RetentionPeriod | undefined {
-        return this.sessions.get(teamId, sessionId)?.retentionPeriod
+        return this.sessions.get(teamId, sessionId)?.retentionPeriod ?? undefined
     }
 
     /**

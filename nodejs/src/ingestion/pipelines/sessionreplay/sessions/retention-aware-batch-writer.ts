@@ -29,6 +29,9 @@ class RetentionAwareBatchFileWriter implements SessionBatchFileWriter {
         // Retention is resolved upstream (in the resolve-retention record step) and carried on the
         // session data, so routing to the right per-retention storage needs no Redis lookup here.
         const retentionPeriod = sessionData.retentionPeriod
+        if (retentionPeriod === null) {
+            throw new Error('Retention-aware storage needs a resolved retention to route the session')
+        }
 
         let writer = this.writerMap[retentionPeriod]
 

@@ -131,7 +131,9 @@ export function createMlMirrorReplayPipeline(
                                 }
                                 return values.map((value) => ok(value))
                             }),
-                        config
+                        config,
+                        // The mirror's storage and keys do not depend on retention, so it skips the lookup.
+                        { resolveRetention: false }
                     ).filterMap(
                         (element) => ({
                             result: element.result,

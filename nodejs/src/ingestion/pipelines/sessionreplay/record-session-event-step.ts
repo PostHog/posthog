@@ -12,7 +12,7 @@ import { ValueMatcher } from '~/types'
 export interface RecordSessionEventStepInput extends SessionBatchContext {
     team: TeamForReplay
     parsedMessage: ParsedMessageData
-    retentionPeriod: RetentionPeriod
+    retentionPeriod: RetentionPeriod | null
     sessionKey: SessionKey
 }
 

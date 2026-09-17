@@ -9,8 +9,8 @@ export interface WriteSessionData {
 
     teamId: TeamId
 
-    /** The session's retention period, resolved upstream — routes the block to the matching storage */
-    retentionPeriod: RetentionPeriod
+    /** The session's retention period, resolved upstream — routes the block to the matching storage. Null for a lane that resolves no retention, which a storage that routes by it refuses. */
+    retentionPeriod: RetentionPeriod | null
 }
 
 export interface WriteSessionResult {

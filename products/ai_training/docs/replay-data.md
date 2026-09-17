@@ -37,6 +37,7 @@ The independent DynamoDB table stores session keys, team image keys, deletion ma
 ML outputs omit distinct IDs, including their hashes and pseudonyms.
 The metadata consumer projects supported fields before storage, including for messages already in Kafka.
 A session has one data key.
+The mirror does not resolve a replay retention period for a session: its storage does not route by retention and its keys do not expire by it, so the messages it records carry no retention.
 A team has one image key per session start month.
 KMS wraps each data key with an encryption context that binds the team, the session or month, and the purpose.
 A team can change organization while a session is open, so the organization is not part of that context; keys wrapped before this change carry the organization they were wrapped under on their row, and the mirror unwraps them under it.

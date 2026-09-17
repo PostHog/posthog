@@ -263,6 +263,27 @@ describe('ml-mirror-pipeline', () => {
             .map((l) => parseJSON(l))
     }
 
+    itAddon(
+        'records a session with no retention and never resolves one, since the mirror routes nothing by it',
+        async () => {
+            mockTeamService = {
+                getTeamByToken: jest.fn().mockResolvedValue(team(true)),
+                getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
+            } as unknown as TeamService
+
+            await runSessionReplayPipeline(
+                buildPipeline(),
+                [message(V2_SESSION_ID)],
+                mockBatchRecorder,
+                promiseScheduler
+            )
+
+            expect(retentionService.resolveSessionRetentions).not.toHaveBeenCalled()
+            expect(recordMock).toHaveBeenCalledTimes(1)
+            expect(recordMock.mock.calls[0][1]).toBeNull()
+        }
+    )
+
     itAddon('anonymizes events before recording for an opted-in team', async () => {
         mockTeamService = {
             getTeamByToken: jest.fn().mockResolvedValue(team(true)),

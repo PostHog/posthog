@@ -63,6 +63,12 @@ describe('DynamoDBKeyStore', () => {
             expect(result.encryptedKey).toEqual(Buffer.from(mockEncryptedKey))
         })
 
+        it('refuses to generate a key without retention days, since the key expiry comes from them', async () => {
+            await expect(keyStore.generateKey('session-123', 1, null)).rejects.toThrow('needs retention days')
+            expect(mockKMSClient.send).not.toHaveBeenCalled()
+            expect(mockDynamoDBClient.send).not.toHaveBeenCalled()
+        })
+
         it('should return existing key when session already has a key in DynamoDB', async () => {
             const existingEncryptedKey = new Uint8Array([201, 202, 203])
             const existingPlaintextKey = new Uint8Array([

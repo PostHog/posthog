@@ -10,7 +10,7 @@ import { createResolveKeyStep } from './session-resolve-key-step'
 type Base = {
     team: TeamForReplay
     headers: SessionReplayHeaders
-    retentionPeriod: RetentionPeriod
+    retentionPeriod: RetentionPeriod | null
 } & NewSessionFlag
 
 describe('createResolveKeyStep', () => {
@@ -21,7 +21,7 @@ describe('createResolveKeyStep', () => {
         teamId: number,
         sessionId: string,
         isNewSession: boolean,
-        retentionPeriod: RetentionPeriod = '30d'
+        retentionPeriod: RetentionPeriod | null = '30d'
     ): Allowed<Base> =>
         ({
             team: { teamId, consoleLogIngestionEnabled: false, aiTrainingOptedIn: true },
@@ -58,6 +58,12 @@ describe('createResolveKeyStep', () => {
         expect(mockKeyStore.generateKey).toHaveBeenCalledWith('a', 1, RetentionPeriodToDaysMap['90d'])
         expect(mockKeyStore.getKey).not.toHaveBeenCalled()
         expect(keyOf(result)).toBe(generated)
+    })
+
+    it('asks the key store for a key with no retention days when the session carries no retention', async () => {
+        const step = createStep()
+        await step(element(1, 'a', true, null))
+        expect(mockKeyStore.generateKey).toHaveBeenCalledWith('a', 1, null)
     })
 
     it('fetches the existing key for a seen allowed session', async () => {

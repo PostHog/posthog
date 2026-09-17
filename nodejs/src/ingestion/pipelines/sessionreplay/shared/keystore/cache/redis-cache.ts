@@ -58,7 +58,7 @@ export class RedisCachedKeyStore implements KeyStore {
         }
     }
 
-    async generateKey(sessionId: string, teamId: number, retentionDays: number): Promise<SessionKey> {
+    async generateKey(sessionId: string, teamId: number, retentionDays: number | null): Promise<SessionKey> {
         const key = await this.delegate.generateKey(sessionId, teamId, retentionDays)
         await this.setCached(sessionId, teamId, key)
         return key

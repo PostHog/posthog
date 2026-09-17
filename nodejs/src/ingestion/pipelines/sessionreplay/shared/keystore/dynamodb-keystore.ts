@@ -27,7 +27,10 @@ export class DynamoDBKeyStore implements KeyStore {
         await sodium.ready
     }
 
-    async generateKey(sessionId: string, teamId: number, retentionDays: number): Promise<SessionKey> {
+    async generateKey(sessionId: string, teamId: number, retentionDays: number | null): Promise<SessionKey> {
+        if (retentionDays === null) {
+            throw new Error('DynamoDB key store needs retention days to expire the key')
+        }
         const createdAt = Math.floor(Date.now() / 1000)
         const expiresAt = createdAt + retentionDays * 24 * 60 * 60
 

@@ -57,8 +57,8 @@ export type DeleteKeyResult =
 
 export interface KeyStore {
     start(): Promise<void>
-    /** Generate and store a new encryption key for a session */
-    generateKey(sessionId: string, teamId: number, retentionDays: number): Promise<SessionKey>
+    /** Generate and store a new encryption key for a session. Retention days are null for a lane that resolves no retention; a store that expires keys by retention must refuse that. */
+    generateKey(sessionId: string, teamId: number, retentionDays: number | null): Promise<SessionKey>
     /** Retrieve the encryption key for a session */
     getKey(sessionId: string, teamId: number): Promise<SessionKey>
     /** Delete a session's key (crypto-shredding) */

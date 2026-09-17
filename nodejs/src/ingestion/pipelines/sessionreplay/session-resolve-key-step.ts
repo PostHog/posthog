@@ -10,7 +10,7 @@ import { Allowed, NewSessionFlag, Resolved, SessionReplayHeaders } from './pipel
 type ResolveKeyStepInput = {
     team: TeamForReplay
     headers: SessionReplayHeaders
-    retentionPeriod: RetentionPeriod
+    retentionPeriod: RetentionPeriod | null
 } & NewSessionFlag
 
 /**
@@ -41,7 +41,11 @@ export function createResolveKeyStep<T extends ResolveKeyStepInput>(
         const sessionId = value.headers.session_id
 
         const sessionKey = value.isNewSession
-            ? await keyStore.generateKey(sessionId, teamId, RetentionPeriodToDaysMap[value.retentionPeriod])
+            ? await keyStore.generateKey(
+                  sessionId,
+                  teamId,
+                  value.retentionPeriod === null ? null : RetentionPeriodToDaysMap[value.retentionPeriod]
+              )
             : await keyStore.getKey(sessionId, teamId)
 
         if (sessionKey.sessionState === 'deleted') {

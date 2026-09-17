@@ -72,6 +72,15 @@ describe('RetentionAwareStorage', () => {
             expect(result.url).toMatch(/^s3:\/\/test-bucket\/test-prefix\/1y\/\d+-[a-z0-9]+\?range=bytes=0-\d+$/)
         })
 
+        it('refuses a session with no resolved retention, since it cannot pick a storage for it', async () => {
+            const writer = storage.newBatch()
+
+            await expect(
+                writer.writeSession({ buffer: Buffer.from('x'), teamId: 1, sessionId: '123', retentionPeriod: null })
+            ).rejects.toThrow('needs a resolved retention')
+            expect(mockUpload).not.toHaveBeenCalled()
+        })
+
         it('should handle successful upload completion', async () => {
             const writer = storage.newBatch()
             const testData = Buffer.from('test data\nmore test data\n')
