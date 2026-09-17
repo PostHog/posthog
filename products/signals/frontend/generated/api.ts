@@ -923,7 +923,7 @@ export const getSignalsReportChecksDestroyUrl = (projectId: string, reportId: st
 }
 
 /**
- * Stop an active check. Its recorded results stay on the report.
+ * Stop a check that is still open — active, or pending its report resolving. Its recorded results stay on the report.
  * @summary Cancel a check
  */
 export const signalsReportChecksDestroy = async (
