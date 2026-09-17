@@ -3006,13 +3006,6 @@ _ALLOWED_DOMAINS_HELP = (
     "`custom` restores it. Applies from the scout's next run."
 )
 
-# The copy a person sees for a malformed domain, worded identically on the sandbox environments
-# API (`SandboxEnvironmentWriteSerializer`), so the two surfaces that accept a domain list explain
-# a rejection the same way.
-_ALLOWED_DOMAINS_FORMAT_HELP = (
-    "Enter domain names such as example.com or *.example.com without a scheme, path, or port."
-)
-
 
 def _allowed_domains_field(*, read_only: bool = False) -> serializers.ListField:
     return serializers.ListField(
@@ -3029,15 +3022,16 @@ def _validate_allowed_domains(value: list[str]) -> list[str]:
     """Normalize through the same Tasks helper that guards the sandbox environments API.
 
     Provisioning normalizes again when the env is upserted, so this gate exists to reject a bad
-    domain where a person can still fix it, instead of at the start of an unattended run.
+    domain where a person can still fix it, instead of at the start of an unattended run. The
+    rejection copy comes from Tasks too, so the two surfaces that take a domain list cannot drift.
     """
     try:
         return list(tasks_facade.normalize_sandbox_allowed_domains(value))
     except ValueError as error:
-        raise serializers.ValidationError(f"{error}. {_ALLOWED_DOMAINS_FORMAT_HELP}") from error
+        raise serializers.ValidationError(f"{error}. {tasks_facade.SANDBOX_ALLOWED_DOMAIN_FORMAT_HELP}") from error
 
 
-def _validate_network_access_domains(*, network_access: str, allowed_domains: list[str]) -> None:
+def _validate_network_access_domains(*, network_access: str | None, allowed_domains: list[str]) -> None:
     """A `custom` scout must name at least one domain, or the mode buys it nothing.
 
     Called with the merged result of a partial update, not just the incoming fields, so a PATCH
