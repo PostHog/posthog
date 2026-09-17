@@ -74,7 +74,7 @@ FAILED_RUN_STATUSES = (
 )
 
 # An on-demand export has no name of its own, so a failure list labels it generically.
-ON_DEMAND_EXPORT_NAME = "Batch export on demand"
+ON_DEMAND_EXPORT_NAME = "On-demand batch export"
 
 
 class MultipleBatchExportsError(Exception):
@@ -150,7 +150,7 @@ def list_batch_exports_using_integration(team_id: int, integration_id: int) -> l
 
 
 def count_batch_exports_for_teams(team_ids: Sequence[int]) -> int:
-    """Count the batch exports `delete_batch_exports_for_teams` would delete."""
+    """Count the batch exports these teams have, not counting deleted ones."""
     return BatchExport.objects.filter(team_id__in=team_ids, deleted=False).count()
 
 
@@ -188,11 +188,11 @@ def list_latest_failed_runs(team_id: int) -> list[contracts.FailedBatchExportRun
 
 
 def get_run_failure(run_id: UUID | str, team_id: int) -> contracts.BatchExportRunFailure | None:
-    """Return what a failure notification needs about a run, or None if it cannot be sent.
+    """Return a failed run with the export and team that own it, or None for an on-demand run.
 
-    An on-demand export has no page to link to, so its runs return None. The team is
-    matched against either parent, so an on-demand run still resolves and returns None
-    rather than raising.
+    An on-demand export has no page of its own, so there is nothing to point a person at.
+    The team is matched against either parent, so an on-demand run still resolves and
+    returns None rather than raising.
     """
     run = BatchExportRun.objects.select_related("batch_export", "batch_export_on_demand").get(
         Q(batch_export__team_id=team_id) | Q(batch_export_on_demand__team_id=team_id),
