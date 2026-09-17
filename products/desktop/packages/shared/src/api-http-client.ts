@@ -2,6 +2,7 @@ import type { TaskRun } from "./domain-types";
 import type { PostHogAPIConfig } from "./task";
 
 export const API_TRANSFER_TIMEOUT_MS = 30_000;
+export const API_DOWNLOAD_TIMEOUT_MS = 300_000;
 const MIN_TRANSFER_BYTES_PER_MS = 256;
 
 export function transferTimeoutMs(byteLength: number): number {

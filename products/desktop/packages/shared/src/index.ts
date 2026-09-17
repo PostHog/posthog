@@ -21,6 +21,7 @@ export * from "./agent-runtime";
 export * from "./analytics-events";
 export type { TaskRunUpdate } from "./api-http-client";
 export {
+  API_DOWNLOAD_TIMEOUT_MS,
   API_TRANSFER_TIMEOUT_MS,
   PostHogHttpClient,
   PostHogHttpError,

@@ -1,4 +1,5 @@
 import {
+  API_DOWNLOAD_TIMEOUT_MS,
   API_TRANSFER_TIMEOUT_MS,
   type McpServerConnection,
   type McpToolApprovalState,
@@ -363,6 +364,7 @@ export class PostHogAPIClient {
         {
           method: "POST",
           body: JSON.stringify({ storage_path: storagePath }),
+          signal: AbortSignal.timeout(API_DOWNLOAD_TIMEOUT_MS),
         },
       );
       if (!response.ok) {
@@ -384,7 +386,9 @@ export class PostHogAPIClient {
     const endpoint = `/api/projects/${teamId}/tasks/${taskRun.task}/runs/${taskRun.id}/logs`;
 
     try {
-      const response = await this.performRequestWithRetry(endpoint);
+      const response = await this.performRequestWithRetry(endpoint, {
+        signal: AbortSignal.timeout(API_DOWNLOAD_TIMEOUT_MS),
+      });
 
       if (!response.ok) {
         if (response.status === 404) {

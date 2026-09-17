@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { API_DOWNLOAD_TIMEOUT_MS } from "@posthog/shared";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PostHogAPIClient } from "./posthog-api";
 
 const mockFetch = vi.fn();
@@ -8,6 +9,10 @@ vi.stubGlobal("fetch", mockFetch);
 describe("PostHogAPIClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it.each([
@@ -228,6 +233,37 @@ describe("PostHogAPIClient", () => {
         headers: expect.any(Headers),
       }),
     );
+  });
+
+  it.each([
+    [
+      "downloadArtifact",
+      (client: PostHogAPIClient) =>
+        client.downloadArtifact("task-1", "run-1", "tasks/artifacts/file.txt"),
+    ],
+    [
+      "fetchTaskRunLogs",
+      (client: PostHogAPIClient) =>
+        client.fetchTaskRunLogs({ id: "run-1", task: "task-1" } as never),
+    ],
+  ])("gives %s the download timeout", async (_method, call) => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 7,
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
+      text: vi.fn().mockResolvedValue(""),
+    });
+
+    await call(client);
+
+    const init = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(timeout.mock.calls).toEqual([[API_DOWNLOAD_TIMEOUT_MS]]);
+    expect(init?.signal).toBe(timeout.mock.results[0]?.value);
   });
 
   it.each([
