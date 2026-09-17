@@ -70,8 +70,8 @@ _FOCUS_PR_NUMBER = OpenApiParameter(
     type=OpenApiTypes.INT,
     location=OpenApiParameter.QUERY,
     required=False,
-    description="A pull request by the author. A team of the author's that this pull request asked to review is "
-    "the team to compare with.",
+    description="A pull request by the author. Needs repo. A team of the author's that this pull request asked to "
+    "review is the team to compare with, and the pull request stays out of the medians.",
 )
 
 

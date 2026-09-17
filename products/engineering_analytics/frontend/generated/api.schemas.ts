@@ -232,8 +232,8 @@ export interface ReadyToMergeMediansApi {
 }
 
 export interface TeamReadyToMergeMediansApi {
-    /** Over the pull requests by the team's members, the same population as a github_team scope. */
-    medians: ReadyToMergeMediansApi
+    /** Over the pull requests by the team's members, the same population as a github_team scope, without the pr_number pull request. Null when fewer than three other authors merged in the team in the window, because the author could read a teammate's value back from the median. */
+    medians: ReadyToMergeMediansApi | null
     /** The GitHub team slug. */
     github_team: string
 }
@@ -281,11 +281,11 @@ export const TeamBasisEnumApi = {
 } as const
 
 export interface DeliveryComparisonApi {
-    /** Over the author's pull requests. */
+    /** Over the author's pull requests, without the pr_number pull request. */
     author_medians: ReadyToMergeMediansApi
     /** The author's teams that team_basis picked, sorted by slug. Empty for no_team. */
     teams: TeamReadyToMergeMediansApi[]
-    /** Over every non-bot pull request in the repository, the author's included. */
+    /** Over every non-bot pull request in the repository, the author's included and the pr_number pull request left out. */
     repo_medians: ReadyToMergeMediansApi
     /** The pr_number pull request measured the same way, when it merged in the window. Null otherwise. */
     pull_request: PullRequestReadyToMergeApi | null
@@ -2152,7 +2152,7 @@ export type EngineeringAnalyticsDeliveryComparisonParams = {
      */
     date_to?: string
     /**
-     * A pull request by the author. A team of the author's that this pull request asked to review is the team to compare with.
+     * A pull request by the author. Needs repo. A team of the author's that this pull request asked to review is the team to compare with, and the pull request stays out of the medians.
      */
     pr_number?: number
     /**

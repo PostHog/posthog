@@ -13,6 +13,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     UNOWNED_TEAM,
     DeliveryComparison,
     DeliveryScopeKind,
+    ReadyToMergeMedians,
     TeamReadyToMergeMedians,
 )
 from products.engineering_analytics.backend.logic.comparison_teams import TeamChoice, choose_comparison_teams
@@ -25,6 +26,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 from products.engineering_analytics.backend.logic.queries.census_counts import query_census_counts
 from products.engineering_analytics.backend.logic.queries.delivery_summary import (
     CI_LOOKBACK,
+    MergedPRFacts,
     pull_request_ready_to_merge,
     query_ready_to_merge_facts,
     ready_to_merge_medians,
@@ -32,6 +34,9 @@ from products.engineering_analytics.backend.logic.queries.delivery_summary impor
 
 # The census runs daily, so a few days always find its latest run.
 _CENSUS_LOOKBACK = timedelta(days=3)
+# Below this many other authors, the author could read a teammate's value back from the team median and
+# their own (SPEC §2).
+MIN_OTHER_TEAM_AUTHORS = 3
 
 # Every team the author is in, with all of its members.
 _AUTHOR_TEAMS_SELECT = f"""
@@ -44,17 +49,22 @@ _AUTHOR_TEAMS_SELECT = f"""
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-# Per team: the author's pull requests that asked it to review in the window, and whether the pull
-# request in focus asked it at any time since the scan floor.
-_REQUESTS_SELECT = f"""
-    SELECT
-        team_slug,
-        uniqIf(pr_number, requested_at >= {{date_from}} __REQUESTED_TO__) AS window_prs,
-        countIf(pr_number = {{focus_pr}}) AS focus_requests
+# Per team: the author's pull requests that asked it to review in the window.
+_WINDOW_REQUESTS_SELECT = f"""
+    SELECT team_slug, uniq(pr_number) AS prs
     FROM __REQUESTS_SOURCE__ AS rr
-    WHERE team_slug IN {{teams}}
+    WHERE team_slug IN {{teams}} AND requested_at >= {{date_from}} __REQUESTED_TO__
         AND pr_number IN (SELECT number FROM __PR_SOURCE__ AS pr WHERE pr.author_handle = {{author}})
     GROUP BY team_slug
+    LIMIT {UNPAGED_SCAN_LIMIT}
+"""
+
+# The teams the pull request in focus asked to review. A long-lived pull request asked them before the
+# window, so this read has no scan floor.
+_FOCUS_REQUESTS_SELECT = f"""
+    SELECT DISTINCT team_slug
+    FROM __REQUESTS_SOURCE__ AS rr
+    WHERE team_slug IN {{teams}} AND pr_number = {{focus_pr}}
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
@@ -89,37 +99,51 @@ def _choose_teams(
     date_to: datetime | None,
 ) -> TeamChoice:
     code_teams = _query_code_teams(curated) if author_teams else set()
-    requests_source = curated.team_review_requests_source()
-    if not author_teams or requests_source is None:
+    window_source = curated.team_review_requests_source(created_floor=True)
+    if not author_teams or window_source is None:
         return choose_comparison_teams(
             author_teams=author_teams, code_teams=code_teams, requested_prs={}, focus_requested=set()
         )
+    teams = ast.Constant(value=sorted(author_teams))
     placeholders: dict[str, ast.Expr] = {
         "author": ast.Constant(value=author),
-        "teams": ast.Constant(value=sorted(author_teams)),
+        "teams": teams,
         "date_from": ast.Constant(value=date_from),
-        # Pull request numbers start at 1, so 0 matches no request.
-        "focus_pr": ast.Constant(value=focus_pr or 0),
         "event_created_floor": run_started_floor_constant(date_from - CI_LOOKBACK),
     }
     requested_to = ""
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
         requested_to = "AND requested_at <= {date_to}"
-    response = curated.run(
-        _REQUESTS_SELECT.replace("__REQUESTS_SOURCE__", requests_source)
+    window = curated.run(
+        _WINDOW_REQUESTS_SELECT.replace("__REQUESTS_SOURCE__", window_source)
         .replace("__PR_SOURCE__", curated.pr_source())
         .replace("__REQUESTED_TO__", requested_to),
         query_type="engineering_analytics.delivery_comparison_requests",
         placeholders=placeholders,
     )
-    rows = response.results or []
+    focus_requested: set[str] = set()
+    focus_source = curated.team_review_requests_source()
+    if focus_pr is not None and focus_source is not None:
+        focus = curated.run(
+            _FOCUS_REQUESTS_SELECT.replace("__REQUESTS_SOURCE__", focus_source),
+            query_type="engineering_analytics.delivery_comparison_focus_requests",
+            placeholders={"teams": teams, "focus_pr": ast.Constant(value=focus_pr)},
+        )
+        focus_requested = {team for (team,) in focus.results or []}
     return choose_comparison_teams(
         author_teams=author_teams,
         code_teams=code_teams,
-        requested_prs={team: int(window_prs) for team, window_prs, _focus in rows},
-        focus_requested={team for team, _window_prs, focus in rows if focus},
+        requested_prs={team: int(prs) for team, prs in window.results or []},
+        focus_requested=focus_requested,
     )
+
+
+def _team_medians(facts: list[MergedPRFacts], *, members: set[str], author: str) -> ReadyToMergeMedians | None:
+    team_facts = [fact for fact in facts if fact.author in members]
+    if len({fact.author for fact in team_facts} - {author}) < MIN_OTHER_TEAM_AUTHORS:
+        return None
+    return ready_to_merge_medians(team_facts)
 
 
 def query_delivery_comparison(
@@ -143,20 +167,22 @@ def query_delivery_comparison(
     scope = DeliveryScope(kind=DeliveryScopeKind.AUTHOR, author=author)
     facts = query_ready_to_merge_facts(curated, scope=scope, date_from=date_from, date_to=date_to)
     focus_fact = next((fact for fact in facts if fact.in_scope and fact.number == focus_pr), None)
+    # The pull request in focus is what the baselines are compared with, so it stays out of them.
+    baseline = [fact for fact in facts if fact is not focus_fact]
     return DeliveryComparison(
         author=author,
         has_membership_data=curated.members_source() is not None,
         review_data_available=curated.reviews_source() is not None,
         ready_data_available=curated.ready_to_merge_sql().observable,
         team_basis=choice.basis,
-        author_medians=ready_to_merge_medians([fact for fact in facts if fact.in_scope]),
+        author_medians=ready_to_merge_medians([fact for fact in baseline if fact.in_scope]),
         teams=[
             TeamReadyToMergeMedians(
                 github_team=team,
-                medians=ready_to_merge_medians([fact for fact in facts if fact.author in author_teams[team]]),
+                medians=_team_medians(baseline, members=author_teams[team], author=author),
             )
             for team in choice.teams
         ],
-        repo_medians=ready_to_merge_medians(facts),
+        repo_medians=ready_to_merge_medians(baseline),
         pull_request=pull_request_ready_to_merge(focus_fact) if focus_fact else None,
     )

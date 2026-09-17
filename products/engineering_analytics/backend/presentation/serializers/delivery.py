@@ -331,7 +331,10 @@ class PullRequestReadyToMergeSerializer(DataclassSerializer):
 
 class TeamReadyToMergeMediansSerializer(DataclassSerializer):
     medians = ReadyToMergeMediansSerializer(
-        help_text="Over the pull requests by the team's members, the same population as a github_team scope."
+        allow_null=True,
+        help_text="Over the pull requests by the team's members, the same population as a github_team scope, "
+        "without the pr_number pull request. Null when fewer than three other authors merged in the team in the "
+        "window, because the author could read a teammate's value back from the median.",
     )
 
     class Meta:
@@ -340,12 +343,15 @@ class TeamReadyToMergeMediansSerializer(DataclassSerializer):
 
 
 class DeliveryComparisonSerializer(DataclassSerializer):
-    author_medians = ReadyToMergeMediansSerializer(help_text="Over the author's pull requests.")
+    author_medians = ReadyToMergeMediansSerializer(
+        help_text="Over the author's pull requests, without the pr_number pull request."
+    )
     teams = TeamReadyToMergeMediansSerializer(
         many=True, help_text="The author's teams that team_basis picked, sorted by slug. Empty for no_team."
     )
     repo_medians = ReadyToMergeMediansSerializer(
-        help_text="Over every non-bot pull request in the repository, the author's included."
+        help_text="Over every non-bot pull request in the repository, the author's included and the pr_number "
+        "pull request left out."
     )
     pull_request = PullRequestReadyToMergeSerializer(
         allow_null=True,

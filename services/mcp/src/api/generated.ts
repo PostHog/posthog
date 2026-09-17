@@ -29590,8 +29590,8 @@ export namespace Schemas {
     }
 
     export interface TeamReadyToMergeMedians {
-      /** Over the pull requests by the team's members, the same population as a github_team scope. */
-      medians: ReadyToMergeMedians;
+      /** Over the pull requests by the team's members, the same population as a github_team scope, without the pr_number pull request. Null when fewer than three other authors merged in the team in the window, because the author could read a teammate's value back from the median. */
+      medians: ReadyToMergeMedians | null;
       /** The GitHub team slug. */
       github_team: string;
     }
@@ -29640,11 +29640,11 @@ export namespace Schemas {
     } as const;
 
     export interface DeliveryComparison {
-      /** Over the author's pull requests. */
+      /** Over the author's pull requests, without the pr_number pull request. */
       author_medians: ReadyToMergeMedians;
       /** The author's teams that team_basis picked, sorted by slug. Empty for no_team. */
       teams: TeamReadyToMergeMedians[];
-      /** Over every non-bot pull request in the repository, the author's included. */
+      /** Over every non-bot pull request in the repository, the author's included and the pr_number pull request left out. */
       repo_medians: ReadyToMergeMedians;
       /** The pr_number pull request measured the same way, when it merged in the window. Null otherwise. */
       pull_request: PullRequestReadyToMerge | null;
@@ -101916,7 +101916,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * A pull request by the author. A team of the author's that this pull request asked to review is the team to compare with.
+     * A pull request by the author. Needs repo. A team of the author's that this pull request asked to review is the team to compare with, and the pull request stays out of the medians.
      */
     pr_number?: number;
     /**

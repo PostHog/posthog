@@ -316,6 +316,10 @@ def get_delivery_comparison(
     author = (author or "").strip()
     if not author:
         raise ValueError("author is required")
+    repo = (repo or "").strip() or None
+    # Pull request numbers restart in every repository, so a number alone names no pull request.
+    if pr_number is not None and repo is None:
+        raise ValueError("repo is required with pr_number")
     return logic.build_delivery_comparison(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         author=author,

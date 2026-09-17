@@ -587,9 +587,8 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         assert old_open is None or old_open.started_at == date_from - CI_LOOKBACK
 
 
-_ISSUE_EVENTS_WITH_TEAM_REQUESTS = {
-    **ISSUE_EVENTS_COLUMNS,
-    "requested_team": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+_ISSUE_EVENTS_WITHOUT_TEAM_REQUESTS = {
+    column: types for column, types in ISSUE_EVENTS_COLUMNS.items() if column != "requested_team"
 }
 
 
@@ -613,10 +612,13 @@ class TestDeliveryComparisonOnWarehouse(_WarehouseMixin):
                 _pr_row(23, "alice", "closed", 0, _ago(2), merged_at=_ago(1)),
                 _pr_row(22, "bob", "closed", 0, _ago(4), merged_at=_ago(1)),
                 _pr_row(28, "carol", "closed", 0, _ago(4), merged_at=_ago(2)),
+                _pr_row(29, "dave", "closed", 0, _ago(4), merged_at=_ago(2)),
+                _pr_row(30, "erin", "closed", 0, _ago(4), merged_at=_ago(2)),
             ],
         )
         self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
-        # Alice is in two teams that own code and in an approver group that owns none.
+        # Alice is in two teams that own code and in an approver group that owns none. Team-ingestion has
+        # one other author, too few to show its median.
         self._create_table(
             "github_team_members",
             TEAM_MEMBERS_COLUMNS,
@@ -626,13 +628,15 @@ class TestDeliveryComparisonOnWarehouse(_WarehouseMixin):
                 _member_row(3, "alice", "client-libraries-approvers"),
                 _member_row(4, "bob", "team-replay"),
                 _member_row(5, "carol", "team-ingestion"),
+                _member_row(6, "dave", "team-replay"),
+                _member_row(7, "erin", "team-replay"),
             ],
         )
         if with_team_requests:
             # Other authors' pull requests ask team-ingestion more often, and must not count for alice.
             self._create_table(
                 "github_issue_events",
-                _ISSUE_EVENTS_WITH_TEAM_REQUESTS,
+                ISSUE_EVENTS_COLUMNS,
                 [
                     _team_request_row(1, 21, "team-replay", _ago(2)),
                     _team_request_row(2, 27, "team-replay", _ago(3)),
@@ -643,7 +647,9 @@ class TestDeliveryComparisonOnWarehouse(_WarehouseMixin):
             )
         else:
             self._create_table(
-                "github_issue_events", ISSUE_EVENTS_COLUMNS, [_issue_event_row(1, "labeled", 21, _ago(2))]
+                "github_issue_events",
+                _ISSUE_EVENTS_WITHOUT_TEAM_REQUESTS,
+                [_issue_event_row(1, "labeled", 21, _ago(2))],
             )
         for owner_team in ("team-replay", "team-ingestion"):
             _create_event(
@@ -657,14 +663,15 @@ class TestDeliveryComparisonOnWarehouse(_WarehouseMixin):
 
     @parameterized.expand(
         [
-            ("the_most_requested_team", True, None, Basis.REVIEW_REQUESTS, {"team-replay": 4}, None),
-            ("the_team_the_focus_pr_asked", True, 23, Basis.PULL_REQUEST, {"team-ingestion": 4}, 86400),
+            ("the_most_requested_team", True, None, Basis.REVIEW_REQUESTS, {"team-replay": 6}, (3, 7), None),
+            ("the_team_the_focus_pr_asked", True, 23, Basis.PULL_REQUEST, {"team-ingestion": None}, (2, 6), 86400),
             (
                 "every_code_team_without_requests",
                 False,
                 None,
                 Basis.ALL_TEAMS,
-                {"team-ingestion": 4, "team-replay": 4},
+                {"team-ingestion": None, "team-replay": 6},
+                (3, 7),
                 None,
             ),
         ]
@@ -675,7 +682,8 @@ class TestDeliveryComparisonOnWarehouse(_WarehouseMixin):
         with_team_requests: bool,
         focus_pr: int | None,
         basis: Basis,
-        team_merged_counts: dict[str, int],
+        team_merged_counts: dict[str, int | None],
+        author_and_repo_counts: tuple[int, int],
         focus_ready_seconds: int | None,
     ) -> None:
         self._seed(with_team_requests=with_team_requests)
@@ -690,8 +698,13 @@ class TestDeliveryComparisonOnWarehouse(_WarehouseMixin):
         )
 
         assert comparison.team_basis == basis
-        assert {team.github_team: team.medians.merged_pr_count for team in comparison.teams} == team_merged_counts
-        assert (comparison.author_medians.merged_pr_count, comparison.repo_medians.merged_pr_count) == (3, 5)
+        assert {
+            team.github_team: team.medians.merged_pr_count if team.medians else None for team in comparison.teams
+        } == team_merged_counts
+        assert (
+            comparison.author_medians.merged_pr_count,
+            comparison.repo_medians.merged_pr_count,
+        ) == author_and_repo_counts
         focus = comparison.pull_request
         assert (focus.ready_to_merge_seconds if focus else None) == focus_ready_seconds
 
@@ -769,13 +782,14 @@ class TestDeliveryDeployWindow(_WarehouseMixin):
 class TestDeliveryEndpoints(APIBaseTest):
     @parameterized.expand(
         [
-            ("delivery_summary", "exactly one of author, github_team"),
-            ("pull_request_timelines", "exactly one of author, github_team"),
-            ("delivery_comparison", "author is required"),
+            ("delivery_summary", "", "exactly one of author, github_team"),
+            ("pull_request_timelines", "", "exactly one of author, github_team"),
+            ("delivery_comparison", "", "author is required"),
+            ("delivery_comparison", "?author=alice&pr_number=21", "repo is required with pr_number"),
         ]
     )
-    def test_rejects_a_missing_scope(self, action: str, message: str) -> None:
-        response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/{action}/")
+    def test_rejects_a_missing_scope(self, action: str, query: str, message: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/{action}/{query}")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert message in response.json()["detail"]
