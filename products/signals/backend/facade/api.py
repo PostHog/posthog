@@ -825,6 +825,47 @@ def get_outcomes_for_signal_source_slice(
 
 
 @frozen
+class SignalSourceSliceReport:
+    """One inbox report a source slice's signals were grouped into."""
+
+    id: str
+    title: str | None
+    status: str
+    created_at: datetime
+
+
+def get_reports_for_signal_source_slice(
+    *, team: Team, source_product: str, source_type: str, extra_equals: dict[str, str]
+) -> list[SignalSourceSliceReport]:
+    """The same slice as `get_outcomes_for_signal_source_slice`, hydrated instead of counted, newest first.
+
+    Grouping runs after the emitting caller returns, so an empty list means "not grouped yet" as
+    much as "never grouped".
+    """
+    stats = fetch_signal_stats_for_source_slice(
+        team, source_product=source_product, source_type=source_type, extra_equals=extra_equals
+    )
+    # CH metadata is not authoritative — keep only report ids that parse and still exist for this team.
+    candidate_ids = []
+    for report_id in stats.report_ids:
+        try:
+            candidate_ids.append(uuid.UUID(report_id))
+        except ValueError:
+            continue
+    if not candidate_ids:
+        return []
+    return [
+        SignalSourceSliceReport(
+            id=str(row["id"]), title=row["title"], status=row["status"], created_at=row["created_at"]
+        )
+        for row in SignalReport.objects.filter(team=team, id__in=candidate_ids)
+        .exclude(status=SignalReport.Status.DELETED)
+        .order_by("-created_at")
+        .values("id", "title", "status", "created_at")
+    ]
+
+
+@frozen
 class ScoutCreated:
     """What a scout creation produced. `created` is False when a scout of that name already existed
     and the supplied config was applied to it instead."""

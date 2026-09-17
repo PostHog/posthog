@@ -83,8 +83,10 @@ from products.replay_vision.backend.search_suggestions import (
     scope_sources,
     stamp_search_viewed,
 )
+from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
+from products.signals.backend.facade.api import get_reports_for_signal_source_slice
 from products.tasks.backend.facade import api as tasks_facade
 
 from ee.hogai.utils.untrusted import as_untrusted_data
@@ -753,6 +755,23 @@ class CreateTaskFromObservationResponseSerializer(serializers.Serializer):
     )
 
 
+class ObservationSignalReportSerializer(serializers.Serializer):
+    """An inbox report that this observation's emitted signals were grouped into."""
+
+    id = serializers.UUIDField(help_text="ID of the inbox report, for linking to its inbox page.")
+    title = serializers.CharField(
+        allow_null=True,
+        help_text="Report title, null while the report is still too new to have been summarized.",
+    )
+    status = serializers.CharField(
+        help_text=(
+            "The report's status in the inbox: potential, candidate, in_progress, pending_input, ready, "
+            "resolved, failed, or suppressed."
+        ),
+    )
+    created_at = serializers.DateTimeField(help_text="When the report was created.")
+
+
 @dataclass(frozen=True)
 class _TaskContent:
     title: str
@@ -1005,6 +1024,25 @@ class ReplayObservationViewSet(
             locked.created_task_id = task_id
             locked.save(update_fields=["created_task_id"])
         return Response({"task_id": task_id}, status=status.HTTP_201_CREATED)
+
+    @extend_schema(responses={200: ObservationSignalReportSerializer(many=True)})
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="signal_reports",
+        pagination_class=None,
+        required_scopes=["replay_scanner:read", "session_recording:read", "task:read"],
+    )
+    def signal_reports(self, request: Request, **kwargs: Any) -> Response:
+        """The inbox reports this observation's emitted signals were grouped into, newest first."""
+        observation = self.get_object()
+        reports = get_reports_for_signal_source_slice(
+            team=self.team,
+            source_product=VISION_SIGNALS_SOURCE_PRODUCT,
+            source_type=VISION_SIGNALS_SOURCE_TYPE,
+            extra_equals={"observation_id": str(observation.id)},
+        )
+        return Response(ObservationSignalReportSerializer(instance=reports, many=True).data)
 
     @extend_schema(request=None, responses={204: None})
     @action(
