@@ -809,12 +809,11 @@
          "posthog_tag"."team_id"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" IN (1,
-                                                  2,
-                                                  3,
-                                                  4,
-                                                  5 /* ... */))
+  WHERE "posthog_taggeditem"."feature_flag_id" IN (1,
+                                                   2,
+                                                   3,
+                                                   4,
+                                                   5 /* ... */)
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.12

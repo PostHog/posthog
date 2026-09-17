@@ -1,12 +1,15 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from parameterized import parameterized
+from parameterized import parameterized, parameterized_class
 
 from posthog.models import Tag, TaggedItem, Team
+from posthog.models.scoping import reset_current_team_id, set_current_team_id
+from posthog.models.tagged_item_reads import TagReadPointer, tag_read_pointer
 
 from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -226,7 +229,62 @@ class TestTaggedItemGenericColumns(BaseTest):
         assert list(TaggedItem.objects.for_objects(Dashboard, [dashboard.id])) == [tagged_item]
 
 
+class TestTagReadPointer(BaseTest):
+    @parameterized.expand(
+        [
+            ("flag on in a team scope", True, True, True),
+            ("flag off in a team scope", False, True, False),
+            ("flag on outside a team scope", True, False, False),
+        ]
+    )
+    def test_pointer_follows_the_flag(self, _name: str, flag_on: bool, in_team_scope: bool, expect_generic: bool):
+        token = set_current_team_id(self.team.id if in_team_scope else None)
+        self.addCleanup(reset_current_team_id, token)
+        with patch("posthog.models.tagged_item_reads.feature_enabled_or_false", return_value=flag_on):
+            pointer = tag_read_pointer(Dashboard)
+
+        if expect_generic:
+            assert pointer == TagReadPointer(
+                object_column="object_id", content_type_id=ContentType.objects.get_for_model(Dashboard).id
+            )
+        else:
+            assert pointer == TagReadPointer(object_column="dashboard_id", content_type_id=None)
+
+
+@parameterized_class(("generic_reads",), [(False,), (True,)])
 class TestTaggedItemsRelation(BaseTest):
+    generic_reads: bool
+
+    def setUp(self):
+        super().setUp()
+        flag = patch("posthog.models.tagged_item_reads.feature_enabled_or_false", return_value=self.generic_reads)
+        flag.start()
+        self.addCleanup(flag.stop)
+        token = set_current_team_id(self.team.id)
+        self.addCleanup(reset_current_team_id, token)
+
+    def test_reads_follow_the_pointer_the_flag_picks(self):
+        followed = Dashboard.objects.create(team_id=self.team.id, name="followed")
+        ignored = Dashboard.objects.create(team_id=self.team.id, name="ignored")
+        tag = Tag.objects.create(name="tag", team_id=self.team.id)
+        item = TaggedItem.objects.create(dashboard_id=followed.id, tag=tag)
+        unread_pointer = {"dashboard_id": ignored.id} if self.generic_reads else {"object_id": ignored.id}
+        TaggedItem.objects.filter(pk=item.pk).update(**unread_pointer)
+        item.refresh_from_db()
+        both = [followed.pk, ignored.pk]
+
+        assert list(followed.tagged_items.all()) == [item]
+        assert list(ignored.tagged_items.all()) == []
+        assert list(Dashboard.objects.filter(tagged_items__tag=tag)) == [followed]
+        assert list(Dashboard.objects.filter(pk__in=both).exclude(tagged_items__tag=tag)) == [ignored]
+        prefetched = Dashboard.objects.filter(pk__in=both).prefetch_related("tagged_items")
+        assert {d.pk: list(d.tagged_items.all()) for d in prefetched} == {followed.pk: [item], ignored.pk: []}
+        assert list(TaggedItem.objects.for_object(followed)) == [item]
+        assert list(TaggedItem.objects.for_objects(Dashboard, both).values_list("object_key", flat=True)) == [
+            followed.pk
+        ]
+        assert item.content_object == followed
+
     def test_reverse_accessor_writes_both_pointer_shapes(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="dashboard")
         tag = Tag.objects.create(name="tag", team_id=self.team.id)

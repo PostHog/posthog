@@ -511,7 +511,7 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                 if tags_mode == "remove":
                     for tagged_item in (
                         ticket.tagged_items.filter(tag__name__in=normalized_tags)
-                        .select_related("tag__team")
+                        .select_related("tag__team", "ticket")
                         .prefetch_related("uuid_object")
                     ):
                         tagged_item.delete()
@@ -522,7 +522,7 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                         ticket.tagged_items.get_or_create(tag=tag_instance)
                     for tagged_item in (
                         ticket.tagged_items.exclude(tag__name__in=normalized_tags)
-                        .select_related("tag__team")
+                        .select_related("tag__team", "ticket")
                         .prefetch_related("uuid_object")
                     ):
                         tagged_item.delete()

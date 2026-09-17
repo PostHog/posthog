@@ -70,7 +70,7 @@ def test_model_inherits_taggable(entry: TaggableModel) -> None:
     meta: Any = model._meta
     field = meta.get_field("tagged_items")
     assert isinstance(field, TaggedItemsRelation)
-    assert field.object_id_field_name == entry.object_field
+    assert field.generic_object_field == entry.object_field
 
 
 def test_inherited_models_resolve_to_their_registered_base() -> None:

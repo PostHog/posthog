@@ -705,8 +705,7 @@
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" = 99999)
+  WHERE "posthog_taggeditem"."insight_id" = 99999
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.24
@@ -1771,12 +1770,11 @@
          "posthog_tag"."team_id"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" IN (1,
-                                                  2,
-                                                  3,
-                                                  4,
-                                                  5 /* ... */))
+  WHERE "posthog_taggeditem"."dashboard_id" IN (1,
+                                                2,
+                                                3,
+                                                4,
+                                                5 /* ... */)
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.39
@@ -2464,12 +2462,11 @@
          "posthog_tag"."team_id"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" IN (1,
-                                                  2,
-                                                  3,
-                                                  4,
-                                                  5 /* ... */))
+  WHERE "posthog_taggeditem"."insight_id" IN (1,
+                                              2,
+                                              3,
+                                              4,
+                                              5 /* ... */)
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.48
@@ -3494,8 +3491,7 @@
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" = 99999)
+  WHERE "posthog_taggeditem"."insight_id" = 99999
   '''
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.23
@@ -4086,12 +4082,11 @@
          "posthog_tag"."team_id"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" IN (1,
-                                                  2,
-                                                  3,
-                                                  4,
-                                                  5 /* ... */))
+  WHERE "posthog_taggeditem"."dashboard_id" IN (1,
+                                                2,
+                                                3,
+                                                4,
+                                                5 /* ... */)
   '''
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.4
@@ -5348,8 +5343,7 @@
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" = 99999)
+  WHERE "posthog_taggeditem"."insight_id" = 99999
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.124
@@ -5721,8 +5715,7 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_taggeditem"
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" = 99999)
+  WHERE "posthog_taggeditem"."dashboard_id" = 99999
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.130
@@ -6419,8 +6412,7 @@
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" = 99999)
+  WHERE "posthog_taggeditem"."insight_id" = 99999
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.15
@@ -7462,12 +7454,11 @@
          "posthog_tag"."team_id"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" IN (1,
-                                                  2,
-                                                  3,
-                                                  4,
-                                                  5 /* ... */))
+  WHERE "posthog_taggeditem"."dashboard_id" IN (1,
+                                                2,
+                                                3,
+                                                4,
+                                                5 /* ... */)
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.165
@@ -8151,12 +8142,11 @@
          "posthog_tag"."team_id"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" IN (1,
-                                                  2,
-                                                  3,
-                                                  4,
-                                                  5 /* ... */))
+  WHERE "posthog_taggeditem"."insight_id" IN (1,
+                                              2,
+                                              3,
+                                              4,
+                                              5 /* ... */)
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.174
@@ -8799,8 +8789,7 @@
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" = 99999)
+  WHERE "posthog_taggeditem"."dashboard_id" = 99999
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.21
@@ -9426,8 +9415,7 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_taggeditem"
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" = 99999)
+  WHERE "posthog_taggeditem"."dashboard_id" = 99999
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.35
@@ -9903,8 +9891,7 @@
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" = 99999)
+  WHERE "posthog_taggeditem"."dashboard_id" = 99999
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.42
@@ -11201,8 +11188,7 @@
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" = 99999)
+  WHERE "posthog_taggeditem"."insight_id" = 99999
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.72
@@ -12366,8 +12352,7 @@
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" = 99999)
+  WHERE "posthog_taggeditem"."insight_id" = 99999
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.98
@@ -12945,12 +12930,11 @@
          "posthog_tag"."team_id"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" IN (1,
-                                                  2,
-                                                  3,
-                                                  4,
-                                                  5 /* ... */))
+  WHERE "posthog_taggeditem"."dashboard_id" IN (1,
+                                                2,
+                                                3,
+                                                4,
+                                                5 /* ... */)
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard.13
@@ -14086,8 +14070,7 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_taggeditem"
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" = 99999)
+  WHERE "posthog_taggeditem"."dashboard_id" = 99999
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.14
@@ -14682,8 +14665,7 @@
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" = 99999)
+  WHERE "posthog_taggeditem"."dashboard_id" = 99999
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.21
@@ -15309,8 +15291,7 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_taggeditem"
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" = 99999)
+  WHERE "posthog_taggeditem"."dashboard_id" = 99999
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.35
@@ -15786,8 +15767,7 @@
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" = 99999)
+  WHERE "posthog_taggeditem"."dashboard_id" = 99999
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.42
@@ -16401,12 +16381,11 @@
          "posthog_tag"."team_id"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" IN (1,
-                                                  2,
-                                                  3,
-                                                  4,
-                                                  5 /* ... */))
+  WHERE "posthog_taggeditem"."dashboard_id" IN (1,
+                                                2,
+                                                3,
+                                                4,
+                                                5 /* ... */)
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.6

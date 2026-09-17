@@ -29,7 +29,6 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.activity_log_visibility import CANVASES_TABLE, activity_visibility_predicates
 from posthog.hogql.database.schema.information_schema import information_schema_node
-from posthog.hogql.database.schema.tagged_items import TaggedItemsTable
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
 
@@ -2020,15 +2019,15 @@ class _TicketScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
 
     The framework's auto-injected `team_id = X` guard is skipped (the column doesn't exist);
     isolation instead flows from the predicate scoping through `system.support_tickets`, whose
-    own team_id guard the framework re-applies to the inner reference.
+    own team_id guard the framework re-applies to the inner reference. For the tag junction,
+    the same predicate also prunes non-ticket `posthog_taggeditem` rows (tags on insights,
+    dashboards, accounts, ...), which carry a NULL `ticket_id` and so never match a ticket id.
     """
 
     predicates: list[Expr] = [parse_expr("ticket_id IN (SELECT id FROM system.support_tickets)")]
 
 
-ticket_tagged_items: TaggedItemsTable = TaggedItemsTable(
-    tagged_model="ticket",
-    predicates=[parse_expr("ticket_id IN (SELECT id FROM system.support_tickets)")],
+ticket_tagged_items: _TicketScopedPostgresTable = _TicketScopedPostgresTable(
     name="_ticket_tagged_items",
     postgres_table_name="posthog_taggeditem",
     description="Internal junction table (PostgreSQL `posthog_taggeditem`) of tag-to-ticket links; not for direct querying — use `system.support_tickets.tags`.",
@@ -2036,14 +2035,9 @@ ticket_tagged_items: TaggedItemsTable = TaggedItemsTable(
         "id": UUIDDatabaseField(name="id", description="Primary key of the tagged-item junction row."),
         "tag_id": UUIDDatabaseField(name="tag_id", description="Tag applied to the ticket; join to `system.tags.id`."),
         "ticket_id": StringDatabaseField(
-            name="object_uuid",
+            name="ticket_id",
             nullable=True,
             description="Ticket the tag is applied to; join to `system.support_tickets.id`.",
-        ),
-        "content_type_id": IntegerDatabaseField(
-            name="content_type_id",
-            hidden=True,
-            description="Kind of object the tag is applied to; the table only returns ticket rows.",
         ),
     },
 )
