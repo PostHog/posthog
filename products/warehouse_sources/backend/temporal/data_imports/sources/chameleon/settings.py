@@ -1,8 +1,10 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
 
+from posthog.dataclasses import frozen
 
-@dataclass
+
+@frozen
 class ChameleonEndpointConfig:
     name: str
     # Path appended to the v3 base URL, e.g. "/analyze/profiles" or "/edit/segments".

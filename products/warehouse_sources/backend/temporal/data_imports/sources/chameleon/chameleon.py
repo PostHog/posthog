@@ -1,9 +1,10 @@
 import itertools
-import dataclasses
 from collections.abc import Callable, Iterator
 from typing import Any, Optional
 
 from requests import Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.chameleon.settings import (
     CHAMELEON_ENDPOINTS,
@@ -34,7 +35,7 @@ CHAMELEON_BASE_URL = "https://api.chameleon.io/v3"
 CHAMELEON_ROOT_URL = "https://api.chameleon.io"
 
 
-@dataclasses.dataclass
+@frozen
 class ChameleonResumeConfig:
     # Cursor for the next page: the `cursor.before` id from the previous response. None starts at page one.
     before: str | None = None
