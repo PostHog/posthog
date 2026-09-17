@@ -197,8 +197,8 @@ Local dispatch alone would otherwise receipt the delivery: the consumer's own lo
 Nothing has claimed a dedup mark at that point, so the redelivery is processed in full, and the lookups it asks again decide the forward then.
 A provider that does not redeliver keeps the delivery instead: the failure counts as `UNDECIDED`, local dispatch runs, and the request is receipted, because a non-2xx there would only lose the local run as well.
 
-An ownership lookup should therefore let a transient error out rather than answering `LOCAL` or `UNDECIDED` through it.
-A guess is what turns a dropped connection into a lost delivery.
+An ownership lookup should therefore let a transient error out rather than answering `LOCAL`, `UNDECIDED` or `ELSEWHERE` through it.
+A guess is what turns a dropped connection into a lost delivery, and an `ELSEWHERE` guess also sends the delivery's contents to a region that may not own them.
 
 What crosses is the raw signed body, except for a provider that signs the form rather than the body.
 Reading that form consumes the request stream and leaves no raw bytes, so the forward rebuilds the fields and the files and drops the original `Content-Type`, which names the boundary of a body that is gone.

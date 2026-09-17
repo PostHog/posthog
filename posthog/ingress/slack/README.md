@@ -32,11 +32,13 @@ Nothing under `posthog/ingress/` reads it.
 Slack's `url_verification` handshake wants the challenge echoed in the response body, which no consumer can do.
 The incarnation answers it in `pre_dispatch_response()`, before dispatch.
 
-Slack redelivers a delivery it got a non-2xx for, so `retry_status` is 502: a workspace ownership lookup that raised, a forward to the region that owns the workspace that did not land, and a receipt write that raised must not be receipted, or the event is lost.
+Slack redelivers a delivery it got a non-2xx for, so `retry_status` is 502: a workspace ownership lookup that raised or hit its timeout, a forward to the region that owns the workspace that did not land, and a receipt write that raised must not be receipted, or the event is lost.
 The other status codes are the defaults.
 
 ## Consumers
 
 `conversations_slack`, on the `supporthog` app, for every event type the app is subscribed to.
 It declares `ownership`, so a delivery about a workspace the other region holds is forwarded there.
+A lookup that does not answer, the bounded statement timeout included, forwards nothing and takes `retry_status`:
+a lookup that never finished is no evidence that the other region owns the workspace, and the delivery carries the workspace's support messages.
 See the [Endpoints table](../README.md#endpoints).

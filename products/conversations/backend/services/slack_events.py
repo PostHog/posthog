@@ -10,12 +10,8 @@ workspace.
 import json
 from typing import Any
 
-from django.db import OperationalError
-
-import structlog
-
 from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
-from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
+from posthog.ingress.dispatch.database import bounded_statement_timeout
 from posthog.models.team import Team
 
 from products.conversations.backend.models import ConversationInboundEventSource, TeamConversationsSlackConfig
@@ -27,8 +23,6 @@ from products.conversations.backend.services.inbound_events import (
 from products.conversations.backend.support_slack import team_for_slack_workspace
 from products.conversations.backend.tasks.slack import wake_inbound_event
 
-logger = structlog.get_logger(__name__)
-
 # The lookup runs inside the request, before dispatch, so it draws on the delivery's wall clock.
 _WORKSPACE_LOOKUP_TIMEOUT_MS = 800
 
@@ -36,8 +30,8 @@ _WORKSPACE_LOOKUP_TIMEOUT_MS = 800
 def _team_for_workspace(slack_team_id: str) -> Team | None:
     """The team SupportHog is connected to for this workspace, or None when no team here is.
 
-    A cancelled statement raises, because a lookup that never finished is not an answer. Each
-    caller decides what to do with it.
+    A cancelled statement raises, because a lookup that never finished is not an answer. Both
+    callers let it out rather than guessing past it.
     """
     with bounded_statement_timeout(_WORKSPACE_LOOKUP_TIMEOUT_MS, models=[TeamConversationsSlackConfig]):
         return team_for_slack_workspace(slack_team_id)
@@ -48,23 +42,16 @@ def slack_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
 
     A workspace this region does not know is `ELSEWHERE` rather than undecided, so the delivery
     reaches the other region: it is the only one that can tell a workspace it holds from one
-    nobody holds. A lookup that timed out answers the same way, for the same reason.
+    nobody holds. A lookup that raised, the statement timeout included, has shown no such thing,
+    so it propagates rather than answering `ELSEWHERE`: the delivery carries the workspace's
+    support messages, and a workspace this region owns must not have them forwarded across the
+    region boundary on a guess. A raised lookup asks Slack to redeliver instead.
     """
     slack_team_id = delivery.context.get("slack_team_id", "")
     if not slack_team_id:
         return DeliveryOwnership.UNDECIDED
 
-    try:
-        team = _team_for_workspace(slack_team_id)
-    except OperationalError as error:
-        if not is_statement_timeout(error):
-            raise
-        # Elsewhere rather than a failed lookup: a timeout has not shown ownership here, which
-        # leaves the delivery in the same state as a workspace this region does not know, and the
-        # other region can still answer it. A failed lookup asks Slack to redeliver instead.
-        logger.warning("supporthog_event_workspace_lookup_timed_out", slack_team_id=slack_team_id)
-        return DeliveryOwnership.ELSEWHERE
-
+    team = _team_for_workspace(slack_team_id)
     return DeliveryOwnership.LOCAL if team is not None else DeliveryOwnership.ELSEWHERE
 
 

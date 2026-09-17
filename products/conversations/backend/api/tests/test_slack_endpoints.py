@@ -2,6 +2,7 @@ import hmac
 import json
 import time
 import hashlib
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -241,6 +242,40 @@ class TestSupportSlackEventsAPI(BaseTest):
         mock_wake.assert_not_called()
         assert not ConversationInboundEvent.objects.unscoped().filter(source_id="Ev_forward").exists()
 
+    @patch(f"{SLACK_EVENTS_MODULE}.team_for_slack_workspace")
+    def test_a_workspace_lookup_that_hits_its_timeout_asks_slack_to_redeliver(self, mock_lookup: MagicMock):
+        # The delivery carries the workspace's support messages, so a lookup that never finished
+        # must not send them to the other region: it has not shown that region owns the workspace.
+        mock_lookup.side_effect = OperationalError("canceling statement due to statement timeout")
+        payload = {
+            "type": "event_callback",
+            "event_id": "Ev_timeout",
+            "team_id": "T123",
+            "event": {"type": "message", "channel": "C1"},
+        }
+
+        with (
+            patch(WAKE_INBOUND_EVENT) as mock_wake,
+            patch("posthog.regions.PRIMARY_REGION_DOMAIN", "testserver"),
+            patch("posthog.ingress.dispatch.forward.requests.request") as mock_forward,
+        ):
+            refused = self._post(payload)
+
+        assert refused.status_code == 502
+        mock_forward.assert_not_called()
+        mock_wake.assert_not_called()
+        assert not ConversationInboundEvent.objects.unscoped().filter(source_id="Ev_timeout").exists()
+
+        # Nothing claimed a dedup mark, so Slack's redelivery is the recovery rather than a drop.
+        mock_lookup.side_effect = None
+        mock_lookup.return_value = self.team
+        with patch(WAKE_INBOUND_EVENT) as mock_wake:
+            redelivered = self._post_committed(payload)
+
+        assert redelivered.status_code == 202
+        mock_wake.assert_called_once()
+        assert self._event_row().source_id == "Ev_timeout"
+
 
 class TestSupportSlackDeliveries(BaseTest):
     def setUp(self):
@@ -275,23 +310,24 @@ class TestSupportSlackDeliveries(BaseTest):
     def test_ownership(self, _name: str, context: dict[str, str], expected: DeliveryOwnership):
         assert slack_delivery_ownership(self._delivery(context)) == expected
 
-    @patch(f"{SLACK_EVENTS_MODULE}.team_for_slack_workspace")
-    def test_a_lookup_that_hits_its_timeout_answers_elsewhere(self, mock_lookup: MagicMock):
-        mock_lookup.side_effect = OperationalError("canceling statement due to statement timeout")
-
-        assert slack_delivery_ownership(self._delivery({"slack_team_id": "T123"})) == DeliveryOwnership.ELSEWHERE
-
+    @parameterized.expand(
+        [
+            ("the ownership lookup", slack_delivery_ownership),
+            ("the consumer", accept_slack_event),
+        ]
+    )
     @patch(WAKE_INBOUND_EVENT)
     @patch(f"{SLACK_EVENTS_MODULE}.team_for_slack_workspace")
-    def test_a_lookup_that_hits_its_timeout_fails_the_dispatch_rather_than_receipting_it(
-        self, mock_lookup: MagicMock, mock_wake: MagicMock
+    def test_a_workspace_lookup_that_hits_its_timeout_raises_out_of(
+        self, _name: str, entry_point: Callable[[WebhookDelivery], Any], mock_lookup: MagicMock, mock_wake: MagicMock
     ):
-        # Swallowing it would return quietly, the dispatcher would mark the delivery done for 24
-        # hours, and Slack would never learn the event needs sending again.
+        # Answering through a timeout is what ingress cannot recover from: an `ELSEWHERE` guess
+        # forwards a workspace this region owns to the other one, and a quiet return receipts a
+        # delivery that was never written. Raising asks Slack to redeliver.
         mock_lookup.side_effect = OperationalError("canceling statement due to statement timeout")
 
         with self.assertRaises(OperationalError):
-            accept_slack_event(self._delivery({"slack_team_id": "T123"}))
+            entry_point(self._delivery({"slack_team_id": "T123"}))
 
         mock_wake.assert_not_called()
         assert not ConversationInboundEvent.objects.unscoped().filter(source_id="Ev_own").exists()
