@@ -982,9 +982,9 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_actionability_filter(qs)
         qs = self._apply_signal_report_already_addressed_filter(qs)
         qs = self._apply_signal_report_inbox_view_filter(qs)
-        qs = self._annotate_signal_report_status_rank(qs)
-        if self._needs_priority_annotation():
-            qs = self._annotate_signal_report_priority(qs)
+        qs = self._alias_signal_report_status_rank(qs)
+        if self._needs_priority_alias():
+            qs = self._alias_signal_report_priority(qs)
             qs = self._apply_signal_report_priority_filter(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
         if self.action != "bulk_state":
@@ -1375,7 +1375,7 @@ class SignalReportViewSet(
         return queryset.filter(SignalReport.reports_for_task_filter(task_uuid))
 
     def _apply_signal_report_priority_filter(self, queryset):
-        # Filters on the `priority_rank` annotation, which must be applied first.
+        # Filters on the `priority_rank` alias, which must be applied first.
         # Reports without a priority artefact (coalesced to "~") are excluded when this filter is set.
         priority_filter = self.request.query_params.get("priority")
         if not priority_filter and self.request.query_params.get("use_priority_preference", "false").lower() == "true":
@@ -1475,12 +1475,14 @@ class SignalReportViewSet(
             return queryset.filter(latest_actionability_value=ActionabilityChoice.NOT_ACTIONABLE.value)
         return queryset
 
-    def _annotate_signal_report_status_rank(self, queryset):
-        # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
+    def _alias_signal_report_status_rank(self, queryset):
+        # `ordering=status` uses semantic stage rank (alias), not lexicographic `status` column order.
         # `status=ready` splits into two virtual stages (requires `latest_actionability_value`):
         # 0 = ready + actionable (or no judgment yet), 1 = ready + not_actionable; then other stages.
         # The split is nested so Postgres reaches the actionability subquery for ready rows alone.
-        return queryset.annotate(
+        # `alias()`, not `annotate()`: `ordering=status` is the only reader, so a request that sorts
+        # on anything else must not carry the subquery into the select list.
+        return queryset.alias(
             pipeline_status_rank=Case(
                 When(
                     status=SignalReport.Status.READY,
@@ -1503,10 +1505,13 @@ class SignalReportViewSet(
             )
         )
 
-    def _annotate_signal_report_priority(self, queryset):
+    def _alias_signal_report_priority(self, queryset):
         # `ordering=priority` sorts by the priority value ("P0"–"P4") from the latest priority_judgment
         # artefact. These sort lexicographically, so we extract via jsonb and coalesce NULL to "~"
         # (sorts after "P4") for reports without a priority. The startswith guard skips non-object content.
+        # `priority_rank` must be aliased before `priority_sort_rank`, which reads it. Neither is
+        # selected: the sort rank re-inlines the priority subquery once per `When` arm a row reaches,
+        # and only `ordering=priority` reads the result.
         latest_priority = Subquery(
             SignalReportArtefact.objects.filter(
                 report_id=OuterRef("id"),
@@ -1525,7 +1530,7 @@ class SignalReportViewSet(
             .values("_priority_val")[:1],
             output_field=CharField(),
         )
-        return queryset.alias(priority_rank=latest_priority).annotate(
+        return queryset.alias(priority_rank=latest_priority).alias(
             priority_sort_rank=Case(
                 *(
                     When(priority_rank=priority, then=Value(index))
@@ -1574,7 +1579,7 @@ class SignalReportViewSet(
             return True
         return self.request.query_params.get("view") == "actionable"
 
-    def _needs_priority_annotation(self) -> bool:
+    def _needs_priority_alias(self) -> bool:
         # The priority value is a correlated subquery too, and the serializer renders priority from
         # the prefetched artefacts instead, so only a priority filter or a priority sort needs it.
         params = self.request.query_params

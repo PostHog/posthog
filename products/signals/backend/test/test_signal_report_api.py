@@ -1601,6 +1601,35 @@ class TestSignalReportListAPI(APIBaseTest):
             assert "latest_actionability_value" not in sql
             assert "latest_already_addressed_value" not in sql
 
+    @parameterized.expand(
+        [
+            ("default_list", {}, ("pipeline_status_rank",)),
+            (
+                "priority_filter_with_newest_sort",
+                {"priority": "P1", "sort": "newest"},
+                ("pipeline_status_rank", "priority_sort_rank"),
+            ),
+        ]
+    )
+    def test_list_does_not_select_the_sort_only_ranks(self, _name, params: dict[str, str], ranks: tuple[str, ...]):
+        # Only `ordering=` reads either rank. Selecting one walks the artefact table per returned row
+        # for a column the response drops, and the priority rank repeats that walk per `When` arm it
+        # reaches. A priority filter turns the priority rank on without any sort asking for it.
+        report = self._create_report()
+        self._actionability_artefact(report, actionability="immediately_actionable")
+        self._priority_artefact(report, priority="P1")
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(self._list_url(**params))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["id"] for r in response.json()["results"]] == [str(report.id)]
+        report_queries = [q["sql"] for q in ctx.captured_queries if 'FROM "signals_signalreport"' in q["sql"]]
+        assert report_queries
+        for sql in report_queries:
+            for rank in ranks:
+                assert rank not in sql
+
     def test_filter_actionability_invalid_value_returns_400(self):
         response = self.client.get(self._list_url(actionability="maybe_later"))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
