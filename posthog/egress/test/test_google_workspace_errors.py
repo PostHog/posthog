@@ -25,7 +25,8 @@ class TestGoogleWorkspaceStatusClassification(SimpleTestCase):
 
     @parameterized.expand([("bad_request", 400), ("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     def test_permanent_status_is_left_for_the_caller(self, _name: str, status_code: int) -> None:
-        assert raise_if_transient_google_workspace_status(_response(status_code), "Gmail API") is None
+        # Returning instead of raising is what lets the caller raise its own domain error.
+        raise_if_transient_google_workspace_status(_response(status_code), "Gmail API")
 
     def test_retry_after_seconds_is_parsed(self) -> None:
         with self.assertRaises(GoogleWorkspaceTransientError) as ctx:
