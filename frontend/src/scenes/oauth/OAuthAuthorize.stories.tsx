@@ -43,11 +43,12 @@ const withPinnedSceneHeight: Decorator = function PinnedSceneHeightDecorator(Sto
 }
 
 // A docked side panel leaves a 1280px window about 520px of scene. The group headers have to
-// wrap there instead of pushing their controls out of the card.
+// wrap there instead of pushing their controls out of the card. The root keeps the standard
+// snapshot width, so only the scene narrows.
 const withNarrowScene: Decorator = function NarrowSceneDecorator(Story): JSX.Element {
     return (
         <>
-            <style>{'.Navigation3000 { width: 520px !important; }'}</style>
+            <style>{'#storybook-root { min-width: 1280px; } .Navigation3000 { width: 520px !important; }'}</style>
             <Story />
         </>
     )
