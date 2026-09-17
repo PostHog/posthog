@@ -22,7 +22,7 @@ export function PoeFilter({ insightProps }: PoeFilterProps): JSX.Element {
     return (
         <LemonDisabledArea className="flex items-center gap-1 w-fit" disabledReason={disabledReason}>
             <LemonLabel
-                info="This insight matches person properties as they were when each event happened. Turn this on to match the current values instead. Use it when a person property changed after the event, for example an internal user filter that you set up recently and that does not exclude older events. Query-time person properties can slow the insight down a lot."
+                info="Person property filters can match the values from the time of each event, or the current values. Turn this on to match the current values for this insight. That helps when a person property changed after the event, for example an internal user filter that you set up recently and that does not exclude older events. Query-time person properties can slow the insight down a lot."
                 infoLink="https://posthog.com/docs/how-posthog-works/queries#filtering-on-person-properties"
             >
                 Use person properties from query time

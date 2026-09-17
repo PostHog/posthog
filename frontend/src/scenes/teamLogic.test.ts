@@ -59,35 +59,52 @@ describe('teamLogic', () => {
 
     describe('testAccountFilterFrequentMistakes', () => {
         const mountWithModifiers = async (
-            personsOnEventsMode?: HogQLQueryModifiers['personsOnEventsMode']
+            modifiers: Pick<TeamType, 'modifiers' | 'default_modifiers'>
         ): Promise<ReturnType<typeof teamLogic.build>> => {
-            initKeaTests(false, { ...MOCK_DEFAULT_TEAM, modifiers: { personsOnEventsMode } })
+            initKeaTests(false, { ...MOCK_DEFAULT_TEAM, ...modifiers })
             const teamLogicInstance = teamLogic()
             teamLogicInstance.mount()
             await expectLogic(teamLogicInstance).toDispatchActions(['loadCurrentTeamSuccess'])
             return teamLogicInstance
         }
 
-        const eventTimeModes: HogQLQueryModifiers['personsOnEventsMode'][] = [
-            'person_id_override_properties_on_events',
-            'person_id_no_override_properties_on_events',
+        const eventTimeMode: HogQLQueryModifiers = { personsOnEventsMode: 'person_id_override_properties_on_events' }
+        const quietModes: HogQLQueryModifiers['personsOnEventsMode'][] = [
+            'person_id_override_properties_joined',
+            'disabled',
+            undefined,
         ]
 
         // MOCK_DEFAULT_TEAM filters internal users by the `email` person property
-        it.each(eventTimeModes)('warns about a person property filter on the %s mode', async (personsOnEventsMode) => {
-            logic = await mountWithModifiers(personsOnEventsMode)
+        it.each(['person_id_override_properties_on_events', 'person_id_no_override_properties_on_events'] as const)(
+            'warns about a person property filter on the %s mode',
+            async (personsOnEventsMode) => {
+                logic = await mountWithModifiers({ modifiers: { personsOnEventsMode } })
+                expect(logic.values.testAccountFilterFrequentMistakes).toEqual([
+                    expect.objectContaining({ key: 'email', type: 'person' }),
+                ])
+            }
+        )
+
+        it('warns when the event-time mode comes from the project default', async () => {
+            logic = await mountWithModifiers({ default_modifiers: eventTimeMode })
             expect(logic.values.testAccountFilterFrequentMistakes).toEqual([
                 expect.objectContaining({ key: 'email', type: 'person' }),
             ])
         })
 
-        it.each(['person_id_override_properties_joined', undefined] as const)(
-            'stays quiet on the %s mode',
-            async (personsOnEventsMode) => {
-                logic = await mountWithModifiers(personsOnEventsMode)
-                expect(logic.values.testAccountFilterFrequentMistakes).toEqual([])
-            }
-        )
+        it('lets an explicit mode override an event-time project default', async () => {
+            logic = await mountWithModifiers({
+                modifiers: { personsOnEventsMode: 'person_id_override_properties_joined' },
+                default_modifiers: eventTimeMode,
+            })
+            expect(logic.values.testAccountFilterFrequentMistakes).toEqual([])
+        })
+
+        it.each(quietModes)('stays quiet on the %s mode', async (personsOnEventsMode) => {
+            logic = await mountWithModifiers({ modifiers: { personsOnEventsMode } })
+            expect(logic.values.testAccountFilterFrequentMistakes).toEqual([])
+        })
     })
 
     describe('updateCurrentTeam with a name-only payload', () => {

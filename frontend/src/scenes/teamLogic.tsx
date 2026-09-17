@@ -647,7 +647,7 @@ export const teamLogic = kea<teamLogicType>([
                             type: 'person',
                             fix:
                                 'this project reads person properties from the time of the event, so the filter only applies to events received after you set the property. ' +
-                                'Change the person properties mode to query time to also filter past events',
+                                'To also filter earlier events, turn on "Use person properties from query time" in the advanced options of an insight',
                         })
                     }
                 }
