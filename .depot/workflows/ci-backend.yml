@@ -59,10 +59,9 @@
 #   depot bump.
 # - Deterministic-failure self-cancel remains omitted: the injected Depot job token
 #   cannot authorize the CLI's run lookup. Workflow-name expressions also remain
-#   literal, so the role cannot switch names through a variable. See the measured
-#   blockers and the static-name cutover alternative in
-#   docs/internal/depot-backend-side-effects.md. The gate's sampling `&&` is safe
-#   only while its status remains optional.
+#   literal, so the role cannot switch names through a variable; the cutover renames
+#   the workflow in a plain edit. The gate's hand-off `&&` is safe only while its
+#   status remains optional.
 # - events_json variants: gated on the test-new-events-schema label only; canonical also
 #   doubles the matrices on workflow_dispatch, but shadow dispatches stay legacy-only so
 #   trial runs do the same work as sampled PR runs
