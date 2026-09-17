@@ -68,6 +68,19 @@ export function CalendarSyncConfig(): JSX.Element {
                     Reconnect your Google account to let PostHog sync customer email as well as calendar meetings.
                 </LemonBanner>
             )}
+            <div className="flex">
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    icon={<img src={ICONS['google-calendar']} className="h-4 w-4" alt="" />}
+                    disableClientSideRouting
+                    loading={integrationsLoading}
+                    to={authorizeUrl}
+                    data-attr="calendar-sync-connect-google-account"
+                >
+                    {calendarIntegrations.length ? 'Connect another Google account' : 'Connect Google account'}
+                </LemonButton>
+            </div>
             {calendarIntegrations.map((integration) => {
                 const syncStatus = statusByIntegrationId[integration.id]
                 const isSyncing = !!syncStatus?.is_syncing || triggeringIntegrationIds.includes(integration.id)
@@ -146,18 +159,6 @@ export function CalendarSyncConfig(): JSX.Element {
                 }}
                 onClose={closeBackfill}
             />
-            <div className="flex">
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    icon={<img src={ICONS['google-calendar']} className="h-4 w-4" alt="" />}
-                    disableClientSideRouting
-                    loading={integrationsLoading}
-                    to={authorizeUrl}
-                >
-                    {calendarIntegrations.length ? 'Connect another Google account' : 'Connect Google account'}
-                </LemonButton>
-            </div>
         </div>
     )
 }
