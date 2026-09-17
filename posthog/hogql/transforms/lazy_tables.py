@@ -716,6 +716,17 @@ class LazyTableResolver(TraversingVisitor):
             self.field_collectors.pop()
             field_collector.extend(join_field_collector)
 
+        def resolve_expanded_name(table_type: ast.TableOrSelectType) -> str:
+            for expanded, name in expanded_tables:
+                if expanded is table_type:
+                    return name
+            # A lazy join hangs off the table it was reached through. That table's scope entry is
+            # already replaced, so `get_long_table_name` cannot find its alias. Build the name on
+            # the remembered name instead.
+            if isinstance(table_type, (ast.LazyJoinType, ast.VirtualTableType)):
+                return f"{resolve_expanded_name(table_type.table_type)}__{table_type.field}"
+            return get_long_table_name(select_type, table_type)
+
         # Assign all types on the fields we collected earlier
         for field_or_property in field_collector:
             if isinstance(field_or_property, ast.FieldType):
@@ -728,10 +739,7 @@ class LazyTableResolver(TraversingVisitor):
             while isinstance(table_type, ast.VirtualTableType):
                 table_type = table_type.table_type
 
-            table_name = next(
-                (name for expanded, name in expanded_tables if expanded is table_type),
-                get_long_table_name(select_type, table_type),
-            )
+            table_name = resolve_expanded_name(table_type)
             try:
                 table_type = select_type.tables[table_name]
             except KeyError:

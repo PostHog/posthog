@@ -6,6 +6,8 @@ from posthog.test.base import BaseTest, NewEventsSchemaSnapshotExtension
 from django.conf import settings
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql.context import HogQLContext
@@ -263,7 +265,21 @@ class TestLazyJoins(BaseTest):
         )
         self._assert_matches_snapshot(printed)
 
-    def test_resolve_lazy_table_through_namespace(self):
-        # A namespaced table is in scope under `posthog__persons`, not under its own printed name.
-        printed = self._print_select("SELECT id, properties.email FROM posthog.persons")
-        assert "posthog__persons.id AS id" in printed
+    @parameterized.expand(
+        [
+            (
+                "direct_field",
+                "SELECT id, properties.email FROM posthog.persons",
+                "posthog__persons.id AS id",
+            ),
+            (
+                "lazy_join",
+                "SELECT events.event FROM posthog.session_replay_events",
+                "posthog__session_replay_events__events.event AS event",
+            ),
+        ]
+    )
+    def test_resolve_lazy_table_through_namespace(self, _name: str, query: str, expected: str):
+        # A namespaced table is in scope under a `posthog__` prefix, not under its own printed name.
+        printed = self._print_select(query)
+        assert expected in printed
