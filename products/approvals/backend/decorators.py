@@ -33,8 +33,8 @@ logger = logging.getLogger(__name__)
 # analytics and notification work that runs after the insert. A responder must check
 # for a PENDING request before advising a retry. Drives the
 # ApprovalsChangeRequestCreateFailing alert in PostHog/charts.
-# error_type carries the exception class name only — the message would make the label
-# unbounded.
+# error_type carries the exception class name only, because the message would make the
+# label unbounded.
 CHANGE_REQUEST_CREATE_FAILURE_COUNTER = Counter(
     "posthog_approvals_change_request_create_failures_total",
     "ChangeRequest creations that failed inside the approval gate",
