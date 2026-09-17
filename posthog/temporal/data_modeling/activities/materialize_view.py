@@ -24,6 +24,7 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
@@ -34,6 +35,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseError,
     get_client as get_clickhouse_client,
 )
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.incremental_write import (
@@ -112,9 +114,17 @@ def _print_untouched(
     return print_prepared_ast(prepared_query, context=context, dialect="clickhouse", settings=settings, stack=[])
 
 
+@frozen
+class _DescribedColumn:
+    name: str
+    ch_type: str
+
+
 async def _describe_columns(
     printed: str, query_parameters: dict[str, typing.Any], query_settings: dict[str, str] | None
-) -> dict[str, str]:
+) -> list[_DescribedColumn]:
+    """A select list is ordered and may repeat a name, so the probe returns a list, not a mapping.
+    `_reject_duplicate_output_columns` is what turns a repeat into a readable error."""
     async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
         async with client.apost_query(
             query=f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw",
@@ -123,11 +133,30 @@ async def _describe_columns(
             settings=query_settings,
         ) as ch_response:
             table_describe_response = await ch_response.content.read()
-    columns: dict[str, str] = {}
+    columns: list[_DescribedColumn] = []
     for line in table_describe_response.decode("utf-8").splitlines():
         column_name, ch_type = line.strip().split("\t")
-        columns[column_name] = ch_type
+        columns.append(_DescribedColumn(name=column_name, ch_type=ch_type))
     return columns
+
+
+def _reject_duplicate_output_columns(columns: list[_DescribedColumn]) -> None:
+    # Folded because Delta compares field names without case, so `userId` beside `userid` is as
+    # unwritable as a literal repeat. Left to the write, that pair costs a full scan first.
+    first_spelling: dict[str, str] = {}
+    duplicates: list[str] = []
+    seen_duplicates: set[str] = set()
+    for column in columns:
+        folded = column.name.lower()
+        if folded in first_spelling:
+            for spelling in (first_spelling[folded], column.name):
+                if spelling not in seen_duplicates:
+                    seen_duplicates.add(spelling)
+                    duplicates.append(spelling)
+        else:
+            first_spelling[folded] = column.name
+    if duplicates:
+        raise DuplicateOutputColumnError(duplicates)
 
 
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
@@ -155,6 +184,21 @@ _clickhouse_query_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CLICKHOUSE_QUERIE
 class EmptyHogQLResponseColumnsError(Exception):
     def __init__(self):
         super().__init__("After running a HogQL query, no columns were returned")
+
+
+class DuplicateOutputColumnError(NonReportableError):
+    """Both consumers of the probe address a column by name: the type wrapper rebuilds the select
+    list from it, and the arrow transform looks it up on the batch. Neither can say which of two
+    same-named columns is meant, so the repeat is refused rather than resolved arbitrarily."""
+
+    def __init__(self, duplicates: list[str]) -> None:
+        names = ", ".join(f'"{name}"' for name in duplicates)
+        super().__init__(
+            f"The query returns more than one column named {names}. "
+            "Names that differ only by case count as duplicates. "
+            "Give each output column a unique name, for example with an alias."
+        )
+        self.duplicates = duplicates
 
 
 def _incremental_enabled(team_id: int) -> bool:
@@ -609,12 +653,14 @@ async def hogql_table(
         untouched = await database_sync_to_async_pool(_print_untouched)(prepared_hogql_query, context, settings)
         described_columns = await _describe_columns(untouched, context.values, None)
 
+    _reject_duplicate_output_columns(described_columns)
+
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
-    for column_name, ch_type in described_columns.items():
-        if _needs_conversion(ch_type):
-            query_typings.append((column_name, ch_type, get_call_tuple(ch_type)))
+    for column in described_columns:
+        if _needs_conversion(column.ch_type):
+            query_typings.append((column.name, column.ch_type, get_call_tuple(column.ch_type)))
         else:
-            query_typings.append((column_name, ch_type, None))
+            query_typings.append((column.name, column.ch_type, None))
 
     has_type_to_convert = any(call_tuple is not None for _, _, call_tuple in query_typings)
     if has_type_to_convert:
