@@ -218,6 +218,7 @@ describe('subscriptionsSceneLogic', () => {
 
         it('keeps URL filters when changing page', async () => {
             await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+            router.actions.push('/project/2/subscriptions')
 
             await expectLogic(logic, () => {
                 logic.actions.setTargetTypeFilter(SubscriptionTargetEnumApi.Slack)
@@ -227,6 +228,7 @@ describe('subscriptionsSceneLogic', () => {
                 logic.actions.setPage(2)
             }).toDispatchActions(['setPage', 'loadSubscriptions', 'loadSubscriptionsSuccess'])
 
+            expect(router.values.location.pathname).toBe('/project/2/subscriptions')
             expect(router.values.searchParams).toMatchObject({ target_type: 'slack', page: 2 })
         })
     })
