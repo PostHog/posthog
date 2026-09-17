@@ -18,6 +18,7 @@ class Migration(migrations.Migration):
             name="posthog_table",
             field=models.CharField(
                 blank=True,
+                default="",
                 help_text="Name of the PostHog table this check audits, such as events. "
                 "Exclusive with every subject FK.",
                 max_length=64,
