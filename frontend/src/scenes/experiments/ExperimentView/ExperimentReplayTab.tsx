@@ -266,6 +266,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         metricOptions,
         metricFilterMode,
         droppedMetricReason,
+        filtersCustomized,
         sessionBucket,
         sessionBucketLoading,
         sessionBucketError,
@@ -476,9 +477,11 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                 <ExperimentBehaviorComparisonToggle experiment={experiment} />
             </div>
             {/* The default mode also uses the endpoint for a single multi-source metric, so the
-                caption follows the request, not the mode. */}
+                caption follows the request, not the mode. The dropped-metric caption claims a whole
+                population, so a filter the viewer added in the playlist bar makes it wrong and takes
+                it away. The telemetry nulls the reason on the same condition. */}
             <div className="mb-2 flex items-center gap-2 text-xs text-secondary">
-                {clientSideFilterApplied ? null : droppedMetricReason ? (
+                {clientSideFilterApplied ? null : droppedMetricReason && !filtersCustomized ? (
                     <span data-attr="experiment-recordings-dropped-metric-caption">
                         {METRIC_UNSELECTABLE_COPY[droppedMetricReason].onTab}
                     </span>
