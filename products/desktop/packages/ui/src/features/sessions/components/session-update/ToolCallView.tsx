@@ -2,6 +2,7 @@ import { getPostHogExecDisplay } from "@posthog/core/sessions/posthogExecDisplay
 import {
   compactHomePath,
   formatPiMcpToolName,
+  readMcpProxyCallDetails,
   readPiMcpCallDetails,
 } from "@posthog/shared";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
@@ -45,7 +46,9 @@ interface ToolCallViewProps extends ToolViewProps {
 function mcpProxyDisplay(
   toolCall: ToolCall,
 ): { title: string; input?: string } | undefined {
-  const details = readPiMcpCallDetails(toolCall.details);
+  const details =
+    readPiMcpCallDetails(toolCall.details) ??
+    readMcpProxyCallDetails(toolCall._meta);
   if (details?.kind === "search") {
     return { title: "Search MCP tools", input: details.query };
   }
@@ -56,7 +59,7 @@ function mcpProxyDisplay(
     });
     if (posthogDisplay) {
       return {
-        title: posthogDisplay.label,
+        title: formatPiMcpToolName(details.name, posthogDisplay.label),
         input: posthogDisplay.input,
       };
     }

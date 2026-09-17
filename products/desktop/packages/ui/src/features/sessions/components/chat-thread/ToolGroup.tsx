@@ -6,7 +6,9 @@ import {
 } from "@posthog/quill";
 import {
   formatPiMcpToolName,
+  mcpToolKey,
   readAgentToolName,
+  readMcpProxyCallDetails,
   readMcpToolDescriptor,
   readPiMcpCallDetails,
 } from "@posthog/shared";
@@ -76,21 +78,23 @@ function friendlyName(key: string): string {
 function mcpDisplayName(toolCall: ToolCall): string | undefined {
   const descriptor = readMcpToolDescriptor(toolCall._meta);
   if (descriptor) {
-    return `MCP: ${descriptor.server} / ${descriptor.tool}`;
+    return formatPiMcpToolName(mcpToolKey(descriptor));
   }
 
   if (toolCall.title.startsWith("mcp_")) {
-    return `MCP: ${formatPiMcpToolName(toolCall.title)}`;
+    return formatPiMcpToolName(toolCall.title);
   }
 
   if (toolCall.title !== "mcp") return undefined;
 
-  const details = readPiMcpCallDetails(toolCall.details);
+  const details =
+    readPiMcpCallDetails(toolCall.details) ??
+    readMcpProxyCallDetails(toolCall._meta);
   if (details?.kind === "search") {
     return `Searching MCP tools for "${details.query}"`;
   }
   if (details?.kind === "tool") {
-    return `MCP: ${formatPiMcpToolName(details.name)}`;
+    return formatPiMcpToolName(details.name);
   }
   return "MCP";
 }

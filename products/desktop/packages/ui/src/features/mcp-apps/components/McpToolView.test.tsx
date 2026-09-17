@@ -25,7 +25,11 @@ function textContent(text: string): NonNullable<ToolCall["content"]> {
 function renderView(toolCall: ToolCall) {
   return render(
     <Theme>
-      <McpToolView toolCall={toolCall} mcpToolName="posthog__query" expanded />
+      <McpToolView
+        toolCall={toolCall}
+        mcpToolName="mcp__posthog__query"
+        expanded
+      />
     </Theme>,
   );
 }
@@ -44,12 +48,12 @@ describe("McpToolView", () => {
     {
       toolName: "mcp__posthog__query",
       rawInput: {},
-      expected: "query",
+      expected: "posthog - query",
     },
     {
       toolName: "mcp__posthog__exec",
       rawInput: { command: "call feature-flag-get-all" },
-      expected: "feature-flag-get-all",
+      expected: "posthog - feature-flag-get-all",
     },
   ])("shows the relevant MCP tool name", ({ toolName, rawInput, expected }) => {
     render(

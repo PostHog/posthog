@@ -386,6 +386,7 @@ export {
   posthogToolMeta,
   readAgentToolName,
   readMcpInstallationId,
+  readMcpProxyCallDetails,
   readMcpToolDescriptor,
   readMcpToolName,
   readParentToolCallId,

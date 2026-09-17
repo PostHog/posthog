@@ -65,11 +65,24 @@ export function readPiMcpCallDetails(
   return parsed.success ? parsed.data : undefined;
 }
 
-export function formatPiMcpToolName(name: string): string {
+function formatMcpPart(value: string): string {
+  return value.replace(/[_-]+/g, " ").replace(/([a-z\d])([A-Z])/g, "$1 $2");
+}
+
+export function formatPiMcpToolName(name: string, toolLabel?: string): string {
   const withoutPrefix = name.replace(/^mcp_+/, "");
-  return withoutPrefix
-    .replace(/[_-]+/g, " ")
-    .replace(/([a-z\d])([A-Z])/g, "$1 $2");
+  const separator = withoutPrefix.indexOf("__");
+  if (separator > 0) {
+    const server = withoutPrefix.slice(0, separator);
+    const tool = withoutPrefix.slice(separator + 2);
+    return `${formatMcpPart(server)} - ${toolLabel ?? formatMcpPart(tool)}`;
+  }
+
+  const [server, ...toolParts] = withoutPrefix.split("_");
+  if (server && toolParts.length > 0) {
+    return `${formatMcpPart(server)} - ${toolLabel ?? formatMcpPart(toolParts.join("_"))}`;
+  }
+  return formatMcpPart(withoutPrefix);
 }
 
 export const piToolCallRecordSchema = z.object({

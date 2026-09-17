@@ -53,15 +53,32 @@ describe("ToolCallView", () => {
         name: "mcp_posthog_exec",
         args: JSON.stringify({ command: "call feature-flag-get-all" }),
       },
-      expected: "feature-flag-get-all",
+      expected: "posthog - feature-flag-get-all",
     },
     {
       title: "mcp__posthog__project-get",
-      expected: "posthog project get",
+      expected: "posthog - project get",
     },
-  ])("shows a readable MCP tool label", ({ title, details, expected }) => {
-    renderView(makeToolCall({ title, details }));
+    {
+      title: "mcp",
+      meta: {
+        posthog: {
+          toolName: "mcp",
+          mcpProxy: {
+            kind: "tool",
+            name: "mcp_posthog_exec",
+            args: JSON.stringify({ command: "schema feature-flag-get-all" }),
+          },
+        },
+      },
+      expected: "posthog - Inspect feature-flag-get-all fields",
+    },
+  ])(
+    "shows a readable MCP tool label",
+    ({ title, details, meta, expected }) => {
+      renderView(makeToolCall({ title, details, _meta: meta }));
 
-    expect(screen.getByText(expected)).toBeInTheDocument();
-  });
+      expect(screen.getByText(expected)).toBeInTheDocument();
+    },
+  );
 });

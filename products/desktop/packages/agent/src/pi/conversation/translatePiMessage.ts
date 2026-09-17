@@ -18,6 +18,7 @@ import {
   isPiToolName,
   mcpToolKey,
   type PiToolName,
+  parsePiMcpCallDetails,
   posthogToolMeta,
 } from "@posthog/shared";
 import { z } from "zod";
@@ -271,10 +272,15 @@ export function createPiMessageTranslator(): PiMessageTranslator {
       toolCall.details = result.details;
     }
 
+    const piMcpCallDetails = parsePiMcpCallDetails(toolName, args);
     const mcpDetails = mcpToolDetailsSchema.safeParse(result.details);
     if (mcpDetails.success) {
       const mcp = mcpDetails.data.posthog.mcp;
-      toolCall._meta = posthogToolMeta({ toolName: mcpToolKey(mcp), mcp });
+      toolCall._meta = posthogToolMeta({
+        toolName: mcpToolKey(mcp),
+        mcp,
+        ...(piMcpCallDetails ? { mcpProxy: piMcpCallDetails } : {}),
+      });
 
       const resultMeta = mcp.result;
       if (
@@ -287,6 +293,11 @@ export function createPiMessageTranslator(): PiMessageTranslator {
           ...resultMeta,
         });
       }
+    } else if (piMcpCallDetails) {
+      toolCall._meta = posthogToolMeta({
+        toolName,
+        mcpProxy: piMcpCallDetails,
+      });
     }
 
     const translator = isPiToolName(toolName)
