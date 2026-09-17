@@ -5,5 +5,5 @@ from products.surveys.backend.presentation.desktop_feedback import DesktopFeedba
 
 
 def register_routes(routers: RouterRegistry) -> None:
-    routers.root.register(r"desktop_feedback", DesktopFeedbackViewSet, "desktop_feedback")
+    routers.projects.register(r"desktop_feedback", DesktopFeedbackViewSet, "project_desktop_feedback", ["team_id"])
     routers.projects.register(r"surveys", SurveyViewSet, "project_surveys", ["project_id"])

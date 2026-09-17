@@ -47,8 +47,8 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getDesktopFeedbackCreateUrl = () => {
-    return `/api/desktop_feedback/`
+export const getDesktopFeedbackCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/desktop_feedback/`
 }
 
 /**
@@ -56,6 +56,7 @@ export const getDesktopFeedbackCreateUrl = () => {
  * @summary Submit Desktop feedback
  */
 export const desktopFeedbackCreate = async (
+    projectId: string,
     desktopFeedbackRequestApi: DesktopFeedbackRequestApi,
     options?: RequestInit
 ): Promise<DesktopFeedbackResponseApi> => {
@@ -88,23 +89,27 @@ export const desktopFeedbackCreate = async (
         formData.append(`image_2`, desktopFeedbackRequestApi.image_2)
     }
 
-    return apiMutator<DesktopFeedbackResponseApi>(getDesktopFeedbackCreateUrl(), {
+    return apiMutator<DesktopFeedbackResponseApi>(getDesktopFeedbackCreateUrl(projectId), {
         ...options,
         method: 'POST',
         body: formData,
     })
 }
 
-export const getDesktopFeedbackAttachmentsRetrieveUrl = (mediaId: string) => {
-    return `/api/desktop_feedback/attachments/${mediaId}/`
+export const getDesktopFeedbackAttachmentsRetrieveUrl = (projectId: string, mediaId: string) => {
+    return `/api/projects/${projectId}/desktop_feedback/attachments/${mediaId}/`
 }
 
 /**
  * Returns an unexpired attachment to a user with access to the internal feedback project.
  * @summary Download a Desktop feedback attachment
  */
-export const desktopFeedbackAttachmentsRetrieve = async (mediaId: string, options?: RequestInit): Promise<Blob> => {
-    return apiMutator<Blob>(getDesktopFeedbackAttachmentsRetrieveUrl(mediaId), {
+export const desktopFeedbackAttachmentsRetrieve = async (
+    projectId: string,
+    mediaId: string,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getDesktopFeedbackAttachmentsRetrieveUrl(projectId, mediaId), {
         ...options,
         method: 'GET',
     })

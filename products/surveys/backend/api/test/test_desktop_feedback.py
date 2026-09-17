@@ -50,7 +50,7 @@ class TestDesktopFeedback(APIBaseTest):
         get_client.return_value = client
 
         response = self.client.post(
-            "/api/desktop_feedback/",
+            f"/api/projects/{self.team.id}/desktop_feedback/",
             {
                 "response": "The page did not load",
                 "source": "Generic (Leave feedback button)",
@@ -77,12 +77,12 @@ class TestDesktopFeedback(APIBaseTest):
         assert properties["$survey_id"] == "019ee235-2e3b-0000-64b3-5f2efa487452"
         assert properties["$survey_response_68648b23-caaf-4080-ae5f-051513d3097f"] == "The page did not load"
         attachment_path = urlsplit(properties["feedback_screenshot_url"]).path
-        assert attachment_path == f"/api/desktop_feedback/attachments/{media.id}/"
+        assert attachment_path == f"/api/projects/{self.internal_team.id}/desktop_feedback/attachments/{media.id}/"
         assert properties["feedback_app_logs"] == "[info] Example log"
         assert properties["$session_id"] == "00000000-0000-0000-0000-000000000002"
 
         assert self.client.get(media.get_absolute_url()).status_code == status.HTTP_404_NOT_FOUND
-        assert self.client.get(attachment_path).status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.get(attachment_path).status_code == status.HTTP_403_FORBIDDEN
 
         OrganizationMembership.objects.create(
             organization=self.internal_org,
@@ -107,7 +107,7 @@ class TestDesktopFeedback(APIBaseTest):
     @patch("products.surveys.backend.desktop_feedback.get_client")
     def test_rejects_unsupported_image_formats_as_invalid_input(self, get_client) -> None:
         response = self.client.post(
-            "/api/desktop_feedback/",
+            f"/api/projects/{self.team.id}/desktop_feedback/",
             {
                 "response": "The page did not load",
                 "source": "Generic (Leave feedback button)",
@@ -160,7 +160,7 @@ class TestDesktopFeedback(APIBaseTest):
         delete_object.assert_called_once_with(expired.media_location)
 
     @patch("products.surveys.backend.desktop_feedback.get_client")
-    def test_accepts_desktop_oauth_token(self, get_client) -> None:
+    def test_accepts_project_scoped_desktop_oauth_token(self, get_client) -> None:
         client = MagicMock()
         client.capture.return_value = "00000000-0000-0000-0000-000000000001"
         get_client.return_value = client
@@ -180,11 +180,12 @@ class TestDesktopFeedback(APIBaseTest):
             token="pha_desktop_feedback_test",
             expires=timezone.now() + timedelta(hours=1),
             scope="survey:write",
+            scoped_teams=[self.team.id],
         )
         self.client.logout()
 
         response = self.client.post(
-            "/api/desktop_feedback/",
+            f"/api/projects/{self.team.id}/desktop_feedback/",
             {
                 "response": "The page did not load",
                 "source": "Generic (Leave feedback button)",
@@ -196,6 +197,21 @@ class TestDesktopFeedback(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        denied_response = self.client.post(
+            f"/api/projects/{other_team.id}/desktop_feedback/",
+            {
+                "response": "The page did not load",
+                "source": "Generic (Leave feedback button)",
+                "feedback_view": "task-detail",
+            },
+            format="multipart",
+            headers={"authorization": f"Bearer {access_token.token}"},
+        )
+
+        assert denied_response.status_code == status.HTTP_403_FORBIDDEN
+        assert client.capture.call_count == 1
+
     @override_settings(CLOUD_DEPLOYMENT="EU")
     @patch("products.surveys.backend.desktop_feedback.get_client")
     def test_captures_feedback_in_the_instance_region(self, get_client) -> None:
@@ -204,7 +220,7 @@ class TestDesktopFeedback(APIBaseTest):
         get_client.return_value = client
 
         response = self.client.post(
-            "/api/desktop_feedback/",
+            f"/api/projects/{self.team.id}/desktop_feedback/",
             {
                 "response": "The page did not load",
                 "source": "Generic (Leave feedback button)",
@@ -231,7 +247,7 @@ class TestDesktopFeedback(APIBaseTest):
         get_client.return_value = client
 
         response = self.client.post(
-            "/api/desktop_feedback/",
+            f"/api/projects/{self.team.id}/desktop_feedback/",
             {
                 "response": "The page did not load",
                 "source": "Generic (Leave feedback button)",

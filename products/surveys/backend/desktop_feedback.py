@@ -61,7 +61,7 @@ def _discard_media(media: UploadedMedia) -> bool:
 
 
 def _media_url(media: UploadedMedia) -> str:
-    return absolute_uri(f"/api/desktop_feedback/attachments/{media.id}/")
+    return absolute_uri(f"/api/projects/{media.team_id}/desktop_feedback/attachments/{media.id}/")
 
 
 def read_desktop_feedback_media(*, user: User, media_id: UUID) -> tuple[bytes, str] | None:
