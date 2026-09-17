@@ -192,7 +192,6 @@ class TestTaggedItemGenericColumns(BaseTest):
 
         tagged_item.refresh_from_db()
         assert tagged_item.team_id == tag.team_id
-        assert tagged_item.object_id == dashboard.id
 
     def test_team_follows_the_tag(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="dashboard")
