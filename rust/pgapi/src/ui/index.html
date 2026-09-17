@@ -212,7 +212,7 @@
       ),
       el('div', { class: 'grid two', style: 'margin-top:12px' },
         panel('Top queries by total time', table(d.top_queries, [
-          { key: 'query', label: 'query', render: r => el('a', { href: `#/${state.server}/query?queryid=${r.queryid}` }, queryLabel(r)) },
+          { key: 'query', label: 'query', render: r => el('a', { href: `#/${state.server}/query?queryid=${r.queryid}${r.datname ? `&datname=${encodeURIComponent(r.datname)}` : ''}` }, queryLabel(r)) },
           { key: 'calls', label: 'calls', num: true, fmt: fmt.num }, { key: 'mean_ms', label: 'mean', num: true, fmt: fmt.ms }, { key: 'pct_of_total_time', label: '% time', num: true, fmt: fmt.pct },
         ])),
         panel('Top wait events (active sessions, sampled)', table(d.top_wait_events, [
@@ -275,14 +275,14 @@
         { key: 'datname', label: 'db' }, { key: 'rolname', label: 'role' },
         { key: 'calls', label: 'calls', num: true, fmt: fmt.num }, { key: 'total_ms', label: 'total', num: true, fmt: fmt.ms }, { key: 'mean_ms', label: 'mean', num: true, fmt: fmt.ms }, { key: 'stddev_ms', label: 'stddev', num: true, fmt: fmt.ms },
         { key: 'rows', label: 'rows', num: true, fmt: fmt.num }, { key: 'shared_blks_read', label: 'blks read', num: true, fmt: fmt.num }, { key: 'pct_of_total_time', label: '% time', num: true, render: r => el('span', {}, el('span', { class: 'bar', style: `width:${Math.min(100, r.pct_of_total_time || 0)}px` }), ' ', fmt.pct(r.pct_of_total_time)) },
-      ], { onRow: r => go('query', { queryid: r.queryid }), empty: tagFilter ? 'no queries seen with this tag in the range' : 'nothing in this range' })),
+      ], { onRow: r => go('query', { queryid: r.queryid, ...(r.datname ? { datname: r.datname } : {}) }), empty: tagFilter ? 'no queries seen with this tag in the range' : 'nothing in this range' })),
     ];
   };
 
   pages.query = async () => {
     const qid = state.params.queryid;
     const bucket = bucketFor(state.range);
-    const d = await api(`/servers/${state.server}/queries/${qid}`, { since: state.range, bucket });
+    const d = await api(`/servers/${state.server}/queries/${qid}`, { since: state.range, bucket, datname: state.params.datname });
     const t = d.texts[0] || {};
     const byBucket = {};
     for (const r of d.series) { const k = r.bucket; (byBucket[k] ||= { calls: 0, total: 0 }); byBucket[k].calls += r.calls || 0; byBucket[k].total += r.total_ms || 0; }
@@ -436,7 +436,7 @@
     const byInst = (rows, key) => { const m = {}; for (const r of rows) (m[r.instance] ||= []).push([new Date(r.collected_at), r[key]]); return Object.entries(m).map(([n, pts], i) => ({ name: n, color: COLORS[i], points: pts })); };
     const cpuTitle = 'Host CPU %' + (d.host.length ? ` (${d.host.map(h => `${h.instance}: ${h.ncpu} vCPU`).join(', ')})` : '');
     const noProctab = () => el('div', { class: 'empty' }, 'No pg_proctab data. Run CREATE EXTENSION pg_proctab in the database the collector connects to; rows start within 10 minutes.');
-    const userSeries = (() => { const m = {}; for (const r of d.cpu_by_user_series) (m[`${r.label}${d.host.length > 1 ? ' @' + r.instance : ''}`] ||= []).push([new Date(r.collected_at), r.cores]); const names = Object.keys(m).sort((a, b) => a.startsWith('other') - b.startsWith('other')); return names.map((n, i) => ({ name: n, color: n.startsWith('other') ? '#565f73' : COLORS[i % COLORS.length], points: m[n] })); })();
+    const userSeries = (() => { const m = Object.create(null); for (const r of d.cpu_by_user_series) (m[`${r.label}${d.host.length > 1 ? ' @' + r.instance : ''}`] ||= []).push([new Date(r.collected_at), r.cores]); const names = Object.keys(m).sort((a, b) => a.startsWith('other') - b.startsWith('other')); return names.map((n, i) => ({ name: n, color: n.startsWith('other') ? '#565f73' : COLORS[i % COLORS.length], points: m[n] })); })();
     const cores = v => v == null ? '–' : fmt.dec(v, 3);
     const cpuCols = [
       { key: 'cpu_seconds', label: 'CPU time', num: true, fmt: v => fmt.dec(v, 1) + ' s' },
@@ -462,7 +462,7 @@
           ...cpuCols,
         ], { empty: 'no query tags seen on active backends in this range' }))),
       el('div', { style: 'margin-top:12px' }, panel('CPU by query (sampled from the active statement each minute)', table(d.cpu_by_query, [
-        { key: 'query', label: 'query', render: r => el('a', { href: `#/${state.server}/query?queryid=${r.queryid}` }, queryLabel(r)) },
+        { key: 'query', label: 'query', render: r => el('a', { href: `#/${state.server}/query?queryid=${r.queryid}${r.datname ? `&datname=${encodeURIComponent(r.datname)}` : ''}` }, queryLabel(r)) },
         { key: 'datname', label: 'db' },
         ...cpuCols,
       ], { empty: 'no query ids seen on active backends in this range' }))),

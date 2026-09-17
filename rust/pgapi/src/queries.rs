@@ -262,6 +262,7 @@ pub async fn query_detail(
     from: Ts,
     to: Ts,
     bucket: &str,
+    datname: Option<&str>,
 ) -> Result<Value> {
     let interval = bucket_interval(bucket);
     // Latency histograms are per minute, so the finest latency bucket is a minute.
@@ -275,14 +276,14 @@ pub async fn query_detail(
     } else {
         "NULL::jsonb AS tags"
     };
-    let texts = opt(db, &format!("SELECT datname, query, fingerprint, truncated, first_seen, last_seen, {query_tags} FROM cur_queries WHERE server_id = $1 AND queryid = $2"), &[&server, &queryid]).await?;
+    let texts = opt(db, &format!("SELECT datname, query, fingerprint, truncated, first_seen, last_seen, {query_tags} FROM cur_queries WHERE server_id = $1 AND queryid = $2 AND ($3::text IS NULL OR datname = $3)"), &[&server, &queryid, &datname]).await?;
     let fingerprint: Option<i64> = texts.first().and_then(|t| json_i64(&t["fingerprint"]));
     let series = opt(db, &format!("SELECT {b} AS bucket, instance, datname,
                 sum(calls)::bigint AS calls, sum(total_exec_time)::float8 AS total_ms,
                 CASE WHEN sum(calls) > 0 THEN sum(total_exec_time) / sum(calls) END::float8 AS mean_ms,
                 sum(rows)::bigint AS rows, sum(shared_blks_read)::bigint AS shared_blks_read, sum(shared_blks_hit)::bigint AS shared_blks_hit
-         FROM ts_query_stats WHERE server_id = $1 AND queryid = $2 AND collected_at >= $3 AND collected_at < $4
-         GROUP BY 1, 2, 3 ORDER BY 1", b = bucket_expr("collected_at", interval)), &[&server, &queryid, &from, &to]).await?;
+         FROM ts_query_stats WHERE server_id = $1 AND queryid = $2 AND collected_at >= $3 AND collected_at < $4 AND ($5::text IS NULL OR datname = $5)
+         GROUP BY 1, 2, 3 ORDER BY 1", b = bucket_expr("collected_at", interval)), &[&server, &queryid, &from, &to, &datname]).await?;
     let sampling = log_sampling_settings(db, server).await?;
     // Each histogram row carries the sample rate it was collected under: a sampled
     // count stands for 1/rate statements, an always-logged one for itself. Edges

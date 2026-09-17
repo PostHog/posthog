@@ -81,6 +81,8 @@ pub struct QueryArg {
     pub since: Option<String>,
     /// Series bucket width: 10s, 1m (default), 5m or 1h.
     pub bucket: Option<String>,
+    /// Limit text and series to one database when the query id exists in several.
+    pub datname: Option<String>,
 }
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct DbArg {
@@ -210,6 +212,7 @@ impl PgMcp {
             f,
             t,
             a.bucket.as_deref().unwrap_or("1m"),
+            a.datname.as_deref(),
         )
         .await
         .map_err(err)?)
