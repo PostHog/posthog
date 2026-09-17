@@ -33,7 +33,7 @@ export class MlKeyReader {
             }
             identities.set(id, this.identityOf(item))
         }
-        // A sealed session key opens under its team month key, so that row is read alongside the team blocks.
+        // A sealed session key opens under its team month key, so this read includes that row with the team blocks.
         const monthKeys = new Map<string, TableKey>()
         for (const [id, identity] of identities) {
             const month = stored.get(id)!.sealed_key?.B ? stored.get(id)!.session_month?.S : undefined

@@ -43,15 +43,15 @@ export interface MlSealedKey {
     nonce: Buffer
 }
 
-// Derived rather than used directly, because the stored key still seals image data and one key with two jobs lets a
-// flaw in either reach the other.
+// HKDF makes this key from the stored key, which also seals image data. One key with two jobs lets a flaw in one job
+// reach the other.
 const SESSION_WRAP_INFO = Buffer.from('ml-session-key-wrap')
 
 function sessionWrappingKey(teamMonthKey: Buffer): Buffer {
     return Buffer.from(hkdfSync('sha256', teamMonthKey, Buffer.alloc(0), SESSION_WRAP_INFO, 32))
 }
 
-/** The identity is authenticated, so a sealed key cannot move to another session or team. */
+/** The seal authenticates the identity, so a sealed key cannot move to another session or another team. */
 export function sealSessionKey(teamMonthKey: Buffer, identity: MlKeyIdentity, plaintext: Buffer): MlSealedKey {
     const nonce = randomBytes(NONCE_BYTES)
     const cipher = createCipheriv('aes-256-gcm', sessionWrappingKey(teamMonthKey), nonce, { authTagLength: TAG_BYTES })

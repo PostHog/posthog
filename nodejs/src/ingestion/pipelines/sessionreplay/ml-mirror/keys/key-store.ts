@@ -107,7 +107,7 @@ export class MlKeyBatch {
             }
         }
         const unusable: MlStoredKeyMismatch[] = []
-        // A session key is sealed under its team month key, so the month keys resolve first.
+        // A session key opens under its team month key, so the month keys resolve first.
         for (const group of [
             [...keyIdentities].filter(([, identity]) => !identity.sessionId),
             [...keyIdentities].filter(([, identity]) => identity.sessionId),
@@ -194,7 +194,7 @@ export class MlKeyBatch {
     // The index entry goes first and is idempotent, so every stored key has an index entry even when the key put fails or a retried put reports the batch's own write as a competitor's. An index entry without a key is harmless: the month sweep leaves a tombstone that a later key put respects.
     private async persist(deadline: AbortSignal): Promise<void> {
         const unstored = [...this.keys].filter(([id]) => !this.state.has(id))
-        // A losing put would leave session keys sealed under bytes nobody stored, so the month key commits first.
+        // The month key commits first. A put that loses leaves session keys sealed under bytes that nobody stored.
         const monthKeys = unstored.filter(([, key]) => !key.identity.sessionId)
         if (monthKeys.length) {
             await this.write(monthKeys, deadline)

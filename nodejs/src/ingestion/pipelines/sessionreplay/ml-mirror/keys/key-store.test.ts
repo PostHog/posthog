@@ -158,7 +158,7 @@ describe('ML session key batches', () => {
     it('deduplicates repeated sessions and stores only keys and month indexes', async () => {
         const identities = Array.from({ length: 120 }, () => ({ ...session }))
         const batch = await store.prepare(identities)
-        // Only the team month key. A session key is made locally and sealed under it.
+        // KMS makes the team month key. The lane makes each session key locally and seals it under that key.
         expect(generated).toBe(1)
         await batch.commit()
         expect(boundary.items.size).toBe(4)
@@ -185,7 +185,7 @@ describe('ML session key batches', () => {
             expect(boundary.items.has(tableKeyString(monthKeyIndexId({ ...session }, location)))).toBe(true)
             // Two index rows and two keys. A retry that re-sent the whole batch would store an index row twice.
             expect(boundary.writes).toBe(4)
-            // A batch write per phase, one retry carrying the deferred row, and a put for each key.
+            // Each phase makes one batch write, the retry carries the deferred row, and each key takes one put.
             expect(boundary.writeRequests).toBe(5)
         }
     })
@@ -203,7 +203,7 @@ describe('ML session key batches', () => {
         // 60 session keys and one team image key. Each is one conditional put, and their 61 index entries pack into
         // three batches of at most 25, so 122 requests become 64.
         expect(boundary.writes).toBe(122)
-        // One more request than a single phase, because the team month key commits before the keys it seals.
+        // The team month key commits before the keys it seals, so that phase adds one request.
         expect(boundary.writeRequests).toBe(65)
         expect([...boundary.writeBatchSizes].sort((a, b) => b - a)).toEqual([25, 25, 10, 1])
     })
@@ -238,7 +238,7 @@ describe('ML session key batches', () => {
         const keys = await reader.read(identities.map((identity) => sessionKeyId(identity.teamId, identity.sessionId)))
         expect(keys.size).toBe(identities.length)
         expect(boundary.conditionalFailures).toBe(0)
-        // 120 distinct sessions, one team month, so KMS made the month key and nothing else.
+        // These 120 sessions share one team month, so KMS made one key.
         expect(generated).toBe(1)
     })
 
@@ -535,7 +535,7 @@ describe('ML session key batches', () => {
     })
 
     it.each([
-        // An unusable month key takes its sessions with it, because a session key only opens under that key.
+        // A session key opens under its month key only, so an unusable month key makes its sessions unusable too.
         ['session', () => sessionKeyId(session.teamId, session.sessionId), 1],
         ['monthly image', () => imageKeyId(session.teamId, '2025-09'), 2],
     ])(
@@ -562,7 +562,7 @@ describe('ML session key batches', () => {
         await (await store.prepare([session])).commit()
         coldCache()
         await store.prepare([session])
-        // The month key still reaches KMS, and the session key it sealed does not.
+        // The month key reaches KMS. The session key it sealed does not reach KMS.
         expect(scheme.mock.calls.map(([value]) => value).sort()).toEqual(['v2', 'v3'])
     })
 
