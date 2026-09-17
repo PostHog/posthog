@@ -158,14 +158,24 @@ describe('organizationLogic', () => {
             // The router writes back a `/project/<id>` prefix, so compare on the route.
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(expected)
         })
-        it("keeps a client-side link into another organization's project", async () => {
+        it("loads the page for a client-side link into another organization's project", async () => {
             mountWith({ is_active: false, teams: [{ id: 1 }] } as unknown as Partial<OrganizationType>)
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+            const originalLocation = window.location
+            Object.defineProperty(window, 'location', {
+                configurable: true,
+                value: { ...originalLocation, href: originalLocation.href },
+            })
 
-            router.actions.push('/project/424242/dashboard')
+            try {
+                router.actions.push('/project/424242/dashboard')
 
-            await expectLogic(router).toDispatchActions(['push'])
-            expect(router.values.location.pathname).toBe('/project/424242/dashboard')
+                await expectLogic(router).toDispatchActions(['push'])
+                // The server resolves which organization the project belongs to, and blocks it from there.
+                expect(window.location.href).toBe('/project/424242/dashboard')
+            } finally {
+                Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
+            }
         })
 
         it('still blocks a link into a project the organization owns', async () => {

@@ -31,8 +31,8 @@ const ALLOWED_WHILE_BLOCKED: Record<string, string[]> = {
 }
 
 /**
- * A client-side push reaches no server, so `AutoProjectMiddleware` never resolves the destination's
- * organization. Defer to the page load. False while the team list is unknown, which keeps the block on.
+ * True when the path names a project the current organization does not own, so only the server can
+ * say which organization it belongs to. False while the team list is unknown, which keeps the block on.
  */
 function pathLeavesCurrentOrganization(organization: OrganizationType | null, pathname: string): boolean {
     const teams = organization?.teams
@@ -82,6 +82,7 @@ export interface organizationLogicValues {
     currentOrganizationLoading: boolean
     isAdminOrOwner: boolean | null
     isCurrentOrganizationNew: boolean
+    isCurrentOrganizationBlocked: boolean
     isCurrentOrganizationUnavailable: boolean
     isNotActiveReason: string | null
     migrateAccessControlVersionLoading: boolean
@@ -217,6 +218,7 @@ export interface organizationLogicMeta {
         isAdminOrOwner: (currentOrganization: OrganizationType | null) => boolean | null
         isCurrentOrganizationNew: (currentOrganization: OrganizationType | null) => boolean
         isNotActiveReason: (currentOrganization: OrganizationType | null) => string | null
+        isCurrentOrganizationBlocked: (currentOrganization: OrganizationType | null) => boolean
     }
 }
 
@@ -371,6 +373,11 @@ export const organizationLogic = kea<organizationLogicType>([
             (currentOrganization: OrganizationType | null): string | null =>
                 currentOrganization?.is_not_active_reason ?? null,
         ],
+        isCurrentOrganizationBlocked: [
+            (s) => [s.currentOrganization],
+            (currentOrganization: OrganizationType | null): boolean =>
+                organizationBlockPage(currentOrganization) !== null,
+        ],
     }),
     listeners(({ actions, values }) => ({
         loadCurrentOrganizationSuccess: ({ currentOrganization }) => {
@@ -378,15 +385,22 @@ export const organizationLogic = kea<organizationLogicType>([
                 ApiConfig.setCurrentOrganizationId(currentOrganization.id)
             }
         },
-        locationChanged: ({ pathname }) => {
+        locationChanged: ({ pathname, url }) => {
             const blockPage = organizationBlockPage(values.currentOrganization)
-            if (blockPage === null || pathLeavesCurrentOrganization(values.currentOrganization, pathname)) {
+            if (blockPage === null) {
                 return
             }
             // Compare on the route: the pathname can carry a `/project/<id>` prefix, and then the
             // replace below never matches its own destination.
             const route = removeProjectIdIfPresent(pathname)
             if (ALLOWED_WHILE_BLOCKED[blockPage].some((allowed) => route.startsWith(allowed))) {
+                return
+            }
+            if (pathLeavesCurrentOrganization(values.currentOrganization, pathname)) {
+                // A client-side push reaches no server, so `AutoProjectMiddleware` never switches the
+                // user into the organization the project belongs to. Load the page the push skipped,
+                // and let `ActiveOrganizationMiddleware` admit or block the destination.
+                window.location.href = url
                 return
             }
             router.actions.replace(blockPage)
