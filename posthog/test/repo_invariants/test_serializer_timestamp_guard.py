@@ -16,10 +16,21 @@ The failure message lists every violation:
     pytest posthog/test/repo_invariants/test_serializer_timestamp_guard.py
 """
 
-from django.db import models
+import functools
+from typing import Any
 
-from drf_spectacular.generators import EndpointEnumerator
+from django.core.exceptions import FieldDoesNotExist
+from django.db import models
+from django.test import RequestFactory
+
 from rest_framework import serializers
+from rest_framework.generics import GenericAPIView
+from rest_framework.request import Request
+
+# DRF's enumerator, not the drf-spectacular subclass, because the subclass runs
+# `preprocess_exclude_path_format`, which drops every INTERNAL and undocumented route
+# from the schema. Those routes still accept writes, so the guard has to see them.
+from rest_framework.schemas.generators import EndpointEnumerator
 
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH"})
 
@@ -30,6 +41,7 @@ ALLOWED_WRITABLE: dict[str, str] = {
     "posthog.api.advanced_activity_logs.viewset.ActivityLogSerializer.created_at": "TODO: server-owned audit timestamp, make read-only",
     "posthog.api.event_definition.EventDefinitionSerializer.created_at": "TODO: server-owned, set when ingestion first sees the event",
     "posthog.api.event_definition.EventDefinitionSerializer.last_seen_at": "TODO: server-owned ingestion telemetry, make read-only",
+    "posthog.api.my_notifications.MyNotificationsSerializer.created_at": "TODO: server-owned activity log timestamp, make read-only",
     "posthog.api.web_experiment.WebExperimentsAPISerializer.created_at": "TODO: server-owned creation timestamp, make read-only",
     "products.actions.backend.api.action.ActionSerializer.last_calculated_at": "TODO: server-owned, written by the action calculation job",
     "products.actions.backend.api.action.ActionSerializer.pinned_at": "Clients pin an action by writing a timestamp and unpin it by writing null",
@@ -38,22 +50,65 @@ ALLOWED_WRITABLE: dict[str, str] = {
     "products.batch_exports.backend.api.batch_export.BatchExportSerializer.last_paused_at": "TODO: written by the pause action, make read-only",
 }
 
+# Views whose serializer choice this file cannot resolve, and serializers it cannot
+# build fields for. Each entry hides part of a write route from the guard, so an entry
+# needs a reason and the list has to stay short.
+UNCHECKED: dict[str, str] = {
+    "products.managed_migrations.backend.api.batch_imports.BatchImportViewSet": "get_serializer_class branches on request.data, which needs a real upload request; the static serializer_class is still checked",
+}
 
-def _write_exposed_serializers() -> list[type[serializers.ModelSerializer]]:
-    """Every `ModelSerializer` that a route with a write method uses.
 
-    `EndpointEnumerator` is what drf-spectacular walks the URL conf with to build the
-    OpenAPI schema, so this sees the same routes as `/api/schema/`, including the
-    routes that products register themselves.
+def _dotted_name(obj: type) -> str:
+    return f"{obj.__module__}.{obj.__qualname__}"
+
+
+def _declared_request_serializer(view_class: type, action: str) -> Any:
+    """The serializer an `@extend_schema(request=...)` decorator names on the action."""
+    annotation = getattr(getattr(view_class, action, None), "_spectacular_annotation", None) or {}
+    return annotation.get("request")
+
+
+def _selected_serializer(view_class: type, callback: Any, method: str, action: str) -> Any:
+    """The serializer `get_serializer_class()` picks for this action.
+
+    A viewset that serves a different serializer per action, either through an override
+    or through a request-schema decorator, would otherwise show the guard only its
+    response serializer. The view runs against a throwaway request, so an override that
+    reads the request still resolves.
     """
-    found: dict[type[serializers.ModelSerializer], None] = {}
-    for _path, _path_regex, method, callback in EndpointEnumerator().get_api_endpoints():
-        if method not in WRITE_METHODS:
+    override = getattr(view_class, "get_serializer_class", None)
+    if override is None or override is GenericAPIView.get_serializer_class:
+        return None
+    view = view_class(**(getattr(callback, "initkwargs", None) or {}))
+    view.action = action
+    view.kwargs = {}
+    view.format_kwarg = None
+    view.request = Request(getattr(RequestFactory(), method.lower())("/", data="{}", content_type="application/json"))
+    return view.get_serializer_class()
+
+
+def _write_exposed_serializers() -> tuple[set[type], dict[str, str]]:
+    """Every serializer a write route uses, plus the views that would not resolve."""
+    found: set[type] = set()
+    unresolved: dict[str, str] = {}
+    for _path, method, callback in EndpointEnumerator().get_api_endpoints():
+        view_class = getattr(callback, "cls", None)
+        if method not in WRITE_METHODS or view_class is None:
             continue
-        serializer_class = getattr(getattr(callback, "cls", None), "serializer_class", None)
-        if isinstance(serializer_class, type) and issubclass(serializer_class, serializers.ModelSerializer):
-            found[serializer_class] = None
-    return list(found)
+        candidates = [getattr(view_class, "serializer_class", None)]
+        action = (getattr(callback, "actions", None) or {}).get(method.lower())
+        if action:
+            candidates.append(_declared_request_serializer(view_class, action))
+            try:
+                candidates.append(_selected_serializer(view_class, callback, method, action))
+            except Exception as error:
+                unresolved[_dotted_name(view_class)] = f"{type(error).__name__}: {error}"
+        found.update(
+            candidate
+            for candidate in candidates
+            if isinstance(candidate, type) and issubclass(candidate, serializers.ModelSerializer)
+        )
+    return found, unresolved
 
 
 def _self_filling_reasons(model_field: models.DateTimeField) -> list[str]:
@@ -74,37 +129,41 @@ def _self_filling_reasons(model_field: models.DateTimeField) -> list[str]:
     ]
 
 
-def collect_violations() -> dict[str, str]:
-    """Writable server-owned timestamps, keyed by `module.Serializer.field`."""
+@functools.cache
+def collect_violations() -> tuple[dict[str, str], dict[str, str]]:
+    """Writable server-owned timestamps, and everything the guard could not read.
+
+    The first mapping is keyed by `module.Serializer.field`, the second by the dotted
+    name of the view or serializer that failed, and both values say why.
+    """
     violations: dict[str, str] = {}
-    for serializer_class in _write_exposed_serializers():
+    serializer_classes, problems = _write_exposed_serializers()
+    for serializer_class in serializer_classes:
         model = getattr(getattr(serializer_class, "Meta", None), "model", None)
         if model is None:
             continue
         try:
             fields = serializer_class().fields
-        except Exception:
-            # A serializer that needs constructor arguments or context cannot be inspected
-            # here. The guard is a ratchet over what it can read, not a proof over the API.
+        except Exception as error:
+            problems[_dotted_name(serializer_class)] = f"{type(error).__name__}: {error}"
             continue
         for name, field in fields.items():
             if not isinstance(field, serializers.DateTimeField) or field.read_only:
                 continue
             try:
                 model_field = model._meta.get_field(field.source or name)
-            except Exception:
+            except FieldDoesNotExist:
                 continue
             if not isinstance(model_field, models.DateTimeField):
                 continue
             reasons = _self_filling_reasons(model_field)
             if reasons:
-                key = f"{serializer_class.__module__}.{serializer_class.__name__}.{name}"
-                violations[key] = ", ".join(reasons)
-    return violations
+                violations[f"{_dotted_name(serializer_class)}.{name}"] = ", ".join(reasons)
+    return violations, problems
 
 
 def test_server_owned_timestamps_are_read_only() -> None:
-    violations = collect_violations()
+    violations, _ = collect_violations()
     unexpected = sorted(f"{key} ({reasons})" for key, reasons in violations.items() if key not in ALLOWED_WRITABLE)
     assert not unexpected, (
         "These serializers let a client write a timestamp that the model fills in itself. "
@@ -115,9 +174,21 @@ def test_server_owned_timestamps_are_read_only() -> None:
     )
 
 
-def test_allowlist_has_no_stale_entries() -> None:
-    stale = sorted(set(ALLOWED_WRITABLE) - set(collect_violations()))
+def test_every_write_route_can_be_checked() -> None:
+    _, problems = collect_violations()
+    unexpected = sorted(f"{key} ({error})" for key, error in problems.items() if key not in UNCHECKED)
+    assert not unexpected, (
+        "The guard could not read these, so their write routes go unchecked. Make the view or "
+        "serializer resolvable without a real request, or add it to UNCHECKED in "
+        "posthog/test/repo_invariants/test_serializer_timestamp_guard.py with a one-line reason:\n"
+        + "\n".join(unexpected)
+    )
+
+
+def test_allowlists_have_no_stale_entries() -> None:
+    violations, problems = collect_violations()
+    stale = sorted((set(ALLOWED_WRITABLE) - set(violations)) | (set(UNCHECKED) - set(problems)))
     assert not stale, (
-        "These ALLOWED_WRITABLE entries no longer match a writable timestamp. Remove them so "
-        "the allowlist keeps shrinking:\n" + "\n".join(stale)
+        "These ALLOWED_WRITABLE or UNCHECKED entries no longer match anything. Remove them so "
+        "the allowlists keep shrinking:\n" + "\n".join(stale)
     )
