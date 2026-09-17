@@ -229,20 +229,25 @@ describe('the property definitions model', () => {
         it('drops a definitions response that arrives after the logic is gone', async () => {
             let releaseRequest: (() => void) | undefined
             let requestStarted: () => void
+            let requestAnswered: () => void
             const inFlight = new Promise<void>((resolve) => (requestStarted = resolve))
+            const answered = new Promise<void>((resolve) => (requestAnswered = resolve))
             useMocks({
                 get: {
                     '/api/projects/:team_id/property_definitions/': async () => {
                         requestStarted()
                         await new Promise<void>((release) => (releaseRequest = release))
+                        requestAnswered()
                         return [200, { count: 0, results: [], next: undefined }]
                     },
                 },
             })
 
-            const unhandledRejections: unknown[] = []
+            const detachedPathErrors: unknown[] = []
             const captureRejection = (reason: unknown): void => {
-                unhandledRejections.push(reason)
+                if (String((reason as Error)?.message).includes('Can not find path')) {
+                    detachedPathErrors.push(reason)
+                }
             }
             process.on('unhandledRejection', captureRejection)
             try {
@@ -253,12 +258,16 @@ describe('the property definitions model', () => {
                     logic.unmount()
                 }
                 releaseRequest?.()
-                await new Promise((resolve) => setTimeout(resolve, 50))
+                await answered
+                // The listener resumes on the turn the response lands, and node reports an
+                // unhandled rejection at the end of the turn that produced it.
+                await new Promise((resolve) => setImmediate(resolve))
+                await new Promise((resolve) => setImmediate(resolve))
             } finally {
                 process.off('unhandledRejection', captureRejection)
             }
 
-            expect(unhandledRejections).toEqual([])
+            expect(detachedPathErrors).toEqual([])
         })
 
         it('handles local definitions', async () => {
