@@ -34,6 +34,10 @@ The public interview surface already relies on both codes.
 
 ## Consumers
 
-No product registers a Vapi consumer yet.
-The user interviews endpoint moves to ingress in its own PR.
+One consumer, `user_interviews_vapi`, declared in `products/user_interviews/backend/webhook_consumers.py`.
+
+It enqueues a Celery task and returns, because the response is a transport receipt that never reflects consumer work and Vapi does not resend when the work fails.
+The task persists the end-of-call report and retries a transient database error, so a lost connection does not lose the transcript.
+
+The product keeps a per-IP throttle in front of the endpoint, because the endpoint is public and Vapi calls it a small number of times per interview.
 See the [Endpoints table](../README.md#endpoints).
