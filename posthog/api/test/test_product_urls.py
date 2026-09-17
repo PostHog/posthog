@@ -47,8 +47,7 @@ class TestProductRootRoutesInTheUrlConf(SimpleTestCase):
         [
             ("a path a product declares", "/api/user_interviews/vapi_webhook/", "user_interviews_vapi_webhook"),
             ("a path without a trailing slash", "/api/legal_documents/pandadoc", "legal_document_pandadoc_webhook"),
-            ("a list a product includes", "/api/conversations/v1/widget/tickets", "widget-tickets-v1"),
-            ("another included list", "/api/customer_analytics/external/account", "external-account"),
+            ("a list a product includes", "/api/customer_analytics/external/account", "external-account"),
         ]
     )
     def test_a_mounted_route_keeps_its_url_and_its_global_name(self, _name: str, url: str, route_name: str) -> None:

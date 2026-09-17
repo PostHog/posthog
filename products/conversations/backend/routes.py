@@ -1,13 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
-from products.conversations.backend.api import (
-    TicketViewSet,
-    TicketViewViewSet,
-    ZendeskImportViewSet,
-    urls as api_urls,
-)
-
-api_urlpatterns = api_urls.urlpatterns
+from products.conversations.backend.api import TicketViewSet, TicketViewViewSet, ZendeskImportViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:

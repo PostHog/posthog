@@ -153,6 +153,10 @@ urlpatterns = [
         name="user_interviews_start_call",
     ),
     path("api/sdk_health/", sdk_health),
+    # Conversations serves its widget and channel API from backend/api/, which its routes module
+    # may not import (import-linter contract "routes must only import presentation"), so the mount
+    # stays here until those views move into presentation/.
+    path("api/conversations/", include("products.conversations.backend.api.urls")),
     path(
         "api/projects/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),
