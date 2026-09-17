@@ -198,8 +198,9 @@ def _ai_approval_blocks(integration: Integration, *, is_admin: bool) -> list[dic
     blocks: list[dict] = [
         _section(
             "*4. Approve AI data processing*\nTo investigate your product I use external AI "
-            "providers (Anthropic, OpenAI, Google, Microsoft). This can involve transferring identifying user data, "
-            "and is never used to train third-party models. FYI it's not HIPAA-compliant yet, and any BAA you have "
+            "providers (Anthropic, Google, Microsoft, OpenAI, Typesafe.ai). This can involve transferring "
+            "identifying user data, and is never used to train third-party models. FYI it's not HIPAA-compliant "
+            "yet, and any BAA you have "
             "with PostHog won't cover these features."
         )
     ]
