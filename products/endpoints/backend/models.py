@@ -16,7 +16,7 @@ from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.exceptions_capture import capture_exception
-from posthog.models.tagged_items_relation import TaggedItemsRelation
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
@@ -355,7 +355,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         return [{"name": row[0], "type": _clickhouse_type_to_serialized_type(row[1])} for row in rows]
 
 
-class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTModel):
+class Endpoint(Taggable, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTModel):
     """Model for storing endpoints that can be accessed via API endpoints.
 
     Endpoints allow creating reusable query endpoints like:
@@ -364,8 +364,6 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
     Query, description, data_freshness_seconds, and materialization settings are stored
     in EndpointVersion, allowing per-version configuration.
     """
-
-    tagged_items = TaggedItemsRelation()
 
     name = models.CharField(
         max_length=128,

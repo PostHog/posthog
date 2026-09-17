@@ -15,7 +15,7 @@ from posthog.migration_helpers import deprecate_field
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.tagged_items_relation import TaggedItemsRelation
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 
@@ -58,13 +58,11 @@ class InsightManager(RootTeamManager):
         return super().get_queryset().exclude(deleted=True)
 
 
-class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
+class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
     """
     Stores saved insights along with their entire configuration options. Saved insights can be stored as standalone
     reports or part of a dashboard.
     """
-
-    tagged_items = TaggedItemsRelation()
 
     name = models.CharField(max_length=400, null=True, blank=True)
     derived_name = models.CharField(max_length=400, null=True, blank=True)

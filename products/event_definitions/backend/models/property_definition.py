@@ -6,7 +6,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
-from posthog.models.tagged_items_relation import TaggedItemsRelation
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from posthog.utils import invalidate_has_person_email_cache
@@ -51,9 +51,7 @@ class PropertyFormat(models.TextChoices):
     WithSlashesIncreasing = "DD/MM/YYYY hh:mm:ss", "DD/MM/YYYY hh:mm:ss"
 
 
-class PropertyDefinition(UUIDTModel):
-    tagged_items = TaggedItemsRelation()
-
+class PropertyDefinition(Taggable, UUIDTModel):
     class Type(models.IntegerChoices):
         EVENT = 1, "event"
         PERSON = 2, "person"

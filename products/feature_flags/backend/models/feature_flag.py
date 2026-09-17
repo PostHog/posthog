@@ -17,7 +17,7 @@ from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.property import GroupTypeIndex
-from posthog.models.tagged_items_relation import TaggedItemsRelation
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamManager, RootTeamMixin, RootTeamQuerySet
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
@@ -137,9 +137,8 @@ class FeatureFlagManager(RootTeamManager):
         return FeatureFlagQuerySet(self.model, using=self._db).exclude(deleted=True)
 
 
-class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
+class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     # Reverse relation from FeatureFlagEvaluationContext.feature_flag (related_name="flag_evaluation_contexts").
-    tagged_items = TaggedItemsRelation()
     if TYPE_CHECKING:
         flag_evaluation_contexts: RelatedManager[FeatureFlagEvaluationContext]
 

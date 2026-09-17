@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from django.db import models, transaction
 
-from posthog.models.tagged_items_relation import TaggedItemsRelation
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDTModel
 
 from .constants import Channel, ChannelDetail, Priority, Status
@@ -45,8 +45,7 @@ class TicketManager(models.Manager):
             return self.create(**kwargs)
 
 
-class Ticket(UUIDTModel):
-    tagged_items = TaggedItemsRelation()
+class Ticket(Taggable, UUIDTModel):
     objects = TicketManager()
 
     # Dynamic attribute set by TicketViewSet._attach_persons_to_tickets for serialization

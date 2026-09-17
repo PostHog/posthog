@@ -1,4 +1,4 @@
-"""The `tagged_items` relation every taggable model declares.
+"""The `Taggable` base every taggable model inherits, and the relation it adds.
 
 It is a Django `GenericRelation` that stores and reads every tag under the content type
 of the registered base model. Plain `GenericRelation` reads the content type off the
@@ -33,14 +33,16 @@ class _TaggedItemsDescriptor(ReverseGenericManyToOneDescriptor):
 
 
 class TaggedItemsRelation(GenericRelation):
-    """Declare as `tagged_items = TaggedItemsRelation()` on a model listed in TAGGABLE_MODELS."""
+    """The field behind `Taggable.tagged_items`."""
 
     def __init__(self, **kwargs: Any) -> None:
         kwargs.setdefault("to", "posthog.TaggedItem")
         super().__init__(**kwargs)
 
     def contribute_to_class(self, cls: type[models.Model], name: str, **kwargs: Any) -> None:  # type: ignore[override]
-        self.object_id_field_name = require_taggable(cls).object_field
+        # The abstract Taggable base is not in the registry; each concrete subclass gets its own copy.
+        if not cls._meta.abstract:
+            self.object_id_field_name = require_taggable(cls).object_field
         super().contribute_to_class(cls, name, **kwargs)
         setattr(cls, self.name, _TaggedItemsDescriptor(cast(Any, self.remote_field)))
 
@@ -54,3 +56,12 @@ class TaggedItemsRelation(GenericRelation):
                 f"{self.object_id_field_name}__in": [obj.pk for obj in objs],
             }
         )
+
+
+class Taggable(models.Model):
+    """Makes a model taggable. The model must also be listed in TAGGABLE_MODELS."""
+
+    tagged_items = TaggedItemsRelation()
+
+    class Meta:
+        abstract = True
