@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import uuid
+import dataclasses
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from enum import StrEnum
@@ -454,6 +455,30 @@ def _inline_positional_references(select_query: ast.SelectQuery) -> None:
         select_query.limit_by.exprs = [resolve(expr) for expr in select_query.limit_by.exprs]
 
 
+def _wrap_aggregating_query(select_query: ast.SelectQuery, actor_column: str) -> None:
+    """Turn `select_query` into `SELECT <actor_column> AS actor_id FROM (<select_query>)`, in place.
+
+    Collapsing the SELECT list of an aggregating query leaves an ungrouped actor column next to the
+    GROUP BY it kept, which ClickHouse rejects with "not under aggregate function and not in GROUP
+    BY keys". Wrapping keeps the grouping intact and reads the actor out of the result instead. The
+    actor column is read by name rather than by expression, because the expression can reference
+    other columns of the same SELECT list and would bind differently once moved.
+
+    The CTEs stay on the wrapper. HogQL gives the later branches of a set query the root WITH
+    through the first branch's own `ctes`, so a CTE that moved into the subquery would leave a
+    later branch with a table it cannot resolve. The inner query still sees them, because the
+    resolver copies the CTEs of a scope into the scopes below it.
+    """
+    inner = dataclasses.replace(select_query, ctes=None)
+    wrapper = ast.SelectQuery(
+        select=[ast.Alias(expr=ast.Field(chain=[actor_column]), alias="actor_id")],
+        select_from=ast.JoinExpr(table=inner),
+        ctes=select_query.ctes,
+    )
+    for query_field in dataclasses.fields(ast.SelectQuery):
+        setattr(select_query, query_field.name, getattr(wrapper, query_field.name))
+
+
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
@@ -496,12 +521,15 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
             elif isinstance(expr, ast.Field):
                 columns[str(expr.chain[-1])] = expr
 
-        column: ast.Expr | None = columns.get("person_id") or columns.get("actor_id") or columns.get("id")
-        if isinstance(column, ast.Alias):
-            select_query.select = [ast.Alias(expr=column.expr, alias="actor_id")]
-            uses_actor_id = True
-        elif isinstance(column, ast.Field):
-            select_query.select = [ast.Alias(expr=column, alias="actor_id")]
+        actor_column = next((name for name in ("person_id", "actor_id", "id") if name in columns), None)
+        if actor_column is not None:
+            # `GROUP BY ALL` keeps no entries in `group_by`, so a check that reads only `group_by`
+            # takes an aggregating query for an ungrouped one. The `cube`, `rollup`, and
+            # `grouping_sets` modes do fill `group_by`, so `all` is the only mode to name here.
+            if select_query.group_by or select_query.having or select_query.group_by_mode == "all":
+                _wrap_aggregating_query(select_query, actor_column)
+            else:
+                select_query.select = [ast.Alias(expr=columns[actor_column], alias="actor_id")]
             uses_actor_id = True
         else:
             # Support the most common use cases
