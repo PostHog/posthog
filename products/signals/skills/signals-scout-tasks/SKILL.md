@@ -1,5 +1,6 @@
 ---
 name: signals-scout-tasks
+scout-display-name: Tasks
 description: >
   Signals scout for PostHog Tasks. Watches delivery health — failing runs clustered by
   repository and error class, retry storms — and, on a slower rotation, recurring demand across

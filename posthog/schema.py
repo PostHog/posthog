@@ -29,6 +29,7 @@ from posthog.schema_enums import (
     AlertCalculationInterval as AlertCalculationInterval,
     AlertConditionType as AlertConditionType,
     AlertState as AlertState,
+    AnnotationScope as AnnotationScope,
     ApprovalDecisionStatus as ApprovalDecisionStatus,
     ArtifactContentType as ArtifactContentType,
     ArtifactSource as ArtifactSource,
@@ -246,6 +247,7 @@ from posthog.schema_enums import (
     RetentionReference as RetentionReference,
     RetentionType as RetentionType,
     Scale as Scale,
+    SeriesColorMode as SeriesColorMode,
     SessionAttributionGroupBy as SessionAttributionGroupBy,
     SessionsV2JoinMode as SessionsV2JoinMode,
     SessionTableVersion as SessionTableVersion,
@@ -1029,6 +1031,10 @@ class ChartStyle(BaseModel):
     curve: Curve | None = Field(
         default=None,
         description=("Line interpolation: straight segments or a smoothed curve through the points."),
+    )
+    seriesColorMode: SeriesColorMode | None = Field(
+        default=None,
+        description=("How series are told apart: one color per series, or one color at stepped opacities."),
     )
 
 
@@ -5598,6 +5604,14 @@ class HogQLQueryModifiers(BaseModel):
     bounceRateDurationSeconds: float | None = None
     bounceRatePageViewMode: BounceRatePageViewMode | None = None
     convertToProjectTimezone: bool | None = None
+    cookielessTrafficIsRegular: bool | None = Field(
+        default=None,
+        description=(
+            "Do not treat a missing user agent as automation on cookieless events."
+            " Positive bot signals and custom project rules still apply. Resolved"
+            " server-side; not intended to be set by clients."
+        ),
+    )
     customBotDefinitions: list[CustomBotRule] | None = None
     customChannelTypeRules: list[CustomChannelRule] | None = None
     dataWarehouseEventsModifiers: list[DataWarehouseEventsModifier] | None = None
@@ -6099,6 +6113,27 @@ class MarketingAnalyticsRetentionRow(BaseModel):
     values: list[MarketingAnalyticsRetentionCell] = Field(
         ...,
         description=("One per column, index = periods since the cohort started. Always intervalCount long."),
+    )
+
+
+class MarketingAnalyticsRetentionSummaryRow(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    acquired: int
+    breakdownValue: str
+    eligible30d: int
+    eligible7d: int
+    medianReturnDays: float | None = Field(
+        ...,
+        description=("Median elapsed days to a second session within 30 days, among observed returners."),
+    )
+    previous: bool
+    returned30d: int
+    returned7d: int
+    returners: int = Field(
+        ...,
+        description=("People with an observed second session within 30 days, including incomplete windows."),
     )
 
 
@@ -8360,6 +8395,10 @@ class TrendsFilter(BaseModel):
             " example, when values are denominated in a fixed currency regardless of"
             " the project's base currency. Include any trailing space yourself."
         ),
+    )
+    annotationsScope: AnnotationScope | None = Field(
+        default=None,
+        description=("Render only annotations with this scope. Unset renders every scope."),
     )
     breakdown_histogram_bin_count: float | None = None
     chartStyle: ChartStyle | None = Field(default=None, description="Chart rendering style overrides (line shape).")
@@ -13526,6 +13565,10 @@ class CachedMarketingAnalyticsRetentionQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[MarketingAnalyticsRetentionRow]
+    summary: list[MarketingAnalyticsRetentionSummaryRow] | None = Field(
+        default=None,
+        description=("Only populated in summary mode. Rates use the corresponding eligible population."),
+    )
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -19182,6 +19225,10 @@ class MarketingAnalyticsRetentionQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[MarketingAnalyticsRetentionRow]
+    summary: list[MarketingAnalyticsRetentionSummaryRow] | None = Field(
+        default=None,
+        description=("Only populated in summary mode. Rates use the corresponding eligible population."),
+    )
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -20947,6 +20994,10 @@ class QueryResponseAlternative37(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[MarketingAnalyticsRetentionRow]
+    summary: list[MarketingAnalyticsRetentionSummaryRow] | None = Field(
+        default=None,
+        description=("Only populated in summary mode. Rates use the corresponding eligible population."),
+    )
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -27715,6 +27766,10 @@ class MarketingAnalyticsRetentionQuery(BaseModel):
         default=None,
         description=("Breakdown values kept before the rest roll into 'Other'. Defaults to 20."),
     )
+    comparePreviousPeriod: bool | None = Field(
+        default=None,
+        description=("Include the previous acquisition period in summary mode. Defaults to false."),
+    )
     dataColorTheme: float | None = Field(
         default=None,
         description=(
@@ -27750,6 +27805,10 @@ class MarketingAnalyticsRetentionQuery(BaseModel):
     retentionInterval: MarketingAnalyticsRetentionInterval | None = Field(
         default=None,
         description=("Period for both the cohort rows and the return columns. Defaults to week."),
+    )
+    summary: bool | None = Field(
+        default=None,
+        description=("Return session-based 7/30-day metrics instead of the cohort matrix. Defaults to false."),
     )
     tags: QueryLogTags | None = None
     totalIntervals: int | None = Field(
@@ -28238,6 +28297,10 @@ class RetentionFilter(BaseModel):
     selectedInterval: int | None = Field(
         default=None,
         description=("The selected interval to display across all cohorts (null = show all intervals for each cohort)"),
+    )
+    showMeanLine: bool | None = Field(
+        default=None,
+        description="Draw the mean across cohorts as one line on the retention graph.",
     )
     showTrendLines: bool | None = None
     targetEntity: RetentionEntity | None = None
@@ -28936,6 +28999,10 @@ class ExperimentHoldoutType(BaseModel):
 class FunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    annotationsScope: AnnotationScope | None = Field(
+        default=None,
+        description=("Render only annotations with this scope. Only applies to historical-trends funnels."),
     )
     binCount: int | None = None
     breakdownAttributionType: BreakdownAttributionType | None = BreakdownAttributionType.FIRST_TOUCH

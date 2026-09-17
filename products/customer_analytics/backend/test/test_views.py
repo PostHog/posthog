@@ -553,6 +553,88 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(data["properties"]["stripe_customer_id"], "cus_123")
         self.assertEqual(data["ignored_at"], ignored_at.isoformat().replace("+00:00", "Z"))
 
+    @parameterized.expand([(" source-account ",), (" ",), ("symbols / %2F ? # + 漢字",)])
+    def test_retrieve_by_external_id_returns_the_uuid_retrieve_response(self, external_id: str) -> None:
+        account = self._create_account(external_id=external_id)
+        self.client.patch(f"{self.endpoint_base}{account.id}/", {"tags": ["example-tag"]}, format="json")
+        self.client.post(f"{self.endpoint_base}{account.id}/notebooks/", {"title": "Example note"}, format="json")
+
+        uuid_response = self.client.get(f"{self.endpoint_base}{account.id}/")
+        external_id_response = self.client.get(
+            f"{self.endpoint_base}by_external_id/", data={"external_id": account.external_id}
+        )
+
+        self.assertEqual(status.HTTP_200_OK, uuid_response.status_code, uuid_response.json())
+        self.assertEqual(status.HTTP_200_OK, external_id_response.status_code, external_id_response.json())
+        self.assertEqual(external_id_response.json(), uuid_response.json())
+        self.assertEqual(external_id_response.json()["tags"], ["example-tag"])
+        self.assertEqual(len(external_id_response.json()["notebooks"]), 1)
+
+    @parameterized.expand([(True,), (False,)])
+    def test_retrieve_by_external_id_does_not_fall_back_to_uuid(self, has_external_match: bool) -> None:
+        uuid_account = self._create_account(name="UUID account")
+        external_id_account = (
+            self._create_account(name="External ID account", external_id=str(uuid_account.id))
+            if has_external_match
+            else None
+        )
+
+        response = self.client.get(f"{self.endpoint_base}by_external_id/", data={"external_id": str(uuid_account.id)})
+
+        if external_id_account:
+            self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+            self.assertEqual(response.json()["id"], str(external_id_account.id))
+        else:
+            self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code, response.content)
+
+    @parameterized.expand([(True,), (False,)])
+    def test_retrieve_by_external_id_scopes_identical_external_ids_to_the_project(self, has_local_match: bool) -> None:
+        account = self._create_account(external_id="shared-external-id") if has_local_match else None
+        other_team = Team.objects.create(organization=self.organization)
+        Account.objects.for_team(other_team.id).create(
+            team=other_team, name="Other account", external_id="shared-external-id"
+        )
+
+        response = self.client.get(f"{self.endpoint_base}by_external_id/", data={"external_id": "shared-external-id"})
+
+        if account:
+            self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+            self.assertEqual(response.json()["id"], str(account.id))
+        else:
+            self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code, response.content)
+
+    def test_retrieve_by_external_id_accepts_an_account_read_api_key(self) -> None:
+        account = self._create_account(external_id="read-key-account")
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="account read",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=["account:read"],
+            scoped_teams=[],
+            scoped_organizations=[],
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"{self.endpoint_base}by_external_id/",
+            data={"external_id": account.external_id},
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.content)
+        self.assertEqual(response.json()["id"], str(account.id))
+
+    def test_retrieve_by_external_id_rejects_a_missing_query_parameter(self) -> None:
+        response = self.client.get(f"{self.endpoint_base}by_external_id/")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.content)
+
+    def test_retrieve_by_external_id_returns_404_when_not_found(self) -> None:
+        response = self.client.get(f"{self.endpoint_base}by_external_id/", data={"external_id": "missing-account"})
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code, response.content)
+
     def test_presence_returns_other_viewers_once_and_excludes_the_caller(self) -> None:
         account = self._create_account()
         teammate = User.objects.create_and_join(self.organization, "presence@posthog.com", "testtest")
@@ -1346,17 +1428,10 @@ class TestAccountNotebookViewSet(APIBaseTest):
                 },
             ),
             (
-                "rich_text_over_the_cell_limit",
-                {
-                    "type": "doc",
-                    "content": [
-                        {
-                            "type": "ph-query",
-                            "attrs": {"nodeId": f"q{i}", "query": {"kind": "SavedInsightNode", "shortId": "abc"}},
-                        }
-                        for i in range(51)
-                    ],
-                },
+                "markdown_over_the_cell_limit",
+                build_markdown_notebook_content(
+                    "\n\n".join(f'<SQLV2 nodeId="s{i}" code="select 1" />' for i in range(51))
+                ),
             ),
         ]
     )
@@ -1443,7 +1518,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
 
         self.journeys_url = f"/api/environments/{self.team.id}/customer_journeys/"
 
-        self.account = Account.objects.unscoped().create(team=self.team, name="ACL Account")
+        self.account = Account.objects.unscoped().create(team=self.team, name="ACL Account", external_id="acl-account")
         self.accounts_url = f"/api/environments/{self.team.id}/accounts/"
 
     def _set_access_level(self, user: User, resource: str = "customer_analytics", access_level: str = "viewer") -> None:
@@ -1631,11 +1706,12 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         response = self.client.post(self.accounts_url, {"name": "Inherited Account"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_customer_analytics_none_blocks_account_list(self):
+    @parameterized.expand([("",), ("by_external_id/?external_id=acl-account",)])
+    def test_customer_analytics_none_blocks_account_reads(self, suffix: str) -> None:
         self._set_access_level(self.no_access_user, resource="customer_analytics", access_level="none")
         self.client.force_login(self.no_access_user)
 
-        response = self.client.get(self.accounts_url)
+        response = self.client.get(f"{self.accounts_url}{suffix}")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     # -- Account notebooks inherit object-level access from the parent account --
@@ -1675,6 +1751,23 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
 
         response = self.client.post(f"{self.accounts_url}{self.account.id}/presence/", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_account_by_external_id_404_when_object_access_denied(self) -> None:
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(
+                user=self.viewer_user, organization=self.organization
+            ),
+        )
+        self._set_access_level(self.viewer_user, resource="account", access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"{self.accounts_url}by_external_id/?external_id={self.account.external_id}")
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 

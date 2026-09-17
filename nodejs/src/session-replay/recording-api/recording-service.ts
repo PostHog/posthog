@@ -435,11 +435,16 @@ export class RecordingService {
                 'deleteRecordingComments'
             ),
             // One statement: the children's foreign keys are NO ACTION, so separate deletes would have to run child-first.
+            // The AsyncDeletion row (deletion_type 5 = Event) queues the observation's $recording_observed event for the ClickHouse sweep, atomically with the delete.
             this.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `WITH observations AS (
                      SELECT id FROM replay_vision_replayobservation
                      WHERE team_id = $1 AND session_id = ANY($2)
+                 ), queued_events AS (
+                     INSERT INTO posthog_asyncdeletion (deletion_type, team_id, key, created_at)
+                     SELECT 5, $1, id::text, now() FROM observations
+                     ON CONFLICT DO NOTHING
                  ), deleted_labels AS (
                      DELETE FROM replay_vision_replayobservationlabel
                      WHERE observation_id IN (SELECT id FROM observations)

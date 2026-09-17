@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { Fragment, ReactNode } from 'react'
 
 import { IconExternal, IconPullRequest } from '@posthog/icons'
 import {
@@ -11,12 +10,9 @@ import {
     LemonTableColumns,
     LemonTag,
     Link,
-    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
-import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
@@ -30,6 +26,7 @@ import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
 import { GroupedJobsTable } from '../components/GroupedJobsTable'
 import { MetricTile } from '../components/MetricTile'
+import { PullRequestDeliveryTimeline } from '../components/PullRequestDeliveryTimeline'
 import { PullRequestStateTag } from '../components/PullRequestStateTag'
 import { RunConclusionTag } from '../components/runTables'
 import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
@@ -37,11 +34,10 @@ import { Section } from '../components/Section'
 import type { WorkflowJobApi } from '../generated/api.schemas'
 import { compactCount, compactUsd } from '../lib/format'
 import { githubCommitUrl, githubPrUrl } from '../lib/github'
-import { LifecycleSummary, WorkflowRun, isPassingConclusion } from '../lib/lifecycle'
-import { PushRound, pushRoundColor, pushRoundOf, pushRoundVerdictLabel } from '../lib/pushRounds'
+import { WorkflowRun, isPassingConclusion } from '../lib/lifecycle'
+import { pushRoundOf } from '../lib/pushRounds'
 import { withCurrentScope } from '../lib/scope'
 import {
-    PrCommitRuns,
     PrRunRow,
     PrWorkflowRow,
     PullRequestDetailLogicProps,
@@ -59,254 +55,6 @@ export const scene: SceneExport<PullRequestDetailLogicProps> = {
         number: parseInt(number, 10),
         sourceId: source ?? null,
     }),
-}
-
-function gapBetween(from: string, to: string): string {
-    const seconds = dayjs(to).diff(dayjs(from), 'second')
-    return seconds <= 0 ? '<1s' : humanFriendlyDuration(seconds, { maxUnits: 2 })
-}
-
-interface TimelineNode {
-    key: string
-    label: string
-    at: string
-    dotClass: string
-    /** The connector leading into this node — dashed when the time span is still running. */
-    dashedIncoming?: boolean
-    /** Small caption under the dot — relative time, the push's CI wall time, "now", … */
-    sublabel?: ReactNode
-    /** Round nodes render the sha in mono. */
-    mono?: boolean
-    /** Color the label red — a failed round / closed PR. */
-    danger?: boolean
-    /** Push nodes carry their CI round: a bar above the dot (height = wall time, color = verdict). */
-    round?: PushRound
-}
-
-interface LifecycleStripProps {
-    summary: LifecycleSummary
-    openedAt: string
-    // One node per push (CI round); each scrolls to its run table below.
-    commitGroups: PrCommitRuns[]
-}
-
-/** The earliest run start in a round — where that push's CI begins on the timeline. */
-function roundStart(group: PrCommitRuns): string | null {
-    const starts = group.runs.map((run) => run.startedAt).filter((at): at is string => !!at)
-    return starts.length ? starts.reduce((min, at) => (at < min ? at : min)) : group.latestStart
-}
-
-// Fixed row heights so dots and connectors line up across columns regardless of label/pill height.
-const ROW_LABEL = 'flex h-5 items-center'
-const ROW_BAR = 'flex h-10 items-end justify-center'
-const ROW_DOT = 'flex h-3 items-center'
-const ROW_SUB = 'flex h-4 items-center'
-// Tallest push bar in px — must fit inside ROW_BAR's h-10 (40px) with a little headroom.
-const BAR_MAX_PX = 34
-
-/** Dot color matching the round's verdict, so the timeline and the bars tell one story. */
-function roundDotClass(round: PushRound): string {
-    return round.failed ? 'bg-danger' : round.pending ? 'bg-warning' : 'bg-success'
-}
-
-// Cap push nodes so the strip fits on one line; older pushes collapse into a "+N earlier" node, and
-// every round stays reachable in the list below.
-const MAX_PUSH_NODES = 4
-
-/**
- * Horizontal lifecycle timeline crossed with a per-push bar chart: dots are milestones, the pill above
- * each connector is the gap between them, and each push node grows a bar — height is that push's
- * wall-clock CI time (shared scale), color its verdict. Chronological — a PR's head-SHA runs can start
- * (and finish) after the merge.
- */
-function LifecycleStrip({ summary, openedAt, commitGroups }: LifecycleStripProps): JSX.Element {
-    const nodes: TimelineNode[] = [
-        {
-            key: 'opened',
-            label: 'Opened',
-            at: openedAt,
-            dotClass: 'bg-muted',
-            sublabel: <TZLabel time={openedAt} />,
-        },
-    ]
-    // Only recent pushes get their own node; the rest collapse into one summary node so the strip never
-    // scrolls. commitGroups is newest-first. Don't collapse a single straggler — "+1 earlier" saves nothing.
-    const collapseOlder = commitGroups.length > MAX_PUSH_NODES + 1
-    const shownRounds = collapseOlder ? commitGroups.slice(0, MAX_PUSH_NODES) : commitGroups
-    const hiddenRounds = collapseOlder ? commitGroups.slice(MAX_PUSH_NODES) : []
-    shownRounds.forEach((group) => {
-        const at = roundStart(group)
-        if (!at) {
-            return
-        }
-        const round = pushRoundOf(group.headSha, group.runs)
-        nodes.push({
-            key: `round-${group.headSha}`,
-            label: group.headSha.slice(0, 7),
-            at,
-            dotClass: roundDotClass(round),
-            mono: true,
-            danger: round.failed,
-            // The bar carries the verdict; the sublabel answers "how long did CI take on this push".
-            sublabel:
-                round.wallSeconds != null
-                    ? humanFriendlyDuration(round.wallSeconds, { maxUnits: 1 })
-                    : round.pending
-                      ? 'running'
-                      : undefined,
-            round,
-        })
-    })
-    if (hiddenRounds.length) {
-        const at = roundStart(hiddenRounds[0])
-        const anyFailure = hiddenRounds.some((group) => pushRoundOf(group.headSha, group.runs).failed)
-        if (at) {
-            nodes.push({
-                key: 'earlier-pushes',
-                label: `+${hiddenRounds.length} earlier`,
-                at,
-                dotClass: anyFailure ? 'bg-danger' : 'bg-muted',
-                danger: anyFailure,
-                sublabel: 'pushes',
-            })
-        }
-    }
-    if (summary.mergedAt) {
-        nodes.push({
-            key: 'merged',
-            label: 'Merged',
-            at: summary.mergedAt,
-            dotClass: 'bg-success',
-            sublabel: <TZLabel time={summary.mergedAt} />,
-        })
-    } else if (summary.closedAt) {
-        nodes.push({
-            key: 'closed',
-            label: 'Closed',
-            at: summary.closedAt,
-            dotClass: 'bg-danger',
-            danger: true,
-            sublabel: <TZLabel time={summary.closedAt} />,
-        })
-    }
-    nodes.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
-
-    const stillOpen = !summary.mergedAt && !summary.closedAt
-    if (stillOpen) {
-        nodes.push({
-            key: 'now',
-            label: 'Still open',
-            at: dayjs().toISOString(),
-            dotClass: 'animate-pulse border-2 border-warning bg-transparent',
-            dashedIncoming: true,
-            sublabel: 'now',
-        })
-    }
-
-    // Not necessarily the last node's time: head-SHA runs can outlive the merge.
-    const totalTo = summary.mergedAt ?? summary.closedAt ?? nodes[nodes.length - 1].at
-    const connector = (dashed: boolean | undefined): string =>
-        dashed ? 'w-full border-t border-dashed border-border-bold' : 'h-px w-full bg-border-bold'
-
-    // Connector widths are proportional to elapsed time, so the strip reads as a timeline. Floor each
-    // segment so a near-instant gap still draws a visible connector instead of collapsing to nothing.
-    const totalSeconds = Math.max(1, dayjs(nodes[nodes.length - 1].at).diff(dayjs(nodes[0].at), 'second'))
-    const minGrow = totalSeconds * 0.04
-
-    // Shared scale across the push bars, so their heights compare push-to-push.
-    const maxWall = Math.max(...nodes.map((node) => node.round?.wallSeconds ?? 0), 1)
-    const barPx = (round: PushRound): number =>
-        round.wallSeconds != null ? Math.max(6, Math.round((round.wallSeconds / maxWall) * BAR_MAX_PX)) : 6
-
-    return (
-        <LemonCard hoverEffect={false} className="px-5 py-4">
-            <div className="flex items-center gap-6">
-                <div className="flex min-w-0 flex-1 items-stretch">
-                    {nodes.map((node, index) => (
-                        <Fragment key={node.key}>
-                            {index > 0 && (
-                                <div
-                                    className="flex min-w-12 flex-col"
-                                    style={{
-                                        flexGrow: Math.max(
-                                            minGrow,
-                                            dayjs(node.at).diff(dayjs(nodes[index - 1].at), 'second')
-                                        ),
-                                    }}
-                                >
-                                    <span className={cn(ROW_LABEL, 'justify-center')}>
-                                        <span className="rounded-full border bg-surface-secondary px-2 text-xs leading-4 whitespace-nowrap text-secondary tabular-nums">
-                                            {gapBetween(nodes[index - 1].at, node.at)}
-                                        </span>
-                                    </span>
-                                    <span className={ROW_BAR} />
-                                    <span className={ROW_DOT}>
-                                        <span className={connector(node.dashedIncoming)} />
-                                    </span>
-                                    <span className={ROW_SUB} />
-                                </div>
-                            )}
-                            <div className="flex shrink-0 flex-col items-center px-1">
-                                <span className={ROW_LABEL}>
-                                    <span
-                                        className={cn(
-                                            'text-xs font-medium whitespace-nowrap',
-                                            node.mono && 'font-mono',
-                                            node.danger && 'text-danger'
-                                        )}
-                                    >
-                                        {node.label}
-                                    </span>
-                                </span>
-                                <span className={cn(ROW_BAR, 'w-full')}>
-                                    {node.round && (
-                                        <Tooltip
-                                            title={`${node.round.headSha.slice(0, 7)} · ${
-                                                node.round.wallSeconds != null
-                                                    ? humanFriendlyDuration(node.round.wallSeconds)
-                                                    : 'no completed runs'
-                                            } · ${pushRoundVerdictLabel(node.round)}`}
-                                        >
-                                            <span
-                                                className="w-2.5 rounded-t-sm"
-                                                // eslint-disable-next-line react/forbid-dom-props
-                                                style={{
-                                                    height: barPx(node.round),
-                                                    backgroundColor: pushRoundColor(node.round),
-                                                    opacity: node.round.failed ? 1 : node.round.pending ? 0.9 : 0.65,
-                                                }}
-                                            />
-                                        </Tooltip>
-                                    )}
-                                </span>
-                                <span className={cn(ROW_DOT, 'w-full')}>
-                                    <span className={cn('flex-1', index > 0 && connector(node.dashedIncoming))} />
-                                    <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', node.dotClass)} />
-                                    <span
-                                        className={cn(
-                                            'flex-1',
-                                            index < nodes.length - 1 && connector(nodes[index + 1].dashedIncoming)
-                                        )}
-                                    />
-                                </span>
-                                <span className={cn(ROW_SUB, 'text-xs whitespace-nowrap text-tertiary')}>
-                                    {node.sublabel ?? <>&nbsp;</>}
-                                </span>
-                            </div>
-                        </Fragment>
-                    ))}
-                </div>
-                <div className="flex shrink-0 flex-col items-end self-center border-l border-primary pl-6">
-                    <span className="text-lg font-semibold leading-6 tabular-nums">
-                        {gapBetween(openedAt, totalTo)}
-                    </span>
-                    <span className="text-xs text-tertiary">
-                        {summary.mergedAt ? 'open → merge' : summary.closedAt ? 'open → close' : 'open so far'}
-                    </span>
-                </div>
-            </div>
-        </LemonCard>
-    )
 }
 
 // Stable per-row key — re-runs share a runId, so start time disambiguates attempts. Used for rowKey and
@@ -641,7 +389,6 @@ export function PullRequestDetailScene(): JSX.Element {
         lifecycle,
         lifecycleLoading,
         loadFailed,
-        summary,
         runs,
         commitGroups,
         filteredRuns,
@@ -664,8 +411,13 @@ export function PullRequestDetailScene(): JSX.Element {
         runJobs,
         runJobsLoading,
         expandedRunKeys,
+        timelines,
+        timelinesLoading,
+        timelinesFailed,
+        timeline,
     } = useValues(pullRequestDetailLogic)
-    const { loadLifecycle, loadPrRuns, setWorkflowFilter, setRunExpanded } = useActions(pullRequestDetailLogic)
+    const { loadLifecycle, loadPrRuns, loadTimelines, setWorkflowFilter, setRunExpanded } =
+        useActions(pullRequestDetailLogic)
 
     const pullRequest = lifecycle?.pull_request
     const githubUrl = pullRequest
@@ -675,7 +427,6 @@ export function PullRequestDetailScene(): JSX.Element {
     const passed = runs.filter((run) => run.conclusion !== null && isPassingConclusion(run.conclusion)).length
     const failed = runs.filter((run) => run.conclusion !== null && !isPassingConclusion(run.conclusion)).length
     const running = runs.filter((run) => run.conclusion === null).length
-    // The newest push's CI round — the wall-time tile and the lifecycle strip's last bar agree by construction.
     const latestRound = commitGroups[0] ? pushRoundOf(commitGroups[0].headSha, commitGroups[0].runs) : null
     const tilesLoading = prRunsLoading && commitGroups.length === 0
 
@@ -846,14 +597,23 @@ export function PullRequestDetailScene(): JSX.Element {
             )}
 
             <Section id="pr-timeline" title="Lifecycle">
-                {summary && pullRequest ? (
-                    <LifecycleStrip
-                        summary={summary}
-                        openedAt={summary.openedAt ?? pullRequest.created_at}
-                        commitGroups={commitGroups}
-                    />
+                {timelinesFailed ? (
+                    <div className="flex items-center gap-3">
+                        <span className="text-sm text-secondary">
+                            Couldn't load the timeline for this pull request.
+                        </span>
+                        <LemonButton type="secondary" size="small" onClick={loadTimelines} loading={timelinesLoading}>
+                            Retry
+                        </LemonButton>
+                    </div>
+                ) : !timelines ? (
+                    <LemonSkeleton className="h-40 w-full" />
+                ) : timeline ? (
+                    <PullRequestDeliveryTimeline pr={timeline} />
                 ) : (
-                    <LemonSkeleton className="h-12 w-full" />
+                    <div className="text-sm text-secondary">
+                        No timeline for this pull request yet. If it stays empty, check the GitHub source's sync status.
+                    </div>
                 )}
             </Section>
 

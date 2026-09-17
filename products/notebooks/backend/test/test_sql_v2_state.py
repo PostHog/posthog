@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -17,6 +19,7 @@ from products.notebooks.backend.sql_v2_state import (
     build_dependency_edges,
     build_notebook_cell_state,
     extract_cells,
+    get_dataframe_owners,
     validate_cell_count,
 )
 from products.notebooks.backend.sql_v2_variables import (
@@ -37,6 +40,15 @@ def markdown_content(markdown: str) -> dict[str, Any]:
 
 
 class TestCellExtractionAndEdges(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (case["name"], case["markdown"], case["owners"])
+            for case in json.loads((Path(__file__).parents[2] / "dataframe-names.test.json").read_text())
+        ]
+    )
+    def test_shared_dataframe_names(self, _name: str, markdown: str, owners: dict[str, str]) -> None:
+        assert get_dataframe_owners(extract_cells(markdown_content(markdown))) == owners
+
     def test_extracts_runnable_cells_and_skips_unknown_or_idless_tags(self) -> None:
         content = markdown_content(
             "# Doc\n\n"
@@ -45,6 +57,7 @@ class TestCellExtractionAndEdges(SimpleTestCase):
             '<PythonV2 nodeId="p2" code="import pandas as pd\n\nout = pd.DataFrame()" returnVariable="multiline" />\n\n'
             '\\<PythonV2 nodeId="p3" code="\\# Build the frame\n\nout = df.head()" returnVariable="recovered" />\n\n'
             '<Query nodeId="q1" query={{"kind":"SavedInsightNode","shortId":"abc"}} />\n\n'
+            '<Insight nodeId="i1" id="example" returnVariable="insight_df" dataframeQuery="SELECT 1" />\n\n'
             '<SQLV2 code="select 2" returnVariable="anon" />\n\n'
             '<RevenueCard metric="arr" />\n'
         )
@@ -55,9 +68,11 @@ class TestCellExtractionAndEdges(SimpleTestCase):
             ("p2", "python", "multiline"),
             ("p3", "python", "recovered"),
             ("q1", "saved_insight", ""),
+            ("i1", "saved_insight", "insight_df"),
         ]
         assert cells[2].code == "import pandas as pd\n\nout = pd.DataFrame()"
         assert cells[3].code == "# Build the frame\n\nout = df.head()"
+        assert cells[5].code == "SELECT 1"
 
     @parameterized.expand(
         [
@@ -99,24 +114,55 @@ class TestCellExtractionAndEdges(SimpleTestCase):
             # Python deps come from globals analysis, so a comment mention is not an edge.
             ("python_comment", '<PythonV2 nodeId="b" code="# df\\nx = 1" returnVariable="" />', []),
             ("python_use", '<PythonV2 nodeId="b" code="x = df.head()" returnVariable="" />', ["a"]),
+            ("insight_source", '<SQLV2 nodeId="b" code="select * from df" returnVariable="" />', ["a"]),
         ]
     )
     def test_dependency_edges(self, _name: str, downstream_tag: str, expected_depends_on: list[str]) -> None:
-        content = markdown_content(f'<SQLV2 nodeId="a" code="select 1" returnVariable="df" />\n\n{downstream_tag}\n')
+        source = (
+            '<Insight nodeId="a" id="example" dataframeQuery="select 1" returnVariable="df" />'
+            if _name == "insight_source"
+            else '<SQLV2 nodeId="a" code="select 1" returnVariable="df" />'
+        )
+        content = markdown_content(f"{source}\n\n{downstream_tag}\n")
         cells = extract_cells(content)
         build_dependency_edges(cells)
         assert cells[1].depends_on == expected_depends_on
         assert cells[0].dependents == (["b"] if expected_depends_on else [])
 
-    def test_sql_wins_dataframe_name_collision(self) -> None:
+    @parameterized.expand(
+        [
+            ("python", '<PythonV2 nodeId="p" code="df = 1" returnVariable="df" />'),
+            ("insight", '<Insight nodeId="i" dataframeQuery="select 2" returnVariable="df" />'),
+        ]
+    )
+    def test_sql_wins_dataframe_name_collision(self, _name: str, other_source: str) -> None:
         content = markdown_content(
-            '<PythonV2 nodeId="p" code="df = 1" returnVariable="df" />\n\n'
+            f"{other_source}\n\n"
             '<SQLV2 nodeId="s" code="select 1" returnVariable="df" />\n\n'
             '<SQLV2 nodeId="user" code="select * from df" returnVariable="" />\n'
         )
         cells = extract_cells(content)
         build_dependency_edges(cells)
         assert cells[2].depends_on == ["s"]
+
+    @parameterized.expand(
+        [
+            ("missing_name", 'dataframeQuery="select 1"', "insight_df", ["a"]),
+            ("blank_name", 'dataframeQuery="select 1" returnVariable=""', "", []),
+            ("missing_query", "", "", []),
+        ]
+    )
+    def test_insight_default_dataframe_binding(
+        self, _name: str, props: str, expected_name: str, expected_depends_on: list[str]
+    ) -> None:
+        cells = extract_cells(
+            markdown_content(
+                f'<Insight nodeId="a" id="example" {props} />\n\n<SQLV2 nodeId="b" code="select * from insight_df" />'
+            )
+        )
+        build_dependency_edges(cells)
+        assert cells[0].dataframe_name == expected_name
+        assert cells[1].depends_on == expected_depends_on
 
 
 def cells_markdown(count: int) -> dict[str, Any]:
@@ -212,8 +258,9 @@ class TestCellCountLimit(SimpleTestCase):
         blocks = iter_markdown_blocks(markdown, max_prose_blocks=MAX_ADDRESSABLE_PROSE_BLOCKS)
         assert [block.node_id for block in blocks if block.kind == "component"] == ["s1"]
 
-    def test_prose_does_not_count_toward_the_ceiling(self) -> None:
-        prose = "\n\n".join(f"Paragraph {index}." for index in range(MAX_NOTEBOOK_CELLS * 2))
+    @parameterized.expand([("prose", "Paragraph {index}."), ("insights", '<Insight nodeId="i{index}" id="example" />')])
+    def test_display_cells_do_not_count_toward_the_ceiling(self, _name: str, template: str) -> None:
+        prose = "\n\n".join(template.format(index=index) for index in range(MAX_NOTEBOOK_CELLS * 2))
         validate_cell_count(None, markdown_content(prose))
 
     def test_a_notebook_already_over_the_ceiling_still_cannot_grow(self) -> None:

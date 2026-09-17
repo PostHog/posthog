@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -976,7 +977,7 @@ def meta_ads_source(
 ) -> SourceResponse:
     """A data warehouse Meta Ads source. ``api_version`` is the source instance's resolved pin."""
     name = NamingConvention.normalize_identifier(resource_name)
-    schema = get_schemas()[resource_name]
+    schema = schema_for_resource(get_schemas(), resource_name)
 
     sync_lookback_days = getattr(config, "sync_lookback_days", None)
     if sync_lookback_days is None or sync_lookback_days < 1:

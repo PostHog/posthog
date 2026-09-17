@@ -13,6 +13,24 @@ pub struct DistinctIdMapping {
 pub struct DistinctIdWithVersion {
     pub distinct_id: String,
     pub version: Option<i64>,
+    pub id: i64,
+}
+
+/// Outcome of one bounded DeleteTombstonedPersons call. Every requested uuid lands in at most
+/// one bucket; a uuid with no Postgres row, or whose person is live again, lands in none.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TombstonedDeleteOutcome {
+    /// Persons hard-deleted together with their dependent rows.
+    pub deleted: i64,
+    /// Persons found with is_deleted = false, so revived after the caller queued them. Untouched.
+    pub skipped_live: i64,
+    /// Persons still tombstoned but referenced by a live distinct id. Untouched. Ingestion never
+    /// produces this state, so the caller should surface it rather than retry blindly.
+    pub blocked_uuids: Vec<Uuid>,
+    /// Persons not finished within the row budget; the caller sends them again.
+    pub pending_uuids: Vec<Uuid>,
+    /// Dependent rows deleted by this call.
+    pub rows_deleted: i64,
 }
 
 #[derive(Debug, Clone)]

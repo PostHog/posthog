@@ -167,6 +167,13 @@ class AlertState(StrEnum):
     SNOOZED = "Snoozed"
 
 
+class AnnotationScope(StrEnum):
+    DASHBOARD_ITEM = "dashboard_item"
+    DASHBOARD = "dashboard"
+    PROJECT = "project"
+    ORGANIZATION = "organization"
+
+
 class ApprovalDecisionStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
@@ -700,6 +707,11 @@ class LegendPosition(StrEnum):
 class Curve(StrEnum):
     LINEAR = "linear"
     SMOOTH = "smooth"
+
+
+class SeriesColorMode(StrEnum):
+    PALETTE = "palette"
+    OPACITY = "opacity"
 
 
 class ColorMode(StrEnum):

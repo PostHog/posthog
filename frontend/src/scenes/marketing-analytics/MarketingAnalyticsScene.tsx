@@ -13,10 +13,15 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { QueryTile } from 'scenes/web-analytics/common'
+import { PagePerformance } from 'scenes/web-analytics/PagePerformance'
+import { PagePerformanceFilters } from 'scenes/web-analytics/PagePerformanceFilters'
+import { pagePerformanceLogic } from 'scenes/web-analytics/pagePerformanceLogic'
 import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
 import { RetentionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/RetentionTab/RetentionTab'
 import { UtmAuditTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/UtmAuditTab/UtmAuditTab'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
+import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -298,6 +303,20 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                           </>
                       ),
                   },
+                  {
+                      key: MarketingAnalyticsTab.PAGE_VISIBILITY,
+                      label: 'Page visibility',
+                      content: (
+                          <BindLogic logic={webAnalyticsLogic} props={{ context: 'page-visibility' }}>
+                              <BindLogic logic={webAnalyticsFilterLogic} props={{ context: 'page-visibility' }}>
+                                  <BindLogic logic={pagePerformanceLogic} props={{ context: 'page-visibility' }}>
+                                      <PagePerformanceFilters tabs={<></>} />
+                                      <PagePerformance />
+                                  </BindLogic>
+                              </BindLogic>
+                          </BindLogic>
+                      ),
+                  },
               ]
             : []),
         ...(!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] &&
@@ -357,6 +376,8 @@ const MarketingAnalyticsContent = (): JSX.Element => {
 }
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
+    [MarketingAnalyticsTab.PAGE_VISIBILITY]:
+        'Explore page traffic, Google search visibility, AI referrals, crawler activity, and conversions.',
     [MarketingAnalyticsTab.AD_PERFORMANCE]: 'Compare ad spend, clicks and impressions across your connected platforms.',
     [MarketingAnalyticsTab.DASHBOARD]:
         'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
@@ -371,10 +392,11 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
 }
 
 const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { dateFilter, integrationFilter, compareFilter } = useValues(marketingAnalyticsLogic)
+    const { activeTab, dateFilter, integrationFilter, compareFilter } = useValues(marketingAnalyticsLogic)
     const { conversion_goals, marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const aiEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_AI]
+    const aiEnabled =
+        !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_AI] && activeTab !== MarketingAnalyticsTab.PAGE_VISIBILITY
 
     // Shared context for every Marketing analytics Max tool — consumed by
     // MARKETING_CONTEXT_PROMPT in products/marketing_analytics/backend/max_tools.py.

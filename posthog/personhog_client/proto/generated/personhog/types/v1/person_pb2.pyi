@@ -96,13 +96,17 @@ class Person(_message.Message):
     ) -> None: ...
 
 class DistinctIdWithVersion(_message.Message):
-    __slots__ = ("distinct_id", "version")
+    __slots__ = ("distinct_id", "version", "id")
     DISTINCT_ID_FIELD_NUMBER: _ClassVar[int]
     VERSION_FIELD_NUMBER: _ClassVar[int]
+    ID_FIELD_NUMBER: _ClassVar[int]
     distinct_id: str
     version: int
+    id: int
 
-    def __init__(self, distinct_id: _Optional[str] = ..., version: _Optional[int] = ...) -> None: ...
+    def __init__(
+        self, distinct_id: _Optional[str] = ..., version: _Optional[int] = ..., id: _Optional[int] = ...
+    ) -> None: ...
 
 class PersonWithDistinctIds(_message.Message):
     __slots__ = ("distinct_id", "person")
@@ -285,15 +289,17 @@ class PersonsByDistinctIdsResponse(_message.Message):
     def __init__(self, results: _Optional[_Iterable[_Union[PersonWithTeamDistinctId, _Mapping]]] = ...) -> None: ...
 
 class GetDistinctIdsForPersonRequest(_message.Message):
-    __slots__ = ("team_id", "person_id", "read_options", "limit")
+    __slots__ = ("team_id", "person_id", "read_options", "limit", "cursor_id")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     PERSON_ID_FIELD_NUMBER: _ClassVar[int]
     READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     LIMIT_FIELD_NUMBER: _ClassVar[int]
+    CURSOR_ID_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     person_id: int
     read_options: _common_pb2.ReadOptions
     limit: int
+    cursor_id: int
 
     def __init__(
         self,
@@ -301,14 +307,21 @@ class GetDistinctIdsForPersonRequest(_message.Message):
         person_id: _Optional[int] = ...,
         read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
         limit: _Optional[int] = ...,
+        cursor_id: _Optional[int] = ...,
     ) -> None: ...
 
 class GetDistinctIdsForPersonResponse(_message.Message):
-    __slots__ = ("distinct_ids",)
+    __slots__ = ("distinct_ids", "next_cursor_id")
     DISTINCT_IDS_FIELD_NUMBER: _ClassVar[int]
+    NEXT_CURSOR_ID_FIELD_NUMBER: _ClassVar[int]
     distinct_ids: _containers.RepeatedCompositeFieldContainer[DistinctIdWithVersion]
+    next_cursor_id: int
 
-    def __init__(self, distinct_ids: _Optional[_Iterable[_Union[DistinctIdWithVersion, _Mapping]]] = ...) -> None: ...
+    def __init__(
+        self,
+        distinct_ids: _Optional[_Iterable[_Union[DistinctIdWithVersion, _Mapping]]] = ...,
+        next_cursor_id: _Optional[int] = ...,
+    ) -> None: ...
 
 class GetDistinctIdsForPersonsRequest(_message.Message):
     __slots__ = ("team_id", "person_ids", "read_options", "limit_per_person")
@@ -422,6 +435,44 @@ class DeletePersonsBatchForTeamResponse(_message.Message):
     deleted_count: int
 
     def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...
+
+class DeleteTombstonedPersonsRequest(_message.Message):
+    __slots__ = ("team_id", "person_uuids", "max_rows")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
+    MAX_ROWS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_uuids: _containers.RepeatedScalarFieldContainer[str]
+    max_rows: int
+
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        person_uuids: _Optional[_Iterable[str]] = ...,
+        max_rows: _Optional[int] = ...,
+    ) -> None: ...
+
+class DeleteTombstonedPersonsResponse(_message.Message):
+    __slots__ = ("deleted_count", "skipped_live_count", "blocked_person_uuids", "pending_person_uuids", "rows_deleted")
+    DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
+    SKIPPED_LIVE_COUNT_FIELD_NUMBER: _ClassVar[int]
+    BLOCKED_PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
+    PENDING_PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
+    ROWS_DELETED_FIELD_NUMBER: _ClassVar[int]
+    deleted_count: int
+    skipped_live_count: int
+    blocked_person_uuids: _containers.RepeatedScalarFieldContainer[str]
+    pending_person_uuids: _containers.RepeatedScalarFieldContainer[str]
+    rows_deleted: int
+
+    def __init__(
+        self,
+        deleted_count: _Optional[int] = ...,
+        skipped_live_count: _Optional[int] = ...,
+        blocked_person_uuids: _Optional[_Iterable[str]] = ...,
+        pending_person_uuids: _Optional[_Iterable[str]] = ...,
+        rows_deleted: _Optional[int] = ...,
+    ) -> None: ...
 
 class SplitPersonRequest(_message.Message):
     __slots__ = ("team_id", "person_id", "distinct_ids_to_split")

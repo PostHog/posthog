@@ -134,6 +134,9 @@ class MonthlyCleanupConfig(dagster.Config):
 # backdated events for a pending deletion fail verification for every tenant, and inserted_at is
 # stamped server-side (writable_events does not even expose the column), so the bound cannot be
 # forged the way the event timestamp can. NULL inserted_at predates the column and always counts.
+# The event arm stays unbounded too: it names one uuid, so nothing can keep arriving under it, and a
+# bound would skip a row that was still in the ingestion pipeline when the request was made and then
+# mark the request verified with that row left behind.
 # The team arm stays unbounded: ingestion for a deleted team stops with its token, so late rows
 # there are pipeline stragglers the next run converges on, not a sustained obligation.
 _DELETE_PREDICATE = """or(
@@ -141,6 +144,7 @@ _DELETE_PREDICATE = """or(
         AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))
         AND (inserted_at IS NULL OR inserted_at <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id)))),
     (dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))),
+    (dictHas(%(pending_deletes_dictionary)s, (team_id, %(event_deletion_type)s, uuid))),
     (dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid))
         AND (inserted_at IS NULL OR inserted_at <= dictGet(%(adhoc_event_deletes_dictionary)s, 'created_at', (team_id, uuid))))
 )"""
@@ -425,7 +429,8 @@ def load_pending_deletions(
 
     pending_deletions = AsyncDeletion.objects.filter(
         Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
-        | Q(deletion_type=DeletionType.Team),
+        | Q(deletion_type=DeletionType.Team)
+        | Q(deletion_type=DeletionType.Event),
         delete_verified_at__isnull=True,
     )
     if create_pending_deletions_table.team_id:
@@ -577,7 +582,7 @@ def delete_events(
             f"""
             SELECT count()
             FROM {load_and_verify_deletes_dictionary.qualified_name}
-            WHERE deletion_type IN ({DeletionType.Person}, {DeletionType.Team})
+            WHERE deletion_type IN ({DeletionType.Person}, {DeletionType.Team}, {DeletionType.Event})
             """
         )
         return result[0][0] if result else 0
@@ -763,6 +768,7 @@ def _delete_predicate_params(
         "pending_deletes_dictionary": pending_deletes_dictionary.qualified_name,
         "person_deletion_type": DeletionType.Person,
         "team_deletion_type": DeletionType.Team,
+        "event_deletion_type": DeletionType.Event,
         "adhoc_event_deletes_dictionary": adhoc_event_deletes_dictionary.qualified_name,
     }
 
