@@ -94,7 +94,9 @@ async def test_without_ai_product_stays_on_python_gateway_even_with_env_set():
         (True, [{"type": "text", "text": "s", "cache_control": {"type": "ephemeral"}}]),
     ],
 )
-async def test_cache_system_prompt_marks_the_system_block(cache_system_prompt, expected_system):
+async def test_cache_system_prompt_marks_the_system_block(
+    cache_system_prompt: bool, expected_system: str | list[dict[str, object]]
+) -> None:
     client = _mock_anthropic_client()
     with patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client):
         await call_llm(
