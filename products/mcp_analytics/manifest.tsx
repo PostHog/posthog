@@ -36,6 +36,7 @@ export const manifest: ProductManifest = {
     },
     routes: {
         // Define routes here
+        '/mcp-analytics/overview': ['MCPAnalytics', 'mcpAnalyticsOverview'],
         '/mcp-analytics/activity': ['MCPAnalytics', 'mcpAnalyticsActivity'],
         '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
         '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
@@ -47,13 +48,14 @@ export const manifest: ProductManifest = {
     },
     redirects: {
         // `landing=auto` marks "arrived via the bare URL": the scene resolves it to the
-        // volume-appropriate default tab, and deep links to /dashboard stay untouched.
+        // volume-appropriate default tab, and deep links to a named tab stay untouched.
         '/mcp-analytics': (_params, searchParams, hashParams) =>
-            combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
+            combineUrl(urls.mcpAnalyticsOverview(), { ...searchParams, landing: 'auto' }, hashParams).url,
     },
     urls: {
         // Define URL helpers here
         mcpAnalytics: (): string => '/mcp-analytics',
+        mcpAnalyticsOverview: (): string => '/mcp-analytics/overview',
         mcpAnalyticsActivity: (): string => '/mcp-analytics/activity',
         mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
         mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',

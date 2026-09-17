@@ -28,28 +28,34 @@ describe('mcpAnalyticsSceneLogic', () => {
         onboardingLogic?.unmount()
     })
 
-    it('resolves a low-volume automatic landing after signals loaded before the scene mounted', async () => {
-        jest.spyOn(mockApi, 'query').mockResolvedValue({
-            results: [[1, 1, 1, '2026-07-01T00:00:00Z']],
-        } as any)
-        router.actions.push(urls.mcpAnalyticsDashboard(), { landing: 'auto', date_from: '-7d' })
+    it.each([
+        ['low volume', 1, urls.mcpAnalyticsActivity()],
+        ['enough volume for metrics', 400, urls.mcpAnalyticsOverview()],
+    ])(
+        'resolves the automatic landing for %s after signals loaded before the scene mounted',
+        async (_label, toolCallsTotal, expectedPath) => {
+            jest.spyOn(mockApi, 'query').mockResolvedValue({
+                results: [[1, toolCallsTotal, toolCallsTotal, '2026-07-01T00:00:00Z']],
+            } as any)
+            router.actions.push(urls.mcpAnalyticsOverview(), { landing: 'auto', date_from: '-7d' })
 
-        onboardingLogic = mcpAnalyticsOnboardingLogic()
-        onboardingLogic.mount()
-        await expectLogic(onboardingLogic).toFinishAllListeners()
+            onboardingLogic = mcpAnalyticsOnboardingLogic()
+            onboardingLogic.mount()
+            await expectLogic(onboardingLogic).toFinishAllListeners()
 
-        sceneLogic = mcpAnalyticsSceneLogic()
-        sceneLogic.mount()
+            sceneLogic = mcpAnalyticsSceneLogic()
+            sceneLogic.mount()
 
-        expect(router.values.location.pathname.endsWith(urls.mcpAnalyticsActivity())).toBe(true)
-        expect(router.values.searchParams).toEqual({ date_from: '-7d' })
-    })
+            expect(router.values.location.pathname.endsWith(expectedPath)).toBe(true)
+            expect(router.values.searchParams).toEqual({ date_from: '-7d' })
+        }
+    )
 
     it('keeps the automatic landing unresolved until the first tool call arrives', async () => {
         jest.spyOn(mockApi, 'query').mockResolvedValue({
             results: [[1, 0, 0, '1970-01-01T00:00:00Z']],
         } as any)
-        router.actions.push(urls.mcpAnalyticsDashboard(), { landing: 'auto', date_from: '-7d' })
+        router.actions.push(urls.mcpAnalyticsOverview(), { landing: 'auto', date_from: '-7d' })
 
         onboardingLogic = mcpAnalyticsOnboardingLogic()
         onboardingLogic.mount()
@@ -57,7 +63,7 @@ describe('mcpAnalyticsSceneLogic', () => {
         sceneLogic = mcpAnalyticsSceneLogic()
         sceneLogic.mount()
 
-        expect(router.values.location.pathname.endsWith(urls.mcpAnalyticsDashboard())).toBe(true)
+        expect(router.values.location.pathname.endsWith(urls.mcpAnalyticsOverview())).toBe(true)
         expect(router.values.searchParams).toEqual({ landing: 'auto', date_from: '-7d' })
 
         jest.spyOn(mockApi, 'query').mockResolvedValue({
