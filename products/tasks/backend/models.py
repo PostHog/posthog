@@ -3245,8 +3245,16 @@ class TaskWorkflowDispatch(TeamScopedRootMixin):
             ),
         ]
         indexes = [
-            models.Index(fields=["next_attempt_at"], condition=models.Q(status="pending"), name="twd_pending_due"),
-            models.Index(fields=["lease_expires_at"], condition=models.Q(status="claimed"), name="twd_claimed_lease"),
+            models.Index(
+                fields=["next_attempt_at", "created_at"],
+                condition=models.Q(status="pending"),
+                name="twd_pending_due_order",
+            ),
+            models.Index(
+                fields=["lease_expires_at", "next_attempt_at", "created_at"],
+                condition=models.Q(status="claimed"),
+                name="twd_claimed_lease_order",
+            ),
             models.Index(fields=["team", "created_at"], name="twd_team_created"),
         ]
 

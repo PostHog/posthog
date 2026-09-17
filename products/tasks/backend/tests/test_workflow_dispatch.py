@@ -29,6 +29,7 @@ from products.tasks.backend.logic.services.workflow_dispatch import (
     WorkflowDispatchOptions,
     build_create_payload,
     build_restart_payload,
+    claim_dispatches,
     create_dispatch,
     dispatch_exceeded_max_age,
     dispatch_task_processing_workflow,
@@ -251,6 +252,46 @@ class TestWorkflowDispatchPersistence(TestCase):
             sample_dispatch_metrics()
 
         set_oldest_age.assert_called_once_with(300.0)
+
+    def test_claims_expired_leases_before_pending_work_and_fills_the_batch(self) -> None:
+        now = django_timezone.now()
+        pending_runs = [
+            TaskRun.objects.create(task=self.task_run.task, team=self.team, status=TaskRun.Status.QUEUED)
+            for _ in range(2)
+        ]
+        pending = [
+            TaskWorkflowDispatch.objects.for_team(self.team.id).create(
+                team=self.team,
+                task_run=run,
+                workflow_id=run.workflow_id,
+                dispatch_kind=TaskWorkflowDispatch.Kind.CREATE,
+                payload={"version": 1},
+                status=TaskWorkflowDispatch.Status.PENDING,
+                next_attempt_at=now - timedelta(minutes=minutes),
+            )
+            for run, minutes in zip(pending_runs, (2, 1), strict=True)
+        ]
+        expired = TaskWorkflowDispatch.objects.for_team(self.team.id).create(
+            team=self.team,
+            task_run=self.task_run,
+            workflow_id=self.task_run.workflow_id,
+            dispatch_kind=TaskWorkflowDispatch.Kind.CREATE,
+            payload={"version": 1},
+            status=TaskWorkflowDispatch.Status.CLAIMED,
+            claimed_by="dead-dispatcher",
+            next_attempt_at=now - timedelta(minutes=1),
+            lease_expires_at=now - timedelta(seconds=1),
+        )
+
+        with patch("products.tasks.backend.logic.services.workflow_dispatch.django_timezone.now", return_value=now):
+            claimed = claim_dispatches("live-dispatcher", 2, timedelta(minutes=1))
+
+        self.assertEqual([row.id for row in claimed], [expired.id, pending[0].id])
+        self.assertTrue(all(row.status == TaskWorkflowDispatch.Status.CLAIMED for row in claimed))
+        self.assertTrue(all(row.claimed_by == "live-dispatcher" for row in claimed))
+        self.assertTrue(all(row.attempt_count == 1 for row in claimed))
+        pending[1].refresh_from_db()
+        self.assertEqual(pending[1].status, TaskWorkflowDispatch.Status.PENDING)
 
     @patch("products.tasks.backend.metrics.WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL.inc")
     @patch("products.tasks.backend.facade.api.is_workflow_dispatch_shadow_enabled", return_value=False)

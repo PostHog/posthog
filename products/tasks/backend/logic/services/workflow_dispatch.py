@@ -223,21 +223,34 @@ def materialize_due_scheduled_task_runs(batch_size: int) -> int:
 
 
 def claim_dispatches(instance_id: str, batch_size: int, lease: timedelta) -> list[TaskWorkflowDispatch]:
+    if batch_size <= 0:
+        return []
+
     now = django_timezone.now()
     with transaction.atomic():
-        # This process intentionally claims work across every team.
-        rows = list(
+        # Reclaim expired leases first so a sustained pending backlog cannot starve work
+        # whose previous dispatcher died. Separate scans let each status use its ordered
+        # partial index instead of scanning and sorting the whole ready outbox for an OR.
+        expired_rows = list(
             TaskWorkflowDispatch.objects.unscoped()
-            .filter(
-                Q(status=TaskWorkflowDispatch.Status.PENDING, next_attempt_at__lte=now)
-                | Q(status=TaskWorkflowDispatch.Status.CLAIMED, lease_expires_at__lte=now)
-            )
-            .order_by("next_attempt_at", "created_at")
+            .filter(status=TaskWorkflowDispatch.Status.CLAIMED, lease_expires_at__lte=now)
+            .order_by("lease_expires_at", "next_attempt_at", "created_at")
             .select_for_update(skip_locked=True)[:batch_size]
         )
-        expired_count = sum(row.status == TaskWorkflowDispatch.Status.CLAIMED for row in rows)
-        if expired_count:
-            WORKFLOW_DISPATCH_LEASE_EXPIRED_TOTAL.inc(expired_count)
+        remaining = batch_size - len(expired_rows)
+        pending_rows = (
+            list(
+                TaskWorkflowDispatch.objects.unscoped()
+                .filter(status=TaskWorkflowDispatch.Status.PENDING, next_attempt_at__lte=now)
+                .order_by("next_attempt_at", "created_at")
+                .select_for_update(skip_locked=True)[:remaining]
+            )
+            if remaining
+            else []
+        )
+        rows = expired_rows + pending_rows
+        if expired_rows:
+            WORKFLOW_DISPATCH_LEASE_EXPIRED_TOTAL.inc(len(expired_rows))
         ids = [row.id for row in rows]
         TaskWorkflowDispatch.objects.unscoped().filter(id__in=ids).update(
             status=TaskWorkflowDispatch.Status.CLAIMED,
@@ -245,9 +258,12 @@ def claim_dispatches(instance_id: str, batch_size: int, lease: timedelta) -> lis
             lease_expires_at=now + lease,
             attempt_count=F("attempt_count") + 1,
         )
-        return list(
-            TaskWorkflowDispatch.objects.unscoped().filter(id__in=ids).order_by("next_attempt_at", "created_at")
-        )
+        for row in rows:
+            row.status = TaskWorkflowDispatch.Status.CLAIMED
+            row.claimed_by = instance_id
+            row.lease_expires_at = now + lease
+            row.attempt_count += 1
+        return rows
 
 
 def sample_dispatch_metrics() -> None:
