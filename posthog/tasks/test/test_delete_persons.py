@@ -8,7 +8,12 @@ from parameterized import parameterized
 
 from posthog.models.person import Person
 from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
-from posthog.tasks.delete_persons import PersonDeletionIncomplete, delete_persons_async, queue_person_deletion
+from posthog.tasks.delete_persons import (
+    MAX_DELETION_ATTEMPTS,
+    PersonDeletionIncomplete,
+    delete_persons_async,
+    queue_person_deletion,
+)
 
 
 def _person() -> Person:
@@ -55,41 +60,56 @@ class TestQueuePersonDeletion(SimpleTestCase):
 
 
 class TestDeletePersonsAsync(SimpleTestCase):
-    def test_raises_when_some_persons_failed_so_celery_retries(self) -> None:
-        with patch(
-            "posthog.tasks.delete_persons.process_queued_person_deletion",
-            return_value=PersonProfileDeletionResult(
-                deleted_count=1,
-                failures=[
-                    PersonDeletionFailure(
-                        step=PersonDeletionStep.FETCH_DISTINCT_IDS, person_uuid=uuid4(), error="RuntimeError: x"
-                    )
-                ],
-            ),
-        ):
-            with self.assertRaises(PersonDeletionIncomplete) as raised:
-                delete_persons_async.run(
-                    team_id=1,
-                    person_uuids=["a", "b"],
-                    delete_profile=True,
-                    delete_recordings=False,
-                    actor_id=None,
-                    organization_id=None,
-                    was_impersonated=False,
-                )
-        assert "fetch_distinct_ids=1" in str(raised.exception)
-
-    def test_completes_quietly_when_all_deleted(self) -> None:
-        with patch(
-            "posthog.tasks.delete_persons.process_queued_person_deletion",
-            return_value=PersonProfileDeletionResult(deleted_count=2),
-        ):
+    def _run(self, result: PersonProfileDeletionResult, attempt: int) -> None:
+        with patch("posthog.tasks.delete_persons.process_queued_person_deletion", return_value=result):
             delete_persons_async.run(
                 team_id=1,
                 person_uuids=["a", "b"],
-                delete_profile=True,
-                delete_recordings=False,
+                delete_profile=False,
+                delete_recordings=True,
                 actor_id=None,
-                organization_id=None,
-                was_impersonated=False,
+                organization_id="00000000-0000-0000-0000-00000000000a",
+                was_impersonated=True,
+                attempt=attempt,
             )
+
+    def test_requeues_only_the_failed_persons(self) -> None:
+        failed = uuid4()
+        result = PersonProfileDeletionResult(
+            deleted_count=0,
+            failures=[
+                PersonDeletionFailure(
+                    step=PersonDeletionStep.QUEUE_TRAINING_DELETION, person_uuid=failed, error="RuntimeError: x"
+                )
+            ],
+        )
+        with patch("posthog.tasks.delete_persons.delete_persons_async.apply_async") as requeue:
+            self._run(result, attempt=1)
+        requeue.assert_called_once()
+        kwargs = requeue.call_args.kwargs["kwargs"]
+        assert kwargs["person_uuids"] == [str(failed)]
+        assert kwargs["attempt"] == 2
+        assert kwargs["delete_recordings"] is True
+        assert kwargs["organization_id"] == "00000000-0000-0000-0000-00000000000a"
+        assert kwargs["was_impersonated"] is True
+        assert requeue.call_args.kwargs["countdown"] == 60
+
+    def test_gives_up_after_the_last_attempt(self) -> None:
+        result = PersonProfileDeletionResult(
+            deleted_count=1,
+            failures=[
+                PersonDeletionFailure(
+                    step=PersonDeletionStep.FETCH_DISTINCT_IDS, person_uuid=uuid4(), error="RuntimeError: x"
+                )
+            ],
+        )
+        with patch("posthog.tasks.delete_persons.delete_persons_async.apply_async") as requeue:
+            with self.assertRaises(PersonDeletionIncomplete) as raised:
+                self._run(result, attempt=MAX_DELETION_ATTEMPTS)
+        requeue.assert_not_called()
+        assert "fetch_distinct_ids=1" in str(raised.exception)
+
+    def test_completes_quietly_when_all_deleted(self) -> None:
+        with patch("posthog.tasks.delete_persons.delete_persons_async.apply_async") as requeue:
+            self._run(PersonProfileDeletionResult(deleted_count=2), attempt=1)
+        requeue.assert_not_called()
