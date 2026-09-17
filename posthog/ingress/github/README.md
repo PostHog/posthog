@@ -28,8 +28,9 @@ Two apps share this incarnation, each subscribed to its own event types in GitHu
 
 A consumer registers against an app name, so the two apps share no consumers.
 
-Each region runs its own pair of Apps, each with its own webhook URL and its own secret.
+Each region runs its own `posthog` App, with its own webhook URL and its own secret.
 GitHub already delivers an installation's events to the region that holds it.
+The `stamphog` App is one App, and one region serves its endpoint.
 
 ## Quirks
 
