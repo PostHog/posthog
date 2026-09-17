@@ -26441,6 +26441,7 @@ export namespace Schemas {
      * * `Depot` - Depot
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
+     * * `GoogleTagManager` - GoogleTagManager
      * * `Hootsuite` - Hootsuite
      * * `WisprFlow` - WisprFlow
      * * `SamCart` - SamCart
@@ -27787,6 +27788,7 @@ export namespace Schemas {
       Depot: 'Depot',
       Schematic: 'Schematic',
       Dokploy: 'Dokploy',
+      GoogleTagManager: 'GoogleTagManager',
       Hootsuite: 'Hootsuite',
       WisprFlow: 'WisprFlow',
       SamCart: 'SamCart',
@@ -29147,6 +29149,7 @@ export namespace Schemas {
        * * `Depot` - Depot
        * * `Schematic` - Schematic
        * * `Dokploy` - Dokploy
+       * * `GoogleTagManager` - GoogleTagManager
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
        * * `SamCart` - SamCart
@@ -31369,6 +31372,7 @@ export namespace Schemas {
        * * `Depot` - Depot
        * * `Schematic` - Schematic
        * * `Dokploy` - Dokploy
+       * * `GoogleTagManager` - GoogleTagManager
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
        * * `SamCart` - SamCart
@@ -40616,6 +40620,7 @@ export namespace Schemas {
        * * `Depot` - Depot
        * * `Schematic` - Schematic
        * * `Dokploy` - Dokploy
+       * * `GoogleTagManager` - GoogleTagManager
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
        * * `SamCart` - SamCart
@@ -41996,6 +42001,7 @@ export namespace Schemas {
        * * `Depot` - Depot
        * * `Schematic` - Schematic
        * * `Dokploy` - Dokploy
+       * * `GoogleTagManager` - GoogleTagManager
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
        * * `SamCart` - SamCart
@@ -50052,6 +50058,7 @@ export namespace Schemas {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `google-tag-manager` - Google Tag Manager
      * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
@@ -50105,6 +50112,7 @@ export namespace Schemas {
       GooglePubsub: 'google-pubsub',
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
+      GoogleTagManager: 'google-tag-manager',
       Helpscout: 'helpscout',
       Hubspot: 'hubspot',
       Instagram: 'instagram',
@@ -50158,6 +50166,7 @@ export namespace Schemas {
        * * `google-pubsub` - Google Pubsub
        * * `google-search-console` - Google Search Console
        * * `google-sheets` - Google Sheets
+       * * `google-tag-manager` - Google Tag Manager
        * * `helpscout` - Helpscout
        * * `hubspot` - Hubspot
        * * `instagram` - Instagram
@@ -86140,6 +86149,7 @@ export namespace Schemas {
        * * `Depot` - Depot
        * * `Schematic` - Schematic
        * * `Dokploy` - Dokploy
+       * * `GoogleTagManager` - GoogleTagManager
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
        * * `SamCart` - SamCart
@@ -87536,6 +87546,7 @@ export namespace Schemas {
        * * `Depot` - Depot
        * * `Schematic` - Schematic
        * * `Dokploy` - Dokploy
+       * * `GoogleTagManager` - GoogleTagManager
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
        * * `SamCart` - SamCart
@@ -88914,6 +88925,7 @@ export namespace Schemas {
        * * `Depot` - Depot
        * * `Schematic` - Schematic
        * * `Dokploy` - Dokploy
+       * * `GoogleTagManager` - GoogleTagManager
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
        * * `SamCart` - SamCart
@@ -104840,6 +104852,7 @@ export namespace Schemas {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `google-tag-manager` - Google Tag Manager
      * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
@@ -104904,6 +104917,7 @@ export namespace Schemas {
       GooglePubsub: 'google-pubsub',
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
+      GoogleTagManager: 'google-tag-manager',
       Helpscout: 'helpscout',
       Hubspot: 'hubspot',
       Instagram: 'instagram',
