@@ -1159,7 +1159,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             series_data = [[s["aggregated_value"]] for s in results_group]
             new_series_data = FormulaAST(series_data).call(formula)
             base_result["aggregated_value"] = float(sum(new_series_data))
-            base_result["data"] = None
+            # An empty list, not None, so the result keeps the `data: number[]` contract that
+            # the plain total-value series path and every chart renderer rely on.
+            base_result["data"] = []
             base_result["count"] = 0
         else:
             series_data = [s["data"] for s in results_group]
