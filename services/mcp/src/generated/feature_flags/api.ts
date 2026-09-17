@@ -475,7 +475,7 @@ export const FeatureFlagsCreateBody = () => zod.object({
         ])
         .optional()
         .describe(
-            "Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All"
+            "Filters which SDKs receive this flag, based on the runtime the caller reports: 'server' (server SDKs only), 'client' (client SDKs only), or 'all' (both). Defaults to 'all'. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag.\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All"
         ),
     bucketing_identifier: zod
         .union([
@@ -857,7 +857,7 @@ export const FeatureFlagsPartialUpdateBody = () => zod.object({
         ])
         .optional()
         .describe(
-            "Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All"
+            "Filters which SDKs receive this flag, based on the runtime the caller reports: 'server' (server SDKs only), 'client' (client SDKs only), or 'all' (both). Defaults to 'all'. This is a delivery filter and not an access control: any caller with the project's public API key can still request any flag.\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All"
         ),
     bucketing_identifier: zod
         .union([

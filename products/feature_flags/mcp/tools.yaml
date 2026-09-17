@@ -65,9 +65,10 @@ tools:
                     across authentication steps" option in the UI). Keeps a user's evaluated value stable once they log
                     in. Incompatible with `device_id` bucketing.
             evaluation_runtime:
-                description:
-                    Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs
-                    only), or `all` (both). Defaults to `all`.
+                description: >
+                    Filters which SDKs receive this flag, based on the runtime the caller reports: `server` (server SDKs
+                    only), `client` (client SDKs only), or `all` (both). Defaults to `all`. This is a delivery filter and
+                    not an access control: any caller with the project's public API key can still request any flag.
             bucketing_identifier:
                 description:
                     Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the
@@ -784,9 +785,10 @@ tools:
                     across authentication steps" option in the UI). Keeps a user's evaluated value stable once they log
                     in. Incompatible with `device_id` bucketing.
             evaluation_runtime:
-                description:
-                    Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs
-                    only), or `all` (both). Defaults to `all`.
+                description: >
+                    Filters which SDKs receive this flag, based on the runtime the caller reports: `server` (server SDKs
+                    only), `client` (client SDKs only), or `all` (both). Defaults to `all`. This is a delivery filter and
+                    not an access control: any caller with the project's public API key can still request any flag.
             bucketing_identifier:
                 description:
                     Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the

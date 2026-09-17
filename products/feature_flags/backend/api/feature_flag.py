@@ -1133,8 +1133,10 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
         choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
         required=False,
         allow_null=True,
-        help_text="Where this flag is allowed to evaluate: 'server' (server-side SDKs only), "
-        "'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.",
+        help_text="Filters which SDKs receive this flag, based on the runtime the caller reports: "
+        "'server' (server SDKs only), 'client' (client SDKs only), or 'all' (both). Defaults to 'all'. "
+        "This is a delivery filter and not an access control: any caller with the project's "
+        "public API key can still request any flag.",
     )
     bucketing_identifier = serializers.ChoiceField(
         choices=FeatureFlag.BUCKETING_IDENTIFIER_CHOICES,
@@ -1183,8 +1185,10 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
         required=False,
         allow_null=True,
-        help_text="Where this flag is allowed to evaluate: 'server' (server-side SDKs only), "
-        "'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.",
+        help_text="Filters which SDKs receive this flag, based on the runtime the caller reports: "
+        "'server' (server SDKs only), 'client' (client SDKs only), or 'all' (both). Defaults to 'all'. "
+        "This is a delivery filter and not an access control: any caller with the project's "
+        "public API key can still request any flag.",
     )
     bucketing_identifier = serializers.ChoiceField(
         choices=FeatureFlag.BUCKETING_IDENTIFIER_CHOICES,
