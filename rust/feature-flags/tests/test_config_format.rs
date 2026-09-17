@@ -11,8 +11,7 @@ use feature_flags::flags::flag_models::{
     EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow,
 };
 use feature_flags::utils::test_utils::{
-    insert_flags_for_team_in_redis, mock_group_type_cache, setup_redis_client,
-    update_team_in_hypercache, TestContext,
+    mock_group_type_cache, setup_redis_client, update_team_in_hypercache, TestContext,
 };
 use rstest::rstest;
 use serde_json::{json, Value};
@@ -34,6 +33,9 @@ fn documents() -> Vec<(String, Value, bool, bool)> {
     let mut rounded = supported.clone();
     rounded["version"] = json!("__rounds_to_two__");
     cases.push(("rejected-rounded-v2".to_string(), rounded, true, false));
+    let mut near_one = supported.clone();
+    near_one["version"] = json!("__below_one__");
+    cases.push(("rejected-below-one".to_string(), near_one, true, false));
     let mut unsupported = supported.clone();
     unsupported["rules"]
         .as_array_mut()
@@ -154,12 +156,28 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
         }
     }
     if cached {
-        let encoded = json!(flags)
-            .to_string()
+        let ids: Vec<_> = flags
+            .iter()
+            .map(|flag| flag["id"].as_i64().unwrap())
+            .collect();
+        let dependencies: serde_json::Map<_, _> =
+            ids.iter().map(|id| (id.to_string(), json!([]))).collect();
+        // Value-based cache helpers would round the discriminator under test.
+        let encoded = json!({"flags": flags, "evaluation_metadata": {
+            "dependency_stages": [ids], "flags_with_missing_deps": [], "transitive_deps": dependencies
+        }}).to_string()
             .replace("\"__overprecise__\"", "33.330000000000000001")
             .replace("\"__rounds_to_one__\"", "1.0")
-            .replace("\"__rounds_to_two__\"", "2.0");
-        insert_flags_for_team_in_redis(redis, team.id, Some(encoded)).await?;
+            .replace("\"__rounds_to_two__\"", "2.0")
+            .replace("\"__below_one__\"", "0.9999999999999999");
+        let bytes = serde_pickle::to_vec(&encoded, Default::default())?;
+        redis
+            .set_bytes(
+                format!("posthog:1:cache/teams/{}/feature_flags/flags.json", team.id),
+                bytes,
+                None,
+            )
+            .await?;
     } else {
         let mut connection = db.non_persons_writer.get_connection().await?;
         for (key, placeholder, number) in [
@@ -169,6 +187,7 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
                 "33.330000000000000001",
             ),
             ("one-rounded", "__rounds_to_one__", "1.0000000000000001"),
+            ("rejected-below-one", "__below_one__", "0.9999999999999999"),
             (
                 "rejected-rounded-v2",
                 "__rounds_to_two__",

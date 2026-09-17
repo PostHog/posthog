@@ -14,17 +14,64 @@ enum ConfigFormat {
     Unsupported,
 }
 
-// Python's cache producer decodes JSON numbers before emitting the service cache.
-// Dispatch must use that same binary64 value on the PostgreSQL fallback path.
+impl ConfigFormat {
+    fn from_number(number: Option<f64>) -> Self {
+        match number {
+            Some(1.0) => Self::V1,
+            Some(2.0) => Self::V2,
+            _ => Self::Unsupported,
+        }
+    }
+}
+
 fn config_format(version: Option<&Value>) -> ConfigFormat {
-    match version {
-        None => ConfigFormat::V1,
-        Some(Value::Number(number)) => match number.as_f64() {
-            Some(1.0) => ConfigFormat::V1,
-            Some(2.0) => ConfigFormat::V2,
-            _ => ConfigFormat::Unsupported,
-        },
-        Some(_) => ConfigFormat::Unsupported,
+    version.map_or(ConfigFormat::V1, |value| {
+        ConfigFormat::from_number(value.as_f64())
+    })
+}
+
+struct FormatProbe(ConfigFormat);
+
+impl<'de> Deserialize<'de> for FormatProbe {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(field_identifier)]
+        enum Field {
+            #[serde(rename = "version")]
+            Version,
+            #[serde(other)]
+            Other,
+        }
+        struct ProbeVisitor;
+        impl<'de> serde::de::Visitor<'de> for ProbeVisitor {
+            type Value = FormatProbe;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a filters object")
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut format = ConfigFormat::V1;
+                while let Some(field) = map.next_key::<Field>()? {
+                    match field {
+                        Field::Version => {
+                            let raw: &RawValue = map.next_value()?;
+                            // Python rounds JSON numbers correctly; serde's default Value
+                            // parser can round a nearby non-1 discriminator to 1 instead.
+                            format = ConfigFormat::from_number(raw.get().parse::<f64>().ok());
+                        }
+                        Field::Other => {
+                            map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(FormatProbe(format))
+            }
+        }
+        deserializer.deserialize_map(ProbeVisitor)
     }
 }
 
@@ -50,31 +97,21 @@ pub(crate) fn decode_filters(value: Value) -> Result<FlagFilters, serde_json::Er
 }
 
 pub(crate) fn decode_raw_filters(raw: Box<RawValue>) -> Result<FlagFilters, serde_json::Error> {
-    let document = serde_json::from_str::<Value>(raw.get());
-    let format = match &document {
-        Ok(Value::Object(fields)) => config_format(fields.get("version")),
-        Ok(_) => return Err(serde::de::Error::custom("expected a filters object")),
-        Err(_) => {
-            // An overflowing v2 value must remain a per-flag error, not a wrapper error.
-            let fields: std::collections::BTreeMap<String, &RawValue> =
-                serde_json::from_str(raw.get())?;
-            let version = fields
-                .get("version")
-                .and_then(|value| serde_json::from_str::<Value>(value.get()).ok());
-            if fields.contains_key("version") && version.is_none() {
-                ConfigFormat::Unsupported
-            } else {
-                config_format(version.as_ref())
+    let FormatProbe(format) = serde_json::from_str(raw.get())?;
+    if format == ConfigFormat::V1 {
+        let mut document: Value = serde_json::from_str(raw.get())?;
+        if let Some(version) = document.get_mut("version") {
+            if version.as_f64() != Some(1.0) {
+                *version = serde_json::json!(1.0);
             }
         }
-    };
-    if format == ConfigFormat::V1 {
-        serde_json::from_value(document?)
+        serde_json::from_value(document)
     } else {
         let parsed_v2 = (format == ConfigFormat::V2).then(|| {
             config_v2::validate_raw_document(&raw)?;
-            let document = document.map_err(|_| config_v2::ParseError::Malformed("filters"))?;
-            config_v2::Config::parse(document.as_object().unwrap())
+            let document = serde_json::from_str(raw.get())
+                .map_err(|_| config_v2::ParseError::Malformed("filters"))?;
+            config_v2::Config::parse(&document)
         });
         Ok(FlagFilters {
             non_v1: Some(Arc::new(config_v2::NonV1Config {

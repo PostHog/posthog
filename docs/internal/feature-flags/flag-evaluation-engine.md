@@ -8,7 +8,7 @@ Stored configuration dispatch reads `filters.version`; the row's `FeatureFlag.ve
 An absent discriminator or numeric 1 (including 1.0) selects v1.
 Numeric 2 (including 2.0) selects the closed v2 parser; other discriminator values are unsupported.
 The service does not evaluate any non-v1 format, including a successfully parsed v2 configuration.
-The classification uses decoded numeric values, matching Python's `detect_config_format` (`products/feature_flags/backend/facade/config.py`) and its cache producer's normalization.
+The classification converts the discriminator to correctly rounded binary64, matching Python's `detect_config_format` (`products/feature_flags/backend/facade/config.py`) and its cache producer's normalization.
 
 Cache and PostgreSQL ingress classify the original document before decoding v1 fields.
 Non-v1 objects retain their original JSON in `FlagFilters.non_v1`, alongside the v2 parse result when applicable.

@@ -88,6 +88,24 @@ fn original_numeric_tokens_control_precision_and_survive_cache_round_trips() {
         let decoded: FeatureFlag = serde_json::from_str(&round_trip).unwrap();
         assert_eq!(result(&decoded).is_ok(), accepted, "{number}");
     }
+    for digits in 15..=80 {
+        for number in [
+            format!("0.{}", "9".repeat(digits)),
+            format!("1.{}1", "0".repeat(digits)),
+            format!("1.{}", "9".repeat(digits)),
+            format!("2.{}1", "0".repeat(digits)),
+        ] {
+            let document = config()
+                .to_string()
+                .replace("\"version\":2", &format!("\"version\":{number}"));
+            let flag = read_raw(&document);
+            let expected = number.parse::<f64>().unwrap();
+            assert_eq!(flag.filters.non_v1.is_none(), expected == 1.0, "{number}");
+            if let Some(non_v1) = &flag.filters.non_v1 {
+                assert_eq!(non_v1.parsed_v2.is_some(), expected == 2.0, "{number}");
+            }
+        }
+    }
     for (number, recognized_v2) in [
         ("2.0", true),
         ("20e-1", true),
