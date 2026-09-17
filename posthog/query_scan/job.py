@@ -30,6 +30,7 @@ from posthog.query_scan.event_filter import (
     combine_event_filter,
 )
 from posthog.query_scan.explain import QueryPlan, TimestampBounds, parse_query_plan
+from posthog.query_scan.findings import finding_label
 from posthog.query_scan.flag import get_query_scan_flag
 from posthog.query_scan.slot import (
     clear as clear_slot,
@@ -294,15 +295,15 @@ def _explain(sql: str, values: dict[str, Any], team_id: int) -> list[Any] | None
 
 
 def _merge(results: list[QueryScanResult], executions: tuple[Execution, ...]) -> QueryScanResult:
-    """One result from the executions the job analyzed: findings deduplicated by kind and reason, and
-    the shares from the execution that read the most rows."""
+    """One result from the executions the job analyzed: findings deduplicated by label, and the
+    shares from the execution that read the most rows."""
     findings: list[QueryScanWarning] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[str] = set()
     for result in results:
         for finding in result.findings:
-            key = (str(finding.kind), str(finding.reason))
-            if key not in seen:
-                seen.add(key)
+            label = finding_label(finding)
+            if label not in seen:
+                seen.add(label)
                 findings.append(finding)
 
     heaviest = _heaviest_result(results, executions)
@@ -339,10 +340,11 @@ def _report(job: QueryScanJob, merged: QueryScanResult, *, flag_event_ratio: flo
         "event_ratio": flag_event_ratio,
         "explain_ok": merged.explain_ok,
         "finding_kinds": merged.finding_kinds(),
-        "finding_reasons": merged.finding_reasons(),
+        "finding_labels": merged.finding_labels(),
         "actionable_finding_kinds": merged.actionable_finding_kinds(),
-        "actionable_finding_reasons": merged.actionable_finding_reasons(),
+        "actionable_finding_labels": merged.actionable_finding_labels(),
         "actionable": bool(merged.actionable_finding_kinds()),
+        "all_time": job.all_time,
         "killed": job.killed,
         "error_type": job.error_type,
         "job_ms": job_ms,

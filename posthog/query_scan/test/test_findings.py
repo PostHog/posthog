@@ -2,11 +2,12 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import QueryScanFindingKind, QueryScanFindingReason
+from posthog.schema import QueryScanFindingKind, QueryScanFixLocation
 
 from posthog.query_scan.findings import (
     ASSISTANT_GOAL,
     ASSISTANT_RULES,
+    FindingCause,
     assistant_prompt,
     build_warning,
     explain_evidence,
@@ -22,157 +23,150 @@ class TestFindings(SimpleTestCase):
     @parameterized.expand(
         [
             # The `message` is the human banner; the `fix` is the assistant-facing guidance. Each SQL
-            # reason keeps its own guidance, including whether exploration helps and which query to run.
+            # cause keeps its own guidance, including whether exploration helps and which query to run.
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                None,
+                {},
                 "HogQLQuery",
                 "add `WHERE event IN",
                 "The query names no events",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                QueryScanFindingReason.IN_OR,
+                {"cause": FindingCause.IN_OR},
                 "HogQLQuery",
                 "names events only inside an OR",
                 "for what the other branch matches",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                QueryScanFindingReason.WRAPPED,
+                {"cause": FindingCause.WRAPPED},
                 "HogQLQuery",
                 "wraps `event` in a",
                 "SELECT DISTINCT event",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                QueryScanFindingReason.NEGATED,
+                {"cause": FindingCause.NEGATED},
                 "HogQLQuery",
                 "only excludes",
                 "Do not run exploratory queries",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                QueryScanFindingReason.DYNAMIC,
+                {"cause": FindingCause.DYNAMIC},
                 "HogQLQuery",
                 "compares `event` to another",
                 "no fixed name to prune on",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                QueryScanFindingReason.NOT_PRUNED,
+                {"cause": FindingCause.NOT_PRUNED},
                 "HogQLQuery",
                 "has an event filter",
                 "into the WHERE of the events read",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                QueryScanFindingReason.PROPERTY_FILTER,
+                {"cause": FindingCause.PROPERTY_FILTER},
                 "HogQLQuery",
                 "narrows events by a property but names no events",
                 "which events carry the property",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                QueryScanFindingReason.HELPER_READ,
+                {"cause": FindingCause.HELPER_READ},
                 "HogQLQuery",
                 "reads all events in another, a subquery or CTE",
                 "Add an event filter to the unfiltered read",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                QueryScanFindingReason.ALL_EVENTS,
+                {"by_design": True},
                 "HogQLQuery",
                 "reads all events by design",
                 "do not propose one",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                None,
+                {},
                 "TrendsQuery",
                 "This insight looks at all events",
                 "instead of All events",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                QueryScanFindingReason.PROPERTY_FILTER,
+                {"cause": FindingCause.PROPERTY_FILTER},
                 "TrendsQuery",
                 "looks at all events and filters them by a property",
                 "pick them in the series",
             ),
             (
                 QueryScanFindingKind.NO_EVENT_FILTER,
-                QueryScanFindingReason.ALL_EVENTS,
+                {"by_design": True},
                 "TrendsQuery",
                 "looks at all events by design",
                 "Do not propose one",
             ),
             (
                 QueryScanFindingKind.NO_START_DATE,
-                None,
+                {},
                 "HogQLQuery",
                 "add `timestamp >= now()",
                 "relative time bound",
             ),
             (
                 QueryScanFindingKind.NO_START_DATE,
-                QueryScanFindingReason.FILTERS,
+                {"fix_location": QueryScanFixLocation.INSIGHT_DATE_RANGE},
                 "HogQLQuery",
-                "No date range is set on this insight or dashboard",
+                "The date range on this insight or dashboard has no start date",
                 "Do not edit the SQL",
             ),
             (
                 QueryScanFindingKind.NO_START_DATE,
-                QueryScanFindingReason.DASHBOARD_ALL_TIME,
+                {"fix_location": QueryScanFixLocation.DASHBOARD_DATE_FILTER},
                 "HogQLQuery",
                 "The dashboard's date filter is set to All time",
                 "change the dashboard's date filter",
             ),
             (
                 QueryScanFindingKind.NO_START_DATE,
-                QueryScanFindingReason.BOUND_NOT_USED,
+                {"cause": FindingCause.BOUND_NOT_USED},
                 "HogQLQuery",
                 "has a start date, but it could not be used",
                 "add a fixed relative bound beside it",
             ),
             (
                 QueryScanFindingKind.NO_START_DATE,
-                QueryScanFindingReason.ALL_HISTORY,
+                {"by_design": True},
                 "HogQLQuery",
                 "finds a first event ever",
                 "Do not propose a time bound",
             ),
             (
                 QueryScanFindingKind.NO_START_DATE,
-                None,
+                {},
                 "TrendsQuery",
                 "This insight has no start date",
                 "instead of All time",
             ),
             (
                 QueryScanFindingKind.NO_START_DATE,
-                QueryScanFindingReason.ALL_TIME,
-                "TrendsQuery",
-                "This insight has no start date",
-                "instead of All time",
-            ),
-            (
-                QueryScanFindingKind.NO_START_DATE,
-                QueryScanFindingReason.DASHBOARD_ALL_TIME,
+                {"fix_location": QueryScanFixLocation.DASHBOARD_DATE_FILTER},
                 "TrendsQuery",
                 "overrides the date range on this insight",
                 "tell the person to change the dashboard's date filter",
             ),
             (
                 QueryScanFindingKind.NO_START_DATE,
-                QueryScanFindingReason.ALL_HISTORY,
+                {"by_design": True},
                 "TrendsQuery",
                 "finds each person's first event",
                 "Do not propose a date range change",
             ),
             (
                 QueryScanFindingKind.PERSONS_JOIN,
-                None,
+                {},
                 "HogQLQuery",
                 "joins the persons table",
                 "person.properties.x",
@@ -182,12 +176,12 @@ class TestFindings(SimpleTestCase):
     def test_copy_switches_between_sql_and_insight_wording(
         self,
         kind: QueryScanFindingKind,
-        reason: QueryScanFindingReason | None,
+        facts: dict[str, object],
         query_kind: str,
         message_contains: str,
         fix_contains: str,
     ) -> None:
-        warning = build_warning(kind=kind, reason=reason, query_kind=query_kind)
+        warning = build_warning(kind=kind, query_kind=query_kind, **facts)  # type: ignore[arg-type]
 
         self.assertEqual(warning.kind, kind)
         self.assertIn(message_contains, warning.message)
@@ -195,25 +189,21 @@ class TestFindings(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (QueryScanFindingKind.NO_EVENT_FILTER, None, None, False),
-            (QueryScanFindingKind.NO_EVENT_FILTER, QueryScanFindingReason.IN_OR, None, True),
-            (QueryScanFindingKind.NO_EVENT_FILTER, QueryScanFindingReason.NEGATED, None, False),
-            (QueryScanFindingKind.NO_EVENT_FILTER, QueryScanFindingReason.DYNAMIC, None, False),
-            (QueryScanFindingKind.NO_EVENT_FILTER, QueryScanFindingReason.ALL_EVENTS, None, False),
-            (QueryScanFindingKind.NO_START_DATE, None, None, True),
-            (QueryScanFindingKind.NO_START_DATE, QueryScanFindingReason.ALL_HISTORY, None, False),
-            (QueryScanFindingKind.NO_START_DATE, None, "v_active", False),
-            (QueryScanFindingKind.PERSONS_JOIN, None, None, True),
+            (QueryScanFindingKind.NO_EVENT_FILTER, {}, False),
+            (QueryScanFindingKind.NO_EVENT_FILTER, {"cause": FindingCause.IN_OR}, True),
+            (QueryScanFindingKind.NO_EVENT_FILTER, {"cause": FindingCause.NEGATED}, False),
+            (QueryScanFindingKind.NO_EVENT_FILTER, {"cause": FindingCause.DYNAMIC}, False),
+            (QueryScanFindingKind.NO_EVENT_FILTER, {"by_design": True}, False),
+            (QueryScanFindingKind.NO_START_DATE, {}, True),
+            (QueryScanFindingKind.NO_START_DATE, {"by_design": True}, False),
+            (QueryScanFindingKind.NO_START_DATE, {"view_name": "v_active"}, False),
+            (QueryScanFindingKind.PERSONS_JOIN, {}, True),
         ]
     )
-    def test_actionable_follows_the_reason(
-        self,
-        kind: QueryScanFindingKind,
-        reason: QueryScanFindingReason | None,
-        view_name: str | None,
-        expected: bool,
+    def test_actionable_follows_the_facts(
+        self, kind: QueryScanFindingKind, facts: dict[str, object], expected: bool
     ) -> None:
-        warning = build_warning(kind=kind, reason=reason, query_kind="HogQLQuery", view_name=view_name)
+        warning = build_warning(kind=kind, query_kind="HogQLQuery", **facts)  # type: ignore[arg-type]
 
         self.assertIs(warning.actionable, expected)
 
@@ -271,7 +261,7 @@ class TestAssistantPrompt(SimpleTestCase):
     def test_goal_first_then_the_run_each_finding_and_the_rules(self) -> None:
         finding = build_warning(
             kind=QueryScanFindingKind.NO_EVENT_FILTER,
-            reason=QueryScanFindingReason.IN_OR,
+            cause=FindingCause.IN_OR,
             query_kind="HogQLQuery",
             evidence="ClickHouse's index used team_id and kept 5 of 100 granules.",
         )
@@ -311,10 +301,12 @@ class TestAssistantPrompt(SimpleTestCase):
         # "Fix with AI" writes into the SQL, and a `{filters}` date range is set on the insight, so a
         # prompt for that finding alone would send the assistant to change nothing.
         on_insight = build_warning(
-            kind=QueryScanFindingKind.NO_START_DATE, reason=QueryScanFindingReason.FILTERS, query_kind="HogQLQuery"
+            kind=QueryScanFindingKind.NO_START_DATE,
+            fix_location=QueryScanFixLocation.INSIGHT_DATE_RANGE,
+            query_kind="HogQLQuery",
         )
         in_query = build_warning(
-            kind=QueryScanFindingKind.NO_EVENT_FILTER, reason=QueryScanFindingReason.IN_OR, query_kind="HogQLQuery"
+            kind=QueryScanFindingKind.NO_EVENT_FILTER, cause=FindingCause.IN_OR, query_kind="HogQLQuery"
         )
 
         self.assertIsNone(assistant_prompt([on_insight], fixable_only=True))
@@ -325,18 +317,16 @@ class TestAssistantPrompt(SimpleTestCase):
         # The assistant's own block keeps it, since the assistant can tell the person where to set the range.
         full = assistant_prompt([on_insight])
         assert full is not None
-        self.assertIn("- no_start_date (filters):", full)
+        self.assertIn("- no_start_date:", full)
 
     def test_fixable_only_needs_an_actionable_finding_and_keeps_the_by_design_guidance(self) -> None:
-        by_design = build_warning(
-            kind=QueryScanFindingKind.NO_START_DATE, reason=QueryScanFindingReason.ALL_HISTORY, query_kind="HogQLQuery"
-        )
+        by_design = build_warning(kind=QueryScanFindingKind.NO_START_DATE, by_design=True, query_kind="HogQLQuery")
         actionable = build_warning(
-            kind=QueryScanFindingKind.NO_EVENT_FILTER, reason=QueryScanFindingReason.WRAPPED, query_kind="HogQLQuery"
+            kind=QueryScanFindingKind.NO_EVENT_FILTER, cause=FindingCause.WRAPPED, query_kind="HogQLQuery"
         )
 
         self.assertIsNone(assistant_prompt([by_design], fixable_only=True))
         prompt = assistant_prompt([by_design, actionable], fixable_only=True)
         assert prompt is not None
-        self.assertIn("- no_start_date (all_history):", prompt)
+        self.assertIn("- no_start_date:", prompt)
         self.assertIn("- no_event_filter (wrapped):", prompt)

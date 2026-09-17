@@ -24,7 +24,7 @@ const FINDING: QueryScanWarning = {
 const INSIGHT_SIDE_FINDING: QueryScanWarning = {
     ...FINDING,
     kind: 'no_start_date',
-    reason: 'filters',
+    fix_location: 'insight_date_range',
     message: 'No date range is set for this insight or dashboard.',
     fix: 'Set a date range on the insight or the dashboard.',
 }
@@ -32,7 +32,7 @@ const INSIGHT_SIDE_FINDING: QueryScanWarning = {
 const BY_DESIGN_FINDING: QueryScanWarning = {
     ...FINDING,
     kind: 'no_start_date',
-    reason: 'all_history',
+    by_design: true,
     message: 'This query finds a first event ever, so it reads all your data by design.',
     fix: 'Do not propose a time bound for that read.',
     actionable: false,

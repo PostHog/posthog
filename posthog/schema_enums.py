@@ -2553,20 +2553,12 @@ class QueryScanFindingKind(StrEnum):
     PERSONS_JOIN = "persons_join"
 
 
-class QueryScanFindingReason(StrEnum):
-    IN_OR = "in_or"
-    WRAPPED = "wrapped"
-    NEGATED = "negated"
-    DYNAMIC = "dynamic"
-    NOT_PRUNED = "not_pruned"
-    PROPERTY_FILTER = "property_filter"
-    HELPER_READ = "helper_read"
-    ALL_EVENTS = "all_events"
-    FILTERS = "filters"
-    BOUND_NOT_USED = "bound_not_used"
-    ALL_TIME = "all_time"
-    DASHBOARD_ALL_TIME = "dashboard_all_time"
-    ALL_HISTORY = "all_history"
+class QueryScanFixLocation(StrEnum):
+    QUERY = "query"
+    SUBQUERY = "subquery"
+    VIEW = "view"
+    INSIGHT_DATE_RANGE = "insight_date_range"
+    DASHBOARD_DATE_FILTER = "dashboard_date_filter"
 
 
 class QuickFilterContext(StrEnum):

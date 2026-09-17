@@ -596,37 +596,24 @@ export interface AccessControlFilterWarning {
 export type QueryScanFindingKind = 'no_event_filter' | 'no_start_date' | 'persons_join'
 
 /**
- * Why the read was not narrowed, which picks the wording and decides whether the person can act.
- * Event filter: `in_or`: it sits inside an OR. `wrapped`: `event` is inside a function call. `negated`: it
- * excludes events, which narrows nothing. `dynamic`: `event` is compared to a column. `not_pruned`:
- * ClickHouse reported it unused. `property_filter`: a property condition stands in for an event name.
- * `helper_read`: a subquery or CTE reads all events beside a read that names them. `all_events`: the
- * question is about every event by design.
- * Start date: `filters`: the date range comes from `{filters}` and the insight left it open. `bound_not_used`:
- * the query has a start date ClickHouse could not skip data with. `all_time`: All time was chosen on the
- * insight. `dashboard_all_time`: the dashboard's date filter forced All time. `all_history`: the query finds
- * a first event ever by design.
+ * Where the change that fixes a finding goes. `query`: the query or insight the finding is on.
+ * `subquery`: a subquery of it. `view`: a saved view it reads. `insight_date_range`: the date range a SQL
+ * insight takes through `{filters}`. `dashboard_date_filter`: the dashboard's date filter.
  */
-export type QueryScanFindingReason =
-    | 'in_or'
-    | 'wrapped'
-    | 'negated'
-    | 'dynamic'
-    | 'not_pruned'
-    | 'property_filter'
-    | 'helper_read'
-    | 'all_events'
-    | 'filters'
-    | 'bound_not_used'
-    | 'all_time'
-    | 'dashboard_all_time'
-    | 'all_history'
+export type QueryScanFixLocation = 'query' | 'subquery' | 'view' | 'insight_date_range' | 'dashboard_date_filter'
 
 /** One finding of a query's analysis. */
 export interface QueryScanWarning {
     kind: QueryScanFindingKind
-    /** Only with `no_event_filter` and `no_start_date`. */
-    reason?: QueryScanFindingReason
+    /**
+     * A short label for what in the query text kept the read wide, such as `in_or`. Analytics and the
+     * assistant read it, and the set of labels can change. Surfaces branch on `actionable`.
+     */
+    cause?: string
+    /** True when the query reads this much on purpose, so reading less would change the answer. Absent means no. */
+    by_design?: boolean
+    /** Where the change goes. Absent means the query itself. */
+    fix_location?: QueryScanFixLocation
     /** Shown to the person: what happened and what to do. */
     message: string
     /** What "Fix with AI" and the assistant are told to do. */

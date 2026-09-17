@@ -126,11 +126,11 @@ class TestQueryScanJob(BaseTest):
                 True,
             ),
             (
-                "the tree's facts pick the reason",
+                "the tree's facts pick the label",
                 {"STUBBED_MARKER": "plan_no_date_bound"},
                 (),
                 {"timestamp_bound": True, "all_history": True},
-                ["no_start_date/all_history"],
+                ["no_start_date/by_design"],
                 [],
                 True,
             ),
@@ -140,7 +140,7 @@ class TestQueryScanJob(BaseTest):
                 {"STUBBED_MARKER": "plan_event_filter_used", "SUB_MARKER": "plan_no_event_filter"},
                 ("SUB_MARKER",),
                 None,
-                ["no_event_filter/helper_read"],
+                ["no_event_filter/helper_read/subquery"],
                 ["no_event_filter"],
                 True,
             ),
@@ -150,11 +150,11 @@ class TestQueryScanJob(BaseTest):
         ]
     )
     def test_analyzes_each_execution(
-        self, _name, dispatch, subqueries, tree, expected_reasons, expected_actionable, expected_explain_ok
+        self, _name, dispatch, subqueries, tree, expected_labels, expected_actionable, expected_explain_ok
     ) -> None:
         self._run(dispatch, subqueries=subqueries, tree=tree)
 
-        expected_kinds = [reason.split("/")[0] for reason in expected_reasons]
+        expected_kinds = [label.split("/")[0] for label in expected_labels]
         stored = slot.get(self.team.pk, "cache_key_1", thresholds=FLAG.thresholds_fingerprint)
         if expected_explain_ok:
             assert stored is not None and stored.analysis is not None
@@ -166,7 +166,7 @@ class TestQueryScanJob(BaseTest):
         properties = self.capture.call_args.kwargs["properties"]
         assert self.capture.call_args.kwargs["event"] == "query scan analyzed"
         assert properties["finding_kinds"] == expected_kinds
-        assert properties["finding_reasons"] == expected_reasons
+        assert properties["finding_labels"] == expected_labels
         assert properties["actionable_finding_kinds"] == expected_actionable
         assert properties["actionable"] is bool(expected_actionable)
         assert properties["explain_ok"] is expected_explain_ok

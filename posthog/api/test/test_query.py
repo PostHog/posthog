@@ -31,7 +31,6 @@ from posthog.schema import (
     PropertyOperator,
     QueryScanAnalysis,
     QueryScanFindingKind,
-    QueryScanFindingReason,
     QueryStatus,
 )
 
@@ -52,7 +51,7 @@ from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
 from posthog.models import PersonalAPIKey
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
-from posthog.query_scan.findings import build_warning
+from posthog.query_scan.findings import FindingCause, build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.test.slots import stored_slot
 
@@ -1363,9 +1362,7 @@ A_STORED_SCAN = stored_slot(
         range_share=0.8,
         project_share=0.25,
         findings=[
-            build_warning(
-                kind=QueryScanFindingKind.NO_EVENT_FILTER, reason=QueryScanFindingReason.IN_OR, query_kind="HogQLQuery"
-            )
+            build_warning(kind=QueryScanFindingKind.NO_EVENT_FILTER, cause=FindingCause.IN_OR, query_kind="HogQLQuery")
         ],
     )
 )

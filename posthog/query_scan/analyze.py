@@ -2,16 +2,16 @@
 
 Pure: no ClickHouse, Redis or Celery. A share is the outer read's granules over a denominator, the
 project's events in the query's date range or over all time. The plan says what was read; the
-facts the trigger read off the tree say why, which picks each finding's reason and with it its
-wording and whether the person can act on it.
+facts the trigger read off the tree say why. They give each finding its cause, whether it reads this
+much by design and where its fix goes, and those pick its wording and whether the person can act.
 """
 
-from posthog.schema import QueryScanFindingKind, QueryScanFindingReason, QueryScanWarning
+from posthog.schema import QueryScanFindingKind, QueryScanFixLocation, QueryScanWarning
 
 from posthog.dataclasses import frozen
 from posthog.query_scan.event_filter import EventFilterOutcome
 from posthog.query_scan.explain import PlanIndex, PlanTableRead, QueryPlan
-from posthog.query_scan.findings import SQL_QUERY_KIND, build_warning, explain_evidence
+from posthog.query_scan.findings import SQL_QUERY_KIND, FindingCause, build_warning, explain_evidence, finding_label
 from posthog.query_scan.flag import QueryScanFlag
 from posthog.query_scan.tree_facts import TreeFacts
 
@@ -58,19 +58,14 @@ class QueryScanResult:
     def finding_kinds(self) -> list[str]:
         return [str(finding.kind) for finding in self.findings]
 
-    def finding_reasons(self) -> list[str]:
-        """One entry per finding, `kind` or `kind/reason`, so the analytics can split by both."""
-        return [_finding_label(finding) for finding in self.findings]
+    def finding_labels(self) -> list[str]:
+        return [finding_label(finding) for finding in self.findings]
 
     def actionable_finding_kinds(self) -> list[str]:
         return [str(finding.kind) for finding in self.findings if finding.actionable]
 
-    def actionable_finding_reasons(self) -> list[str]:
-        return [_finding_label(finding) for finding in self.findings if finding.actionable]
-
-
-def _finding_label(finding: QueryScanWarning) -> str:
-    return f"{finding.kind}/{finding.reason}" if finding.reason is not None else str(finding.kind)
+    def actionable_finding_labels(self) -> list[str]:
+        return [finding_label(finding) for finding in self.findings if finding.actionable]
 
 
 def analyze(
@@ -173,7 +168,8 @@ def _findings_for_plan(
             build_warning(
                 kind=QueryScanFindingKind.NO_START_DATE,
                 query_kind=query_kind,
-                reason=_all_time_reason(run, is_sql=is_sql),
+                by_design=_all_history_by_design(run),
+                fix_location=_all_time_location(run, is_sql=is_sql),
                 evidence=(
                     "The dashboard's date filter is set to All time, so the query starts at the project's first event."
                     if run.dashboard_all_time
@@ -183,29 +179,37 @@ def _findings_for_plan(
             )
         )
     elif unbounded is not None and _passes_start_date_gate(unbounded, team_granules, flag.start_date_ratio):
+        by_design = _all_history_by_design(run)
+        open_filters_location = _open_filters_location(run, is_sql=is_sql)
+        # A by-design read has nothing wrong in its text, and an open `{filters}` range is fixed
+        # outside the text, so only a read that is neither can have a bound ClickHouse could not use.
+        names_cause = not by_design and open_filters_location is None
         findings.append(
             build_warning(
                 kind=QueryScanFindingKind.NO_START_DATE,
                 query_kind=query_kind,
-                reason=_unbounded_reason(run, is_sql=is_sql),
+                cause=_unbounded_cause(run) if names_cause else None,
+                by_design=by_design,
+                fix_location=open_filters_location,
                 evidence=_evidence(unbounded.min_max(), subquery_index),
                 subquery_index=subquery_index,
                 view_name=view_name,
             )
         )
 
-    no_event_filter, event_reason = _no_event_filter(heaviest, event_filter)
+    no_event_filter, event_cause = _no_event_filter(heaviest, event_filter)
     if no_event_filter and _passes_event_gate(heaviest, range_share, flag.event_ratio):
-        if event_reason is None:
+        if event_cause is None:
             sibling_uses_event_key = outer_uses_event_key or any(
                 read is not heaviest and read.uses_event_key() for read in plan.events_reads()
             )
-            event_reason = _unfiltered_reason(run, is_sql=is_sql, sibling_uses_event_key=sibling_uses_event_key)
+            event_cause = _unfiltered_cause(run, is_sql=is_sql, sibling_uses_event_key=sibling_uses_event_key)
         findings.append(
             build_warning(
                 kind=QueryScanFindingKind.NO_EVENT_FILTER,
                 query_kind=query_kind,
-                reason=event_reason,
+                cause=event_cause,
+                by_design=event_cause is None and _all_events_by_design(run),
                 evidence=_evidence(heaviest.primary_key(), subquery_index),
                 subquery_index=subquery_index,
                 view_name=view_name,
@@ -225,59 +229,69 @@ def _findings_for_plan(
     return findings
 
 
-def _all_time_reason(run: RunFacts, *, is_sql: bool) -> QueryScanFindingReason:
-    """Why an All time run has no start date. A first-time math reads from the first event whatever
-    the picker says, so it is by design; otherwise the picker that chose All time is named."""
-    if run.all_history_by_design or (run.tree is not None and run.tree.all_history):
-        return QueryScanFindingReason.ALL_HISTORY
+def _all_history_by_design(run: RunFacts) -> bool:
+    """Whether the read has to start at the project's first event. A first-time math says so in the
+    insight's settings, and a SQL query says so by its shape."""
+    return run.all_history_by_design or (run.tree is not None and run.tree.all_history)
+
+
+def _all_time_location(run: RunFacts, *, is_sql: bool) -> QueryScanFixLocation | None:
+    """Where an All time range gets changed. The dashboard's date filter overrides the insight's
+    own range. A SQL insight takes All time through `{filters}`, so the fix is on the insight, not
+    in the SQL. None is an insight built from pickers, which holds its own range."""
     if run.dashboard_all_time:
-        return QueryScanFindingReason.DASHBOARD_ALL_TIME
-    # A SQL insight takes All time through `{filters}`, so the fix is on the insight, not in the SQL.
-    return QueryScanFindingReason.FILTERS if is_sql else QueryScanFindingReason.ALL_TIME
+        return QueryScanFixLocation.DASHBOARD_DATE_FILTER
+    return QueryScanFixLocation.INSIGHT_DATE_RANGE if is_sql else None
 
 
-def _unbounded_reason(run: RunFacts, *, is_sql: bool) -> QueryScanFindingReason | None:
+def _open_filters_location(run: RunFacts, *, is_sql: bool) -> QueryScanFixLocation | None:
+    """Where a `{filters}` date range nobody set gets changed. None when the query takes no date
+    range through `{filters}`, so the fix is in the read itself."""
+    if not (is_sql and run.open_filters_placeholder):
+        return None
+    if run.dashboard_all_time:
+        return QueryScanFixLocation.DASHBOARD_DATE_FILTER
+    return QueryScanFixLocation.INSIGHT_DATE_RANGE
+
+
+def _unbounded_cause(run: RunFacts) -> FindingCause | None:
     """Why a read the plan could not bound has no start date. None is no bound at all, the plain
     case. A bound the tree has but the plan does not is one ClickHouse could not use."""
     tree = run.tree
-    if run.all_history_by_design or (tree is not None and tree.all_history):
-        return QueryScanFindingReason.ALL_HISTORY
-    if run.open_filters_placeholder and is_sql:
-        return QueryScanFindingReason.DASHBOARD_ALL_TIME if run.dashboard_all_time else QueryScanFindingReason.FILTERS
-    if tree is not None and tree.timestamp_bound:
-        return QueryScanFindingReason.BOUND_NOT_USED
-    return None
+    return FindingCause.BOUND_NOT_USED if tree is not None and tree.timestamp_bound else None
 
 
-def _unfiltered_reason(run: RunFacts, *, is_sql: bool, sibling_uses_event_key: bool) -> QueryScanFindingReason | None:
+def _unfiltered_cause(run: RunFacts, *, is_sql: bool, sibling_uses_event_key: bool) -> FindingCause | None:
     """Why a read with no event condition at all is unfiltered. An unfiltered helper read beside a
     read that names events is the one to filter, even when it counts distinct actors; a property
     condition stands in for an event name unless the query groups by event, whose answer is the
-    set of events itself; a count over any event is by design. None is the plain case: nothing in
-    the query says which events it is about.
+    set of events itself. None is the plain case: nothing in the query says which events it is about.
     """
     tree = run.tree
     # An insight's reads are PostHog's own code, so only a SQL author can add a filter to a helper read.
     if is_sql and sibling_uses_event_key:
-        return QueryScanFindingReason.HELPER_READ
-    if tree is not None and tree.groups_by_event:
-        return QueryScanFindingReason.ALL_EVENTS
-    if tree is not None and tree.property_filter:
-        return QueryScanFindingReason.PROPERTY_FILTER
-    if run.all_events_by_design or (tree is not None and tree.counts_any_event):
-        return QueryScanFindingReason.ALL_EVENTS
+        return FindingCause.HELPER_READ
+    if tree is not None and tree.property_filter and not tree.groups_by_event:
+        return FindingCause.PROPERTY_FILTER
     return None
+
+
+def _all_events_by_design(run: RunFacts) -> bool:
+    """Whether a read with no event condition and no cause has to read every event: the answer is
+    the set of events itself, or a count of people or sessions over any event."""
+    tree = run.tree
+    return run.all_events_by_design or (tree is not None and (tree.groups_by_event or tree.counts_any_event))
 
 
 def _no_event_filter(
     heaviest: PlanTableRead, event_filter: EventFilterOutcome | None
-) -> tuple[bool, QueryScanFindingReason | None]:
-    """Whether the heaviest read has no usable event filter, and the reason for the copy. The tree's
-    verdict carries the reason when the job shipped one; the read's keys alone name none.
+) -> tuple[bool, FindingCause | None]:
+    """Whether the heaviest read has no usable event filter, and the cause for the copy. The tree's
+    verdict carries the cause when the job shipped one; the read's keys alone name none.
     """
     if event_filter is not None:
-        reason = QueryScanFindingReason(event_filter.reason) if event_filter.reason is not None else None
-        return event_filter.classification != "usable", reason
+        cause = FindingCause(event_filter.reason) if event_filter.reason is not None else None
+        return event_filter.classification != "usable", cause
     return not heaviest.uses_event_key(), None
 
 

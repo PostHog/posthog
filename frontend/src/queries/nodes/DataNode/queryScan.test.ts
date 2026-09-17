@@ -25,7 +25,7 @@ const FINDING: QueryScanWarning = {
 // A by-design finding explains the read and leaves the person nothing to change.
 const BY_DESIGN_FINDING: QueryScanWarning = {
     kind: 'no_start_date',
-    reason: 'all_history',
+    by_design: true,
     message: 'This query finds a first event ever, so it reads all your data by design.',
     fix: 'Do not propose a time bound for that read.',
     actionable: false,

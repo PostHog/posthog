@@ -233,7 +233,7 @@ from posthog.schema_enums import (
     PropertyType as PropertyType,
     QueryIndexUsage as QueryIndexUsage,
     QueryScanFindingKind as QueryScanFindingKind,
-    QueryScanFindingReason as QueryScanFindingReason,
+    QueryScanFixLocation as QueryScanFixLocation,
     QuickFilterContext as QuickFilterContext,
     QuickFilterType as QuickFilterType,
     RecordingOrder as RecordingOrder,
@@ -2668,13 +2668,28 @@ class QueryScanWarning(BaseModel):
             " when a finding is actionable."
         ),
     )
+    by_design: bool | None = Field(
+        default=None,
+        description=(
+            "True when the query reads this much on purpose, so reading less would change the answer. Absent means no."
+        ),
+    )
+    cause: str | None = Field(
+        default=None,
+        description=(
+            "A short label for what in the query text kept the read wide, such as"
+            " `in_or`. Analytics and the assistant read it, and the set of labels can"
+            " change. Surfaces branch on `actionable`."
+        ),
+    )
     evidence: str | None = Field(default=None, description="The one fact the finding rests on.")
     fix: str = Field(..., description='What "Fix with AI" and the assistant are told to do.')
+    fix_location: QueryScanFixLocation | None = Field(
+        default=None,
+        description="Where the change goes. Absent means the query itself.",
+    )
     kind: QueryScanFindingKind
     message: str = Field(..., description="Shown to the person: what happened and what to do.")
-    reason: QueryScanFindingReason | None = Field(
-        default=None, description="Only with `no_event_filter` and `no_start_date`."
-    )
 
 
 class QueryTiming(BaseModel):

@@ -48025,23 +48025,9 @@
             "enum": ["no_event_filter", "no_start_date", "persons_join"],
             "type": "string"
         },
-        "QueryScanFindingReason": {
-            "description": "Why the read was not narrowed, which picks the wording and decides whether the person can act. Event filter: `in_or`: it sits inside an OR. `wrapped`: `event` is inside a function call. `negated`: it excludes events, which narrows nothing. `dynamic`: `event` is compared to a column. `not_pruned`: ClickHouse reported it unused. `property_filter`: a property condition stands in for an event name. `helper_read`: a subquery or CTE reads all events beside a read that names them. `all_events`: the question is about every event by design. Start date: `filters`: the date range comes from `{filters}` and the insight left it open. `bound_not_used`: the query has a start date ClickHouse could not skip data with. `all_time`: All time was chosen on the insight. `dashboard_all_time`: the dashboard's date filter forced All time. `all_history`: the query finds a first event ever by design.",
-            "enum": [
-                "in_or",
-                "wrapped",
-                "negated",
-                "dynamic",
-                "not_pruned",
-                "property_filter",
-                "helper_read",
-                "all_events",
-                "filters",
-                "bound_not_used",
-                "all_time",
-                "dashboard_all_time",
-                "all_history"
-            ],
+        "QueryScanFixLocation": {
+            "description": "Where the change that fixes a finding goes. `query`: the query or insight the finding is on. `subquery`: a subquery of it. `view`: a saved view it reads. `insight_date_range`: the date range a SQL insight takes through `{filters}`. `dashboard_date_filter`: the dashboard's date filter.",
+            "enum": ["query", "subquery", "view", "insight_date_range", "dashboard_date_filter"],
             "type": "string"
         },
         "QueryScanResponse": {
@@ -48090,6 +48076,14 @@
                     "description": "Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and \"Fix with AI\" only when a finding is actionable.",
                     "type": "boolean"
                 },
+                "by_design": {
+                    "description": "True when the query reads this much on purpose, so reading less would change the answer. Absent means no.",
+                    "type": "boolean"
+                },
+                "cause": {
+                    "description": "A short label for what in the query text kept the read wide, such as `in_or`. Analytics and the assistant read it, and the set of labels can change. Surfaces branch on `actionable`.",
+                    "type": "string"
+                },
                 "evidence": {
                     "description": "The one fact the finding rests on.",
                     "type": "string"
@@ -48098,16 +48092,16 @@
                     "description": "What \"Fix with AI\" and the assistant are told to do.",
                     "type": "string"
                 },
+                "fix_location": {
+                    "$ref": "#/definitions/QueryScanFixLocation",
+                    "description": "Where the change goes. Absent means the query itself."
+                },
                 "kind": {
                     "$ref": "#/definitions/QueryScanFindingKind"
                 },
                 "message": {
                     "description": "Shown to the person: what happened and what to do.",
                     "type": "string"
-                },
-                "reason": {
-                    "$ref": "#/definitions/QueryScanFindingReason",
-                    "description": "Only with `no_event_filter` and `no_start_date`."
                 }
             },
             "required": ["kind", "message", "fix", "actionable"],
