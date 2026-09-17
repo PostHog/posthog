@@ -55,8 +55,13 @@ from products.replay_vision.backend.temporal.events_tool import (
 )
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
 from products.replay_vision.backend.temporal.metrics import (
+    record_events_tool_call,
     record_mission_pass,
+    record_network_state,
+    record_network_tool_call,
     record_provider_call,
+    record_tool_round,
+    record_unknown_tool_call,
     record_verification_outcome,
 )
 from products.replay_vision.backend.temporal.network_capture import SessionNetworkPayload
@@ -540,6 +545,12 @@ async def _run_mission(
 
     # The network tool is offered only when the recording has requests to return. Otherwise every lookup
     # would be a dead call against the budget the events tool shares.
+    scanner_type = snapshot.scanner_type.value
+    record_network_state(scanner_type, network_index.state())
+    counters: dict[str, Callable[[str, str], None]] = {
+        GET_EVENTS_TOOL_NAME: record_events_tool_call,
+        GET_NETWORK_TOOL_NAME: record_network_tool_call,
+    }
     handlers: dict[str, Callable[[Any], dict[str, Any]]] = {
         GET_EVENTS_TOOL_NAME: lambda call: dispatch_events_tool(call, events_index),
     }
@@ -550,6 +561,7 @@ async def _run_mission(
 
     def dispatch(call: Any) -> dict[str, Any]:
         name = getattr(call, "name", None)
+        counters.get(name, record_unknown_tool_call)(scanner_type, snapshot.model)
         handler = handlers.get(name) if isinstance(name, str) else None
         if handler is None:
             # An unoffered or hallucinated name must not fall through to a lookup that returns
@@ -572,6 +584,10 @@ async def _run_mission(
         else step
         for step in scanner.mission_steps()
     ]
+
+    def on_round(calls: int) -> None:
+        record_tool_round(scanner_type, snapshot.model, calls)
+
     run = functools.partial(
         _run_steps,
         client=client,
@@ -584,6 +600,7 @@ async def _run_mission(
         metric_labels=metric_labels,
         trace_id=trace_id,
         tools=tools,
+        on_round=on_round,
     )
     verification: VerificationRecord | None = None
     try:
@@ -767,6 +784,7 @@ async def _run_steps(
     metric_labels: dict[str, str],
     trace_id: str,
     tools: list[types.Tool],
+    on_round: Callable[[int], None] | None = None,
 ) -> dict[str, BaseModel]:
     """Run the ordered steps over one growing conversation; return the validated output keyed by step name."""
     # The video + preamble lead the conversation inline unless they're already cached as the prefix.
@@ -788,6 +806,7 @@ async def _run_steps(
             tools=tools,
             metric_labels=metric_labels,
             trace_id=trace_id,
+            on_round=on_round,
         )
         if result.output is None:
             # Roll the failed step's half-finished exchange back so the next instruction follows the last good
@@ -829,6 +848,7 @@ async def _run_step(
     metric_labels: dict[str, str],
     trace_id: str,
     tools: list[types.Tool],
+    on_round: Callable[[int], None] | None = None,
 ) -> "_StepResult":
     """Run one step's tool loop with one re-prompt on failure. Returns the validated output, or why it was exhausted.
 
@@ -860,7 +880,11 @@ async def _run_step(
         started = time.monotonic()
         try:
             response = await run_tool_loop(
-                generate=_generate, convo=convo, dispatch=dispatch, max_tool_iterations=_tool_budget(model)
+                generate=_generate,
+                convo=convo,
+                dispatch=dispatch,
+                max_tool_iterations=_tool_budget(model),
+                on_round=on_round,
             )
             if function_calls(response):
                 # Tool budget spent and the model still wants a lookup. Rather than hard-fail, complete the

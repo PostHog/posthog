@@ -24,6 +24,7 @@ async def run_tool_loop(
     convo: list[Any],
     dispatch: Callable[[Any], dict[str, Any]],
     max_tool_iterations: int = DEFAULT_MAX_TOOL_ITERATIONS,
+    on_round: Callable[[int], None] | None = None,
 ) -> Any:
     """Run `generate` until the model answers instead of calling a tool.
 
@@ -34,12 +35,17 @@ async def run_tool_loop(
     The final answer's content is NOT appended — the caller validates it, then appends it (on success) to
     continue the conversation, or appends a correction (on failure) to re-prompt. Returns the final response;
     if the tool budget runs out we return the last response and let the caller validate it.
+
+    `on_round` receives how many lookups a turn asked for, once per turn that asked for any. A round is
+    what the budget spends, whether it carries one lookup or several.
     """
     response = await generate(convo)
     for _ in range(max_tool_iterations):
         calls = function_calls(response)
         if not calls:
             return response
+        if on_round is not None:
+            on_round(len(calls))
         convo.append(response.candidates[0].content)  # carries thought signatures
         for call in calls:
             convo.append(types.Part(function_response=types.FunctionResponse(name=call.name, response=dispatch(call))))

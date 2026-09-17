@@ -89,6 +89,7 @@ async def _run(
     dispatch: Any = lambda c: {},
     cache_name=None,
     model: str = "models/gemini-3-flash-preview",
+    on_round: Any = None,
 ):
     return await _run_steps(
         client=client,
@@ -102,6 +103,7 @@ async def _run(
         team_id=1,
         metric_labels=_LABELS,
         trace_id="trace-1",
+        on_round=on_round,
     )
 
 
@@ -192,6 +194,22 @@ async def test_step_runs_a_tool_call_then_answers() -> None:
     out = await _run(client, steps, dispatch=dispatch)
     assert out["core"].verdict == "yes"
     assert [fc.args for fc in dispatched] == [{"rec_t": 5}]
+
+
+@pytest.mark.asyncio
+async def test_each_tool_turn_reports_how_many_lookups_it_asked_for() -> None:
+    # The round hook is the only measure of batching that survives privacy mode. A signature that accepts
+    # it without forwarding it leaves the metric permanently empty and raises nothing.
+    rounds: list[int] = []
+    steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
+    responses = [
+        _Resp(function_call=_fc("get_events_around", {"vid_t": 5})),
+        _Resp(text='{"verdict":"yes"}'),
+    ]
+    client = _FakeClient(responses)
+    out = await _run(client, steps, dispatch=lambda fc: {"events": []}, on_round=rounds.append)
+    assert out["core"].verdict == "yes"
+    assert rounds == [1]
 
 
 @pytest.mark.asyncio
