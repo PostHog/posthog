@@ -342,6 +342,19 @@ def with_model_names(scores: pd.DataFrame) -> pd.DataFrame:
     return scores.assign(model_name=scores["model_name"].fillna(TABULAR_MODEL_NAME))
 
 
+def families_lost_by_rewrite(existing: pd.DataFrame, scores: pd.DataFrame) -> list[str]:
+    """The families whose rows a rewrite of a partition's scores object would delete.
+
+    One object holds every family, and the write replaces it in full, so a run that scored fewer
+    families than the object already holds removes the rest. That is the loss
+    `empty_scores_write_allowed` refuses for a run that scored nothing, and a family is skipped
+    whenever its models or its set's side input are missing for the partition, so the partial case
+    is as ordinary as the empty one. Reading the object settles what it holds, which the row-count
+    stamp alone cannot.
+    """
+    return sorted(set(with_model_names(existing)["model_name"].unique()) - set(scores["model_name"].unique()))
+
+
 def score_pool(
     pool: pd.DataFrame,
     labels: pd.DataFrame,

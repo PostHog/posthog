@@ -113,6 +113,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     calibration_rows,
     chance_band,
     empty_scores_write_allowed,
+    families_lost_by_rewrite,
     graded_rows,
     head_grades,
     leaked_report_ids,
@@ -979,6 +980,43 @@ def test_an_empty_scores_write_is_refused_over_a_partition_that_holds_rows(exist
     # A partition whose candidate predates the family layout loads no model and scores nothing.
     # Overwriting it would destroy rows the later grade reads and the state snapshot cannot rebuild.
     assert empty_scores_write_allowed(existing_row_count) is expected
+
+
+@pytest.mark.parametrize(
+    "existing,scored,expected",
+    [
+        (
+            [TABULAR_MODEL_NAME, EMBEDDINGS_MODEL_NAME, TITLE_EMBEDDINGS_MODEL_NAME],
+            [TABULAR_MODEL_NAME, EMBEDDINGS_MODEL_NAME],
+            [TITLE_EMBEDDINGS_MODEL_NAME],
+        ),
+        (
+            [TABULAR_MODEL_NAME, EMBEDDINGS_MODEL_NAME],
+            [TABULAR_MODEL_NAME, EMBEDDINGS_MODEL_NAME],
+            [],
+        ),
+        ([TABULAR_MODEL_NAME], [], [TABULAR_MODEL_NAME]),
+        ([], [TABULAR_MODEL_NAME], []),
+    ],
+    ids=["one_family_skipped", "every_family_scored", "nothing_scored", "first_write"],
+)
+def test_a_rewrite_that_drops_a_family_names_the_rows_it_would_delete(existing, scored, expected):
+    # One object holds every family, so a re-run in a state where a family is not loadable would
+    # replace the object without that family's rows, and the dt=D+horizon grade reads them off a
+    # state snapshot that has aged out. The empty-write guard does not see this: two families out
+    # of three is not an empty frame.
+    assert (
+        families_lost_by_rewrite(pd.DataFrame({"model_name": existing}), pd.DataFrame({"model_name": scored}))
+        == expected
+    )
+
+
+def test_a_rewrite_reads_a_pre_family_scores_object_as_the_tabular_family():
+    # A partition written before `model_name` existed holds tabular rows. Reading it as a family of
+    # its own would refuse every re-run of those days, which is the opposite of the guard's point.
+    existing = pd.DataFrame({"report_id": ["a"], "score": [0.5]})
+
+    assert families_lost_by_rewrite(existing, pd.DataFrame({"model_name": [TABULAR_MODEL_NAME]})) == []
 
 
 class _ModelStoreS3:

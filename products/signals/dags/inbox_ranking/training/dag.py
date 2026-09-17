@@ -122,6 +122,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     UnseenModel,
     calibration_rows,
     empty_scores_write_allowed,
+    families_lost_by_rewrite,
     graded_rows,
     head_grades,
     leaked_report_ids,
@@ -924,6 +925,16 @@ def inbox_ranking_unseen_scores(context: dagster.AssetExecutionContext) -> None:
             )
         context.log.warning(f"nothing scored for dt={partition_key}: {len(pool)} newborn reports, {len(models)} models")
 
+    # One object holds every family, so what it already holds decides whether this run may replace it.
+    existing = read_parquet_if_exists(client, bucket, key)
+    lost = families_lost_by_rewrite(existing.to_pandas(), scores) if existing is not None else []
+    if lost:
+        raise dagster.Failure(
+            f"{UNSEEN_SCORES_TABLE} dt={partition_key} already holds rows for {', '.join(lost)} and this run scored "
+            f"none of them, so writing would destroy the scores the dt=D+horizon grade reads. A family is skipped "
+            f"for the day when its models or its set's side input are missing for the partition. Repair the missing "
+            f"input and re-run, or delete the object by hand to replace it deliberately."
+        )
     write_parquet(client, bucket, key, scores_table(scores), snapshot_date=partition_key)
     context.add_output_metadata(
         {
