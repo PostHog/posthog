@@ -3,7 +3,7 @@ import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconPlus, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { ConfirmDeleteButton } from 'lib/components/ConfirmDeleteButton'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -30,7 +30,9 @@ import {
     MCPNotificationUseCase,
 } from './mcpAnalyticsNotificationsLogic'
 import { MCPNotificationExample, mcpNotificationExamplesLogic } from './mcpNotificationExamplesLogic'
-import { MCPRecurringReports } from './MCPRecurringReports'
+import { AI_REPORT_LIST_LIMIT } from './mcpRecurringReportsLogic'
+import { NotificationTypesTable } from './NotificationTypesTable'
+import { useRecurringReportRows } from './recurringReportRows'
 
 interface MCPUseCaseConfig {
     useCase: MCPNotificationUseCase
@@ -162,6 +164,7 @@ export function MCPAnalyticsNotifications(): JSX.Element {
     const { notifications, notificationsLoaded, notificationsFailed } = useValues(mcpAnalyticsNotificationsLogic)
     const { loadNotifications } = useActions(mcpAnalyticsNotificationsLogic)
     const { examples } = useValues(mcpNotificationExamplesLogic)
+    const reports = useRecurringReportRows()
     const { loadExamples } = useActions(mcpNotificationExamplesLogic)
     const addDisabledReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -237,8 +240,32 @@ export function MCPAnalyticsNotifications(): JSX.Element {
     )
 
     return (
-        <div className="flex flex-col gap-6" data-attr="mcp-analytics-notifications">
-            <MCPRecurringReports />
+        <div className="@container flex flex-col gap-6" data-attr="mcp-analytics-notifications">
+            <section className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                    <h2 className="m-0 text-base font-semibold">Recurring reports</h2>
+                    <LemonTag type="completion">Beta</LemonTag>
+                </div>
+                {reports.failed ? (
+                    <LemonBanner
+                        type="error"
+                        action={{ children: 'Try again', onClick: reports.reload }}
+                        data-attr="mcp-analytics-recurring-reports-load-error"
+                    >
+                        We couldn't load your MCP reports. Please try again in a moment.
+                    </LemonBanner>
+                ) : (
+                    <NotificationTypesTable rows={reports.rows} />
+                )}
+                {/* Say so rather than quietly dropping the tail — an invisible report is the bug this
+                    whole section exists to fix. */}
+                {reports.truncated && (
+                    <p className="m-0 text-xs text-muted">
+                        Showing the first {AI_REPORT_LIST_LIMIT} reports.{' '}
+                        <Link to={urls.subscriptions()}>See all subscriptions</Link> for the rest.
+                    </p>
+                )}
+            </section>
 
             <section className="flex flex-col gap-2">
                 <h2 className="m-0 text-base font-semibold">Instant alerts</h2>
