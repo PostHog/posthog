@@ -81,7 +81,7 @@ describe('teamLogic', () => {
             ])
         })
 
-        it.each([['person_id_override_properties_joined'], [undefined]] as const)(
+        it.each(['person_id_override_properties_joined', undefined] as const)(
             'stays quiet on the %s mode',
             async (personsOnEventsMode) => {
                 logic = await mountWithModifiers(personsOnEventsMode)
