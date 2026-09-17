@@ -5330,7 +5330,6 @@ export const SignalSourceProductEnumApi = {
 } as const
 
 /**
- * * `session_analysis_cluster` - Session analysis cluster
  * * `evaluation_report` - Evaluation report
  * * `issue` - Issue
  * * `ticket` - Ticket
@@ -5355,7 +5354,6 @@ export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
 
 export const SignalSourceConfigSourceTypeEnumApi = {
-    SessionAnalysisCluster: 'session_analysis_cluster',
     EvaluationReport: 'evaluation_report',
     Issue: 'issue',
     Ticket: 'ticket',

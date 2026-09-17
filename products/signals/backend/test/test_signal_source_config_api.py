@@ -9,12 +9,6 @@ from products.signals.backend.models import SignalSourceConfig
 
 
 class TestSignalSourceConfigAPI(APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        # Enabling `session_analysis_cluster` gates on org-level AI consent.
-        self.organization.is_ai_data_processing_approved = True
-        self.organization.save(update_fields=["is_ai_data_processing_approved"])
-
     def _url(self, config_id: str | None = None) -> str:
         base = f"/api/projects/{self.team.id}/signals/source_configs/"
         if config_id:
@@ -27,26 +21,25 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         response = self.client.post(
             self._url(),
             data={
-                "source_product": "session_replay",
-                "source_type": "session_analysis_cluster",
+                "source_product": "pganalyze",
+                "source_type": "issue",
                 "enabled": True,
-                "config": {"recording_filters": {"duration_min": 5}},
+                "config": {"steering": "Ignore issues labeled chore"},
             },
             format="json",
         )
         data = response.json()
         assert response.status_code == status.HTTP_201_CREATED, data
-        assert data["source_product"] == "session_replay"
-        assert data["source_type"] == "session_analysis_cluster"
+        assert data["source_product"] == "pganalyze"
+        assert data["source_type"] == "issue"
         assert data["enabled"] is True
-        # `sample_rate` is auto-set to the default for newly created session-analysis configs.
-        assert data["config"] == {"recording_filters": {"duration_min": 5}, "sample_rate": 0.1}
+        assert data["config"] == {"steering": "Ignore issues labeled chore"}
         assert SignalSourceConfig.objects.filter(id=data["id"], team=self.team).exists()
 
     def test_create_source_config_sets_created_by(self):
         response = self.client.post(
             self._url(),
-            data={"source_product": "session_replay", "source_type": "session_analysis_cluster"},
+            data={"source_product": "pganalyze", "source_type": "issue"},
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED
@@ -56,87 +49,43 @@ class TestSignalSourceConfigAPI(APIBaseTest):
     def test_create_source_config_defaults(self):
         response = self.client.post(
             self._url(),
-            data={"source_product": "session_replay", "source_type": "session_analysis_cluster"},
+            data={"source_product": "pganalyze", "source_type": "issue"},
             format="json",
         )
         data = response.json()
         assert response.status_code == status.HTTP_201_CREATED, data
         assert data["enabled"] is True
-        assert data["config"] == {"sample_rate": 0.1}
-
-    def test_create_source_config_preserves_user_provided_sample_rate(self):
-        response = self.client.post(
-            self._url(),
-            data={
-                "source_product": "session_replay",
-                "source_type": "session_analysis_cluster",
-                "config": {"sample_rate": 0.5},
-            },
-            format="json",
-        )
-        data = response.json()
-        assert response.status_code == status.HTTP_201_CREATED, data
-        assert data["config"] == {"sample_rate": 0.5}
-
-    def test_create_source_config_no_default_for_other_source_types(self):
-        # Defaulting only applies to session_replay/session_analysis_cluster.
-        response = self.client.post(
-            self._url(),
-            data={"source_product": "github", "source_type": "issue", "enabled": False},
-            format="json",
-        )
-        data = response.json()
-        assert response.status_code == status.HTTP_201_CREATED, data
         assert data["config"] == {}
 
-    def test_create_source_config_invalid_source_type(self):
+    @parameterized.expand(
+        [
+            ("unknown_type", "nonexistent_type"),
+            # Retired sources stay in the signal taxonomy so old signals still resolve to a label,
+            # but they carry no config row, so a team cannot turn one back on.
+            ("retired_session_analysis_cluster", "session_analysis_cluster"),
+            ("retired_session_problem", "session_problem"),
+            ("retired_evaluation", "evaluation"),
+        ]
+    )
+    def test_create_source_config_unsupported_source_type(self, _name, source_type):
         response = self.client.post(
             self._url(),
-            data={"source_product": "session_replay", "source_type": "nonexistent_type"},
+            data={"source_product": "session_replay", "source_type": source_type},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "source_type" in str(response.json())
 
-    def test_create_session_analysis_cluster_rejected_without_ai_consent(self):
-        self.organization.is_ai_data_processing_approved = False
-        self.organization.save(update_fields=["is_ai_data_processing_approved"])
-        response = self.client.post(
-            self._url(),
-            data={
-                "source_product": "session_replay",
-                "source_type": "session_analysis_cluster",
-                "enabled": True,
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "AI data processing" in str(response.json())
-
-    def test_create_session_analysis_cluster_allowed_when_disabled_without_consent(self):
-        self.organization.is_ai_data_processing_approved = False
-        self.organization.save(update_fields=["is_ai_data_processing_approved"])
-        response = self.client.post(
-            self._url(),
-            data={
-                "source_product": "session_replay",
-                "source_type": "session_analysis_cluster",
-                "enabled": False,
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-
     def test_create_duplicate_source_type_per_team_rejected(self):
         SignalSourceConfig.objects.create(
             team=self.team,
-            source_product="session_replay",
-            source_type="session_analysis_cluster",
+            source_product="pganalyze",
+            source_type="issue",
             created_by=self.user,
         )
         response = self.client.post(
             self._url(),
-            data={"source_product": "session_replay", "source_type": "session_analysis_cluster"},
+            data={"source_product": "pganalyze", "source_type": "issue"},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -145,35 +94,20 @@ class TestSignalSourceConfigAPI(APIBaseTest):
     def test_same_source_type_allowed_on_different_teams(self):
         SignalSourceConfig.objects.create(
             team=self.team,
-            source_product="session_replay",
-            source_type="session_analysis_cluster",
+            source_product="pganalyze",
+            source_type="issue",
             created_by=self.user,
         )
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         SignalSourceConfig.objects.create(
             team=other_team,
-            source_product="session_replay",
-            source_type="session_analysis_cluster",
+            source_product="pganalyze",
+            source_type="issue",
             created_by=self.user,
         )
-        assert SignalSourceConfig.objects.filter(source_type="session_analysis_cluster").count() == 2
+        assert SignalSourceConfig.objects.filter(source_type="issue").count() == 2
 
     # --- Config validation ---
-
-    @parameterized.expand(
-        [
-            ("valid_recording_filters", {"recording_filters": {"duration_min": 5}}, status.HTTP_201_CREATED),
-            ("empty_config", {}, status.HTTP_201_CREATED),
-            ("recording_filters_not_dict", {"recording_filters": "bad"}, status.HTTP_400_BAD_REQUEST),
-        ]
-    )
-    def test_create_config_validation(self, _name, config, expected_status):
-        response = self.client.post(
-            self._url(),
-            data={"source_product": "session_replay", "source_type": "session_analysis_cluster", "config": config},
-            format="json",
-        )
-        assert response.status_code == expected_status, response.json()
 
     @parameterized.expand(
         [
@@ -197,8 +131,7 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         ]
     )
     def test_create_steering_config_validation(self, _name, config, expected_status):
-        # Steering keys are shared by every emission source, so they validate on a
-        # non-session-replay source too.
+        # Steering keys are shared by every emission source.
         response = self.client.post(
             self._url(),
             data={"source_product": "github", "source_type": "issue", "enabled": False, "config": config},
@@ -213,28 +146,28 @@ class TestSignalSourceConfigAPI(APIBaseTest):
     def test_list_source_configs(self):
         SignalSourceConfig.objects.create(
             team=self.team,
-            source_product="session_replay",
-            source_type="session_analysis_cluster",
+            source_product="pganalyze",
+            source_type="issue",
             created_by=self.user,
         )
         response = self.client.get(self._url())
         data = response.json()
         assert response.status_code == status.HTTP_200_OK
         assert len(data["results"]) == 1
-        assert data["results"][0]["source_type"] == "session_analysis_cluster"
+        assert data["results"][0]["source_type"] == "issue"
 
     def test_list_excludes_other_teams(self):
         SignalSourceConfig.objects.create(
             team=self.team,
-            source_product="session_replay",
-            source_type="session_analysis_cluster",
+            source_product="pganalyze",
+            source_type="issue",
             created_by=self.user,
         )
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         SignalSourceConfig.objects.create(
             team=other_team,
-            source_product="session_replay",
-            source_type="session_analysis_cluster",
+            source_product="pganalyze",
+            source_type="issue",
             created_by=self.user,
         )
 
@@ -247,24 +180,24 @@ class TestSignalSourceConfigAPI(APIBaseTest):
     def test_retrieve_source_config(self):
         config = SignalSourceConfig.objects.create(
             team=self.team,
-            source_product="session_replay",
-            source_type="session_analysis_cluster",
-            config={"recording_filters": {"duration_min": 10}},
+            source_product="pganalyze",
+            source_type="issue",
+            config={"steering": "Only page on replication lag"},
             created_by=self.user,
         )
         response = self.client.get(self._url(str(config.id)))
         data = response.json()
         assert response.status_code == status.HTTP_200_OK
         assert data["id"] == str(config.id)
-        assert data["source_type"] == "session_analysis_cluster"
-        assert data["config"] == {"recording_filters": {"duration_min": 10}}
+        assert data["source_type"] == "issue"
+        assert data["config"] == {"steering": "Only page on replication lag"}
 
     def test_retrieve_other_teams_config_forbidden(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         config = SignalSourceConfig.objects.create(
             team=other_team,
-            source_product="session_replay",
-            source_type="session_analysis_cluster",
+            source_product="pganalyze",
+            source_type="issue",
             created_by=self.user,
         )
         response = self.client.get(self._url(str(config.id)))
@@ -274,8 +207,8 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         config = SignalSourceConfig.objects.create(
             team=other_team,
-            source_product="session_replay",
-            source_type="session_analysis_cluster",
+            source_product="pganalyze",
+            source_type="issue",
             created_by=self.user,
         )
         response = self.client.patch(
@@ -290,8 +223,8 @@ class TestSignalSourceConfigAPI(APIBaseTest):
     def test_update_enabled(self):
         config = SignalSourceConfig.objects.create(
             team=self.team,
-            source_product="session_replay",
-            source_type="session_analysis_cluster",
+            source_product="pganalyze",
+            source_type="issue",
             enabled=True,
             created_by=self.user,
         )
@@ -308,55 +241,39 @@ class TestSignalSourceConfigAPI(APIBaseTest):
     def test_update_config(self):
         config = SignalSourceConfig.objects.create(
             team=self.team,
-            source_product="session_replay",
-            source_type="session_analysis_cluster",
+            source_product="pganalyze",
+            source_type="issue",
             config={},
             created_by=self.user,
         )
         response = self.client.patch(
             self._url(str(config.id)),
-            data={"config": {"recording_filters": {"duration_min": 30}}},
+            data={"config": {"steering": "Only page on replication lag"}},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["config"] == {"recording_filters": {"duration_min": 30}}
-
-    def test_update_config_recording_filters_not_dict_rejected(self):
-        config = SignalSourceConfig.objects.create(
-            team=self.team,
-            source_product="session_replay",
-            source_type="session_analysis_cluster",
-            config={},
-            created_by=self.user,
-        )
-        response = self.client.patch(
-            self._url(str(config.id)),
-            data={"config": {"recording_filters": [1, 2, 3]}},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "recording_filters must be a JSON object" in str(response.json())
+        assert response.json()["config"] == {"steering": "Only page on replication lag"}
 
     def test_update_source_keys_are_immutable(self):
         config = SignalSourceConfig.objects.create(
             team=self.team,
-            source_product="session_replay",
-            source_type="session_analysis_cluster",
+            source_product="pganalyze",
+            source_type="issue",
             created_by=self.user,
         )
         for field, value in (("source_type", "issue_created"), ("source_product", "error_tracking")):
             response = self.client.patch(self._url(str(config.id)), data={field: value}, format="json")
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         config.refresh_from_db()
-        assert config.source_product == "session_replay"
-        assert config.source_type == "session_analysis_cluster"
+        assert config.source_product == "pganalyze"
+        assert config.source_type == "issue"
 
     def test_delete_other_teams_config_forbidden(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         config = SignalSourceConfig.objects.create(
             team=other_team,
-            source_product="session_replay",
-            source_type="session_analysis_cluster",
+            source_product="pganalyze",
+            source_type="issue",
             created_by=self.user,
         )
         response = self.client.delete(self._url(str(config.id)))
@@ -368,8 +285,8 @@ class TestSignalSourceConfigAPI(APIBaseTest):
     def test_delete_source_config(self):
         config = SignalSourceConfig.objects.create(
             team=self.team,
-            source_product="session_replay",
-            source_type="session_analysis_cluster",
+            source_product="pganalyze",
+            source_type="issue",
             created_by=self.user,
         )
         config_id = str(config.id)
@@ -382,7 +299,7 @@ class TestSignalSourceConfigAPI(APIBaseTest):
     def test_read_only_fields_in_response(self):
         response = self.client.post(
             self._url(),
-            data={"source_product": "session_replay", "source_type": "session_analysis_cluster"},
+            data={"source_product": "pganalyze", "source_type": "issue"},
             format="json",
         )
         data = response.json()
@@ -455,8 +372,8 @@ class TestScoutSourceCanonicalization(APIBaseTest):
         # scout config. Source keys are immutable on update, so the retag is rejected outright.
         config = SignalSourceConfig.objects.create(
             team=self.child_team,
-            source_product="session_replay",
-            source_type="session_analysis_cluster",
+            source_product="pganalyze",
+            source_type="issue",
             enabled=True,
         )
         response = self.client.patch(
@@ -467,8 +384,8 @@ class TestScoutSourceCanonicalization(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         config.refresh_from_db()
         assert config.team_id == self.child_team.id
-        assert config.source_product == "session_replay"
-        assert config.source_type == "session_analysis_cluster"
+        assert config.source_product == "pganalyze"
+        assert config.source_type == "issue"
         # No stranded scout row exists on either team.
         assert not SignalSourceConfig.objects.filter(
             team_id__in=[self.team.id, self.child_team.id],
@@ -477,29 +394,18 @@ class TestScoutSourceCanonicalization(APIBaseTest):
         ).exists()
 
     def test_non_scout_source_stays_environment_scoped(self):
-        # A parent-team session-analysis row must not leak into the child environment's list.
+        # A parent-team pganalyze row must not leak into the child environment's list.
         SignalSourceConfig.objects.create(
             team=self.team,
-            source_product="session_replay",
-            source_type="session_analysis_cluster",
+            source_product="pganalyze",
+            source_type="issue",
             enabled=True,
         )
         assert self.client.get(self._child_url()).json()["results"] == []
 
 
 class TestIsSourceEnabledGating(APIBaseTest):
-    """Source-level gating quirks: session_problem routes through the session_analysis_cluster
-    config rather than requiring its own SignalSourceConfig row."""
-
-    def test_session_problem_gated_by_session_analysis_cluster(self):
-        SignalSourceConfig.objects.create(
-            team=self.team,
-            source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-            source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-            enabled=True,
-        )
-
-        assert SignalSourceConfig.is_source_enabled(self.team.id, "session_replay", "session_problem") is True
+    """Source-level gating quirks: which sources bypass the SignalSourceConfig row check."""
 
     def test_pganalyze_issue_requires_own_config(self):
         SignalSourceConfig.objects.create(

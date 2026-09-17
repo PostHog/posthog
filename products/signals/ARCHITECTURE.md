@@ -590,14 +590,14 @@ The legacy report↔task link table. General task↔report association has moved
 
 Per-team configuration for which signal sources are enabled.
 
-| Field            | Type      | Description                                                                                                                                                              |
-| ---------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `team`           | FK → Team | Owning team (reverse accessor sealed with `related_name="+"`)                                                                                                            |
-| `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `conversations`, `error_tracking`, `signals_scout` (`SourceProduct` enum)                      |
-| `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation_report`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking`, `cross_source_issue` (`SourceType` enum) |
-| `enabled`        | Boolean   | Whether this source is active (default `True`)                                                                                                                           |
-| `config`         | JSONField | Source-specific configuration, plus the shared steering keys (`steering`, `default_not_actionable`) read by the emission actionability gate                              |
-| `created_by`     | FK → User | User who created the config (nullable)                                                                                                                                   |
+| Field            | Type      | Description                                                                                                                                         |
+| ---------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `team`           | FK → Team | Owning team (reverse accessor sealed with `related_name="+"`)                                                                                       |
+| `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `conversations`, `error_tracking`, `signals_scout` (`SourceProduct` enum) |
+| `source_type`    | CharField | One of: `evaluation_report`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking`, `cross_source_issue` (`SourceType` enum)        |
+| `enabled`        | Boolean   | Whether this source is active (default `True`)                                                                                                      |
+| `config`         | JSONField | Source-specific configuration, plus the shared steering keys (`steering`, `default_not_actionable`) read by the emission actionability gate         |
+| `created_by`     | FK → User | User who created the config (nullable)                                                                                                              |
 
 **Behavioral notes:**
 
