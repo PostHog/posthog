@@ -95269,7 +95269,7 @@ export namespace Schemas {
     export interface _TracingSessionErrorCount {
       /** The session the exceptions belong to. */
       session_id: string;
-      /** Exception events in the window that Error Tracking linked to an issue. */
+      /** Exception events in the window that error tracking linked to an issue. */
       exceptions: number;
     }
 
