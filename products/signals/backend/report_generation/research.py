@@ -63,12 +63,15 @@ __all__ = [
 # TODO: Signals deduplication step before the research
 
 
-def _rejection_reason(error: Exception) -> str:
-    """Why a chart was rejected, as failing field and rule only — never the rejected content."""
+def _rejection_reason(error: Exception, root_label: str = "response") -> str:
+    """Why a response was rejected, as failing field and rule only — never the rejected content.
+    A cross-field rule and a reply that is not an object both fail on the model root, where pydantic
+    reports no field at all, so `root_label` names the surface the caller was validating.
+    """
     if not isinstance(error, ValidationError):
         return type(error).__name__
     return ", ".join(
-        f"{'.'.join(str(part) for part in entry['loc']) or 'chart'}: {entry['type']}" for entry in error.errors()
+        f"{'.'.join(str(part) for part in entry['loc']) or root_label}: {entry['type']}" for entry in error.errors()
     )
 
 
@@ -151,7 +154,9 @@ Hard rules:
                 # rejected `input_value`, which would copy the chart's query — HogQL text and filter
                 # values — into application logs.
                 logger.warning(
-                    "presentation: dropped chart at index %d that did not validate (%s)", index, _rejection_reason(e)
+                    "presentation: dropped chart at index %d that did not validate (%s)",
+                    index,
+                    _rejection_reason(e, root_label="chart"),
                 )
         return kept
 
@@ -607,6 +612,13 @@ _ACTIONABILITY_CRITERIA = f"""## Actionability criteria
 `already_addressed` is broader than "merged": set it `true` when the fix has landed in recent code changes **or** is already in flight — an open pull request, a recently active branch, or an assigned / in-progress issue or agent task covering the same problem. An immediately-actionable report can open a draft PR automatically, so a `false` here on work someone already has going produces a competing PR the team has to throw away. If you haven't checked yet, do the in-flight check from the research protocol now rather than defaulting to `false`, and name what you found (or that you found nothing) in your explanation."""
 
 
+def _finding_schema_reminder() -> str:
+    """Name the finding's required fields in prose. The schema block alone does not always stop
+    the agent dropping one, and the dropped field is never worth the turn it costs."""
+    required = ", ".join(f"`{name}`" for name in SignalFinding.model_json_schema()["required"])
+    return f"Include every field the schema marks required. In a `finding` that means {required}."
+
+
 def build_initial_research_prompt(
     first_signal: SignalData,
     total_signals: int,
@@ -678,7 +690,9 @@ Investigate this signal, then respond with a JSON object matching this schema:
 
 <jsonschema>
 {finding_schema}
-</jsonschema>"""
+</jsonschema>
+
+{_finding_schema_reminder()}"""
 
 
 def build_signal_investigation_prompt(
@@ -708,7 +722,9 @@ Investigate this signal using the same protocol, then respond with a JSON object
 
 <jsonschema>
 {finding_schema}
-</jsonschema>"""
+</jsonschema>
+
+{_finding_schema_reminder()}"""
 
 
 def build_actionability_prompt(
@@ -884,7 +900,9 @@ def _resolve_finding_response(
     if isinstance(response, SignalFindingUpdate):
         if response.previous_finding_correct and previous_finding is not None:
             return previous_finding, False
-        if response.finding is None:  # unreachable: the model validator requires it
+        if response.finding is None:
+            # The validator only requires `finding` when previous_finding_correct is false, so a
+            # reply that confirms a previous finding the report does not have arrives empty.
             raise ValueError("SignalFindingUpdate carried no finding")
         return _enforce_signal_id(response.finding, expected_id), True
     return _enforce_signal_id(response, expected_id), True
@@ -1010,6 +1028,9 @@ async def run_multi_turn_research(
         # (confirmed unchanged); persistence writes the new list, reusing the old.
         old_artefacts: list[ResearchArtefactContent] = []
         new_artefacts: list[ResearchArtefactContent] = []
+        # A degraded signal still lands a report, so the run has to say how many turns it lost.
+        # Without it a degrade path that starts firing often reads as a healthy fleet.
+        unusable_reply_count = 0
 
         first_finding, first_is_new = _resolve_finding_response(first_response, first_previous, signals[0].signal_id)
         (new_artefacts if first_is_new else old_artefacts).append(first_finding)
@@ -1030,12 +1051,35 @@ async def run_multi_turn_research(
                 total,
                 previous_finding=previous_finding,
             )
-            response = await session.send_followup(
-                followup_prompt,
-                SignalFindingUpdate,
-                label=f"signal_{i}_of_{total}",
-            )
-            finding, is_new = _resolve_finding_response(response, previous_finding, signal.signal_id)
+            try:
+                response = await session.send_followup(
+                    followup_prompt,
+                    SignalFindingUpdate,
+                    label=f"signal_{i}_of_{total}",
+                )
+                finding, is_new = _resolve_finding_response(response, previous_finding, signal.signal_id)
+            except ValueError as e:
+                # Every extraction and schema failure is a ValueError, and so is a reply that
+                # validates but carries no finding, so keep the loss to this signal: drop its
+                # finding, or keep the previous one. A dead session (empty turn, poll timeout) is a
+                # RuntimeError and still ends the run, since no later turn can succeed either.
+                unusable_reply_count += 1
+                logger.warning(
+                    "research: signal %d of %d returned no usable finding (%s)",
+                    i,
+                    total,
+                    _rejection_reason(e),
+                    extra={
+                        "research_task_id": str(session.task.id),
+                        "team_id": context.team_id,
+                        "report_id": signal_report_id,
+                    },
+                )
+                if previous_finding is not None:
+                    old_artefacts.append(previous_finding)
+                if output_fn:
+                    output_fn(f"Signal {i}/{total} returned no usable finding, continuing without it")
+                continue
             (new_artefacts if is_new else old_artefacts).append(finding)
             if output_fn:
                 output_fn(
@@ -1142,7 +1186,18 @@ async def run_multi_turn_research(
     total_finding_count = new_finding_count + sum(
         1 for artefact in old_artefacts if isinstance(artefact, SignalFinding)
     )
-    logger.info("multi_turn_research: completed with %d findings (%d new)", total_finding_count, new_finding_count)
+    logger.info(
+        "multi_turn_research: completed with %d findings (%d new), %d of %d signal replies unusable",
+        total_finding_count,
+        new_finding_count,
+        unusable_reply_count,
+        total,
+        extra={
+            "research_task_id": str(session.task.id),
+            "team_id": context.team_id,
+            "report_id": signal_report_id,
+        },
+    )
     return ReportResearchOutput(
         title=presentation_result.title,
         summary=presentation_result.summary,

@@ -1,6 +1,7 @@
 import json
 import random
 import asyncio
+import logging
 from datetime import UTC, datetime
 
 import pytest
@@ -35,6 +36,7 @@ from products.signals.backend.report_generation.research import (
     ReportPresentationOutput,
     ReportResearchOutput,
     SignalFinding,
+    SignalFindingUpdate,
     _resolve_actionability_response,
     _resolve_priority_response,
     run_multi_turn_research,
@@ -1132,6 +1134,128 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
         )
     else:
         log_exception.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("has_previous_finding", [False, True])
+async def test_run_multi_turn_research_keeps_the_report_when_one_signal_reply_is_invalid(has_previous_finding, caplog):
+    """One signal's unusable reply must not cost the whole report."""
+    signals = _build_signals()
+    with pytest.raises(ValidationError) as exc_info:
+        SignalFindingUpdate.model_validate({"previous_finding_correct": False, "finding": {"signal_id": "sig-2"}})
+
+    first_finding = SignalFinding(
+        signal_id="sig-1", relevant_code_paths=["example.py"], data_queried="Queried the events.", verified=True
+    )
+    previous_finding = SignalFinding(
+        signal_id="sig-2", relevant_code_paths=["other.py"], data_queried="Queried the events.", verified=False
+    )
+    presentation = ReportPresentationOutput(
+        title="fix(onboarding): restore completion tracking",
+        summary="Users cannot complete the tracked onboarding flow.",
+    )
+    session = Mock()
+    session.task = Mock(id="research-task-id")
+    session.end = AsyncMock()
+    session.send_followup = AsyncMock(
+        side_effect=[
+            exc_info.value,
+            _actionability("The research found a concrete code path and measured impact."),
+            _priority("The measured impact supports this."),
+            presentation,
+            FixVerificationOutput(current_state="Run query-trends.", outcome="Confirm the volume recovers."),
+        ]
+    )
+    previous_research = (
+        ReportResearchOutput(
+            title="fix(onboarding): completion tracking",
+            summary="An earlier run reported the same flow.",
+            # `effective_actionability` raises without one, so the previous run needs both.
+            old_artefacts=[previous_finding, _actionability("The previous run found a concrete code path.")],
+        )
+        if has_previous_finding
+        else None
+    )
+
+    with (
+        patch(
+            "products.tasks.backend.facade.agents.MultiTurnSession.start",
+            AsyncMock(return_value=(session, first_finding)),
+        ),
+        patch("products.signals.backend.task_run_artefacts.aappend_task_run_artefact", new_callable=AsyncMock),
+        caplog.at_level(logging.INFO),
+    ):
+        result = await run_multi_turn_research(
+            signals, Mock(team_id=1), signal_report_id="report-id", previous_report_research=previous_research
+        )
+
+    # A report that landed a turn short has to say so, or a degrade path that starts firing often
+    # reads as a healthy fleet.
+    completion = next(record for record in caplog.records if "multi_turn_research: completed" in record.getMessage())
+    assert "1 of 2 signal replies unusable" in completion.getMessage()
+    assert completion.report_id == "report-id"
+
+    # Signal 2 contributes nothing new, but a finding the report already had is kept rather than lost.
+    expected = [first_finding, previous_finding] if has_previous_finding else [first_finding]
+    assert result.effective_findings() == expected
+    assert result.title == presentation.title
+    assert result.verification_note is not None
+    session.end.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_run_multi_turn_research_still_fails_when_the_first_signal_reply_is_invalid():
+    """The first signal's reply is parsed inside `MultiTurnSession.start`, so it raises before the
+    session reaches this flow. Nothing here may swallow it into a report with no findings."""
+    with pytest.raises(ValidationError) as exc_info:
+        SignalFindingUpdate.model_validate({"previous_finding_correct": False, "finding": {"signal_id": "sig-1"}})
+
+    with patch(
+        "products.tasks.backend.facade.agents.MultiTurnSession.start",
+        AsyncMock(side_effect=exc_info.value),
+    ):
+        with pytest.raises(ValidationError):
+            await run_multi_turn_research(_build_signals(), Mock(team_id=1))
+
+
+@pytest.mark.asyncio
+async def test_run_multi_turn_research_keeps_the_report_when_a_signal_reply_carries_no_finding():
+    signals = _build_signals()
+    first_finding = SignalFinding(
+        signal_id="sig-1", relevant_code_paths=["example.py"], data_queried="Queried the events.", verified=True
+    )
+    presentation = ReportPresentationOutput(
+        title="fix(onboarding): restore completion tracking",
+        summary="Users cannot complete the tracked onboarding flow.",
+    )
+    session = Mock()
+    session.task = Mock(id="research-task-id")
+    session.end = AsyncMock()
+    session.send_followup = AsyncMock(
+        side_effect=[
+            # `finding` is only required when previous_finding_correct is false, so this passes the
+            # schema. On a first run the report has no previous finding to confirm, which leaves
+            # the reply with nothing in it.
+            SignalFindingUpdate(previous_finding_correct=True),
+            _actionability("The research found a concrete code path and measured impact."),
+            _priority("The measured impact supports this."),
+            presentation,
+            FixVerificationOutput(current_state="Run query-trends.", outcome="Confirm the volume recovers."),
+        ]
+    )
+
+    with (
+        patch(
+            "products.tasks.backend.facade.agents.MultiTurnSession.start",
+            AsyncMock(return_value=(session, first_finding)),
+        ),
+        patch("products.signals.backend.task_run_artefacts.aappend_task_run_artefact", new_callable=AsyncMock),
+    ):
+        result = await run_multi_turn_research(signals, Mock(team_id=1), signal_report_id="report-id")
+
+    assert result.effective_findings() == [first_finding]
+    assert result.title == presentation.title
+    session.end.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
