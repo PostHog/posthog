@@ -1,3 +1,4 @@
+import json
 import time
 import uuid
 import asyncio
@@ -2382,6 +2383,56 @@ class TestFetchSessionNetworkActivity:
         assert elapsed < 5, f"the read ran {elapsed:.1f}s past a 0.2s budget"
         assert payload.partial is True
         assert payload.captured is False
+
+    @pytest.mark.asyncio
+    async def test_a_stalled_block_does_not_discard_its_finished_siblings(self) -> None:
+        # Cancelling the batch on timeout must not throw away the blocks that already came back: those
+        # requests are the partial result the scan is promised.
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        fast = json.dumps(
+            {
+                "window_id": "w1",
+                "data": [
+                    {
+                        "type": 6,
+                        "timestamp": 1000,
+                        "data": {
+                            "plugin": "rrweb/network@1",
+                            "payload": {"requests": [{"name": "https://app.test/boom", "status": 500}]},
+                        },
+                    }
+                ],
+            }
+        ).encode()
+
+        class _OneFastOneStalled:
+            def __init__(self) -> None:
+                self.served = 0
+
+            async def fetch_block(self, key: str, *args: Any, **kwargs: Any) -> bytes:
+                if key == "fast":
+                    self.served += 1
+                    return fast
+                await asyncio.sleep(30)
+                return b""
+
+        @contextlib.asynccontextmanager
+        async def _client(*args: Any, **kwargs: Any) -> Any:
+            yield _OneFastOneStalled()
+
+        blocks = [
+            RecordingBlock(key="fast", start_byte=0, end_byte=16, start_timestamp="", end_timestamp=""),
+            RecordingBlock(key="stalled", start_byte=0, end_byte=16, start_timestamp="", end_timestamp=""),
+        ]
+        with (
+            patch.object(mod, "recording_api_client", _client),
+            patch.object(mod, "_READ_BUDGET_SECONDS", 0.3),
+        ):
+            payload = await mod._collect(blocks, session_id="sess-1", team_id=1)
+
+        assert payload.partial is True
+        assert [r.url for r in payload.requests] == ["https://app.test/boom"], "the finished block was lost"
 
     @pytest.mark.asyncio
     async def test_a_listing_over_the_size_ceiling_is_refused(self) -> None:

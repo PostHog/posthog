@@ -166,19 +166,29 @@ async def _collect(blocks: list[RecordingBlock], *, session_id: str, team_id: in
                 _log_budget_spent(session_id, team_id, start, len(blocks))
                 break
             batch = blocks[start : start + _BLOCK_CONCURRENCY]
-            try:
-                results = await asyncio.wait_for(asyncio.gather(*(fetch(block) for block in batch)), timeout=remaining)
-            except TimeoutError:
+            tasks = [asyncio.create_task(fetch(block)) for block in batch]
+            # `wait` rather than `wait_for`: a timeout must not discard the blocks of this batch that
+            # already came back, which is the partial result the caller is promised.
+            done, pending = await asyncio.wait(tasks, timeout=remaining)
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+            # Batch order, not completion order, so the same recording yields the same payload.
+            for task in tasks:
+                if task not in done:
+                    continue
+                block_lines = task.result()
+                if block_lines is None:
+                    partial = True
+                    continue
+                collector.feed(block_lines)
+            if pending:
                 # Out of time mid-batch. What was read still helps; `partial` stops the scan reading the
                 # rest of the session as "nothing failed here".
                 partial = True
                 _log_budget_spent(session_id, team_id, start, len(blocks))
                 break
-            for block_lines in results:
-                if block_lines is None:
-                    partial = True
-                    continue
-                collector.feed(block_lines)
             if collector.full:
                 break
 
