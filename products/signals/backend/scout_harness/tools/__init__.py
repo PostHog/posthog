@@ -5,6 +5,12 @@ The harness wraps these as sync Python functions; the runner / agent-SDK glue
 sandbox. Each tool is team-scoped and Postgres-backed.
 """
 
+from products.signals.backend.scout_harness.tools.checks import (
+    MAX_CHECK_EXPLANATION_LENGTH,
+    InvalidCheckResultError,
+    RecordCheckResultResult,
+    record_check_result,
+)
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_EVIDENCE_ENTRIES,
     MAX_TAG_LENGTH,
@@ -93,6 +99,7 @@ __all__ = [
     "EmitReportResult",
     "EmitResult",
     "EvidenceEntry",
+    "InvalidCheckResultError",
     "InvalidEmitError",
     "InvalidLighthouseTargetError",
     "InvalidNoteError",
@@ -106,6 +113,7 @@ __all__ = [
     "LighthouseUnavailableError",
     "MAX_AUDITS_PER_RUN",
     "PreparedAudit",
+    "MAX_CHECK_EXPLANATION_LENGTH",
     "MAX_EVIDENCE_ENTRIES",
     "MAX_RECORDS_PER_CALL",
     "MAX_RECORDS_PER_RUN",
@@ -114,6 +122,7 @@ __all__ = [
     "MAX_TAGS_PER_FINDING",
     "PROFILE_TTL",
     "ProjectProfile",
+    "RecordCheckResultResult",
     "RecordStructuredOutputResult",
     "ReportEvidence",
     "ScoutNote",
@@ -139,6 +148,7 @@ __all__ = [
     "leave_note",
     "list_notes",
     "normalize_tags",
+    "record_check_result",
     "record_structured_output",
     "record_structured_output_sync",
     "remember",

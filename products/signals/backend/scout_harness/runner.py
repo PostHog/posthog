@@ -807,6 +807,9 @@ async def _spawn_and_run(
         # instead of leaving it to discover the tree. Same list the sandbox context carries, so
         # the prompt can never describe a tree the run does not have.
         repositories=repositories,
+        # Frames the note: a check dispatch carries an assignment the run has to answer, where a
+        # manual trigger carries a nudge a person typed alongside the scout's usual work.
+        triggered_by=triggered_by,
     )
     logger.info(
         "signals_scout: spawning sandbox",
