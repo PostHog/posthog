@@ -10,6 +10,7 @@ from posthog.scopes import (
     ALL_SCOPES,
     ALWAYS_ALLOWED_SCOPES,
     API_SCOPE_ACTIONS,
+    API_SCOPE_GROUPS,
     API_SCOPE_OBJECTS,
     INTERNAL_API_SCOPE_OBJECTS,
     OAUTH_HIDDEN_SCOPE_OBJECTS,
@@ -153,6 +154,15 @@ class TestScopeSets(SimpleTestCase):
         # ceilings don't truncate.
         for scope in ALL_SCOPES:
             self.assertLessEqual(len(scope), 100, f"{scope} exceeds OAuthApplication.scopes CharField max_length=100")
+
+
+class TestApiScopeGroups(SimpleTestCase):
+    def test_every_scope_object_is_filed_exactly_once(self) -> None:
+        filed = [obj for _, objects in API_SCOPE_GROUPS for obj in objects]
+        duplicates = sorted({obj for obj in filed if filed.count(obj) > 1})
+        missing = sorted(set(API_SCOPE_OBJECTS) - set(filed))
+        unknown = sorted(set(filed) - set(API_SCOPE_OBJECTS))
+        assert (duplicates, missing, unknown) == ([], [], [])
 
 
 class TestGetOAuthScopesSupported(SimpleTestCase):

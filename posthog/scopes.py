@@ -10,6 +10,10 @@ from typing import Literal, get_args
 # - frontend/src/lib/scopes.tsx
 # - frontend/src/types.ts (`export type APIScopeObject`)
 #
+# `API_SCOPE_GROUPS` below is projected into `frontend/src/lib/scopeGroups.generated.ts`
+# by `bin/build-scope-groups.py` (part of `hogli build:openapi`), so the consent screen
+# groups scopes without a second copy of the map.
+#
 # The MCP `OAUTH_SCOPES_SUPPORTED` list at
 # `services/mcp/src/lib/oauth-scopes.generated.ts` is generated from
 # `get_scope_descriptions()` below via `bin/build-mcp-oauth-scopes.py`. Run
@@ -215,6 +219,171 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # OAuth-advertised, and a customer-grantable scope must never name a staff surface.
         "batch_import_support",
     }
+)
+
+# Product areas the scope pickers group objects under, in display order. Every object in
+# `API_SCOPE_OBJECTS` belongs to exactly one group (test_scopes.py checks), internal and
+# hidden ones included, so a picker never has to special-case an unfiled object.
+API_SCOPE_GROUPS: tuple[tuple[str, tuple[APIScopeObject, ...]], ...] = (
+    (
+        "Product analytics",
+        (
+            "insight",
+            "insight_variable",
+            "dashboard",
+            "dashboard_template",
+            "query",
+            "notebook",
+            "canvas",
+            "subscription",
+            "alert",
+            "annotation",
+            "heatmap",
+            "export",
+            "sharing_configuration",
+        ),
+    ),
+    (
+        "Events, people & data model",
+        (
+            "person",
+            "group",
+            "cohort",
+            "action",
+            "event_definition",
+            "property_definition",
+            "event_filter",
+            "element",
+            "ingestion_warning",
+            "live_debugger",
+            "business_knowledge",
+            "field_note",
+        ),
+    ),
+    (
+        "Web, marketing & product usage",
+        (
+            "web_analytics",
+            "marketing_analytics",
+            "revenue_analytics",
+            "engineering_analytics",
+            "mcp_analytics",
+            "usage_metric",
+            "product_enablement",
+            "link",
+        ),
+    ),
+    (
+        "Feature flags, experiments & surveys",
+        (
+            "feature_flag",
+            "experiment",
+            "experiment_holdout",
+            "experiment_saved_metric",
+            "early_access_feature",
+            "survey",
+            "user_interview",
+            "product_tour",
+        ),
+    ),
+    (
+        "Session replay",
+        (
+            "session_recording",
+            "session_recording_playlist",
+            "replay_scanner",
+            "vision_action",
+            "vision_alert",
+            "visual_review",
+            "toolbar",
+        ),
+    ),
+    ("Error tracking, logs & tracing", ("error_tracking", "logs", "tracing", "metrics", "health_issue")),
+    (
+        "LLM analytics",
+        (
+            "llm_analytics",
+            "llm_prompt",
+            "llm_provider_key",
+            "llm_skill",
+            "llm_playground",
+            "llm_gateway",
+            "dataset",
+            "evaluation",
+            "tagger",
+            "ai_observability_clusters",
+        ),
+    ),
+    (
+        "Data warehouse & pipelines",
+        (
+            "external_data_source",
+            "external_data_schema",
+            "warehouse_objects",
+            "warehouse_table",
+            "warehouse_view",
+            "data_catalog",
+            "data_catalog_approval",
+            "batch_export",
+            "batch_import",
+            "batch_import_support",
+            "hog_function",
+            "hog_flow",
+            "endpoint",
+            "streamlit_app",
+            "webhook",
+            "plugin",
+            "query_performance",
+            "clickhouse_test_cluster_perf",
+        ),
+    ),
+    (
+        "AI agents & automation",
+        (
+            "task",
+            "loop",
+            "loop_context_internal",
+            "signal_scout",
+            "signal_scout_internal",
+            "signal_scout_report",
+            "signal_scratchpad_internal",
+            "internal_run",
+            "interactive_run",
+            "review_hog",
+            "context_layer_internal",
+            "approvals",
+            "stamphog",
+            "autoresearch",
+            "conversation",
+            "mcp_builtin_agent",
+            "mcp_registry",
+            "slack_run",
+            "wizard_session",
+        ),
+    ),
+    (
+        "Customers & support",
+        ("customer_analytics", "account", "customer_journey", "customer_task", "customer_profile_config", "ticket"),
+    ),
+    (
+        "Organization & account",
+        (
+            "organization",
+            "organization_member",
+            "organization_integration",
+            "project",
+            "user",
+            "billing",
+            "access_control",
+            "activity_log",
+            "integration",
+            "uploaded_media",
+            "comment",
+            "file_system",
+            "file_system_shortcut",
+            "legal_document",
+        ),
+    ),
 )
 
 # llm_gateway:read is omitted on purpose: it's alpha/privileged and granted only behind the

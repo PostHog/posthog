@@ -551,6 +551,7 @@ jobs:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
                         - 'frontend/src/lib/agentScopes.generated.ts'
+                        - 'frontend/src/lib/scopeGroups.generated.ts'
                         - 'products/*/frontend/generated/**/*'
                         - 'services/mcp/src/generated/**/*'
                         - 'services/mcp/src/api/generated.ts'

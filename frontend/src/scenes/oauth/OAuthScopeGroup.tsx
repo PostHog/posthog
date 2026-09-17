@@ -44,12 +44,6 @@ export function OAuthScopeGroup({
         <OAuthScopeRowControl key={row.key} row={row} appName={appName} onChange={onChangeRow} />
     )
 
-    // A resource that maps to a single scope of the same name has nothing to fold: the row
-    // alone says everything the header would.
-    if (rows.length === 1 && rows[0].label === label) {
-        return <div className="border-t border-border first:border-t-0 py-1">{renderRow(rows[0])}</div>
-    }
-
     return (
         <div className="border-t border-border first:border-t-0">
             <div className="flex items-center gap-2 py-2 min-h-10">

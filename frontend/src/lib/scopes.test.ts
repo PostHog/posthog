@@ -3,7 +3,6 @@ import {
     AGENT_CLI_API_KEY_SCOPES,
     API_KEY_SCOPE_PRESETS,
     API_SCOPES,
-    API_SCOPE_GROUPS,
     API_SCOPES_OMITTED_FROM_MODAL,
     getScopeDescription,
     scopeMatchesSearch,
@@ -155,16 +154,5 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             )
             expect(AGENT_CLI_API_KEY_SCOPES.every((scope) => renderableScopes.has(scope))).toBe(true)
         })
-    })
-})
-
-describe('API_SCOPE_GROUPS', () => {
-    it('files every scope object into exactly one group', () => {
-        const filed = API_SCOPE_GROUPS.flatMap(({ objects }) => objects)
-        const duplicates = filed.filter((object, index) => filed.indexOf(object) !== index)
-        const missing = API_SCOPE_OBJECTS.filter((object) => !filed.includes(object))
-        const unknown = filed.filter((object) => !(API_SCOPE_OBJECTS as readonly string[]).includes(object))
-
-        expect({ duplicates, missing, unknown }).toEqual({ duplicates: [], missing: [], unknown: [] })
     })
 })

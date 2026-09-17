@@ -535,6 +535,10 @@ build:
         bin_script: build-mcp-oauth-scopes.py
         description: Generate OAUTH_SCOPES_SUPPORTED for the MCP protected-resource
             metadata from posthog/scopes.py
+    build:openapi-scope-groups:
+        bin_script: build-scope-groups.py
+        description: Generate the frontend's scope groups (product areas) from
+            posthog/scopes.py
     build:task-model-catalog:
         cmd: python products/tasks/scripts/build_model_catalog.py
         description: Generate the web and desktop views of the task run model catalog
@@ -557,6 +561,7 @@ build:
             - build:openapi-mcp
             - build:openapi-mcp-tools
             - build:openapi-mcp-scopes
+            - build:openapi-scope-groups
             - build:task-model-catalog
             - build:openapi-cli-agent-scopes
             - build:openapi-exec-docs
