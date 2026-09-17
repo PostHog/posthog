@@ -52,6 +52,19 @@ class TestGladlySource:
         error = "HTTPSConnectionPool(host='myorg.us-1.gladly.com', port=443): Read timed out."
         assert any(key in error for key in retryable_errors)
 
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "Gladly API error (retryable): status=429, metricSet=ConversationTimestampsReport",
+            "Gladly API error (retryable): status=503, url=https://myorg.gladly.com/api/v1/export/jobs",
+        ],
+    )
+    def test_retryable_errors_match_gladly_rate_limit_and_server_errors(self, observed_error):
+        # A 429/5xx that outlasts gladly.py's own in-process retry is still self-recovering via
+        # Temporal's activity retry, not a tracked-exception-worthy failure.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
+
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 

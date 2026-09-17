@@ -10,7 +10,7 @@ from posthog.models import Team
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from ..models.skills import LLMSkill
-from .skill_services import get_latest_skills_queryset, skill_names_owned_by
+from .skill_services import get_active_skill_queryset, skill_names_owned_by
 
 ALLOWED_LIST_ORDERINGS = frozenset(
     {
@@ -34,8 +34,8 @@ def list_queryset(
     *, team: Team, user_access_control: UserAccessControl, params: dict[str, Any], query_params: QueryDict
 ) -> QuerySet[LLMSkill]:
     queryset = user_access_control.filter_queryset_by_access_level(
-        get_latest_skills_queryset(team), resource="llm_skill"
-    )
+        get_active_skill_queryset(team), resource="llm_skill"
+    ).filter(is_latest=True)
 
     search = params.get("search", "").strip()
     if search:

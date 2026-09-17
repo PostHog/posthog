@@ -1,6 +1,6 @@
 import datetime as dt
 
-from freezegun.api import freeze_time
+import time_machine
 from unittest import mock
 from unittest.mock import ANY, call, patch
 
@@ -291,7 +291,9 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         current_plans = License.PLANS
         License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
 
-        with freeze_time("2070-01-01T12:00:00.000Z"):  # LicensedTestMixin enterprise license expires in 2038
+        with time_machine.travel(
+            "2070-01-01T12:00:00.000Z", tick=False
+        ):  # LicensedTestMixin enterprise license expires in 2038
             sync_all_organization_available_product_features()  # This is normally ran every hour
             self.organization.refresh_from_db()
             self.assertIsNone(self.organization.get_available_feature("whatever"))

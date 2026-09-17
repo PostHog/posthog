@@ -26,11 +26,15 @@ from ..marketplace.adapters import (
     load_skill_export,
     sandbox_skills_flag_distinct_id,
 )
-from ..marketplace.packaging import SkillImportError, build_skill_zip, parse_skill_zip, validate_for_export
+from ..marketplace.packaging import SkillImportError, build_skill_zip, parse_skill_zip
 from ..models.skills import LLMSkill
 from .skill_analytics import record_skill_event, skill_analytics_props
-from .skill_error_responses import skill_not_found_response, spec_problems_detail
-from .skill_import import MAX_IMPORT_ZIP_BYTES, import_problems
+from .skill_error_responses import spec_problems_detail
+from .skill_import import (
+    MAX_IMPORT_ZIP_BYTES,
+    _spec_problem_messages as spec_problem_messages,
+    import_problems,
+)
 from .skill_serializers import (
     LLMSkillBundleQuerySerializer,
     LLMSkillFetchQuerySerializer,
@@ -82,10 +86,10 @@ class SkillTransferActionsMixin(SkillAccessMixin):
         version = cast(int | None, version_params.get("version"))
         skill = self._load_skill_with_object_access(request, skill_name, version)
         if skill is None:
-            return skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         export = load_skill_export(skill)
-        problems = validate_for_export(export)
+        problems = spec_problem_messages(export)
         if problems:
             return Response(
                 {

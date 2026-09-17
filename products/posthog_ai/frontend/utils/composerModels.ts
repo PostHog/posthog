@@ -79,6 +79,23 @@ export function modelsForRuntimeAdapter(
     return catalogue.filter((option) => option.runtime_adapter === runtimeAdapter)
 }
 
+export function getDefaultModelForRuntimeAdapter(
+    catalogue: ModelChoiceApi[],
+    runtimeAdapter: RuntimeAdapterEnumApi,
+    configuredModel?: string | null
+): string | null {
+    const models = modelsForRuntimeAdapter(catalogue, runtimeAdapter)
+    const preferredModel = configuredModel ? normalizeModelId(configuredModel) : null
+    return (
+        models.find((option) => option.model === preferredModel)?.model ??
+        (runtimeAdapter === RuntimeAdapterEnumApi.Codex
+            ? models.find((option) => option.model === 'gpt-5.6-sol')?.model
+            : null) ??
+        models[0]?.model ??
+        null
+    )
+}
+
 /** One stop on the Faster/Smarter slider: a model paired with the effort it runs at. */
 export interface CapabilityNotch {
     model: string
@@ -93,7 +110,7 @@ const CAPABILITY_LADDERS: Record<RuntimeAdapterEnumApi, CapabilityNotch[]> = {
         { model: 'claude-sonnet-5', effort: ReasoningEffortEnumApi.High },
         { model: 'claude-opus-5', effort: ReasoningEffortEnumApi.Medium },
         { model: 'claude-opus-5', effort: ReasoningEffortEnumApi.Xhigh },
-        { model: 'claude-fable-5', effort: ReasoningEffortEnumApi.Max },
+        { model: 'claude-fable-5-1', effort: ReasoningEffortEnumApi.Max },
     ],
     [RuntimeAdapterEnumApi.Codex]: [
         { model: 'gpt-5.6-terra', effort: ReasoningEffortEnumApi.Low },

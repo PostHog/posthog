@@ -770,8 +770,7 @@ export function MenuFilterCombobox({
 
     // --- Telemetry parity ---------------------------------------------------
     // Emit the legacy `taxonomic filter *` contract so the rebuild is
-    // comparable to the control/pill variants by feature-flag value (PostHog
-    // auto-attaches the active flag to every event). The meta scopes
+    // comparable to the classic picker. The meta scopes
     // (all/recent/pinned) have no single source group, so groupType is
     // undefined there — matching how legacy reports the active content tab.
     const telemetryGroupType = useMemo<TaxonomicFilterGroupType | undefined>(() => {
@@ -1328,6 +1327,7 @@ function Row({
     // The committed selection of a renamed series shows the series' name; the raw key
     // it queries moves to the value cell, like any other friendly-labelled row.
     const isRenamedSelection = isSelected && !!selectedRename && selectedRename.label !== cells.name
+    const itemTag = entry.group.getTag?.(entry.item)
     const name = isRenamedSelection ? selectedRename.label : cells.name
     const value = isRenamedSelection && selectedRename.raw !== selectedRename.label ? selectedRename.raw : cells.value
     const category = cells.category
@@ -1379,6 +1379,9 @@ function Row({
                 {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-1">{category}</MenuLabel>}
             </div>
             <MatchedValueBadge entry={entry} />
+            {/* Whatever the group supplies for this item, the same node the classic list renders,
+                so a picker row carries its per-item state in either menu. */}
+            {itemTag && <span className="shrink-0 empty:hidden">{itemTag}</span>}
             {recency && (
                 <Badge variant="default" className="gap-1 shrink-0">
                     {recency === 'recent' ? <IconClock className="size-3" /> : <IconPinFilled className="size-3" />}

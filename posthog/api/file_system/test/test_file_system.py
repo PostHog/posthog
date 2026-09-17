@@ -3,7 +3,7 @@ from datetime import UTC
 from typing import Any, TypedDict, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -849,11 +849,11 @@ class TestFileSystemAPI(APIBaseTest):
 
     def test_list_order_by_created_at(self):
         # Create items in chronological order
-        with freeze_time("2020-01-01 10:00:00"):
+        with time_machine.travel("2020-01-01 10:00:00", tick=False):
             file_1 = FileSystem.objects.create(team=self.team, path="File_1", type="feature_flag", created_by=self.user)
-        with freeze_time("2020-01-02 10:00:00"):
+        with time_machine.travel("2020-01-02 10:00:00", tick=False):
             file_2 = FileSystem.objects.create(team=self.team, path="File_2", type="feature_flag", created_by=self.user)
-        with freeze_time("2020-01-03 10:00:00"):
+        with time_machine.travel("2020-01-03 10:00:00", tick=False):
             file_3 = FileSystem.objects.create(team=self.team, path="File_3", type="feature_flag", created_by=self.user)
 
         # Query with descending order
@@ -1033,12 +1033,10 @@ class TestFileSystemAPI(APIBaseTest):
         `created_at` and `created_by` into both the FileSystem columns and the
         `meta` dict.
         """
-        from freezegun import freeze_time
-
         from django.utils import timezone
 
         # Create a FeatureFlag at a known moment in time
-        with freeze_time("2023-02-10 15:00:00"):
+        with time_machine.travel("2023-02-10 15:00:00", tick=False):
             flag = FeatureFlag.objects.create(team=self.team, key="Synced-Flag", created_by=self.user)
 
         FileSystem.objects.all().delete()
@@ -1703,11 +1701,11 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         Verify we can filter by created_at greater-than and less-than.
         """
         # Create 3 files with different timestamps.
-        with freeze_time("2020-01-01T10:00:00Z"):
+        with time_machine.travel("2020-01-01T10:00:00Z", tick=False):
             FileSystem.objects.create(team=self.team, path="OldFile", type="feature_flag", created_by=self.user)
-        with freeze_time("2020-01-02T10:00:00Z"):
+        with time_machine.travel("2020-01-02T10:00:00Z", tick=False):
             FileSystem.objects.create(team=self.team, path="MidFile", type="feature_flag", created_by=self.user)
-        with freeze_time("2020-01-03T10:00:00Z"):
+        with time_machine.travel("2020-01-03T10:00:00Z", tick=False):
             FileSystem.objects.create(team=self.team, path="NewFile", type="feature_flag", created_by=self.user)
 
         # 1) Filter with ?created_at__gt=2020-01-01T12:00:00Z

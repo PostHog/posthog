@@ -545,6 +545,19 @@ def dispatch_rules_command(
     defaults, the help listing. The answer concerns whoever ran the command, so
     every reply below goes out ephemerally, on both surfaces.
     """
+    from posthog.models.user import User
+
+    from products.slack_app.backend.analytics import capture_slack_event
+
+    capture_slack_event(
+        integration,
+        "slack app command used",
+        slack_user_id=slack_user_id,
+        posthog_user=User.objects.filter(id=user_id).first(),
+        action=command.action,
+        source="mention" if command_prefix == MENTION_COMMAND_PREFIX else "slash_command",
+    )
+
     if command.action == "help":
         # The slash command owns the listing, so a mention only points at it. Answering here
         # rather than inside the handler keeps the Slack users.info call the listing needs off

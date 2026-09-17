@@ -441,7 +441,7 @@ export const WebAnalyticsLiveReferrerSelector = ({ suggestions = [] }: { suggest
     )
 }
 
-export const WebAnalyticsDeviceToggle = (): JSX.Element => {
+export const WebAnalyticsDeviceToggle = ({ variant }: { variant?: 'select' } = {}): JSX.Element => {
     const { deviceTypeFilter } = useValues(webAnalyticsLogic)
     const { setDeviceTypeFilter } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -464,12 +464,17 @@ export const WebAnalyticsDeviceToggle = (): JSX.Element => {
         scope: Scene.WebAnalytics,
     })
 
-    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
+    if (
+        variant === 'select' ||
+        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] ||
+        featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]
+    ) {
         return (
             <LemonSelect
                 size="small"
                 value={deviceTypeFilter ?? undefined}
                 allowClear={true}
+                placeholder="All devices"
                 onChange={(value) => setDeviceTypeFilter(value !== deviceTypeFilter ? value : null)}
                 options={DEVICE_TYPE_SELECT_OPTIONS}
             />

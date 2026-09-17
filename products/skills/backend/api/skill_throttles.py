@@ -71,3 +71,13 @@ class SkillSearchBurstThrottle(_SkillUserThrottle):
 class SkillSearchSustainedThrottle(_SkillUserThrottle):
     scope = "skills_search_sustained"
     rate = SustainedRateThrottle.rate
+
+
+class SkillListBurstThrottle(_SkillUserThrottle):
+    scope = "skills_list_burst"
+    rate = BurstRateThrottle.rate
+
+
+class SkillListSustainedThrottle(_SkillUserThrottle):
+    scope = "skills_list_sustained"
+    rate = SustainedRateThrottle.rate

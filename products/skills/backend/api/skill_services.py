@@ -1,15 +1,17 @@
 import re
 from dataclasses import dataclass
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, TypeVar
 
 from django.db import IntegrityError, transaction
-from django.db.models import QuerySet
+from django.db.models import Max, QuerySet
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
+from ..bundled_skills import bundled_skill_names
+from ..marketplace.packaging import CODEX_METADATA_PATH, SPEC_DESCRIPTION_MAX_LENGTH, compute_plugin_version
 from ..models.skills import (
     CATEGORY_BY_NAME_PREFIX,
     LLMSkill,
@@ -19,10 +21,17 @@ from ..models.skills import (
     category_for_skill_name,
 )
 
+_DigestModel = TypeVar("_DigestModel", LLMSkill, LLMSkillFile)
+
 MAX_SKILL_VERSION = 2000
 MAX_SKILL_BODY_BYTES = 1_000_000
 MAX_SKILL_FILE_BYTES = 1_000_000
 MAX_SKILL_FILE_COUNT = 200
+# A digest backfill page holds the full content of every row in it, because a digest cannot be
+# computed without the content. One body or bundled file is allowed to reach MAX_SKILL_BODY_BYTES /
+# MAX_SKILL_FILE_BYTES, so the page is sized against those caps rather than against a row count:
+# 100 rows bounds a page at about 100 MB of content. Raise it with --batch-size for small rows.
+DIGEST_BACKFILL_BATCH_SIZE = 100
 # Skill names that collide with reserved /skills routes and so can't be used: "new" is the create
 # form, and the rest mirror the category-tab slugs registered under /skills/<slug> in
 # products/skills/manifest.tsx — a skill with such a name would be shadowed by its tab route.
@@ -34,6 +43,24 @@ MAX_SKILL_NAME_LENGTH = 64
 # Bundled-file paths that would collide with generated artifacts in the exported skill
 # tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
 RESERVED_SKILL_FILE_PATHS = {"skill.md"}
+
+
+def bundled_skill_name_error(value: str) -> str | None:
+    """Why `value` cannot name a new store skill, or None when it can.
+
+    An agent host loads the skills PostHog bundles (products/*/skills, shipped as dist/skills.zip)
+    next to the team's store skills under one flat name space, so a store skill that repeats a
+    bundled name leaves two skills under one name and the host no way to tell which one an agent
+    asked for. The rule holds a name a team claims, not a name that points at a skill the project
+    already holds: the scout harness seeds the canonical `signals-scout-*` skills into every
+    project, so those bundled names are legitimately in use there.
+
+    Returns the message rather than raising it so the REST, MCP tool, community publish and
+    community sync paths can each raise their own error type from the one rule.
+    """
+    if value.lower() not in bundled_skill_names():
+        return None
+    return f"PostHog already ships a skill named '{value}'. Pick a different name."
 
 
 def skill_name_is_well_formed(value: str) -> bool:
@@ -73,6 +100,147 @@ def normalize_skill_file_path(value: str) -> str:
     # here, so storing them verbatim would make `references\guide.md` a single flat tree entry
     # rather than a file under `references/`, and would let the two spellings dodge dedup.
     return normalized
+
+
+# Stable codes for the reasons a skill cannot be packaged. The archive walks and the read-only
+# `spec_problems` API field both branch on them, so a code is part of the contract; the message is
+# for the author.
+SPEC_PROBLEM_NAME_MALFORMED = "name_malformed"
+SPEC_PROBLEM_DESCRIPTION_EMPTY = "description_empty"
+SPEC_PROBLEM_DESCRIPTION_TOO_LONG = "description_too_long"
+SPEC_PROBLEM_FILE_PATH_INVALID = "file_path_invalid"
+SPEC_PROBLEM_FILE_PATH_NOT_CANONICAL = "file_path_not_canonical"
+SPEC_PROBLEM_FILE_PATH_COLLIDES = "file_path_collides"
+SPEC_PROBLEM_FILE_PATH_SHADOWS_DIRECTORY = "file_path_shadows_directory"
+
+# Entries every packaged skill directory carries, generated from the skill row (see
+# marketplace.packaging.build_skill_tree). A bundled file only takes one of these paths back when it
+# spells it exactly, so the generated entry is replaced rather than duplicated.
+_GENERATED_SKILL_ENTRIES = ("SKILL.md", CODEX_METADATA_PATH)
+
+
+@frozen
+class SkillSpecProblem:
+    code: str
+    message: str
+    file_path: str | None = None
+
+
+def _name_problems(name: str) -> list[SkillSpecProblem]:
+    if skill_name_is_well_formed(name):
+        return []
+    return [
+        SkillSpecProblem(
+            code=SPEC_PROBLEM_NAME_MALFORMED,
+            message=(
+                f"'{name}' cannot be a skill directory name. Use up to {MAX_SKILL_NAME_LENGTH} lowercase letters, "
+                "numbers and hyphens, with no leading, trailing or consecutive hyphens."
+            ),
+        )
+    ]
+
+
+def _description_problems(description: str) -> list[SkillSpecProblem]:
+    problems: list[SkillSpecProblem] = []
+    if len(description) > SPEC_DESCRIPTION_MAX_LENGTH:
+        problems.append(
+            SkillSpecProblem(
+                code=SPEC_PROBLEM_DESCRIPTION_TOO_LONG,
+                message=(
+                    f"The description is {len(description)} characters. Shorten it to "
+                    f"{SPEC_DESCRIPTION_MAX_LENGTH} characters or fewer."
+                ),
+            )
+        )
+    if not description.strip():
+        problems.append(
+            SkillSpecProblem(
+                code=SPEC_PROBLEM_DESCRIPTION_EMPTY,
+                message="Add a description. It tells an agent what the skill does and when to use it.",
+            )
+        )
+    return problems
+
+
+def _shadowing_entry(path: str, claimed: dict[str, str]) -> str | None:
+    """The claimed entry that is a parent directory of ``path``, such as `assets` under `assets/logo.png`."""
+    parts = path.lower().split("/")
+    for depth in range(1, len(parts)):
+        parent = claimed.get("/".join(parts[:depth]))
+        if parent is not None:
+            return parent
+    return None
+
+
+def compute_file_path_problems(file_paths: list[str]) -> list[SkillSpecProblem]:
+    problems: list[SkillSpecProblem] = []
+    # Keyed by the lowercased entry name, valued by the spelling that claimed it, so a collision can
+    # name the entry it collides with. Seeded with the generated entries.
+    claimed: dict[str, str] = {entry.lower(): entry for entry in _GENERATED_SKILL_ENTRIES}
+    for path in file_paths:
+        try:
+            canonical = normalize_skill_file_path(path)
+        except ValueError as err:
+            problems.append(SkillSpecProblem(code=SPEC_PROBLEM_FILE_PATH_INVALID, message=str(err), file_path=path))
+            continue
+        if canonical != path:
+            # A legacy `refs\\guide.md` is archived verbatim, so it lands as one flat file instead of a
+            # file under `refs/`, or collides with `refs/guide.md`.
+            problems.append(
+                SkillSpecProblem(
+                    code=SPEC_PROBLEM_FILE_PATH_NOT_CANONICAL,
+                    message=f"Rename this file to '{canonical}'. The stored path does not unpack to that location.",
+                    file_path=path,
+                )
+            )
+            continue
+        lowered = path.lower()
+        # Only the exact sidecar path replaces the generated one; a case variant such as
+        # `Agents/OpenAI.yaml` keys a second entry and collides instead.
+        if lowered in claimed and path != CODEX_METADATA_PATH:
+            claimant = claimed[lowered]
+            if path == claimant:
+                # A zip can carry one member twice, and the backslash swap on import can collapse
+                # two members onto one path, so the pair is not always a case variant.
+                message = f"Remove this duplicate. Another file already uses the path '{claimant}'."
+            else:
+                message = (
+                    f"Rename this file. It differs from '{claimant}' only in letter case, so the two "
+                    "become one file on a case-insensitive filesystem."
+                )
+            problems.append(SkillSpecProblem(code=SPEC_PROBLEM_FILE_PATH_COLLIDES, message=message, file_path=path))
+            continue
+        claimed[lowered] = path
+    for path in claimed.values():
+        parent = _shadowing_entry(path, claimed)
+        if parent is None:
+            continue
+        # Either side of the pair can be a generated entry, which the author has no row for and
+        # cannot rename. Report the bundled side, because that is the only name they can change.
+        if parent in _GENERATED_SKILL_ENTRIES:
+            message = (
+                f"Move this file out of '{parent}/'. Every skill generates '{parent}', so it cannot "
+                "also be a directory."
+            )
+            culprit = path
+        else:
+            message = f"Rename '{parent}'. It is a file, so this skill cannot also hold '{path}' under it."
+            culprit = parent
+        problems.append(
+            SkillSpecProblem(code=SPEC_PROBLEM_FILE_PATH_SHADOWS_DIRECTORY, message=message, file_path=culprit)
+        )
+    return problems
+
+
+def compute_spec_problems(name: str, description: str, file_paths: list[str]) -> list[SkillSpecProblem]:
+    """Every reason a skill cannot be packaged. Empty means it packages cleanly.
+
+    One rule set for the three consumers: the skills bundle, the plugin marketplace, and the
+    read-only `spec_problems` field that tells the author why the skill is missing from both. A
+    skill with no problems here synthesizes an archive that unpacks on any filesystem, and a git
+    tree real git can clone.
+    """
+    return [*_name_problems(name), *_description_problems(description), *compute_file_path_problems(file_paths)]
 
 
 def check_allowed_tool_name(value: str) -> None:
@@ -190,6 +358,20 @@ def get_active_skill_queryset(team: Team) -> QuerySet[LLMSkill]:
 
 def get_latest_skills_queryset(team: Team) -> QuerySet[LLMSkill]:
     return get_active_skill_queryset(team).filter(is_latest=True)
+
+
+def team_skills_version(team: Team) -> str:
+    """Keep archived rows in the version so an archive does not expose an older timestamp.
+
+    This is a marketplace version, not a validator for the access-filtered list.
+    In-place writers must update updated_at because QuerySet.update() skips auto_now.
+    """
+    latest = LLMSkill.objects.filter(team=team).aggregate(latest=Max("updated_at"))["latest"]
+    if latest is None:
+        return "1.0.0"
+    elapsed = latest - datetime(1970, 1, 1, tzinfo=UTC)
+    epoch_microseconds = (elapsed.days * 86400 + elapsed.seconds) * 1_000_000 + elapsed.microseconds
+    return compute_plugin_version(epoch_microseconds)
 
 
 def get_skill_by_name_from_db(
@@ -738,26 +920,31 @@ def rename_skill(team: Team, *, skill_name: str, new_name: str) -> LLMSkill:
         raise LLMSkillRenameNotAllowedError(prefix=blocked_prefix)
 
     with transaction.atomic():
-        locked_version_ids = list(
+        locked_versions = list(
             LLMSkill.objects.select_for_update()
             .filter(team=team, name=skill_name, deleted=False)
             .order_by("version", "created_at", "id")
-            .values_list("id", flat=True)
         )
-        if not locked_version_ids:
+        if not locked_versions:
             raise LLMSkillNotFoundError()
         if new_name == skill_name:
             return _renamed_skill_or_missing(team, new_name)
         if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
             raise LLMSkillDuplicateNameConflictError()
 
-        # Bump updated_at (the .update() bypasses auto_now) so the marketplace plugin version,
-        # derived from max(updated_at) across all team rows, advances — a renamed skill changes
-        # the directory name in the exported tree, so installs must pick the rename up.
-        LLMSkill.objects.filter(team=team, name=skill_name, deleted=False).update(
-            name=new_name,
-            updated_at=timezone.now(),
-        )
+        # Stamp each locked row rather than issuing one `.update()`: the name is the first
+        # frontmatter key of the rendered SKILL.md, so a rename changes the bytes a host downloads,
+        # and neither `.update()` nor `bulk_update` calls `save()` to restamp the digest. A stale
+        # digest is invisible to the backfill, which only repairs rows that carry none.
+        # `updated_at` is set by hand because both paths also bypass auto_now, and the marketplace
+        # plugin version is max(updated_at) across all team rows: a renamed skill changes the
+        # directory name in the exported tree, so installs must pick the rename up.
+        renamed_at = timezone.now()
+        for version in locked_versions:
+            version.name = new_name
+            version.updated_at = renamed_at
+            version.stamp_digest()
+        LLMSkill.objects.bulk_update(locked_versions, ["name", "updated_at", *LLMSkill.DIGEST_FIELDS])
         rename_skill_owners(team, skill_name, new_name)
 
     return _renamed_skill_or_missing(team, new_name)
@@ -906,3 +1093,44 @@ def set_skill_owners(team: Team, skill_name: str, users: list[User]) -> list[Use
             # write context-independent (works outside a request too).
             _owner_qs(team).create(team=team, skill_name=skill_name, user=user)
     return resolve_skill_owners(team, skill_name)
+
+
+@frozen
+class SkillDigestBackfillCounts:
+    skills: int
+    files: int
+
+
+def backfill_skill_digests(
+    *, batch_size: int = DIGEST_BACKFILL_BATCH_SIZE, recompute: bool = False
+) -> SkillDigestBackfillCounts:
+    """Stamp `sha256`/`size` on rows written before digests existed. Safe to re-run.
+
+    Every write path stamps its own digest, so this only has to reach the history. It walks in
+    primary-key order and writes fixed-size batches, so a team with a long skill history cannot
+    pull the whole table into memory. `recompute` re-stamps rows that already carry a digest,
+    for when the rendered form of a SKILL.md changes.
+    """
+    skills = LLMSkill.objects.all() if recompute else LLMSkill.objects.filter(skill_md_sha256__isnull=True)
+    files = LLMSkillFile.objects.all() if recompute else LLMSkillFile.objects.filter(content_sha256__isnull=True)
+    return SkillDigestBackfillCounts(
+        skills=_backfill_digests(LLMSkill, skills, batch_size), files=_backfill_digests(LLMSkillFile, files, batch_size)
+    )
+
+
+def _backfill_digests(model: type[_DigestModel], queryset: QuerySet[_DigestModel], batch_size: int) -> int:
+    # Cursor on the primary key rather than re-running the "needs a digest" filter: under
+    # `recompute` that filter matches every row, so a fixed `[:batch_size]` slice would never
+    # advance and the walk would never end.
+    cursor: Any = None
+    stamped = 0
+    while True:
+        page = queryset.filter(pk__gt=cursor) if cursor is not None else queryset
+        rows = list(page.order_by("pk")[:batch_size])
+        if not rows:
+            return stamped
+        for row in rows:
+            row.stamp_digest()
+        model.objects.bulk_update(rows, list(model.DIGEST_FIELDS))
+        stamped += len(rows)
+        cursor = rows[-1].pk

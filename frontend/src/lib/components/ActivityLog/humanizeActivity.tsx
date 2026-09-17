@@ -54,7 +54,7 @@ export type ActivityLogItem = {
     is_system?: boolean
     /** Whether a PostHog team member was impersonating the user when this activity was logged. */
     was_impersonated?: boolean
-    /** SDK or integration that triggered this action (from x-posthog-client header). */
+    /** SDK, integration, or scout that triggered this action. Self-reported through the x-posthog-client header, except for a scout, which the server names. */
     client?: string | null
     /** Client IP address captured at request time. Null for non-HTTP activity (system, background jobs). */
     ip_address?: string | null
@@ -64,12 +64,19 @@ export type ActivityLogItem = {
 export type Description = string | JSX.Element | null
 // the extended description gives extra context, like the insight details card to describe a change to an insight
 export type ExtendedDescription = JSX.Element | undefined
+// content too large to sit inline with the sentence, shown as its own tab once the row is expanded
+export type ExpandedView = { label: string; content: JSX.Element }
 export type ChangeMapping = {
     description: Description[] | null
     extendedDescription?: ExtendedDescription
+    expandedView?: ExpandedView
     suffix?: string | JSX.Element | null // to override the default suffix
 }
-export type HumanizedChange = { description: Description | null; extendedDescription?: ExtendedDescription }
+export type HumanizedChange = {
+    description: Description | null
+    extendedDescription?: ExtendedDescription
+    expandedView?: ExpandedView
+}
 
 export type HumanizedActivityLogItem = {
     id?: string
@@ -79,10 +86,11 @@ export type HumanizedActivityLogItem = {
     name?: string
     isSystem?: boolean
     wasImpersonated?: boolean
-    /** SDK or integration that triggered this action (from x-posthog-client header). */
+    /** SDK, integration, or scout that triggered this action. Self-reported through the x-posthog-client header, except for a scout, which the server names. */
     client?: string | null
     description: Description
     extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
+    expandedView?: ExpandedView // e.g. a flag's release conditions after the change
     created_at: dayjs.Dayjs
     unread?: boolean
     // used when showing e.g. diff of changes
@@ -116,7 +124,7 @@ export function humanize(
         if (!describer) {
             continue
         }
-        const { description, extendedDescription } = describer(logItem, asNotification)
+        const { description, extendedDescription, expandedView } = describer(logItem, asNotification)
 
         if (description !== null) {
             const impersonatedUserName = logItem.user ? fullName(logItem.user) : undefined
@@ -132,6 +140,7 @@ export function humanize(
                 client: logItem.client,
                 description,
                 extendedDescription,
+                expandedView,
                 created_at: dayjs(logItem.created_at),
                 unread: logItem.unread,
                 unprocessed: logItem,

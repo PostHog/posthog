@@ -3,10 +3,12 @@ name: Lint workflows
 on:
     pull_request:
         paths:
+            - .depot/workflows/ci-backend.yml
             - .github/workflows/**
             - .github/actions/**
             - services/**
             - tools/hogli-commands/hogli_commands/workflow_lint/**
+            - tools/workflow-plan/**
             - hogli.yaml
 
 concurrency:
@@ -36,3 +38,29 @@ jobs:
 
             - name: Lint workflows
               run: ./bin/hogli lint:workflows
+
+    workflow-run-plans:
+        name: Workflow run plans
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .depot/workflows/ci-backend.yml
+                      .github
+                      tools/workflow-plan
+                      patches
+                      .nvmrc
+                      package.json
+                      pnpm-lock.yaml
+                      pnpm-workspace.yaml
+                  sparse-checkout-cone-mode: false
+
+            - uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter @posthog/workflow-plan
+
+            - name: Check job and step conditions against the pinned run plans
+              run: pnpm --filter @posthog/workflow-plan test

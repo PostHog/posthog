@@ -5,7 +5,10 @@ Every skill endpoint mixin builds on ``SkillAccessMixin``: the object-level chec
 helpers whose context has to match across endpoints.
 """
 
+from difflib import get_close_matches
 from typing import TYPE_CHECKING, Any, cast
+
+from django.db.models import QuerySet
 
 from rest_framework import serializers, status
 from rest_framework.request import Request
@@ -22,9 +25,8 @@ from posthog.models import Organization, Team
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from ..models.skills import LLMSkill
-from .skill_error_responses import skill_not_found_response
 from .skill_serializers import LLMSkillSerializer, LLMSkillVersionSummarySerializer
-from .skill_services import get_skill_by_name_from_db
+from .skill_services import get_active_skill_queryset, get_skill_by_name_from_db
 
 if TYPE_CHECKING:
 
@@ -45,6 +47,13 @@ if TYPE_CHECKING:
 
 else:
     _SkillViewBase = object
+
+
+# A 404 offers a few near-miss names, not a listing: `skill-list` is still the way to browse.
+MAX_SKILL_NAME_SUGGESTIONS = 3
+SKILL_NAME_SUGGESTION_CUTOFF = 0.6
+# Ceiling on the names one miss compares against, so a large store cannot make a 404 expensive.
+MAX_SKILL_NAME_MATCH_CANDIDATES = 500
 
 
 # Keep this class and every endpoint mixin free of a class docstring. drf-spectacular resolves the
@@ -77,8 +86,61 @@ class SkillAccessMixin(_SkillViewBase):
 
     def _guard_object_access(self, request: Request, skill_name: str) -> Response | None:
         if self._load_skill_with_object_access(request, skill_name) is None:
-            return skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name)
         return None
+
+    def _visible_skills_queryset(self) -> QuerySet[LLMSkill]:
+        """Every active skill row this caller may read. `list` and every by-name read share it, so
+        a name the list returned can never be denied by a read as if it did not exist."""
+        return self.user_access_control.filter_queryset_by_access_level(
+            get_active_skill_queryset(self.team), resource="llm_skill"
+        )
+
+    def _skill_not_found_response(self, skill_name: str, version: int | None = None) -> Response:
+        """A 404 that answers from the same rows `list` returns.
+
+        An agent that lists a skill and then cannot read it concludes the store is inconsistent
+        and abandons the skill, so a miss has to say which of the two lookups it is: an unknown
+        name (near-miss names the caller can actually read) or a known name at an absent version
+        (the versions it does hold).
+        """
+        visible = self._visible_skills_queryset()
+        if version is not None:
+            available_versions = list(
+                visible.filter(name=skill_name).order_by("version").values_list("version", flat=True)
+            )
+            if available_versions:
+                return Response(
+                    {
+                        "detail": (
+                            f"Skill with name '{skill_name}' has no version {version}. "
+                            f"Available versions: {', '.join(str(v) for v in available_versions)}."
+                        ),
+                        "type": "skill_version_not_found",
+                        "skill_name": skill_name,
+                        "available_versions": available_versions,
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        suggestions = get_close_matches(
+            skill_name,
+            visible.filter(is_latest=True).values_list("name", flat=True)[:MAX_SKILL_NAME_MATCH_CANDIDATES],
+            n=MAX_SKILL_NAME_SUGGESTIONS,
+            cutoff=SKILL_NAME_SUGGESTION_CUTOFF,
+        )
+        detail = f"Skill with name '{skill_name}' not found."
+        if suggestions:
+            detail += " Did you mean " + ", ".join(f"'{name}'" for name in suggestions) + "?"
+        return Response(
+            {
+                "detail": detail,
+                "type": "skill_not_found",
+                "skill_name": skill_name,
+                "suggestions": suggestions,
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
 
     def _serialize_skill(
         self, skill: LLMSkill, *, body_offset: int | None = None, body_length: int | None = None

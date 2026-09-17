@@ -12,7 +12,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
@@ -36,6 +35,7 @@ import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertInt
 import { quietHoursFormError } from 'products/alerts/frontend/logic/scheduleRestrictionValidation'
 import { deriveAlertCheckPreviewSeries } from 'products/alerts/frontend/logic/trendsAlertPreview'
 import { InsightAlertNotificationSection } from 'products/alerts/frontend/views/InsightAlertNotificationSection'
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import { alertFormLogic, canCheckOngoingInterval, insightAlertKindForQuery } from '../logic/alertFormLogic'
 import { alertLogic } from '../logic/alertLogic'
@@ -223,6 +223,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                     ? {
                           calculation_interval: alert.calculation_interval,
                           schedule_restriction: alert.schedule_restriction,
+                          schedule_start_time: alert.schedule_start_time,
                           skip_weekend: alert.skip_weekend,
                           config: supportsOngoingInterval(alert.config)
                               ? { check_ongoing_interval: alert.config.check_ongoing_interval }
@@ -232,6 +233,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                 {
                     calculation_interval: alertForm.calculation_interval,
                     schedule_restriction: alertForm.schedule_restriction,
+                    schedule_start_time: alertForm.schedule_start_time,
                     skip_weekend: alertForm.skip_weekend,
                     config: supportsOngoingInterval(alertForm.config)
                         ? { check_ongoing_interval: alertForm.config.check_ongoing_interval }
@@ -242,6 +244,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             alert,
             alertForm.calculation_interval,
             alertForm.schedule_restriction,
+            alertForm.schedule_start_time,
             alertForm.skip_weekend,
             alertForm.config,
             creatingNewAlert,

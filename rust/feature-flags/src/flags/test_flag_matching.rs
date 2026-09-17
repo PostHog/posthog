@@ -802,18 +802,22 @@ mod tests {
                             name: None,
                             key: "control".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: None,
                             key: "test".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: None,
                             key: "other".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -1246,13 +1250,16 @@ mod tests {
                             name: None,
                             key: "control".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: None,
                             key: "test".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -2355,18 +2362,22 @@ mod tests {
                             name: Some("Control".to_string()),
                             key: "control".to_string(),
                             rollout_percentage: 33.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: Some("Test".to_string()),
                             key: "test".to_string(),
                             rollout_percentage: 33.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: Some("Test2".to_string()),
                             key: "test2".to_string(),
                             rollout_percentage: 34.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: Some(1),
                 ..Default::default()
@@ -2615,16 +2626,19 @@ mod tests {
                 name: Some("Control".to_string()),
                 key: "control".to_string(),
                 rollout_percentage: 10.0,
+                ..Default::default()
             },
             MultivariateFlagVariant {
                 name: Some("Test".to_string()),
                 key: "test".to_string(),
                 rollout_percentage: 30.0,
+                ..Default::default()
             },
             MultivariateFlagVariant {
                 name: Some("Test2".to_string()),
                 key: "test2".to_string(),
                 rollout_percentage: 60.0,
+                ..Default::default()
             },
         ];
 
@@ -3813,13 +3827,16 @@ mod tests {
                     name: Some("Control".to_string()),
                     key: "control".to_string(),
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     name: Some("Test".to_string()),
                     key: "test".to_string(),
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         };
 
         // Open flag: one catch-all group at 100%, everyone matches.
@@ -5100,18 +5117,22 @@ mod tests {
                             name: Some("Control".to_string()),
                             key: "control".to_string(),
                             rollout_percentage: 25.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: Some("Test".to_string()),
                             key: "test".to_string(),
                             rollout_percentage: 25.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: Some("Test2".to_string()),
                             key: "test2".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -5173,13 +5194,16 @@ mod tests {
                             name: Some("Control".to_string()),
                             key: "control".to_string(),
                             rollout_percentage: 25.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: Some("Test".to_string()),
                             key: "test".to_string(),
                             rollout_percentage: 75.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -5243,18 +5267,22 @@ mod tests {
                     key: "first-variant".to_string(),
                     name: Some("First Variant".to_string()),
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "second-variant".to_string(),
                     name: Some("Second Variant".to_string()),
                     rollout_percentage: 25.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "third-variant".to_string(),
                     name: Some("Third Variant".to_string()),
                     rollout_percentage: 25.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         };
 
         let flag_with_holdout = mock!(FeatureFlag,
@@ -5280,6 +5308,7 @@ mod tests {
                 holdout: Some(Holdout {
                     id: 1,
                     exclusion_percentage: 70.0,
+                    ..Default::default()
                 }),
                 multivariate: Some(multivariate_json.clone()),
                 aggregation_group_type_index: None,
@@ -5315,6 +5344,7 @@ mod tests {
                 holdout: Some(Holdout {
                     id: 1,
                     exclusion_percentage: 70.0,
+                    ..Default::default()
                 }),
                 multivariate: Some(multivariate_json.clone()),
                 aggregation_group_type_index: None,
@@ -5350,6 +5380,7 @@ mod tests {
                 holdout: Some(Holdout {
                     id: 1,
                     exclusion_percentage: 0.0,
+                    ..Default::default()
                 }),
                 multivariate: Some(multivariate_json),
                 aggregation_group_type_index: None,
@@ -5481,18 +5512,22 @@ mod tests {
                     key: "first-variant".to_string(),
                     name: Some("First Variant".to_string()),
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "second-variant".to_string(),
                     name: Some("Second Variant".to_string()),
                     rollout_percentage: 25.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "third-variant".to_string(),
                     name: Some("Third Variant".to_string()),
                     rollout_percentage: 25.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         };
 
         // holdout field with id and exclusion_percentage
@@ -5520,6 +5555,7 @@ mod tests {
                 holdout: Some(Holdout {
                     id: 1,
                     exclusion_percentage: 70.0,
+                    ..Default::default()
                 }),
                 multivariate: Some(multivariate_json.clone()),
                 aggregation_group_type_index: None,
@@ -5606,13 +5642,16 @@ mod tests {
                     key: "first-variant".to_string(),
                     name: Some("First Variant".to_string()),
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
                 MultivariateFlagVariant {
                     key: "second-variant".to_string(),
                     name: Some("Second Variant".to_string()),
                     rollout_percentage: 50.0,
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         };
 
         // Both formats present — new `holdout` should take precedence.
@@ -5640,6 +5679,7 @@ mod tests {
                 holdout: Some(Holdout {
                     id: 42,
                     exclusion_percentage: 70.0,
+                    ..Default::default()
                 }),
                 multivariate: Some(multivariate_json),
                 aggregation_group_type_index: None,
@@ -5715,6 +5755,7 @@ mod tests {
                 holdout: Some(Holdout {
                     id: 1,
                     exclusion_percentage: 0.0,
+                    ..Default::default()
                 }),
                 multivariate: Some(MultivariateFlagOptions {
                     variants: vec![
@@ -5722,13 +5763,16 @@ mod tests {
                             key: "control".to_string(),
                             name: None,
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             key: "test".to_string(),
                             name: None,
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -5818,6 +5862,7 @@ mod tests {
                 holdout: Some(Holdout {
                     id: 1,
                     exclusion_percentage: 100.0,
+                    ..Default::default()
                 }),
                 multivariate: Some(MultivariateFlagOptions {
                     variants: vec![
@@ -5825,13 +5870,16 @@ mod tests {
                             key: "control".to_string(),
                             name: None,
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             key: "test".to_string(),
                             name: None,
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -5897,18 +5945,22 @@ mod tests {
                             name: Some("First Variant".to_string()),
                             key: "first-variant".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: Some("Second Variant".to_string()),
                             key: "second-variant".to_string(),
                             rollout_percentage: 25.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: Some("Third Variant".to_string()),
                             key: "third-variant".to_string(),
                             rollout_percentage: 25.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -7234,13 +7286,16 @@ mod tests {
                             key: "control".to_string(),
                             name: Some("Control".to_string()),
                             rollout_percentage: 100.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             key: "test".to_string(),
                             name: Some("Test".to_string()),
                             rollout_percentage: 0.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -8205,13 +8260,16 @@ mod tests {
                             key: "control".to_string(),
                             name: Some("Control".to_string()),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             key: "test".to_string(),
                             name: Some("Test".to_string()),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -8313,13 +8371,16 @@ mod tests {
                             key: "control".to_string(),
                             name: Some("Control".to_string()),
                             rollout_percentage: 100.0, // 100% variant
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             key: "test".to_string(),
                             name: Some("Test".to_string()),
                             rollout_percentage: 0.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -10114,13 +10175,16 @@ mod tests {
                             key: "control".to_string(),
                             name: Some("Control".to_string()),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             key: "test".to_string(),
                             name: Some("Test".to_string()),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -11058,13 +11122,16 @@ mod tests {
                             name: Some("Control".to_string()),
                             key: "control".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: Some("Test".to_string()),
                             key: "test".to_string(),
                             rollout_percentage: 50.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -11449,6 +11516,7 @@ mod tests {
                 holdout: Some(Holdout {
                     id: 42,
                     exclusion_percentage: 100.0,
+                    ..Default::default()
                 }),
                 early_exit: Some(true),
                 extra: Default::default(),

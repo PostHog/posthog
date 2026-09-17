@@ -85,6 +85,7 @@ describe('TableDisplay', () => {
     it.each([
         ['Box plot', ChartDisplayType.BoxPlot],
         ['Horizontal bar chart', ChartDisplayType.ActionsBarValue],
+        ['Donut chart', ChartDisplayType.ActionsDonut],
     ])('offers %s and saves the selected display', async (label, display) => {
         const query = renderTableDisplay(`table-display-${display}`)
 

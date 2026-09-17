@@ -6,6 +6,7 @@ ee/api/agentic_provisioning/test/test_region_proxy.py::TestShouldProxyTokenLooku
 ee/api/test/test_billing.py::TestExportStreaming
 ee/api/test/test_billing.py::TestResolveTeamLabels
 ee/api/test/test_billing.py::TestRewriteCsvLabels
+ee/api/test/test_google_oauth_diagnostics.py::TestGoogleOAuthDiagnostics
 ee/api/vercel/test/test_vercel_connect.py::TestValidateNextUrl
 ee/billing/test/test_billing_consumer.py::TestBillingConsumerUsageSpike
 ee/billing/test/test_billing_manager.py::TestParamSerialization
@@ -44,7 +45,6 @@ ee/hogai/core/test/test_artifacts.py::TestVisualizationArtifactContent
 ee/hogai/core/test/test_base_callback_handlers.py::TestSubagentCallbackHandler
 ee/hogai/core/test/test_dispatcher_integration.py::TestDispatcherIntegration
 ee/hogai/research_agent/test/test_runner.py::TestResearchAgentRunnerConfiguration
-ee/hogai/stream/test/test_redis_stream.py::TestGetSubagentStreamKey
 ee/hogai/summarizers/test/test_property_filters.py::TestPropertyFilterCollectionDescriber
 ee/hogai/summarizers/test/test_property_filters.py::TestPropertyFilterDescriber
 ee/hogai/test/test_registry.py::TestToolRegistry
@@ -81,7 +81,6 @@ posthog/api/test/test_csp.py::TestCSPModule
 posthog/api/test/test_event_definition_base.py::TestEventDefinitionGeneratorBase
 posthog/api/test/test_event_definition_typescript.py::TestTypeScriptGeneratorOptionalInTypes
 posthog/api/test/test_github.py::TestRelayToEu
-posthog/api/test/test_mixins.py::TestValidatedRequestDecorator
 posthog/api/test/test_organization_domain.py::TestOrganizationDomains
 posthog/api/test/test_proxy_record_diagnostics.py::TestCheckCaa
 posthog/api/test/test_proxy_record_diagnostics.py::TestCheckCloudflare
@@ -108,7 +107,6 @@ posthog/clickhouse/client/test/test_limit.py::TestRateLimit
 posthog/clickhouse/test/test_deletion_coverage.py::TestDeletionCoverage
 posthog/clickhouse/test/test_query_tagging.py::TestAddFallbackQueryTags
 posthog/helpers/test_markdown_safety.py::TestStripExternalLinks
-posthog/helpers/tests/test_email_utils.py::TestEmailNormalizer
 posthog/helpers/tests/test_encrypted_fields.py::TestEncryptedFields
 posthog/helpers/tests/test_geoip.py::TestGeoIPDBError
 posthog/helpers/tests/test_geoip.py::TestGeoIPError
@@ -118,7 +116,6 @@ posthog/hogql/database/schema/test/test_web_analytics_s3.py::TestWebAnalyticsS3
 posthog/hogql/database/test/test_argmax.py::TestArgmax
 posthog/hogql/database/test/test_postgres_table.py::TestPostgresTablePrimaryKey
 posthog/hogql/database/test/test_s3_table_clickhouse.py::TestS3ParquetTimezoneConversion
-posthog/hogql/functions/test/test_typegen.py::TestTypegen
 posthog/hogql/printer/test/test_sql_injection_defenses.py::TestEscapePreservationOnParserOutput
 posthog/hogql/printer/test/test_sql_injection_defenses.py::TestParserPathProducesOnlyAllowlistedVerbatimValues
 posthog/hogql/printer/test/test_sql_injection_defenses.py::TestPrintTimeOnlyAllowlists
@@ -321,7 +318,6 @@ products/endpoints/backend/tests/test_rate_limit.py::TestMaterializationCache
 products/engineering_analytics/backend/tests/test_logic_workflows.py::TestCostPerMergeSeries
 products/error_tracking/backend/hogql_queries/test/test_error_tracking_pending_fingerprint_issue_state_updates.py::TestPendingUpdateUnionBuilder
 products/error_tracking/backend/test_notifications.py::TestAssignerExcludingResolver
-products/experiments/backend/hogql_queries/test/test_hogql_aggregation_integration.py::TestHogQLAggregationIntegration
 products/experiments/backend/hogql_queries/test/test_hogql_aggregation_utils.py::TestHogQLAggregationUtils
 products/experiments/backend/hogql_queries/test/test_hogql_injection.py::TestHogQLInjectionPrevention
 products/experiments/backend/hogql_queries/test/test_metric_source.py::TestMetricSourceInfo
@@ -332,7 +328,6 @@ products/exports/backend/tasks/test/test_export_utils.py::TestSiteURLReachabilit
 products/feature_flags/backend/test/test_flag_definitions_cache_tasks.py::TestCleanupStaleFlagDefinitionsExpiryTrackingTask
 products/feature_flags/backend/test/test_flag_definitions_cache_tasks.py::TestRefreshExpiringFlagDefinitionsCacheEntries
 products/feature_flags/backend/test/test_flags_cache.py::TestExtractCohortIdsFromFlagFilters
-products/feature_flags/backend/test/test_local_evaluation.py::TestExtractCohortIdsFromFilters
 products/growth/backend/temporal/signup_enrichment/tests/test_harmonic_status_poll.py::TestReportStatusPollRunActivity
 products/legal_documents/backend/tests/test_admin.py::TestLegalDocumentInlineRegistration
 products/logs/backend/test/test_logs_url_params.py::TestBuildLogsUrlParams
@@ -381,7 +376,6 @@ products/tasks/backend/temporal/process_task/tests/test_utils.py::TestBuildSandb
 products/tasks/backend/temporal/process_task/tests/test_utils.py::TestGetImportedMcpServerConfigs
 products/tasks/backend/temporal/process_task/tests/test_utils.py::TestGetRelayedMcpServerNames
 products/tasks/backend/temporal/process_task/tests/test_utils.py::TestGetSandboxGitHubToken
-products/tasks/backend/temporal/process_task/tests/test_utils.py::TestGetSandboxMcpConfigs
 products/tasks/backend/temporal/process_task/tests/test_utils.py::TestMcpServerConfigToDict
 products/tasks/backend/temporal/slack_relay/tests/test_activities.py::TestSplitTextForSlack
 products/tasks/backend/tests/test_agentsh.py::TestBuildAuditQueryCommand

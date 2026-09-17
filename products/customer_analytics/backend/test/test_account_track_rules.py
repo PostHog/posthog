@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -123,7 +123,7 @@ async def test_workflow_marks_the_run_failed_when_cancelled() -> None:
     assert execute_activity.await_args_list[1].args[0] is account_track_rule_fail_run_activity
 
 
-@freeze_time("2026-08-20T12:00:00Z")
+@time_machine.travel("2026-08-20T12:00:00Z", tick=False)
 @pytest.mark.parametrize(
     ("enabled_at", "expected_overdue", "expected_age_seconds"),
     [
@@ -378,7 +378,7 @@ class AccountTrackRulesTestMixin:
         TeamCustomerAnalyticsConfig.objects.filter(team_id=self.team.id).update(account_track_rules=config)
 
 
-@freeze_time("2026-08-20T12:00:00Z")
+@time_machine.travel("2026-08-20T12:00:00Z", tick=False)
 class TestAccountTrackRuleLogic(AccountTrackRulesTestMixin, BaseTest):
     def test_config_defaults_to_a_disabled_empty_version(self) -> None:
         config = TeamCustomerAnalyticsConfig.objects.get(team_id=self.team.id).account_track_rules

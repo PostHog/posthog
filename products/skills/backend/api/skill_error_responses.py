@@ -4,6 +4,7 @@ Every skill write funnels its service-layer errors through ``skill_write_error_r
 given failure reads the same whichever endpoint hit it.
 """
 
+from collections.abc import Callable
 from typing import Any
 
 from rest_framework import status
@@ -36,14 +37,21 @@ def version_conflict_response(current_version: int) -> Response:
     )
 
 
-def skill_write_error_response(err: Exception, skill_name: str) -> Response | None:
+def skill_write_error_response(
+    err: Exception,
+    skill_name: str,
+    *,
+    not_found_response: Callable[[str], Response] | None = None,
+) -> Response | None:
     """Render a service-layer write error. Returns None for an error with no shared rendering.
 
     A caller only reaches this for the errors it catches itself, so returning None means the caller
     caught something it has no response for and must re-raise.
     """
     if isinstance(err, LLMSkillNotFoundError):
-        return skill_not_found_response(skill_name)
+        return (
+            not_found_response(skill_name) if not_found_response is not None else skill_not_found_response(skill_name)
+        )
     if isinstance(err, LLMSkillVersionConflictError):
         return version_conflict_response(err.current_version)
     if isinstance(err, LLMSkillVersionLimitError):

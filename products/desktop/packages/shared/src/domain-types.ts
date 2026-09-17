@@ -753,6 +753,7 @@ export interface SignalReport {
   created_at: string;
   updated_at: string;
   artefact_count: number;
+  collapsed_note_count?: number;
   /** P0–P4 from priority judgment when the report is researched */
   priority?: SignalReportPriority | null;
   /** Actionability choice from the actionability judgment artefact. */
@@ -769,6 +770,11 @@ export interface SignalReport {
   source_products?: string[];
   /** PR URL from the latest implementation task run, if available. */
   implementation_pr_url?: string | null;
+  work_state?: "unclaimed" | "working" | "in_review" | "done";
+  assignee?: {
+    kind: "user" | "task" | "agent" | "system";
+    task_id: string | null;
+  } | null;
   /**
    * Whether that PR merged (GitHub webhook). A merged PR is history, not work
    * in flight: a report can outlive its fix when evidence keeps arriving, and
@@ -777,6 +783,12 @@ export interface SignalReport {
   implementation_pr_merged?: boolean;
   /** Latest known state of that PR, per the GitHub webhook. */
   implementation_pr_state?: SignalReportPrState | null;
+  /** Link to the tracker issue self-driving opened for this report's PR, when the project tracks issues. */
+  tracker_issue_url?: string | null;
+  /** How that issue reads in its provider, for example '#12' or 'ENG-123'. */
+  tracker_issue_reference?: string | null;
+  /** Why the tracker issue could not be opened, for a project that wants one. Null when it exists. */
+  tracker_issue_error?: string | null;
   /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
   charts?: SignalReportChart[];
   /** The report's PR refund, when one exists (one refund per report, ever). */

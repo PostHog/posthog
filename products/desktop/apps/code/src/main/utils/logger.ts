@@ -66,7 +66,7 @@ log.transports.file.archiveLogFn = createArchiveLogFn("main");
 const level = isDev ? "debug" : "info";
 log.transports.file.level = level;
 log.transports.console.level = level;
-log.transports.ipc.level = level;
+log.transports.ipc.level = isDev ? level : false;
 log.transports.otel = initOtelTransport(level);
 
 // File-only instance: console off, ipc off (defaults to active in dev and

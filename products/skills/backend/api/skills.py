@@ -5,11 +5,15 @@ marketplace, and community. This module wires them together with the DRF plumbin
 the concrete viewset, which is the renderers, throttles, scopes and serializer context.
 """
 
+import hashlib
 from collections.abc import Sequence
 from typing import Any, cast
+from urllib.parse import urlencode
 
 from django.db import IntegrityError
 from django.db.models import QuerySet
+from django.http import HttpResponseBase
+from django.utils.cache import get_conditional_response, patch_cache_control, patch_vary_headers
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
@@ -22,14 +26,17 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.dataclasses import frozen
+from posthog.git import get_git_commit_short
 from posthog.models import User
-from posthog.permissions import AccessControlPermission, get_authenticator_scopes
+from posthog.permissions import AccessControlPermission, is_scout_sandbox_request
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
+from posthog.renderers import SafeJSONRenderer
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
-from ..models.skills import LLMSkill
+from ..models.skills import LLMSkill, LLMSkillFile
 from .skill_analytics import record_skill_event, skill_analytics_props
 from .skill_catalog import list_queryset
 from .skill_permissions import CommunityPublishFeatureFlagPermission, CommunityPublishOwnerPermission
@@ -43,12 +50,14 @@ from .skill_serializers import (
     LLMSkillSearchResponseSerializer,
     LLMSkillSerializer,
 )
-from .skill_services import get_active_skill_queryset, resolve_skill_owners_for_names
+from .skill_services import get_active_skill_queryset, resolve_skill_owners_for_names, team_skills_version
 from .skill_throttles import (
     CommunityPublishBurstThrottle,
     CommunityPublishSustainedThrottle,
     SkillBundleBurstThrottle,
     SkillBundleSustainedThrottle,
+    SkillListBurstThrottle,
+    SkillListSustainedThrottle,
     SkillSearchBurstThrottle,
     SkillSearchSustainedThrottle,
 )
@@ -58,6 +67,12 @@ from .skill_view_lifecycle import SkillLifecycleActionsMixin
 from .skill_view_marketplace import SkillMarketplaceActionsMixin
 from .skill_view_transfer import ZIP_ACTIONS, SkillTransferActionsMixin, ZipRenderer
 from .skill_view_versions import SkillVersionActionsMixin
+
+
+@frozen
+class SkillsListValidators:
+    version: str
+    etag: str
 
 
 class LLMSkillViewSet(
@@ -98,6 +113,8 @@ class LLMSkillViewSet(
             return [SkillBundleBurstThrottle(), SkillBundleSustainedThrottle()]
         if self.action == "search":
             return [SkillSearchBurstThrottle(), SkillSearchSustainedThrottle()]
+        if self.action == "list":
+            return [SkillListBurstThrottle(), SkillListSustainedThrottle()]
         if self.action in ["update_by_name", "get_by_name", "resolve_by_name"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
         return super().get_throttles()
@@ -133,8 +150,7 @@ class LLMSkillViewSet(
         scopes, so their presence identifies a scout run. Session auth and ordinary API
         keys never carry them.
         """
-        scopes = get_authenticator_scopes(getattr(self.request, "successful_authenticator", None))
-        return scopes is not None and any(scope.startswith("signal_scout_internal:") for scope in scopes)
+        return is_scout_sandbox_request(self.request)
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
@@ -193,10 +209,30 @@ class LLMSkillViewSet(
             props=props,
         )
 
-    @extend_schema(parameters=[LLMSkillListQuerySerializer])
+    @extend_schema(
+        parameters=[LLMSkillListQuerySerializer],
+        responses={
+            200: LLMSkillListSerializer,
+            304: OpenApiResponse(
+                description="Not modified. The client sent an If-None-Match that matches the current list."
+            ),
+        },
+    )
     @llma_track_latency("llma_skills_list")
     @monitor(feature=None, endpoint="llma_skills_list", method="GET")
-    def list(self, request: Request, *args, **kwargs) -> Response:
+    def list(self, request: Request, *args, **kwargs) -> HttpResponseBase:
+        version = team_skills_version(self.team)
+        list_response = self._list_response(request)
+        validators = self._list_validators(request, list_response, version)
+        # Validate and apply access rules before a conditional response can reuse a cached body.
+        response = get_conditional_response(request._request, etag=validators.etag) or list_response
+        response["ETag"] = validators.etag
+        response["X-Skills-Version"] = validators.version
+        patch_cache_control(response, private=True, no_cache=True)
+        patch_vary_headers(response, ["Authorization", "Cookie"])
+        return response
+
+    def _list_response(self, request: Request) -> Response:
         params = self._validated_query(LLMSkillListQuerySerializer, request)
         queryset = self.filter_queryset(
             list_queryset(
@@ -218,12 +254,39 @@ class LLMSkillViewSet(
         data = serializer.data
         return Response({"count": len(data), "results": data})
 
+    def _list_validators(self, request: Request, response: Response, version: str) -> SkillsListValidators:
+        seed = urlencode(
+            [
+                ("rev", get_git_commit_short() or ""),
+                ("user", request.user.pk),
+                *sorted(request.query_params.lists()),
+            ],
+            doseq=True,
+        )
+        body = SafeJSONRenderer().render(response.data)
+        # A weak ETag identifies the data across renderer formatting and content encodings.
+        return SkillsListValidators(
+            version=version,
+            etag='W/"' + hashlib.sha256(seed.encode() + b"\0" + body).hexdigest() + '"',
+        )
+
     # `Sequence`, not `list[...]`: the viewset defines a `list` method that shadows the builtin in the
     # class body where this annotation is evaluated.
     def _list_context_with_owners(self, skills: Sequence[LLMSkill]) -> dict[str, Any]:
-        """Serializer context carrying a name→owners map, so the list serializes owners in one query."""
-        owners_by_skill_name = resolve_skill_owners_for_names(self.team, [skill.name for skill in skills])
-        return {**self.get_serializer_context(), "owners_by_skill_name": owners_by_skill_name}
+        """Serializer context carrying the per-page owners and bundled-file paths, one query each.
+
+        The list drops the file manifest but still reports `spec_problems`, which the paths decide.
+        """
+        file_paths_by_skill_id: dict[Any, list[str]] = {}
+        for skill_id, path in (
+            LLMSkillFile.objects.filter(skill__in=skills).order_by("path").values_list("skill_id", "path")
+        ):
+            file_paths_by_skill_id.setdefault(skill_id, []).append(path)
+        return {
+            **self.get_serializer_context(),
+            "owners_by_skill_name": resolve_skill_owners_for_names(self.team, [skill.name for skill in skills]),
+            "file_paths_by_skill_id": file_paths_by_skill_id,
+        }
 
     # Explicit response schema: the request serializer (`LLMSkillCreateSerializer`) exposes `owners`
     # write-only as a UUID list, but the view returns `_serialize_skill` (`LLMSkillSerializer`) with

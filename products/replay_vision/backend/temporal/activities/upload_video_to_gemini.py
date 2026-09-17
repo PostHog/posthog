@@ -20,7 +20,13 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
-from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
+from products.replay_vision.backend.temporal.gemini import (
+    classify_gemini_error,
+    classify_gemini_file_error,
+    describe_gemini_error,
+    describe_gemini_file_error,
+    gemini_api_key,
+)
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.tracking import track_uploaded_file
 from products.replay_vision.backend.temporal.types import UploadedVideo, UploadVideoToGeminiInputs
 
@@ -119,10 +125,17 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
 
     final_state = uploaded_file.state.name if uploaded_file.state else None
     if final_state != "ACTIVE":
-        raise ScannerFailureError(
-            f"Gemini file {gemini_file_name} reached non-ACTIVE state {final_state!r}",
-            kind=FailureKind.PROVIDER_REJECTED,
+        file_error = uploaded_file.error
+        kind = classify_gemini_file_error(file_error)
+        # The provider's own message can quote request content, so only its code reaches the log and the user.
+        logger.warning(
+            "replay_vision.upload_video_to_gemini.file_not_active",
+            state=final_state,
+            kind=kind.value,
+            error_code=file_error.code if file_error else None,
+            gemini_file_name=gemini_file_name,
         )
+        raise ScannerFailureError(describe_gemini_file_error(file_error), kind=kind)
     if not uploaded_file.uri:
         raise ScannerFailureError(
             f"Gemini file {gemini_file_name} reached ACTIVE but has no URI",

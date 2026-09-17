@@ -14,7 +14,6 @@ from posthog.models import User
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
 from .skill_analytics import record_skill_event, skill_analytics_props
-from .skill_error_responses import skill_not_found_response
 from .skill_serializers import LLMSkillDuplicateSerializer, LLMSkillRenameSerializer, LLMSkillSerializer
 from .skill_services import (
     LLMSkillDescriptionTooLongError,
@@ -50,7 +49,7 @@ class SkillLifecycleActionsMixin(SkillAccessMixin):
         try:
             skill_versions = archive_skill(self.team, skill_name)
         except LLMSkillNotFoundError:
-            return skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name)
 
         props = {
             "skill_name": skill_name,
@@ -98,7 +97,7 @@ class SkillLifecycleActionsMixin(SkillAccessMixin):
                 new_name=new_name,
             )
         except LLMSkillNotFoundError:
-            return skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name)
         except LLMSkillDuplicateNameConflictError:
             # nosemgrep: api-response-must-match-schema (DRF's error envelope, not a data payload)
             return Response(
@@ -154,7 +153,7 @@ class SkillLifecycleActionsMixin(SkillAccessMixin):
         try:
             renamed_skill = rename_skill(self.team, skill_name=skill_name, new_name=new_name)
         except LLMSkillNotFoundError:
-            return skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name)
         except LLMSkillDuplicateNameConflictError:
             raise serializers.ValidationError(
                 {"new_name": "A skill with this name already exists."},

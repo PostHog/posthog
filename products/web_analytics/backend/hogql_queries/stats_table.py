@@ -553,7 +553,7 @@ WHERE and(
         return True if get_query_tag_value("precompute_stale") else None
 
     def get_lazy_precomputed_result(self) -> Optional[LazyStatsResult]:
-        if not can_use_lazy_precompute(self):
+        if self.query.includeTrafficMetrics or not can_use_lazy_precompute(self):
             return None
         return execute_lazy_precomputed_read(self)
 
@@ -597,7 +597,7 @@ WHERE and(
         Returns None when ineligible or on any failure, in which case the caller
         falls through to the v2/raw HogQL path.
         """
-        if not can_use_paths_lazy_precompute(self):
+        if self.query.includeTrafficMetrics or not can_use_paths_lazy_precompute(self):
             return None
         sort_column, sort_direction = self._resolve_sort_field()
         limit = self.paginator.limit
@@ -1002,6 +1002,12 @@ WHERE and(
                 return first_pageview_filter_value_expr(breakdown, modifiers=self.modifiers, timings=self.timings)
             case WebStatsBreakdown.BROWSER:
                 return ast.Field(chain=["properties", "$browser"])
+            case WebStatsBreakdown.IN_APP_BROWSER:
+                # Non-in-app traffic has no $webview_app, so it drops out via the default
+                # outer_where_breakdown branch (IS NOT NULL). That is intentional: this tile lists
+                # the host apps, not a dominant "(not set)" row for everyone else, so its total does
+                # not reconcile with the overview. Do not add it to the "(not set)" list below.
+                return ast.Field(chain=["properties", "$webview_app"])
             case WebStatsBreakdown.OS:
                 return ast.Field(chain=["properties", "$os"])
             case WebStatsBreakdown.VIEWPORT:

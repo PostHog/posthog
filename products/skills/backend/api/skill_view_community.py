@@ -22,8 +22,11 @@ from .community_publish_services import (
     publishable_tags,
 )
 from .skill_analytics import record_skill_event, skill_analytics_props
-from .skill_error_responses import skill_not_found_response
-from .skill_serializers import CommunitySkillPublishResultSerializer, LLMSkillPublishToCommunitySerializer
+from .skill_serializers import (
+    CommunitySkillPublishResultSerializer,
+    LLMSkillPublishConflictSerializer,
+    LLMSkillPublishToCommunitySerializer,
+)
 from .skill_view_access import SkillAccessMixin
 
 logger = structlog.get_logger(__name__)
@@ -32,7 +35,10 @@ logger = structlog.get_logger(__name__)
 # Reachable only through CommunityPublishOwnerPermission and the publish throttles, which live in
 # skill_permissions and skill_throttles.
 class SkillCommunityPublishMixin(SkillAccessMixin):
-    @extend_schema(request=LLMSkillPublishToCommunitySerializer, responses={201: CommunitySkillPublishResultSerializer})
+    @extend_schema(
+        request=LLMSkillPublishToCommunitySerializer,
+        responses={201: CommunitySkillPublishResultSerializer, 409: LLMSkillPublishConflictSerializer},
+    )
     @action(
         methods=["POST"],
         detail=False,
@@ -48,10 +54,21 @@ class SkillCommunityPublishMixin(SkillAccessMixin):
 
         skill = self._load_skill_with_object_access(request, skill_name)
         if skill is None:
-            return skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name)
 
         payload = LLMSkillPublishToCommunitySerializer(data=request.data)
         payload.is_valid(raise_exception=True)
+
+        if (
+            skill.id != payload.validated_data["expected_skill_id"]
+            or skill.version != payload.validated_data["expected_version"]
+        ):
+            return Response(
+                {
+                    "detail": "This skill changed after you reviewed it. Reopen the dialog and review the latest version."
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         files = [{"path": f.path, "content": f.content, "content_type": f.content_type} for f in skill.files.all()]
         supplied_tags = payload.validated_data.get("tags")

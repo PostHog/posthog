@@ -49,6 +49,19 @@ All in `posthog/api/feature_flag.py` unless noted otherwise.
 
 Standard REST on `/api/projects/{id}/feature_flags/`. Hard `DELETE` is blocked — use `PATCH` with `deleted: true` for soft delete.
 
+The v1 write API rejects an incoming `filters.version` key with HTTP 400 and code
+`reserved_config_version`, regardless of `FEATURE_FLAG_FILTERS_ENFORCED_RULES`.
+Omit that key when creating or updating targeting. The top-level `version` field
+still provides optimistic concurrency control.
+
+Stored filters with an absent version or numeric 1 use the existing v1 path.
+Updates reject other stored formats with `unsupported_config_version`, including writes that omit filters or send `{}`.
+This check does not migrate existing configurations.
+
+Ordinary POST, PUT, and PATCH writes route through the feature flag facade.
+The serializer remains the v1 validation, approval, and persistence adapter.
+See [API write ownership](api-writes.md) for the call path and transaction boundary.
+
 ### Custom actions
 
 | Method | URL                                                     | Description                                                                     |

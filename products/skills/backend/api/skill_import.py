@@ -5,14 +5,14 @@ from typing import Any
 
 from rest_framework import serializers
 
-from ..marketplace.packaging import SkillExport, SkillFileExport, validate_for_export
+from ..marketplace.packaging import SkillExport, SkillFileExport
 from .skill_serializers import (
     MAX_SKILL_FILE_BYTES,
     validate_allowed_tool,
+    validate_new_skill_name_value,
     validate_skill_body_size,
-    validate_skill_file_path,
-    validate_skill_name_value,
 )
+from .skill_services import compute_spec_problems, skill_name_is_well_formed
 
 # Generous ceiling for an uploaded skill zip — per-skill content (body, 200 files × 1 MB) is
 # already bounded by create_skill, this just caps the upload before we read it into memory.
@@ -25,20 +25,34 @@ def import_problems(skill_export: SkillExport) -> list[str]:
     The import path calls create_skill directly, so it must re-apply the same size/shape limits the
     create/edit serializers enforce — otherwise a spec-valid zip could persist content (oversized
     body/files, whitespace-bearing tools) the rest of the system assumes is bounded.
-    validate_for_export already covers the description (non-empty, <= spec limit).
+    The shared spec rules cover the description, name shape, and bundled-file paths.
     """
     return [
-        *validate_for_export(skill_export),
+        *_spec_problem_messages(skill_export),
         *_metadata_problems(skill_export),
         *_file_problems(skill_export.files),
     ]
 
 
-def _metadata_problems(skill_export: SkillExport) -> list[str]:
-    problems = [
-        *_validation_problem("name", validate_skill_name_value, skill_export.name),
-        *_validation_problem("body", validate_skill_body_size, skill_export.body),
+def _spec_problem_messages(skill_export: SkillExport) -> list[str]:
+    """Render the shared packaging problems in the flat format used by API responses."""
+    return [
+        f"file '{problem.file_path}': {problem.message}" if problem.file_path else problem.message
+        for problem in compute_spec_problems(
+            skill_export.name,
+            skill_export.description,
+            [skill_file.path for skill_file in skill_export.files],
+        )
     ]
+
+
+def _metadata_problems(skill_export: SkillExport) -> list[str]:
+    problems: list[str] = []
+    # The reserved-name and bundled-name rules are all this adds on top of the shape rules above,
+    # so calling it for a malformed name would report that defect twice.
+    if skill_name_is_well_formed(skill_export.name):
+        problems += _validation_problem("name", validate_new_skill_name_value, skill_export.name)
+    problems += _validation_problem("body", validate_skill_body_size, skill_export.body)
     for tool in skill_export.allowed_tools:
         problems += _validation_problem(f"allowed-tools '{tool}'", validate_allowed_tool, tool)
     if len(skill_export.license) > 255:
@@ -50,15 +64,13 @@ def _metadata_problems(skill_export: SkillExport) -> list[str]:
 
 def _file_problems(files: Sequence[SkillFileExport]) -> list[str]:
     problems: list[str] = []
-    seen_lower: set[str] = set()
     for skill_file in files:
-        problems += _validation_problem(f"file '{skill_file.path}'", validate_skill_file_path, skill_file.path)
+        # create_skill inserts the files with bulk_create, which runs no model validation, so a
+        # path the column cannot hold reaches Postgres as a DataError and fails the request.
+        if len(skill_file.path) > 500:
+            problems.append(f"file '{skill_file.path}': path must be 500 characters or fewer")
         if len(skill_file.content.encode("utf-8")) > MAX_SKILL_FILE_BYTES:
             problems.append(f"file '{skill_file.path}': content must be {MAX_SKILL_FILE_BYTES} bytes or fewer")
-        lowered = skill_file.path.lower()
-        if lowered in seen_lower:
-            problems.append(f"file '{skill_file.path}': collides with another file (case-insensitive)")
-        seen_lower.add(lowered)
     return problems
 
 

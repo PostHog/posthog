@@ -476,6 +476,24 @@ describe('ValueLabels', () => {
         ).toEqual(['20%', '40%', '60%', '80%'])
     })
 
+    it('centers labels inside horizontal percent segments, including the final segment', () => {
+        const series: ResolvedSeries[] = [
+            { key: 'a', label: 'A', color: '#f00', data: [20] },
+            { key: 'b', label: 'B', color: '#ff0', data: [30] },
+            { key: 'c', label: 'C', color: '#0f0', data: [50] },
+        ]
+        const tops: Record<string, number> = { a: 0.2, b: 0.5, c: 1 }
+        const ctx = makeContext(series, {
+            isPercent: true,
+            axisOrientation: 'horizontal',
+            labels: ['Mon'],
+            scales: { x: xScale, y: (value) => 48 + value * 720, yTicks: () => [] },
+            resolvePositionValue: (s) => tops[s.key],
+        })
+        const { container } = renderInChart(ctx, <ValueLabels position="center" />)
+        expect(labelDivs(container).map((label) => label.style.left)).toEqual(['120px', '300px', '588px'])
+    })
+
     describe('offset', () => {
         it('nudges a vertical above-label up by the offset', () => {
             const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [50] }]

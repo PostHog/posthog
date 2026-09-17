@@ -453,7 +453,9 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
             # The underlying resource (e.g. a cohort) can be deleted or become unresolvable
             # mid-export, which surfaces as a 404 partway through pagination. Treat that as
             # end-of-data and return what we have rather than failing the whole export.
-            if e.response is not None and e.response.status_code == 404:
+            # A 404 on the first page is a different thing: the path never resolved, so
+            # there is nothing to return and an empty file would read as a successful export.
+            if e.response is not None and e.response.status_code == 404 and total > 0:
                 logger.warning(
                     "csv_exporter.resource_gone",
                     exc=e,

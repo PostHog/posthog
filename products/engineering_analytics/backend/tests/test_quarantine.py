@@ -5,19 +5,19 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest import TestCase, mock
 
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
-from django.urls import resolve
 
 import requests
 from parameterized import parameterized
 from rest_framework import status
 
 from products.engineering_analytics.backend.facade import contracts
+from products.engineering_analytics.backend.logic.ownership import PlacedTest, RepoOwnershipResult
 from products.engineering_analytics.backend.logic.quarantine import (
     QUARANTINE_FILENAME,
     _canonical_entry,
@@ -31,7 +31,13 @@ from products.engineering_analytics.backend.logic.quarantine import (
     render_quarantine_file,
     request_quarantine,
 )
+from products.engineering_analytics.backend.logic.queries.trunk_quarantine import (
+    _LIMIT as QUARANTINE_LIMIT,
+    query_trunk_quarantine_debt,
+)
 from products.engineering_analytics.backend.presentation.serializers.suite_health import QuarantineRequestSerializer
+
+_TRUNK_QUARANTINE = "products.engineering_analytics.backend.logic.queries.trunk_quarantine"
 
 _TODAY = date(2026, 6, 12)
 _REQUESTS_GET = "products.engineering_analytics.backend.logic.quarantine.requests.get"
@@ -234,7 +240,7 @@ class TestQuarantineBuild(BaseTest):
         super().setUp()
         cache.clear()
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_fetches_and_parses_remote_file(self) -> None:
         with mock.patch(_REQUESTS_GET, return_value=_response(200, _text(_entry()))) as get:
             result = build_quarantine(team=self.team, repo="PostHog/posthog")
@@ -249,7 +255,7 @@ class TestQuarantineBuild(BaseTest):
             "https://raw.githubusercontent.com/PostHog/posthog/HEAD/.test_quarantine.json", timeout=3, stream=True
         )
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_404_means_unavailable_without_errors(self) -> None:
         with mock.patch(_REQUESTS_GET, return_value=_response(404)):
             result = build_quarantine(team=self.team, repo="PostHog/posthog")
@@ -265,7 +271,7 @@ class TestQuarantineBuild(BaseTest):
             ("server_error", 500),
         ]
     )
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_fetch_failure_reported_as_single_parse_error(self, _name: str, failure: Exception | int) -> None:
         kwargs: dict[str, Any] = (
             {"side_effect": failure} if isinstance(failure, Exception) else {"return_value": _response(failure)}
@@ -277,7 +283,7 @@ class TestQuarantineBuild(BaseTest):
         assert len(result.parse_errors) == 1 and "could not fetch" in result.parse_errors[0]
 
     @parameterized.expand(["PostHog", "Post Hog/repo", "PostHog/po$thog", "-bad/repo", "a/b/c", "PostHog/"])
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_invalid_repo_rejected_before_fetch(self, repo: str) -> None:
         with mock.patch(_REQUESTS_GET) as get:
             result = build_quarantine(team=self.team, repo=repo)
@@ -286,7 +292,7 @@ class TestQuarantineBuild(BaseTest):
         assert len(result.parse_errors) == 1 and "invalid repo" in result.parse_errors[0]
         get.assert_not_called()
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_caches_fetched_text(self) -> None:
         with mock.patch(_REQUESTS_GET, return_value=_response(200, _text(_entry()))) as get:
             build_quarantine(team=self.team, repo="PostHog/posthog")
@@ -295,7 +301,7 @@ class TestQuarantineBuild(BaseTest):
         assert get.call_count == 1
         assert result.available is True and len(result.entries) == 1
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_oversized_streamed_body_rejected_and_not_cached(self) -> None:
         # No Content-Length header: the cap must hold on the streamed bytes, and a
         # hostile oversize response must not poison the cache for the next caller.
@@ -308,7 +314,7 @@ class TestQuarantineBuild(BaseTest):
         assert second.available is False
         assert get.call_count == 2
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_oversized_content_length_rejected_before_reading_body(self) -> None:
         response = _response(200, _text(_entry()), headers={"Content-Length": str(10 * 1024 * 1024)})
         with mock.patch(_REQUESTS_GET, return_value=response):
@@ -317,7 +323,7 @@ class TestQuarantineBuild(BaseTest):
         assert result.available is False and "exceeds" in result.parse_errors[0]
         response.iter_content.assert_not_called()
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_resolves_most_active_repo_from_workflow_runs(self) -> None:
         source = _curated_source([("PostHog", "posthog.com")])
         with (
@@ -329,7 +335,7 @@ class TestQuarantineBuild(BaseTest):
         assert result.repo == contracts.RepoRef(provider="github", owner="PostHog", name="posthog.com")
         assert source.run.call_args.kwargs["query_type"] == "engineering_analytics.quarantine_repo"
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_no_recent_runs_means_unavailable(self) -> None:
         with (
             mock.patch(_FOR_TEAM, return_value=_curated_source([])),
@@ -341,7 +347,7 @@ class TestQuarantineBuild(BaseTest):
         assert len(result.parse_errors) == 1 and "could not determine a repository" in result.parse_errors[0]
         get.assert_not_called()
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_no_connected_source_is_fail_open(self) -> None:
         with (
             mock.patch(_FOR_TEAM, side_effect=contracts.GitHubSourceNotConnectedError("no GitHub source connected")),
@@ -353,7 +359,7 @@ class TestQuarantineBuild(BaseTest):
         assert "pass ?repo=owner/name" in result.parse_errors[0]
         get.assert_not_called()
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_debug_reads_local_checkout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / QUARANTINE_FILENAME).write_text(_text(_entry()))
@@ -370,14 +376,11 @@ class TestQuarantineAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         cache.clear()
-        # Warm the lazy API router before any frozen clock: the process's first resolution builds
-        # the view classes, and building them under freezegun raises a metaclass conflict.
-        resolve(self._url())
 
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/engineering_analytics/quarantine/"
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_quarantine_serializes(self) -> None:
         with mock.patch(_REQUESTS_GET, return_value=_response(200, _text(_entry()))):
             response = self.client.get(self._url(), {"repo": "PostHog/posthog"})
@@ -537,7 +540,7 @@ class TestQuarantineRequest(BaseTest):
         integration_cls.objects.filter.return_value.first.return_value = object() if has_integration else None
         return github
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_quarantine_opens_issue_then_pr_and_writes_canonical_entry(self) -> None:
         github = self._install(_github_mock())
         result = request_quarantine(team=self.team, request=_request())
@@ -566,14 +569,14 @@ class TestQuarantineRequest(BaseTest):
             ("jest_runner", {"runner": contracts.QuarantineRunner.JEST}, "runner", "jest"),
         ]
     )
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_request_field_is_persisted(self, _name: str, overrides: dict[str, Any], key: str, expected: str) -> None:
         github = self._install(_github_mock())
         request_quarantine(team=self.team, request=_request(**overrides))
         entry = json.loads(github.update_file.call_args.args[2])["entries"][0]
         assert entry[key] == expected
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_extend_reuses_existing_issue_and_files_no_new_one(self) -> None:
         existing = _text(_entry(expires="2026-06-15", issue="https://github.com/PostHog/posthog/issues/7"))
         github = self._install(_github_mock(get_file_contents={"content": existing, "sha": "s"}))
@@ -592,7 +595,7 @@ class TestQuarantineRequest(BaseTest):
         assert entry["expires"] == "2026-06-25"
         assert entry["issue"] == "https://github.com/PostHog/posthog/issues/7"
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_remove_drops_the_entry_without_an_issue(self) -> None:
         github = self._install(_github_mock(get_file_contents={"content": _text(_entry()), "sha": "s"}))
         result = request_quarantine(
@@ -603,7 +606,7 @@ class TestQuarantineRequest(BaseTest):
         assert result.issue_url == "" and result.branch.startswith("unquarantine/")
         assert json.loads(github.update_file.call_args.args[2])["entries"] == []
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_remove_of_absent_entry_is_a_clear_error(self) -> None:
         github = self._install(_github_mock(get_file_contents={"content": _text(), "sha": "s"}))
         with self.assertRaises(contracts.QuarantineWriteError):
@@ -613,19 +616,19 @@ class TestQuarantineRequest(BaseTest):
             )
         github.create_branch.assert_not_called()
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_no_github_integration_is_a_clear_error(self) -> None:
         self._install(_github_mock(), has_integration=False)
         with self.assertRaises(contracts.QuarantineWriteError):
             request_quarantine(team=self.team, request=_request())
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_app_installed_on_wrong_org_is_rejected(self) -> None:
         self._install(_github_mock(organization="SomeoneElse"))
         with self.assertRaises(contracts.QuarantineWriteError):
             request_quarantine(team=self.team, request=_request())
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_explicit_repo_outside_the_team_is_rejected_before_any_write(self) -> None:
         # A client-supplied repo the team hasn't connected as a GitHub source must not get the
         # App's write token, even when it sits in the install's org.
@@ -641,7 +644,7 @@ class TestQuarantineRequest(BaseTest):
             ("api_failure", Exception("Failed to get default branch: HTTP 404")),
         ]
     )
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_github_failure_becomes_a_user_safe_error_not_a_500(self, _name: str, failure: Exception) -> None:
         # get_default_branch raises plain ValueError/Exception, not QuarantineWriteError; without
         # translation those escape as a 500 instead of the user-safe 400 the rest of the path gives.
@@ -651,7 +654,7 @@ class TestQuarantineRequest(BaseTest):
             request_quarantine(team=self.team, request=_request())
         github.create_branch.assert_not_called()
 
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_malformed_existing_file_aborts_without_writing(self) -> None:
         github = self._install(_github_mock(get_file_contents={"content": "{ not json", "sha": "s"}))
         with self.assertRaises(contracts.QuarantineWriteError):
@@ -664,14 +667,14 @@ class TestQuarantineRequest(BaseTest):
             ("too_far", date(2026, 8, 1)),
         ]
     )
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_expiry_bounds_are_enforced(self, _name: str, expires: date) -> None:
         self._install(_github_mock())
         with self.assertRaises(contracts.QuarantineWriteError):
             request_quarantine(team=self.team, request=_request(expires=expires))
 
     @parameterized.expand([("reason", {"reason": ""}), ("owner", {"owner": ""})])
-    @freeze_time("2026-06-12")
+    @time_machine.travel("2026-06-12", tick=False)
     def test_quarantine_requires_reason_and_owner(self, _name: str, overrides: dict[str, Any]) -> None:
         self._install(_github_mock())
         with self.assertRaises(contracts.QuarantineWriteError):
@@ -772,3 +775,61 @@ class TestQuarantineRequestValidation(SimpleTestCase):
 
         assert not serializer.is_valid()
         assert serializer.errors[field][0].code == code
+
+
+class _StubCurated:
+    def __init__(self, rows: list[tuple[Any, ...]]) -> None:
+        self.repository = "PostHog/posthog"
+        self._rows = rows
+        self.sql = ""
+
+    def trunk_quarantined_tests_source(self) -> str:
+        return "(SELECT 1)"
+
+    def trunk_org_url_slug(self) -> str | None:
+        return None
+
+    def run(self, sql: str, **_kwargs: Any) -> SimpleNamespace:
+        self.sql = sql
+        return SimpleNamespace(results=self._rows)
+
+
+class TestTrunkQuarantineDebtTruncation(TestCase):
+    @staticmethod
+    def _rows(count: int) -> list[tuple[Any, ...]]:
+        return [
+            (
+                "pytest",
+                f"test_{index}",
+                f"products/a/test_{index}.py",
+                "",
+                "quarantined",
+                "always",
+                f"case-{index}",
+                datetime(2026, 1, 1, tzinfo=UTC),
+            )
+            for index in range(count)
+        ]
+
+    @parameterized.expand(
+        [("under the cap", QUARANTINE_LIMIT - 1, False), ("over the cap", QUARANTINE_LIMIT + 1, True)]
+    )
+    def test_rollup_never_counts_more_tests_than_it_returns(self, _name: str, row_count: int, truncated: bool) -> None:
+        curated = _StubCurated(self._rows(row_count))
+
+        def place(_repository: str, tests: list[Any]) -> RepoOwnershipResult:
+            return RepoOwnershipResult(tests=[PlacedTest(path="p", owner_team="team-a")] * len(tests), resolved=True)
+
+        with mock.patch(f"{_TRUNK_QUARANTINE}.resolve_test_ownership", side_effect=place):
+            debt = query_trunk_quarantine_debt(
+                curated=curated,  # type: ignore[arg-type]
+                ttl_days=30,
+                now=datetime(2026, 6, 1, tzinfo=UTC),
+            )
+        kept = min(row_count, QUARANTINE_LIMIT)
+
+        assert f"LIMIT {QUARANTINE_LIMIT + 1}" in curated.sql
+        assert debt.truncated is truncated
+        assert debt.limit == QUARANTINE_LIMIT
+        assert {test.nodeid for test in debt.tests} == {f"test_{index}" for index in range(kept)}
+        assert sum(team.test_count for team in debt.teams) == kept

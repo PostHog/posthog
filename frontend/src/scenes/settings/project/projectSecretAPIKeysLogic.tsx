@@ -29,7 +29,7 @@ export type EditingProjectKeyFormValues = ProjectSecretAPIKeyRequest & {
     preset?: string
 }
 
-export const MAX_PROJECT_API_KEYS_PER_PROJECT = 10
+export const MAX_PROJECT_API_KEYS_PER_PROJECT = 50
 
 // llm_gateway powers the new AI gateway here, so label it "AI gateway" (PAKs keep "LLM gateway").
 const PROJECT_SECRET_SCOPE_OBJECT_NAMES: Record<string, string> = {

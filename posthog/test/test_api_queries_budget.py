@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -10,9 +11,11 @@ from parameterized import parameterized
 
 from posthog.api_queries_budget import (
     API_QUERIES_BUDGET_ERRORS_COUNTER,
+    BUDGET_KEY_PREFIX,
     BudgetSpec,
     QueryCost,
     budget_spec_for,
+    claim_limited_event,
     debit,
     get_request_query_cost,
     record_request_query_cost,
@@ -22,6 +25,7 @@ from posthog.api_queries_budget import (
 )
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
+from posthog.redis import get_client
 
 SPEC = BudgetSpec(bytes_per_hour=3600.0, capacity_bytes=7200.0)
 
@@ -86,6 +90,21 @@ class TestTokenBucket(BaseTest):
             assert debit("team-a", 1) is None
         assert API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="read")._value.get() == read_before + 1
         assert API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="debit")._value.get() == debit_before + 1
+
+
+class TestLimitedEventClaim(SimpleTestCase):
+    def test_first_claim_per_team_wins_for_an_hour(self):
+        team_a, team_b = f"team-{uuid4()}", f"team-{uuid4()}"
+        assert claim_limited_event(team_a) is True
+        assert claim_limited_event(team_a) is False
+        assert claim_limited_event(team_b) is True
+        assert get_client().ttl(f"{BUDGET_KEY_PREFIX}limited-event/{team_a}") > 0
+
+    def test_redis_errors_skip_the_event_and_count(self):
+        before = API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event")._value.get()
+        with patch("posthog.api_queries_budget.get_client", side_effect=Exception("redis down")):
+            assert claim_limited_event(f"team-{uuid4()}") is False
+        assert API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event")._value.get() == before + 1
 
 
 class TestRequestQueryCost(SimpleTestCase):

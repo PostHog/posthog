@@ -19,7 +19,7 @@ from products.ai_observability.backend.api.metrics import llma_track_latency
 
 from ..models.skills import LLMSkillFile
 from .skill_analytics import file_extension, record_skill_event, skill_analytics_props
-from .skill_error_responses import skill_not_found_response, skill_write_error_response
+from .skill_error_responses import skill_write_error_response
 from .skill_serializers import (
     LLMSkillFetchQuerySerializer,
     LLMSkillFileCreateSerializer,
@@ -74,7 +74,7 @@ class SkillFileActionsMixin(SkillAccessMixin):
         version = cast(int | None, version_params.get("version"))
         skill = self._load_skill_with_object_access(request, skill_name, version)
         if skill is None:
-            return skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         safe_path = _safe_file_path(file_path)
         if safe_path is None:
@@ -127,7 +127,7 @@ class SkillFileActionsMixin(SkillAccessMixin):
             LLMSkillFileLimitError,
             LLMSkillDescriptionTooLongError,
         ) as err:
-            response = skill_write_error_response(err, skill_name)
+            response = skill_write_error_response(err, skill_name, not_found_response=self._skill_not_found_response)
             if response is None:
                 raise
             return response
@@ -191,7 +191,7 @@ class SkillFileActionsMixin(SkillAccessMixin):
             LLMSkillFileLimitError,
             LLMSkillDescriptionTooLongError,
         ) as err:
-            response = skill_write_error_response(err, skill_name)
+            response = skill_write_error_response(err, skill_name, not_found_response=self._skill_not_found_response)
             if response is None:
                 raise
             return response
@@ -253,7 +253,7 @@ class SkillFileActionsMixin(SkillAccessMixin):
             LLMSkillFileLimitError,
             LLMSkillDescriptionTooLongError,
         ) as err:
-            response = skill_write_error_response(err, skill_name)
+            response = skill_write_error_response(err, skill_name, not_found_response=self._skill_not_found_response)
             if response is None:
                 raise
             return response

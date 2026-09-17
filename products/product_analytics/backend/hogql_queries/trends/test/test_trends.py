@@ -6,7 +6,7 @@ from typing import Any, Optional, Union, cast
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -191,7 +191,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         if use_time:
             freeze_args = freeze_with_time
 
-        with freeze_time(freeze_args[0]):
+        with time_machine.travel(freeze_args[0], tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -199,7 +199,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "value", "$bool_prop": True},
             )
 
-        with freeze_time(freeze_args[1]):
+        with time_machine.travel(freeze_args[1], tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -213,7 +213,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$bool_prop": False},
             )
             self._create_event(team=self.team, event="sign up", distinct_id="blabla")
-        with freeze_time(freeze_args[2]):
+        with time_machine.travel(freeze_args[2], tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -243,7 +243,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def _create_breakdown_events(self):
         freeze_without_time = ["2020-01-02"]
 
-        with freeze_time(freeze_without_time[0]):
+        with time_machine.travel(freeze_without_time[0], tick=False):
             for i in range(25):
                 self._create_event(
                     team=self.team,
@@ -256,7 +256,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def _create_breakdown_url_events(self):
         freeze_without_time = ["2020-01-02"]
 
-        with freeze_time(freeze_without_time[0]):
+        with time_machine.travel(freeze_without_time[0], tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -290,7 +290,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             properties={"fruit": "tomato"},
         )
 
-        with freeze_time("2020-01-01 00:06:02"):
+        with time_machine.travel("2020-01-01 00:06:02", tick=False):
             self._create_event(
                 team=self.team,
                 event="viewed video",
@@ -316,7 +316,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$group_0": "kiki"},
             )
 
-        with freeze_time("2020-01-03 19:06:34"):
+        with time_machine.travel("2020-01-03 19:06:34", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -324,7 +324,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$group_0": "kiki"},
             )
 
-        with freeze_time("2020-01-04 23:17:00"):
+        with time_machine.travel("2020-01-04 23:17:00", tick=False):
             self._create_event(
                 team=self.team,
                 event="viewed video",
@@ -332,7 +332,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"color": "red", "$group_0": "kiki"},
             )
 
-        with freeze_time("2020-01-05 19:06:34"):
+        with time_machine.travel("2020-01-05 19:06:34", tick=False):
             self._create_event(
                 team=self.team,
                 event="viewed video",
@@ -360,7 +360,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_trends_per_day(self):
         self._create_events()
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             # with self.assertNumQueries(16):
             response = self._run(
                 Filter(
@@ -387,7 +387,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             type=PropertyDefinition.Type.EVENT,
         )
 
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             self._run(
                 Filter(
                     team=self.team,
@@ -435,7 +435,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             type=PropertyDefinition.Type.EVENT,
         )
 
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             self._run(
                 Filter(
                     team=self.team,
@@ -483,7 +483,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             type=PropertyDefinition.Type.EVENT,
         )
 
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             self._run(
                 Filter(
                     team=self.team,
@@ -525,7 +525,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_trends_per_day_48hours(self):
         self._create_events()
-        with freeze_time("2020-01-03T13:00:01Z"):
+        with time_machine.travel("2020-01-03T13:00:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -544,7 +544,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_trends_per_day_cumulative(self):
         self._create_events()
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -566,7 +566,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_trends_per_day_dau_cumulative(self):
         self._create_events()
-        with freeze_time("2020-01-03T13:00:01Z"):
+        with time_machine.travel("2020-01-03T13:00:01Z", tick=False):
             self._create_person(
                 team_id=self.team.pk,
                 distinct_ids=["new_user"],
@@ -579,7 +579,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "value", "$bool_prop": False},
             )
             flush_persons_and_events()
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -609,7 +609,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             group_type_index=0,
         )
         self._create_event_count_per_actor_events()
-        with freeze_time("2020-01-06T13:00:01Z"):
+        with time_machine.travel("2020-01-06T13:00:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -641,7 +641,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             group_type_index=0,
         )
         self._create_event_count_per_actor_events()
-        with freeze_time("2020-01-06T13:00:01Z"):
+        with time_machine.travel("2020-01-06T13:00:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -668,7 +668,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_trends_breakdown_cumulative(self):
         self._create_events()
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -698,7 +698,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_trends_breakdown_normalize_url(self):
         self._create_breakdown_url_events()
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -720,7 +720,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_trends_single_aggregate_dau(self):
         self._create_events()
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             daily_response = self._run(
                 Filter(
                     team=self.team,
@@ -733,7 +733,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             weekly_response = self._run(
                 Filter(
                     team=self.team,
@@ -759,7 +759,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["blabla", "anonymous_id"],
             properties={"$some_prop": "some_val"},
         )
-        with freeze_time("2020-01-01 00:06:34"):
+        with time_machine.travel("2020-01-01 00:06:34", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -791,7 +791,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$math_prop": 3},
             )
 
-        with freeze_time("2020-01-02 00:06:34"):
+        with time_machine.travel("2020-01-02 00:06:34", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -805,7 +805,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$math_prop": 4},
             )
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             daily_response = self._run(
                 Filter(
                     team=self.team,
@@ -824,7 +824,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             weekly_response = self._run(
                 Filter(
                     team=self.team,
@@ -929,7 +929,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         # Fourth session lasted 15 seconds
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             daily_response = self._run(
                 Filter(
                     team=self.team,
@@ -948,7 +948,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             weekly_response = self._run(
                 Filter(
                     team=self.team,
@@ -1052,7 +1052,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         # Fourth session lasted 15 seconds
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -1097,7 +1097,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             name="cohort3",
             groups=[{"properties": [{"key": "name", "value": "Jill", "type": "person"}]}],
         )
-        with freeze_time("2020-01-01 00:06:34"):
+        with time_machine.travel("2020-01-01 00:06:34", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -1129,7 +1129,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "value", "$browser": "Safari"},
             )
 
-        with freeze_time("2020-01-02 00:06:34"):
+        with time_machine.travel("2020-01-02 00:06:34", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -1142,7 +1142,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="Jane",
                 properties={"$some_property": "value", "$browser": "Safari"},
             )
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             event_response = self._run(
                 Filter(
                     team=self.team,
@@ -1172,7 +1172,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["blabla", "anonymous_id"],
             properties={"$some_prop": "some_val"},
         )
-        with freeze_time("2020-01-01 00:06:34"):
+        with time_machine.travel("2020-01-01 00:06:34", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -1204,7 +1204,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "value", "$browser": "Safari"},
             )
 
-        with freeze_time("2020-01-02 00:06:34"):
+        with time_machine.travel("2020-01-02 00:06:34", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -1218,7 +1218,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "value", "$browser": "Safari"},
             )
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             daily_response = self._run(
                 Filter(
                     team=self.team,
@@ -1243,7 +1243,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["blabla", "anonymous_id"],
             properties={"$some_prop": "some_val"},
         )
-        with freeze_time("2020-01-01 00:06:34"):
+        with time_machine.travel("2020-01-01 00:06:34", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -1275,7 +1275,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "value", "$browser": "Safari", "$variant": "2"},
             )
 
-        with freeze_time("2020-01-02 00:06:34"):
+        with time_machine.travel("2020-01-02 00:06:34", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -1289,7 +1289,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "value", "$browser": "Safari", "$variant": "2"},
             )
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -1327,7 +1327,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["blabla", "anonymous_id"],
             properties={"$some_prop": "some_val"},
         )
-        with freeze_time("2020-01-01 00:06:34"):
+        with time_machine.travel("2020-01-01 00:06:34", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -1380,7 +1380,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 person_id="00000000-0000-0000-0000-000000000000",
             )
 
-        with freeze_time("2020-01-02 00:06:34"):
+        with time_machine.travel("2020-01-02 00:06:34", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -1408,7 +1408,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 person_id="00000000-0000-0000-0000-000000000000",
             )
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             daily_response = self._run(
                 Filter(
                     team=self.team,
@@ -1428,7 +1428,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.assertEqual(result["aggregated_value"], 5)
 
         # multiple
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             daily_response = self._run(
                 Filter(
                     team=self.team,
@@ -1453,7 +1453,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["blabla", "anonymous_id"],
             properties={"$some_prop": "some_val"},
         )
-        with freeze_time("2020-01-01 00:06:34"):
+        with time_machine.travel("2020-01-01 00:06:34", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -1485,7 +1485,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "value", "$math_prop": 3},
             )
 
-        with freeze_time("2020-01-02 00:06:34"):
+        with time_machine.travel("2020-01-02 00:06:34", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -1504,7 +1504,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             {"breakdowns": [{"property": "$some_property"}]},
         ]
         for breakdown_filter in filters:
-            with freeze_time("2020-01-04T13:00:01Z"):
+            with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
                 daily_response = self._run(
                     Filter(
                         team=self.team,
@@ -1524,7 +1524,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
 
-            with freeze_time("2020-01-04T13:00:01Z"):
+            with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
                 weekly_response = self._run(
                     Filter(
                         team=self.team,
@@ -1645,7 +1645,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # Fourth session lasted 15 seconds
 
         # single breakdown
-        with freeze_time("2020-01-04T13:00:33Z"):
+        with time_machine.travel("2020-01-04T13:00:33Z", tick=False):
             daily_response = self._run(
                 Filter(
                     team=self.team,
@@ -1674,7 +1674,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual([resp["aggregated_value"] for resp in daily_response], [12.5, 10, 1])
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             weekly_response = self._run(
                 Filter(
                     team=self.team,
@@ -1704,7 +1704,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         # multiple breakdowns
-        with freeze_time("2020-01-04T13:00:33Z"):
+        with time_machine.travel("2020-01-04T13:00:33Z", tick=False):
             daily_response = self._run(
                 Filter(
                     team=self.team,
@@ -1733,7 +1733,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual([resp["aggregated_value"] for resp in daily_response], [12.5, 10, 1])
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             weekly_response = self._run(
                 Filter(
                     team=self.team,
@@ -1856,7 +1856,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         # Fourth session lasted 15 seconds
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             daily_response = self._run(
                 Filter(
                     team=self.team,
@@ -1885,7 +1885,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(sorted([resp["aggregated_value"] for resp in daily_response]), [5.0, 10.0])
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             daily_response = self._run(
                 Filter(
                     team=self.team,
@@ -1916,7 +1916,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_trends_any_event_total_count(self):
         self._create_events()
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             response1 = self._run(
                 Filter(
                     team=self.team,
@@ -1944,7 +1944,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @also_test_with_materialized_columns(["$math_prop", "$some_property"])
     def test_trends_breakdown_with_math_func(self):
-        with freeze_time("2020-01-01 00:06:34"):
+        with time_machine.travel("2020-01-01 00:06:34", tick=False):
             for i in range(20):
                 self._create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"])
                 self._create_event(
@@ -1969,7 +1969,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         # single breakdown
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             daily_response = self._run(
                 Filter(
                     team=self.team,
@@ -1993,7 +1993,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue("value_21" in breakdown_vals)
 
         # multiple breakdown
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             daily_response = self._run(
                 Filter(
                     team=self.team,
@@ -2019,7 +2019,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_trends_compare_day_interval_relative_range(self):
         self._create_events()
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -2070,7 +2070,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["labels"][4], "25-Dec-2019")
         self.assertEqual(response[1]["data"][4], 0.0)
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             no_compare_response = self._run(
                 Filter(
                     team=self.team,
@@ -2087,7 +2087,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_trends_compare_day_interval_fixed_range_single(self):
         self._create_events(use_time=True)
-        with freeze_time("2020-01-02T20:17:00Z"):
+        with time_machine.travel("2020-01-02T20:17:00Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -2127,7 +2127,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_trends_compare_hour_interval_relative_range(self):
         self._create_events(use_time=True)
-        with freeze_time("2020-01-02T20:17:00Z"):
+        with time_machine.travel("2020-01-02T20:17:00Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -2257,7 +2257,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def _test_events_with_dates(self, dates: list[str], result, query_time=None, **filter_params):
         self._create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
         for time in dates:
-            with freeze_time(time):
+            with time_machine.travel(time, tick=False):
                 self._create_event(
                     event="event_name",
                     team=self.team,
@@ -2266,7 +2266,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 )
 
         if query_time:
-            with freeze_time(query_time):
+            with time_machine.travel(query_time, tick=False):
                 response = self._run(
                     Filter(
                         team=self.team,
@@ -2978,7 +2978,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(["$some_property"])
     def test_property_filtering(self):
         self._create_events()
-        with freeze_time("2020-01-04"):
+        with time_machine.travel("2020-01-04", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -3018,7 +3018,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-02 00:06:45",
         )
 
-        with freeze_time("2020-01-04T12:01:01Z"):
+        with time_machine.travel("2020-01-04T12:01:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -3135,7 +3135,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         # Fifth session lasted 5 seconds
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             weekly_response = self._run(
                 Filter(
                     team=self.team,
@@ -3153,7 +3153,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             daily_response = self._run(
                 Filter(
                     team=self.team,
@@ -3293,7 +3293,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 else {"breakdowns": [{"property": "$some_property"}]}
             )
 
-            with freeze_time("2020-01-04T13:00:01Z"):
+            with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
                 weekly_response = self._run(
                     Filter(
                         team=self.team,
@@ -3312,7 +3312,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
 
-            with freeze_time("2020-01-04T13:00:05Z"):
+            with time_machine.travel("2020-01-04T13:00:05Z", tick=False):
                 daily_response = self._run(
                     Filter(
                         team=self.team,
@@ -3426,7 +3426,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         # Second session lasted 96 hours = a lot of seconds
 
-        with freeze_time("2020-01-06T13:00:01Z"):
+        with time_machine.travel("2020-01-06T13:00:01Z", tick=False):
             weekly_response = self._run(
                 Filter(
                     team=self.team,
@@ -3523,7 +3523,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
     def test_filter_events_by_precalculated_cohort(self):
-        with freeze_time("2020-01-02"):
+        with time_machine.travel("2020-01-02", tick=False):
             self._create_person(
                 team_id=self.team.pk,
                 distinct_ids=["person_1"],
@@ -3579,7 +3579,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_interval_filtering_hour(self):
         self._create_events(use_time=True)
 
-        with freeze_time("2020-01-02"):
+        with time_machine.travel("2020-01-02", tick=False):
             response = self._run(
                 Filter(
                     data={
@@ -3598,7 +3598,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_interval_filtering_week(self):
         self._create_events(use_time=True)
 
-        with freeze_time("2020-01-02"):
+        with time_machine.travel("2020-01-02", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -3620,7 +3620,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_interval_filtering_month(self):
         self._create_events(use_time=True)
 
-        with freeze_time("2020-01-02"):
+        with time_machine.travel("2020-01-02", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -3642,10 +3642,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_interval_filtering_today_hourly(self):
         self._create_events(use_time=True)
 
-        with freeze_time("2020-01-02 23:30"):
+        with time_machine.travel("2020-01-02 23:30", tick=False):
             self._create_event(team=self.team, event="sign up", distinct_id="blabla")
 
-        with freeze_time("2020-01-02T23:31:00Z"):
+        with time_machine.travel("2020-01-02T23:31:00Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -3819,11 +3819,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(action_response[0]["data"], [0, 1, 1, 0, 0, 0, 0])
 
     def test_trends_for_non_existing_action(self):
-        with freeze_time("2020-01-04"):
+        with time_machine.travel("2020-01-04", tick=False):
             response = self._run(Filter(data={"actions": [{"id": 50000000}]}), self.team)
         self.assertEqual(len(response), 0)
 
-        with freeze_time("2020-01-04"):
+        with time_machine.travel("2020-01-04", tick=False):
             response = self._run(Filter(data={"events": [{"id": "DNE"}]}), self.team)
         self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
 
@@ -3846,7 +3846,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self._create_person(team_id=self.team.pk, properties={"bar": "aa"}, distinct_ids=["d4"])
 
-        with freeze_time("2020-01-02 16:34:34"):
+        with time_machine.travel("2020-01-02 16:34:34", tick=False):
             self._create_event(team=self.team, event="$pageview", distinct_id="d1")
             self._create_event(team=self.team, event="$pageview", distinct_id="d2")
             self._create_event(team=self.team, event="$pageview", distinct_id="d3")
@@ -3863,7 +3863,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -3874,7 +3874,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["count"], 3)
 
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             response_with_email_filter = self._run(
                 Filter(
                     team=self.team,
@@ -3898,11 +3898,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_dau_filtering(self):
         sign_up_action, person = self._create_events()
 
-        with freeze_time("2020-01-02"):
+        with time_machine.travel("2020-01-02", tick=False):
             self._create_person(team_id=self.team.pk, distinct_ids=["someone_else"])
             self._create_event(team=self.team, event="sign up", distinct_id="someone_else")
 
-        with freeze_time("2020-01-04"):
+        with time_machine.travel("2020-01-04", tick=False):
             action_response = self._run(
                 Filter(
                     team=self.team,
@@ -4058,7 +4058,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(["$some_property"])
     def test_per_entity_filtering(self):
         self._create_events()
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -4177,7 +4177,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_person_property_filtering(self):
         self._create_multiple_people()
-        with freeze_time("2020-01-04"):
+        with time_machine.travel("2020-01-04", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -4200,7 +4200,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # This test needs to choose the right materialised column for it to pass.
         # For resiliency, we reverse the filter as well.
         self._create_multiple_people()
-        with freeze_time("2020-01-04"):
+        with time_machine.travel("2020-01-04", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -4217,7 +4217,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
         self.assertEqual(response[0]["data"][5], 0)
 
-        with freeze_time("2020-01-04"):
+        with time_machine.travel("2020-01-04", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -4237,7 +4237,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_entity_person_property_filtering(self):
         self._create_multiple_people()
-        with freeze_time("2020-01-04"):
+        with time_machine.travel("2020-01-04", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -4272,7 +4272,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-04T12:00:00Z",
         )
 
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             event_response = self._run(
                 Filter(
                     team=self.team,
@@ -4313,7 +4313,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         action = _create_action(name="watched movie", team=self.team)
 
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             action_response = self._run(
                 Filter(
                     team=self.team,
@@ -4384,7 +4384,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-04T12:00:00Z",
         )
 
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -4414,7 +4414,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         # test hour
-        with freeze_time("2020-01-02"):
+        with time_machine.travel("2020-01-02", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -4434,7 +4434,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["data"][192], 3.0)
 
         # test week
-        with freeze_time("2020-01-02"):
+        with time_machine.travel("2020-01-02", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -4457,7 +4457,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["data"][:5], [0.0, 0.0, 0.0, 0.0, 1.0])
 
         # test month
-        with freeze_time("2020-01-02"):
+        with time_machine.travel("2020-01-02", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -4476,11 +4476,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["labels"][4], "Jan 2020")
         self.assertEqual(response[0]["data"][4], 4.0)
 
-        with freeze_time("2020-01-02 23:30"):
+        with time_machine.travel("2020-01-02 23:30", tick=False):
             self._create_event(team=self.team, event="sign up", distinct_id="blabla")
 
         # test today + hourly
-        with freeze_time("2020-01-02T23:31:00Z"):
+        with time_machine.travel("2020-01-02T23:31:00Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -4518,7 +4518,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 }
             )
 
-            with freeze_time("2020-01-04T13:01:01Z"):
+            with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
                 action_response = self._run(
                     Filter(
                         team=self.team,
@@ -4613,7 +4613,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-04T12:00:00Z",
         )
 
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -4640,7 +4640,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         person1, person2, person3, person4 = self._create_multiple_people()
 
         # single breakdown
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             event_response = self._run(
                 Filter(
                     team=self.team,
@@ -4676,7 +4676,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.assertEqual(response["count"], 3)
 
         # multiple breakdowns
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             event_response = self._run(
                 Filter(
                     team=self.team,
@@ -4747,7 +4747,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp=datetime(2020, 1, 1, 12),
         )
 
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             event_response = self._run(
                 Filter(
                     team=self.team,
@@ -4782,7 +4782,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             if response["breakdown_value"] == "person3":
                 self.assertEqual(response["count"], 3)
 
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             event_response = self._run(
                 Filter(
                     team=self.team,
@@ -4822,7 +4822,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.assertEqual(response["count"], 3)
 
     def test_breakdown_by_property_pie(self):
-        with freeze_time("2020-01-01T12:00:00Z"):  # Fake created_at for easier assertions
+        with time_machine.travel("2020-01-01T12:00:00Z", tick=False):  # Fake created_at for easier assertions
             self._create_person(team_id=self.team.pk, distinct_ids=["person1"], immediate=True)
             self._create_person(team_id=self.team.pk, distinct_ids=["person2"], immediate=True)
             self._create_person(team_id=self.team.pk, distinct_ids=["person3"], immediate=True)
@@ -4874,7 +4874,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             properties={"fake_prop": "value_1"},
         )
 
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             filters = {
                 "date_from": "-14d",
                 "breakdown": "fake_prop",
@@ -4912,7 +4912,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_breakdown_by_person_property_pie(self):
         self._create_multiple_people()
 
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             event_response = self._run(
                 Filter(
                     team=self.team,
@@ -4945,7 +4945,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 {"breakdown_value": "person3", "aggregated_value": 1}.items(), event_response[2].items()
             )
 
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             event_response = self._run(
                 Filter(
                     team=self.team,
@@ -5004,7 +5004,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         }
 
         # single breakdown
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             event_response = self._run(
                 Filter(
                     data={
@@ -5025,7 +5025,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         # multiple breakdowns
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             event_response = self._run(
                 Filter(
                     data={
@@ -5167,7 +5167,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_bar_chart_by_value(self):
         self._create_events()
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             # with self.assertNumQueries(16):
             response = self._run(
                 Filter(
@@ -5194,7 +5194,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         self._create_person(team_id=self.team.pk, distinct_ids=["third"])
 
-        with freeze_time("2019-12-24 03:45:34"):
+        with time_machine.travel("2019-12-24 03:45:34", tick=False):
             self._create_event(team=self.team, event="sign up", distinct_id="blabla")
             self._create_event(
                 team=self.team, event="sign up", distinct_id="blabla"
@@ -5203,7 +5203,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self._create_event(team=self.team, event="sign up", distinct_id="third")
 
         with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk},4"):
-            with freeze_time("2019-12-31T13:00:01Z"):
+            with time_machine.travel("2019-12-31T13:00:01Z", tick=False):
                 daily_response = self._run(
                     Filter(
                         team=self.team,
@@ -5217,7 +5217,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
             self.assertEqual(daily_response[0]["data"][0], 3)
 
-            with freeze_time("2019-12-31T13:00:01Z"):
+            with time_machine.travel("2019-12-31T13:00:01Z", tick=False):
                 daily_response = self._run(
                     Filter(
                         team=self.team,
@@ -5238,7 +5238,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(daily_response[0]["data"][0], 2)
 
             # single breakdown person props
-            with freeze_time("2019-12-31T13:00:01Z"):
+            with time_machine.travel("2019-12-31T13:00:01Z", tick=False):
                 daily_response = self._run(
                     Filter(
                         team=self.team,
@@ -5257,7 +5257,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(daily_response[1]["label"], "$$_posthog_breakdown_null_$$")
 
             # multiple breakdown person props
-            with freeze_time("2019-12-31T13:00:01Z"):
+            with time_machine.travel("2019-12-31T13:00:01Z", tick=False):
                 daily_response = self._run(
                     Filter(
                         team=self.team,
@@ -5275,7 +5275,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(daily_response[1]["label"], "$$_posthog_breakdown_null_$$")
 
             # MAU
-            with freeze_time("2019-12-31T13:00:03Z"):
+            with time_machine.travel("2019-12-31T13:00:03Z", tick=False):
                 monthly_response = self._run(
                     Filter(
                         team=self.team,
@@ -5288,7 +5288,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 )
             self.assertEqual(monthly_response[0]["data"][0], 3)  # this would be 2 without the aggregate hack
 
-            with freeze_time("2019-12-31T13:00:01Z"):
+            with time_machine.travel("2019-12-31T13:00:01Z", tick=False):
                 weekly_response = self._run(
                     Filter(
                         team=self.team,
@@ -5308,7 +5308,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 property_type="String",
                 type=PropertyDefinition.Type.EVENT,
             )
-            with freeze_time("2019-12-31T13:00:01Z"):
+            with time_machine.travel("2019-12-31T13:00:01Z", tick=False):
                 daily_response = self._run(
                     Filter(
                         team=self.team,
@@ -5324,7 +5324,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(["$some_property"])
     def test_breakdown_filtering_limit(self):
         self._create_breakdown_events()
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -5394,7 +5394,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         }
 
         # single breakdown
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             action_response = self._run(
                 Filter(
                     team=self.team,
@@ -5421,7 +5421,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEntityResponseEqual(event_response, action_response)
 
         # multiple
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             action_response = self._run(
                 Filter(
                     team=self.team,
@@ -5464,7 +5464,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         }
         # test breakdown filtering
         # single breakdown
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -5487,7 +5487,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(sum(response[3]["data"]), 1)
 
         # test breakdown filtering
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -5515,7 +5515,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["blabla", "anonymous_id"],
             properties={"$some_prop": "some_val"},
         )
-        with freeze_time("2020-01-01 00:06:34"):
+        with time_machine.travel("2020-01-01 00:06:34", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -5553,7 +5553,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$some_property": "value", "$browser": "Safari", "$variant": ""},
             )
 
-        with freeze_time("2020-01-02 00:06:34"):
+        with time_machine.travel("2020-01-02 00:06:34", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -5586,7 +5586,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -5607,7 +5607,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[5]["label"], "sign up - Safari::$$_posthog_breakdown_null_$$")
 
         # should group to "other" breakdowns
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -5752,7 +5752,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @also_test_with_materialized_columns(["$current_url", "$os", "$browser"])
     def test_breakdown_filtering_with_properties(self):
-        with freeze_time("2020-01-03T13:01:01Z"):
+        with time_machine.travel("2020-01-03T13:01:01Z", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -5773,7 +5773,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "$os": "Windows",
                 },
             )
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -5797,7 +5797,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filters: list[dict[str, Any]] = [{"breakdown": "$current_url"}, {"breakdowns": [{"property": "$current_url"}]}]
         for breakdown_filter in filters:
-            with freeze_time("2020-01-05T13:01:01Z"):
+            with time_machine.travel("2020-01-05T13:01:01Z", tick=False):
                 response = self._run(
                     Filter(
                         team=self.team,
@@ -5837,7 +5837,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_breakdown_filtering_with_properties_in_new_format(self):
-        with freeze_time("2020-01-03T13:01:01Z"):
+        with time_machine.travel("2020-01-03T13:01:01Z", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -5858,7 +5858,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "$os": "Mac",
                 },
             )
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -5885,7 +5885,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             {"breakdowns": [{"property": "$current_url"}]},
         ]
         for breakdown_filter in filters:
-            with freeze_time("2020-01-05T13:01:01Z"):
+            with time_machine.travel("2020-01-05T13:01:01Z", tick=False):
                 response = self._run(
                     Filter(
                         team=self.team,
@@ -5923,7 +5923,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.assertEqual(response[0]["breakdown_value"], ["second url"])
 
             # AND filter properties with disjoint set means results should be empty
-            with freeze_time("2020-01-05T13:01:01Z"):
+            with time_machine.travel("2020-01-05T13:01:01Z", tick=False):
                 response = self._run(
                     Filter(
                         team=self.team,
@@ -5972,11 +5972,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["blabla3"],
             properties={"$some_prop": "some_val2", "filter_prop": "filter_val"},
         )
-        with freeze_time("2020-01-02T13:01:01Z"):
+        with time_machine.travel("2020-01-02T13:01:01Z", tick=False):
             self._create_event(team=self.team, event="sign up", distinct_id="blabla")
             self._create_event(team=self.team, event="sign up", distinct_id="blabla2")
             self._create_event(team=self.team, event="sign up", distinct_id="blabla3")
-        with freeze_time("2020-01-03T13:01:01Z"):
+        with time_machine.travel("2020-01-03T13:01:01Z", tick=False):
             self._create_event(team=self.team, event="sign up", distinct_id="blabla")
             self._create_event(team=self.team, event="sign up", distinct_id="blabla2")
             self._create_event(team=self.team, event="sign up", distinct_id="blabla3")
@@ -5986,7 +5986,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             {"breakdowns": [{"property": "$some_prop", "type": "person"}]},
         ]
         for breakdown_filter in filters:
-            with freeze_time("2020-01-04T13:01:01Z"):
+            with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
                 event_response = self._run(
                     Filter(
                         team=self.team,
@@ -6018,7 +6018,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(["$some_property"])
     def test_dau_with_breakdown_filtering(self):
         sign_up_action, _ = self._create_events()
-        with freeze_time("2020-01-02T13:01:01Z"):
+        with time_machine.travel("2020-01-02T13:01:01Z", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -6031,7 +6031,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             {"breakdowns": [{"property": "$some_property"}]},
         ]
         for breakdown_filter in filters:
-            with freeze_time("2020-01-04T13:01:01Z"):
+            with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
                 action_response = self._run(
                     Filter(
                         team=self.team,
@@ -6068,7 +6068,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_dau_with_breakdown_filtering_with_sampling(self):
         sign_up_action, _ = self._create_events()
-        with freeze_time("2020-01-02T13:01:01Z"):
+        with time_machine.travel("2020-01-02T13:01:01Z", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -6081,7 +6081,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             {"breakdowns": [{"property": "$some_property"}]},
         ]
         for breakdown_filter in filters:
-            with freeze_time("2020-01-04T13:01:01Z"):
+            with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
                 action_response = self._run(
                     Filter(
                         team=self.team,
@@ -6120,7 +6120,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(["$os", "$some_property"])
     def test_dau_with_breakdown_filtering_with_prop_filter(self):
         sign_up_action, _ = self._create_events()
-        with freeze_time("2020-01-02T13:01:01Z"):
+        with time_machine.travel("2020-01-02T13:01:01Z", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -6133,7 +6133,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             {"breakdowns": [{"property": "$some_property"}]},
         ]
         for breakdown_filter in filters:
-            with freeze_time("2020-01-04T13:01:01Z"):
+            with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
                 action_response = self._run(
                     Filter(
                         team=self.team,
@@ -6185,7 +6185,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             {"breakdowns": [{"property": "$some_prop", "type": "person"}]},
         ]
         for breakdown_filter in filters:
-            with freeze_time("2020-01-04T13:01:01Z"):
+            with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
                 response = self._run(
                     Filter(
                         team=self.team,
@@ -6242,7 +6242,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        with freeze_time("2020-01-02T13:01:01Z"):
+        with time_machine.travel("2020-01-02T13:01:01Z", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -6250,7 +6250,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$current_url": "https://posthog.com/feedback/1234"},
             )
 
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             action_response = self._run(
                 Filter(
                     team=self.team,
@@ -6308,7 +6308,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         cohort.calculate_people_ch(pending_version=0)
 
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             action_response = self._run(
                 Filter(
                     team=self.team,
@@ -6830,7 +6830,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             group_type_index=0,
         )
         self._create_event_count_per_actor_events()
-        with freeze_time("2020-01-19"):
+        with time_machine.travel("2020-01-19", tick=False):
             self._create_event(
                 team=self.team,
                 event="viewed video",
@@ -7409,7 +7409,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._create_events()
 
         # test breakdown filtering
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -7481,7 +7481,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         cohort2.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
-            with freeze_time("2020-01-04T13:01:01Z"):
+            with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
                 res = self._run(
                     Filter(
                         team=self.team,
@@ -7537,7 +7537,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         cohort1.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
-            with freeze_time("2020-01-04T13:01:01Z"):
+            with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
                 res = self._run(
                     Filter(
                         team=self.team,
@@ -7667,7 +7667,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         query_time = datetime(2020, 1, 5, 10, 1, 1, tzinfo=ZoneInfo(self.team.timezone))
 
-        with freeze_time(query_time):
+        with time_machine.travel(query_time, tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -7862,7 +7862,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-06T00:30:01",  # Shouldn't be included anywhere
         )
 
-        with freeze_time(datetime(2020, 1, 5, 5, 0, tzinfo=ZoneInfo(self.team.timezone))):
+        with time_machine.travel(datetime(2020, 1, 5, 5, 0, tzinfo=ZoneInfo(self.team.timezone)), tick=False):
             response = self._run(
                 Filter(
                     data={
@@ -7890,7 +7890,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         # DAU
-        with freeze_time("2020-01-05T13:01:01Z"):
+        with time_machine.travel("2020-01-05T13:01:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -7926,7 +7926,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        with freeze_time("2020-01-05T13:01:01Z"):
+        with time_machine.travel("2020-01-05T13:01:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -7959,7 +7959,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        with freeze_time("2020-01-05T13:01:01Z"):
+        with time_machine.travel("2020-01-05T13:01:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -7987,7 +7987,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         #  breakdown + DAU
-        with freeze_time("2020-01-05T13:01:01Z"):
+        with time_machine.travel("2020-01-05T13:01:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -8012,7 +8012,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
         self._create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
 
-        with freeze_time("2022-11-03T01:01:01Z"):
+        with time_machine.travel("2022-11-03T01:01:01Z", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -8024,7 +8024,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-        with freeze_time("2022-11-10T01:01:01Z"):
+        with time_machine.travel("2022-11-10T01:01:01Z", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -8036,7 +8036,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-        with freeze_time("2022-11-17T08:30:01Z"):
+        with time_machine.travel("2022-11-17T08:30:01Z", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -8048,7 +8048,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-        with freeze_time("2022-11-24T08:30:01Z"):
+        with time_machine.travel("2022-11-24T08:30:01Z", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -8060,7 +8060,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-        with freeze_time("2022-11-30T08:30:01Z"):
+        with time_machine.travel("2022-11-30T08:30:01Z", tick=False):
             self._create_event(
                 team=self.team,
                 event="sign up",
@@ -8072,7 +8072,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-        with freeze_time("2022-11-30T13:01:01Z"):
+        with time_machine.travel("2022-11-30T13:01:01Z", tick=False):
             response = self._run(
                 Filter(
                     team=self.team,
@@ -8130,7 +8130,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
 
         # TRICKY: This is the previous UTC day in Asia/Tokyo
-        with freeze_time(datetime(2020, 1, 26, 3, 0, tzinfo=ZoneInfo(self.team.timezone))):
+        with time_machine.travel(datetime(2020, 1, 26, 3, 0, tzinfo=ZoneInfo(self.team.timezone)), tick=False):
             # Total volume query
             response_sunday = self._run(
                 Filter(
@@ -8151,7 +8151,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
 
         # TRICKY: This is the previous UTC day in Asia/Tokyo
-        with freeze_time(datetime(2020, 1, 26, 3, 0, tzinfo=ZoneInfo(self.team.timezone))):
+        with time_machine.travel(datetime(2020, 1, 26, 3, 0, tzinfo=ZoneInfo(self.team.timezone)), tick=False):
             # Total volume query
             response_monday = self._run(
                 Filter(
@@ -8367,7 +8367,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # 1. Having a JOIN
         # 2. Having multiple properties that filter on the same value
 
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             self._run(
                 Filter(
                     team=self.team,
@@ -8717,7 +8717,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
         self._create_event_count_per_actor_events()
 
-        with freeze_time("2020-01-03 19:06:34"):
+        with time_machine.travel("2020-01-03 19:06:34", tick=False):
             self._create_person(team_id=self.team.pk, distinct_ids=["another_user"])
             self._create_event(
                 team=self.team,
@@ -9035,7 +9035,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(res[0][0]["distinct_ids"], ["person1"])
 
-    @freeze_time("2020-01-01")
+    @time_machine.travel("2020-01-01", tick=False)
     @snapshot_clickhouse_queries
     def test_breakdown_by_group_props_person_on_events(self):
         self._create_groups()
@@ -9351,7 +9351,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             response = self._run(filter, self.team)
             self.assertEqual(response[0]["count"], 1)
 
-    @freeze_time("2020-01-01")
+    @time_machine.travel("2020-01-01", tick=False)
     @snapshot_clickhouse_queries
     def test_filtering_by_multiple_groups_person_on_events(self):
         create_group_type_mapping_without_created_at(
@@ -9474,7 +9474,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        with freeze_time("2020-01-03 13:06:02"):
+        with time_machine.travel("2020-01-03 13:06:02", tick=False):
             response = self._run(filter, self.team)
 
         self.assertEqual(len(response), 1)

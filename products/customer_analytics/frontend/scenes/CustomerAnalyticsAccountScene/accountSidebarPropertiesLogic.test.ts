@@ -41,6 +41,7 @@ const relationshipDefinition: AccountRelationshipDefinitionApi = {
     id: 'relationship-1',
     name: 'Account team',
     is_single_holder: false,
+    is_controlled: false,
 }
 const VALUES_URL = '/api/projects/:project_id/accounts/:account_id/custom_property_values/'
 const RELATIONSHIPS_URL = '/api/projects/:project_id/accounts/:account_id/relationships/'
@@ -56,6 +57,7 @@ describe('accountSidebarPropertiesLogic', () => {
         user: { id, email: `member${id}@example.com` },
         started_at: '2026-01-01T00:00:00Z',
         ended_at: null,
+        source: null,
     })
     const mount = async (): Promise<void> => {
         logic = accountSidebarPropertiesLogic({ projectId: 1, accountId: 'account-1' })
@@ -242,27 +244,33 @@ describe('accountSidebarPropertiesLogic', () => {
         })
     })
 
-    it('reports saved values and assignments as account product events', async () => {
-        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
-        await mount()
-        await expectLogic(logic, () =>
-            logic.actions.saveCustomProperty('custom:property-1', 'Growth')
-        ).toFinishAllListeners()
-        expect(capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyUpdated, {
-            display_type: 'text',
-            workflow_reference: false,
-            source: 'account_sidebar',
-        })
-        await expectLogic(logic, () =>
-            logic.actions.saveRelationship('relationship:relationship-1', [2])
-        ).toFinishAllListeners()
-        expect(capture).toHaveBeenCalledWith(AccountsEvents.RoleAssigned, {
-            role: relationshipDefinition.name,
-            is_assigned: true,
-            assigned_user_id: 2,
-            source: 'account_sidebar',
-        })
-    })
+    it.each([
+        { source: undefined, expectedSource: 'account_sidebar' },
+        { source: 'list_expansion', expectedSource: 'list_expansion' },
+    ] as const)(
+        'reports saved values and assignments with $expectedSource attribution',
+        async ({ source, expectedSource }) => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            await mount()
+            await expectLogic(logic, () =>
+                logic.actions.saveCustomProperty('custom:property-1', 'Growth', source)
+            ).toFinishAllListeners()
+            expect(capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyUpdated, {
+                display_type: 'text',
+                workflow_reference: false,
+                source: expectedSource,
+            })
+            await expectLogic(logic, () =>
+                logic.actions.saveRelationship('relationship:relationship-1', [2], source)
+            ).toFinishAllListeners()
+            expect(capture).toHaveBeenCalledWith(AccountsEvents.RoleAssigned, {
+                role: relationshipDefinition.name,
+                is_assigned: true,
+                assigned_user_id: 2,
+                source: expectedSource,
+            })
+        }
+    )
 
     it('keeps the editor and existing value after a failed save', async () => {
         silenceKeaLoadersErrors()

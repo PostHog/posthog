@@ -69,6 +69,12 @@ class TestWizardRunViewSet(APIBaseTest):
                 "id": response.json()["id"],
                 "team_id": self.team.id,
                 "created_by_id": self.user.id,
+                "created_by": {
+                    "id": self.user.id,
+                    "first_name": self.user.first_name,
+                    "last_name": self.user.last_name,
+                    "email": self.user.email,
+                },
                 "environment": "local",
                 "workspace": {"type": "local_folder", "project_name": "example-project"},
                 "program": {

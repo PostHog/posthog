@@ -16,13 +16,16 @@ from posthog.models import User
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
+from ..marketplace.packaging import frontmatter_document, render_skill_md
 from ..models.skills import LLMSkill
 from .skill_analytics import publish_analytics_props, record_skill_event
-from .skill_error_responses import skill_not_found_response, skill_write_error_response, version_conflict_response
+from .skill_error_responses import skill_write_error_response, version_conflict_response
 from .skill_serializers import (
     DEFAULT_BODY_PAGE_LENGTH,
     PUBLISH_CONTENT_FIELDS,
     LLMSkillBodyFetchQuerySerializer,
+    LLMSkillFetchQuerySerializer,
+    LLMSkillMarkdownSerializer,
     LLMSkillPublishSerializer,
     LLMSkillResolveQuerySerializer,
     LLMSkillResolveResponseSerializer,
@@ -72,7 +75,7 @@ class SkillVersionActionsMixin(SkillAccessMixin):
                 return redirect
 
         if skill is None:
-            return skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         # Cap the first page when the caller doesn't page explicitly, so body_next_offset is a
         # valid continuation offset even when the full body would be truncated in transit.
@@ -134,7 +137,9 @@ class SkillVersionActionsMixin(SkillAccessMixin):
             LLMSkillDescriptionTooLongError,
             LLMSkillEditError,
         ) as err:
-            error_response = skill_write_error_response(err, skill_name)
+            error_response = skill_write_error_response(
+                err, skill_name, not_found_response=self._skill_not_found_response
+            )
             if error_response is None:
                 raise
             return error_response
@@ -185,7 +190,7 @@ class SkillVersionActionsMixin(SkillAccessMixin):
                 .first()
             )
             if current_latest is None:
-                return skill_not_found_response(skill_name)
+                return self._skill_not_found_response(skill_name)
             if base_version is not None and base_version != current_latest.version:
                 return version_conflict_response(current_latest.version)
             set_skill_owners(self.team, skill_name, owner_users)
@@ -257,7 +262,7 @@ class SkillVersionActionsMixin(SkillAccessMixin):
             str(version_id) if version_id else None,
         )
         if skill is None:
-            return skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         limit = cast(int, query_params["limit"])
         offset = cast(int | None, query_params.get("offset"))
@@ -277,3 +282,39 @@ class SkillVersionActionsMixin(SkillAccessMixin):
                 "has_more": has_more,
             }
         )
+
+    @extend_schema(
+        parameters=[LLMSkillFetchQuerySerializer],
+        responses={200: LLMSkillMarkdownSerializer},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path=r"name/(?P<skill_name>[^/]+)/skill-md",
+        required_scopes=["llm_skill:read"],
+    )
+    @llma_track_latency("llma_skills_skill_md")
+    @monitor(feature=None, endpoint="llma_skills_skill_md", method="GET")
+    def skill_md(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+        """The rendered SKILL.md plus its frontmatter as JSON, for a host that serves the file.
+
+        Both halves come from one renderer, so a digest a client takes over ``content`` still
+        describes the fields it reads from ``frontmatter``.
+        """
+        version_params = self._validated_query(LLMSkillFetchQuerySerializer, request)
+        version = cast(int | None, version_params.get("version"))
+        skill = self._load_skill_with_object_access(request, skill_name, version)
+        if skill is None:
+            return self._skill_not_found_response(skill_name, version)
+
+        # SKILL.md never carries the bundled files, so don't load them just to render it.
+        export = skill.to_export()
+        payload = LLMSkillMarkdownSerializer(
+            instance={
+                "name": skill.name,
+                "version": skill.version,
+                "content": render_skill_md(export),
+                "frontmatter": frontmatter_document(export),
+            }
+        )
+        return Response(payload.data)

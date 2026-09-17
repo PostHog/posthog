@@ -26,10 +26,12 @@ export interface ScoutNotesLogicProps {
  */
 export const SCOUT_NOTE_ORIGIN_LABEL: Record<string, string> = {
     human: 'Left directly',
-    report_dismissal: 'From a dismissal',
-    report_discussion: 'From a discussion',
-    report_feedback: 'From a rating',
-    report_reviewer_correction: 'From a reviewer change',
+    // No "From a" prefix: these sit in a tag beside the note, where the preposition is the widest
+    // part of a label that already reads as a source.
+    report_dismissal: 'Dismissal',
+    report_discussion: 'Discussion',
+    report_feedback: 'Rating',
+    report_reviewer_correction: 'Reviewer change',
 }
 
 export function scoutNoteOriginLabel(origin: string): string {

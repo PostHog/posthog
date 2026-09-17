@@ -128,7 +128,9 @@ if [ "$cmd" = "verify" ]; then
     verify_identity
     exit $?
 fi
-[ -n "$cmd" ] && [ -n "$repo" ] && [ -n "$pr" ] || usage
+if [ -z "$cmd" ] || [ -z "$repo" ] || [ -z "$pr" ]; then
+    usage
+fi
 case "$repo" in
     */*) ;;
     *) usage ;;
