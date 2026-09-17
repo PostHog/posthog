@@ -804,15 +804,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
 }
 
 function EvaluationModelPicker(): JSX.Element {
-    const {
-        hasByokKeys,
-        byokModels,
-        providerModelGroups,
-        byokModelsLoading,
-        providerKeysLoading,
-        failedByokProviderKeyIds,
-    } = useValues(modelPickerLogic)
-    const { loadByokModels } = useActions(modelPickerLogic)
+    const { hasByokKeys, byokModels, providerModelGroups, byokModelsLoading, providerKeysLoading } =
+        useValues(modelPickerLogic)
     const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired } = useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
 
@@ -843,12 +836,7 @@ function EvaluationModelPicker(): JSX.Element {
                             selectedModelName={selectedModelName}
                             data-attr="evaluation-model-selector"
                         />
-                        <ByokModelPickerNotice
-                            hasGroups={groups.length > 0}
-                            loading={loading}
-                            loadFailed={failedByokProviderKeyIds.length > 0}
-                            onRetry={loadByokModels}
-                        />
+                        <ByokModelPickerNotice />
                         {modelSelectionRequired && !selectedModel && (
                             <p className="text-sm text-danger mt-1">Select a judge model.</p>
                         )}

@@ -104,15 +104,8 @@ function TagDefinitionsEditor({ id }: { id: string }): JSX.Element {
 }
 
 function TaggerModelPicker({ id }: { id: string }): JSX.Element {
-    const {
-        hasByokKeys,
-        byokModels,
-        providerModelGroups,
-        byokModelsLoading,
-        providerKeysLoading,
-        failedByokProviderKeyIds,
-    } = useValues(modelPickerLogic)
-    const { loadByokModels } = useActions(modelPickerLogic)
+    const { hasByokKeys, byokModels, providerModelGroups, byokModelsLoading, providerKeysLoading } =
+        useValues(modelPickerLogic)
     const { selectedModel, selectedPickerProviderKeyId } = useValues(llmTaggerLogic({ id }))
     const { selectModelFromPicker } = useActions(llmTaggerLogic({ id }))
 
@@ -131,24 +124,21 @@ function TaggerModelPicker({ id }: { id: string }): JSX.Element {
             </p>
 
             <div className="space-y-4">
-                <Field name="model" label="Model">
-                    <ModelPicker
-                        model={selectedModel}
-                        selectedProviderKeyId={selectedPickerProviderKeyId}
-                        onSelect={selectModelFromPicker}
-                        groups={groups}
-                        loading={loading}
-                        footerLink={footerLink}
-                        selectedModelName={selectedModelName}
-                        data-attr="tagger-model-selector"
-                    />
-                </Field>
-                <ByokModelPickerNotice
-                    hasGroups={groups.length > 0}
-                    loading={loading}
-                    loadFailed={failedByokProviderKeyIds.length > 0}
-                    onRetry={loadByokModels}
-                />
+                <div>
+                    <Field name="model" label="Model">
+                        <ModelPicker
+                            model={selectedModel}
+                            selectedProviderKeyId={selectedPickerProviderKeyId}
+                            onSelect={selectModelFromPicker}
+                            groups={groups}
+                            loading={loading}
+                            footerLink={footerLink}
+                            selectedModelName={selectedModelName}
+                            data-attr="tagger-model-selector"
+                        />
+                    </Field>
+                    <ByokModelPickerNotice />
+                </div>
             </div>
         </div>
     )

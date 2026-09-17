@@ -6,7 +6,6 @@ import api from 'lib/api'
 import {
     type LLMProvider,
     LLMProviderKey,
-    LLM_PROVIDER_LABELS,
     llmProviderKeysLogic,
     providerSortIndex,
     toLLMProvider,
@@ -32,10 +31,34 @@ export interface ProviderModelGroup {
     disabledReason?: string
 }
 
+export type ByokModelNotice =
+    | { kind: 'no-keys' }
+    | { kind: 'no-usable-keys' }
+    | { kind: 'models-failed'; keys: LLMProviderKey[] }
+
+// Every empty state reuses this array, so a load with no failures keeps providerModelGroups memoized.
 const NO_FAILED_PROVIDER_KEYS: string[] = []
 const UNHEALTHY_KEY_REASON = 'This provider key has an issue. Check your provider settings.'
 const UNAVAILABLE_KEY_REASON = "Couldn't load models for this key. Try again in a moment."
 const UNAVAILABLE_KEY_SUFFIX = ' (Unavailable)'
+
+function providerKeyGroupLabel(key: LLMProviderKey, keysPerProvider: Record<string, number>, suffix = ''): string {
+    const label = providerLabel(key.provider)
+    return (keysPerProvider[key.provider] ?? 0) > 1 ? `${label} (${key.name})${suffix}` : `${label}${suffix}`
+}
+
+function unavailableKeyState(
+    key: LLMProviderKey,
+    failedKeyIds: Set<string>
+): { suffix: string; reason: string } | null {
+    if (isUnhealthyProviderKeyState(key.state)) {
+        return { suffix: providerKeyStateSuffix(key.state), reason: UNHEALTHY_KEY_REASON }
+    }
+    if (failedKeyIds.has(key.id)) {
+        return { suffix: UNAVAILABLE_KEY_SUFFIX, reason: UNAVAILABLE_KEY_REASON }
+    }
+    return null
+}
 
 export function buildPlaygroundProviderModelGroups(models: ModelOption[]): ProviderModelGroup[] {
     const byProvider: Record<string, ModelOption[]> = {}
@@ -57,7 +80,7 @@ export function buildPlaygroundProviderModelGroups(models: ModelOption[]): Provi
                 {
                     provider: llmProvider,
                     providerKeyId: `playground:${llmProvider}`,
-                    label: LLM_PROVIDER_LABELS[llmProvider] ?? provider,
+                    label: providerLabel(llmProvider),
                     models: providerModels,
                 },
             ]
@@ -68,6 +91,7 @@ export function buildPlaygroundProviderModelGroups(models: ModelOption[]): Provi
 export interface modelPickerLogicValues {
     providerKeys: LLMProviderKey[] // llmProviderKeysLogic
     providerKeysLoading: boolean // llmProviderKeysLogic
+    byokModelNotice: ByokModelNotice | null
     byokModels: ModelOption[]
     byokModelsLoading: boolean
     failedByokProviderKeyIds: string[]
@@ -160,6 +184,13 @@ export interface modelPickerLogicMeta {
             providerKeys: LLMProviderKey[],
             failedByokProviderKeyIds: string[]
         ) => ProviderModelGroup[]
+        byokModelNotice: (
+            providerKeys: LLMProviderKey[],
+            providerKeysLoading: boolean,
+            byokModelsLoading: boolean,
+            failedByokProviderKeyIds: string[],
+            providerModelGroups: ProviderModelGroup[]
+        ) => ByokModelNotice | null
     }
 }
 
@@ -252,10 +283,9 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
         failedByokProviderKeyIds: [
             NO_FAILED_PROVIDER_KEYS,
             {
-                // Keep the array identity when nothing failed, so the group list is not rebuilt.
-                loadByokModels: (state: string[]) => (state.length === 0 ? state : NO_FAILED_PROVIDER_KEYS),
-                setFailedByokProviderKeyIds: (state: string[], { providerKeyIds }: { providerKeyIds: string[] }) =>
-                    providerKeyIds.length === 0 && state.length === 0 ? state : providerKeyIds,
+                loadByokModels: () => NO_FAILED_PROVIDER_KEYS,
+                setFailedByokProviderKeyIds: (_, { providerKeyIds }: { providerKeyIds: string[] }) =>
+                    providerKeyIds.length > 0 ? providerKeyIds : NO_FAILED_PROVIDER_KEYS,
             },
         ],
     }),
@@ -316,39 +346,27 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                 const groups: ProviderModelGroup[] = []
                 for (const key of providerKeys) {
                     const models = byKeyId[key.id] ?? []
-                    const groupLabel = (suffix: string): string =>
-                        (keysPerProvider[key.provider] ?? 0) > 1
-                            ? `${providerLabel(key.provider)} (${key.name})${suffix}`
-                            : `${providerLabel(key.provider)}${suffix}`
-
-                    if (models.length === 0) {
-                        // A key that cannot serve models stays listed, so the picker shows why it is short.
-                        if (isUnhealthyProviderKeyState(key.state)) {
-                            groups.push({
-                                provider: key.provider,
-                                providerKeyId: key.id,
-                                label: groupLabel(providerKeyStateSuffix(key.state)),
-                                models: [],
-                                disabledReason: UNHEALTHY_KEY_REASON,
-                            })
-                        } else if (failedKeyIds.has(key.id)) {
-                            groups.push({
-                                provider: key.provider,
-                                providerKeyId: key.id,
-                                label: groupLabel(UNAVAILABLE_KEY_SUFFIX),
-                                models: [],
-                                disabledReason: UNAVAILABLE_KEY_REASON,
-                            })
-                        }
+                    if (models.length > 0) {
+                        groups.push({
+                            provider: key.provider,
+                            providerKeyId: key.id,
+                            label: providerKeyGroupLabel(key, keysPerProvider),
+                            models,
+                        })
                         continue
                     }
 
-                    groups.push({
-                        provider: key.provider,
-                        providerKeyId: key.id,
-                        label: groupLabel(''),
-                        models,
-                    })
+                    // A key that cannot serve models stays listed, so the picker shows why it is short.
+                    const unavailable = unavailableKeyState(key, failedKeyIds)
+                    if (unavailable) {
+                        groups.push({
+                            provider: key.provider,
+                            providerKeyId: key.id,
+                            label: providerKeyGroupLabel(key, keysPerProvider, unavailable.suffix),
+                            models: [],
+                            disabledReason: unavailable.reason,
+                        })
+                    }
                 }
 
                 return groups.sort((a, b) => {
@@ -358,6 +376,34 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                     }
                     return a.label.localeCompare(b.label)
                 })
+            },
+        ],
+        byokModelNotice: [
+            (s) => [
+                s.providerKeys,
+                s.providerKeysLoading,
+                s.byokModelsLoading,
+                s.failedByokProviderKeyIds,
+                s.providerModelGroups,
+            ],
+            (
+                providerKeys: LLMProviderKey[],
+                providerKeysLoading: boolean,
+                byokModelsLoading: boolean,
+                failedByokProviderKeyIds: string[],
+                providerModelGroups: ProviderModelGroup[]
+            ): ByokModelNotice | null => {
+                if (providerKeysLoading || byokModelsLoading) {
+                    return null
+                }
+                const failedKeys = providerKeys.filter((key) => failedByokProviderKeyIds.includes(key.id))
+                if (failedKeys.length > 0) {
+                    return { kind: 'models-failed', keys: failedKeys }
+                }
+                if (providerModelGroups.some((group) => !group.disabledReason)) {
+                    return null
+                }
+                return providerKeys.length === 0 ? { kind: 'no-keys' } : { kind: 'no-usable-keys' }
             },
         ],
     }),
