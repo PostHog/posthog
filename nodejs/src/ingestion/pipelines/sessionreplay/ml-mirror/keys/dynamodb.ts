@@ -13,6 +13,12 @@ import { MlKeyRequest, MlMirrorMetrics } from '~/ingestion/pipelines/sessionrepl
 import { TableKey, tableKeyString } from './schema'
 import { isTransientError } from './transient'
 
+// KEY_READ_LEASE_SECONDS in products/ai_training/backend/privacy/store.py. Deletion reports itself complete once that
+// lease runs out, so a row held past it keeps a shredded key in use after the user is told the deletion finished.
+const ROW_CACHE_MAX_LIFETIME_MS = 300_000
+// Neither caller passes a deadline, and max.poll.interval.ms is 300s, so the retry loop needs a bound of its own.
+const READ_BUDGET_MS = 30_000
+
 export type DynamoItem = Record<string, AttributeValue>
 
 export function encodeKey(key: TableKey): DynamoItem {
@@ -35,11 +41,16 @@ export class MlKeyDynamoDB {
         private readonly client: Pick<DynamoDBClient, 'send'>,
         readonly tableName: string,
         private readonly requestTimeoutMs = 5_000,
-        private readonly attempts = 10,
+        private readonly attempts = 6,
         cacheMax = 100_000,
-        cacheLifetimeMs = 1_800_000
+        cacheLifetimeMs = ROW_CACHE_MAX_LIFETIME_MS
     ) {
-        this.rows = new LRUCache({ max: cacheMax, ttl: cacheLifetimeMs })
+        // lru-cache reads 0 as "no bound": ttl 0 never expires and max 0 holds every row, so a zero here would both
+        // widen the deletion window and remove the memory bound.
+        this.rows = new LRUCache({
+            max: Math.max(1, cacheMax),
+            ttl: Math.min(Math.max(1, cacheLifetimeMs), ROW_CACHE_MAX_LIFETIME_MS),
+        })
     }
 
     // Only a usable key row is stable enough to cache, because putIfAbsent writes it once. A team block row decides
@@ -48,7 +59,8 @@ export class MlKeyDynamoDB {
         return key.sk.startsWith('session:') || key.sk.startsWith('image:')
     }
 
-    public async read(keys: TableKey[], deadline?: AbortSignal): Promise<Map<string, DynamoItem>> {
+    public async read(keys: TableKey[], callerDeadline?: AbortSignal): Promise<Map<string, DynamoItem>> {
+        const deadline = callerDeadline ?? AbortSignal.timeout(READ_BUDGET_MS)
         const unique = [...new Map(keys.map((key) => [tableKeyString(key), key])).values()]
         const result = new Map<string, DynamoItem>()
         const missing: TableKey[] = []
@@ -85,7 +97,7 @@ export class MlKeyDynamoDB {
                             // A spent deadline also aborts the request, and an AbortError counts as transient, so the
                             // deadline is checked separately. Otherwise the loop waits out its attempts past the budget
                             // that keeps a batch under the consumer's stall threshold.
-                            if (!isTransientError(error) || deadline?.aborted || attempt === this.attempts - 1) {
+                            if (!isTransientError(error) || deadline.aborted || attempt === this.attempts - 1) {
                                 throw error
                             }
                             await this.backoff(attempt, deadline)

@@ -51,16 +51,21 @@ Ingestion processes key state in batches:
 1. Bulk-read session keys, team blocks, and image keys.
 2. Resolve keys in memory while processing the batch.
 3. Write each new key's month index entry, then the key with a conditional put.
-4. Re-read the batch, adopt a competing writer's keys, drop sessions or teams blocked during the batch, then publish replay blocks or image messages.
+4. Re-read the batch, adopt a competing writer's keys, drop teams blocked during the batch and sessions whose key row the process did not already hold, then publish replay blocks or image messages.
 
 A conditional put refuses to recreate a shredded session key.
 A team blocked during a batch is dropped by the batch re-read and refused by every reader, and the deletion worker sweeps the team once more after the reader lease, so a key stored after the block is shredded.
 Kafka offsets advance only after the required writes and publication succeed.
 Bulk reads use batches of at most 100 keys; each new key is one conditional put, so no commit in the fleet waits on another.
-Reads use strongly consistent `BatchGetItem` requests with bounded retries for unprocessed keys.
+Reads use strongly consistent `BatchGetItem` requests with bounded retries for unprocessed keys and for a throttled request.
+A retry stops when the caller's deadline expires.
 
-KMS plaintext caches reduce repeated decrypt calls.
-A cache hit does not bypass live key and deletion checks.
+Ingestion holds a usable session key row and image key row in the process, and a KMS plaintext cache reduces repeated decrypt calls.
+A team block row, a tombstone, and a row with no wrapped key are never held, so every read refuses a blocked team.
+A session key deleted out of band stays usable in a process that already read it, until that entry expires.
+`KEY_CACHE_LIFETIME_MS` therefore sets how soon ingestion observes a session deletion.
+Data written under such a key stays unreadable, because the envelope stores no wrapped key and the stored row is a tombstone.
+Training readers do not use this cache.
 Each process limits KMS concurrency and request rate; deployment capacity must account for the sum across replicas.
 Readers check live state before each batch and permit key use for at most five minutes from the start of that read.
 An expired read must obtain permission again.
@@ -188,7 +193,7 @@ Their HMAC key must remain stable while that data is in use.
 New key manager and v2 storage settings use the `AI_RESEARCH_REPLAY_*` prefix:
 
 - `KEY_TABLE`, `KMS_KEY_ARN`, and `AWS_REGION` select the key store and wrapping key.
-- `KEY_CACHE_MAX`, `KEY_CACHE_LIFETIME_MS`, and `KMS_REQUESTS_PER_SECOND` bound ingestion key caching and KMS traffic.
+- `KEY_CACHE_MAX`, `KEY_CACHE_LIFETIME_MS`, and `KMS_REQUESTS_PER_SECOND` bound ingestion key caching and KMS traffic. `KEY_CACHE_LIFETIME_MS` bounds both the key row cache and the KMS plaintext cache.
 - `IMAGE_FETCH_V2_DYNAMODB_TABLE` selects the fresh v2 frontier.
 - `S3_PREFIX` selects v2 replay storage and defaults to `rrweb_2`.
 

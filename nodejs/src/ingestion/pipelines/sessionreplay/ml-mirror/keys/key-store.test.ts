@@ -193,10 +193,10 @@ describe('ML session key batches', () => {
     })
 
     it.each([
-        ['prepare', 9, true],
-        ['prepare', 10, false],
-        ['reader', 9, true],
-        ['reader', 10, false],
+        ['prepare', 5, true],
+        ['prepare', 6, false],
+        ['reader', 5, true],
+        ['reader', 6, false],
     ])('%s under %i consecutive read throttles succeeds: %s', async (entryPoint, failures, succeeds) => {
         const send = boundary.send.bind(boundary)
         let remaining = failures as number
