@@ -699,10 +699,10 @@ pub async fn insert_flag_for_team_in_pg(
     let mut conn = client.get_connection().await?;
     let row: (i32,) = sqlx::query_as(
         r#"INSERT INTO posthog_featureflag
-        (team_id, name, key, filters, deleted, active, ensure_experience_continuity, evaluation_runtime, created_at) VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, '2024-06-17')
+        (team_id, name, key, filters, deleted, active, ensure_experience_continuity, evaluation_runtime, version, created_at) VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, '2024-06-17')
         RETURNING id"#
-    ).bind(team_id).bind(&payload_flag.name).bind(&payload_flag.key).bind(&payload_flag.filters).bind(payload_flag.deleted).bind(payload_flag.active).bind(payload_flag.ensure_experience_continuity).bind(&payload_flag.evaluation_runtime).fetch_one(&mut *conn).await?;
+    ).bind(team_id).bind(&payload_flag.name).bind(&payload_flag.key).bind(&payload_flag.filters).bind(payload_flag.deleted).bind(payload_flag.active).bind(payload_flag.ensure_experience_continuity).bind(&payload_flag.evaluation_runtime).bind(payload_flag.version).fetch_one(&mut *conn).await?;
 
     payload_flag.id = row.0;
 

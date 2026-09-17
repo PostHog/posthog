@@ -26,7 +26,12 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
-from products.data_modeling.backend.facade.api import get_declared_target, suspension_state, unsuspend_nodes
+from products.data_modeling.backend.facade.api import (
+    endpoint_link,
+    get_declared_target,
+    suspension_state,
+    unsuspend_nodes,
+)
 from products.data_modeling.backend.facade.models import (
     DAG,
     DataModelingJob,
@@ -49,8 +54,14 @@ class NodeResumeSerializer(serializers.Serializer):
     resumed = serializers.BooleanField(help_text="False when the node was not suspended to begin with.")
 
 
+class NodeEndpointSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name of the endpoint this node's materialization backs.")
+    version = serializers.IntegerField(help_text="Endpoint version this node's materialization backs.")
+
+
 class NodeSerializer(serializers.ModelSerializer):
     suspended = serializers.SerializerMethodField(read_only=True)
+    endpoint = serializers.SerializerMethodField(read_only=True)
     upstream_count = serializers.SerializerMethodField(read_only=True)
     downstream_count = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
@@ -81,9 +92,11 @@ class NodeSerializer(serializers.ModelSerializer):
             "user_tag",
             "sync_interval",
             "suspended",
+            "endpoint",
         ]
         read_only_fields = [
             "suspended",
+            "endpoint",
             "upstream_count",
             "downstream_count",
             "last_run_at",
@@ -103,6 +116,16 @@ class NodeSerializer(serializers.ModelSerializer):
     )
     def get_suspended(self, node: Node) -> dict[str, Any]:
         return {engine: NodeSuspensionSerializer(entry).data for engine, entry in suspension_state(node).items()}
+
+    @extend_schema_field(
+        NodeEndpointSerializer(
+            allow_null=True,
+            help_text="The endpoint version this node's materialization backs, or null for nodes that are not endpoints.",
+        )
+    )
+    def get_endpoint(self, node: Node) -> dict[str, Any] | None:
+        link = endpoint_link(node.properties)
+        return NodeEndpointSerializer(link).data if link else None
 
     def get_upstream_count(self, node: Node) -> int:
         counts = self.context.get("node_counts")
@@ -424,13 +447,6 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "edges": EdgeSerializer(edges, many=True).data,
             }
         )
-
-    @action(methods=["GET"], detail=False)
-    def dag_ids(self, req: request.Request, *args, **kwargs) -> response.Response:
-        """Get all distinct DAGs for the team."""
-        dags = list(DAG.objects.filter(team_id=self.team_id).order_by("name").values("id", "name"))
-        dag_ids = [{"id": str(dag["id"]), "name": dag["name"]} for dag in dags]
-        return response.Response({"dag_ids": dag_ids}, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=True)
     def materialize(self, req: request.Request, *args, **kwargs) -> response.Response:

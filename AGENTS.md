@@ -37,7 +37,7 @@
 ## Commits and Pull Requests
 
 - Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for all commit messages and PR titles.
-- When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update the matching doc under `docs/` **in the same PR** — treat a stale doc as part of the breakage, not a follow-up.
+- When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update the existing doc under `docs/` **in the same PR** — a stale doc is part of the breakage. **Never add a new doc unless a person asks**; PR context goes in the PR description.
 
 ### Commit types
 
@@ -144,6 +144,13 @@ Do not add new `INTERNAL_API_SECRET` callers.
 Read [.agents/security.md](.agents/security.md) before touching auth, secrets, service-to-service calls, raw SQL, or HogQL string building — it covers least privilege, the injection rules, and how to respond when semgrep flags your code.
 `.semgrep/rules/security/` is the enforced set; run `semgrep --config .semgrep/rules/security/ .` to check a change locally.
 
+**Treat the Content Security Policy in `CSPMiddleware` as enforced.**
+A resource from an origin the policy does not name is refused, and the page shows the user no error, so the feature fails silently.
+Loading a script, font, stylesheet, image, frame, or `fetch` target from a new external origin needs that directive widened in the same PR.
+`eval` and `new Function` never run, because the policy grants `wasm-unsafe-eval` and nothing more.
+In a Django template an inline `<script>` needs `nonce="{{ request.csp_nonce }}"`, and an inline `onclick` or `onsubmit` attribute cannot be made to work at all — put the handler in a nonce'd block instead.
+Read [.agents/security.md](.agents/security.md#content-security-policy) for the directive list and the traps before you add any of these.
+
 ## Architecture guidelines
 
 Each rule is tagged with what catches a violation.
@@ -186,7 +193,7 @@ Each rule is tagged with what catches a violation.
 - **A Python `requests` call to GitHub or Slack under `common/`, `ee/`, `posthog/` or `products/` goes through `posthog/egress/`.** `[lint: github-api-calls-go-through-egress, slack-api-calls-go-through-egress]` Route it through the gated, recorded transport.
 - **Every other call to those hosts is on review.** `[review]` The rules match an inline URL in a Python `requests` call inside those four directories. A URL bound to a variable first, another transport such as `httpx`, another language, or a caller under `tools/` all pass CI.
 - **Any other third-party API that needs rate-limiting or egress telemetry belongs there too.** `[review]` Add a `<domain>/` incarnation (GitHub is the reference). No semgrep rule covers a new domain, so a raw client for one reaches master unless a reader catches it. `/routing-outbound-api-calls` decides the route and names the reference domain to copy.
-- **Object storage is SeaweedFS — do not add new MinIO dependencies.** `[review]` Both S3-compatible stores are SeaweedFS: `objectstorage` (`:19000`, `OBJECT_STORAGE_*`) for general storage, `seaweedfs` (`:8333`, `SESSION_RECORDING_V2_S3_*`) for session replay v2. MinIO survives only as migration tooling in `docker-compose.hobby.yml` and `bin/upgrade-objectstorage`. Do not add compose services, scripts, tests or docs that stand up a `minio/minio` container. Talk to storage through the existing config and a standard S3 client, never a hardcoded endpoint. Note `objectstorage` registers credentials at runtime and returns `InvalidAccessKeyId` until that finishes, so wait for its readiness sentinel rather than the container start.
+- **Object storage is SeaweedFS — do not add new MinIO dependencies.** `[review]` Both S3-compatible stores are SeaweedFS: `objectstorage` (`:19000`, `OBJECT_STORAGE_*`) for general storage, `seaweedfs` (`:8333`, `SESSION_RECORDING_V2_S3_*`) for session replay v2. MinIO survives only as one-off salvage tooling: `bin/migrate-storage-hobby` starts a temporary container to read an old hobby MinIO volume. Do not add compose services, scripts, tests or docs that stand up a `minio/minio` container. Talk to storage through the existing config and a standard S3 client, never a hardcoded endpoint. Note `objectstorage` registers credentials at runtime and returns `InvalidAccessKeyId` until that finishes, so wait for its readiness sentinel rather than the container start.
 
 ### Django admin
 

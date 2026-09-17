@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
@@ -21,6 +21,7 @@ from posthog.schema import ProductIntentContext, ProductKey
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.event_usage import EventSource
 from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog, changes_between, replay_scanner_machine_fields
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.tagged_item import TaggedItem
@@ -3649,14 +3650,15 @@ class TestObservationSearchAction(_VisionAPITestCase):
     # `requests` exceptions — an `httpx` mock here would exercise a handler that can never fire.
     @parameterized.expand(
         [
-            ("unreachable", requests.ConnectionError),
-            ("slow", requests.Timeout),
+            ("unreachable", requests.ConnectionError("embedding service down")),
+            ("slow", requests.Timeout("embedding service down")),
+            ("failing", requests.HTTPError("boom", response=MagicMock(status_code=502))),
         ]
     )
-    def test_search_returns_503_when_embedding_unavailable(self, _name: str, exception_class: type) -> None:
+    def test_search_returns_503_when_embedding_unavailable(self, _name: str, exception: Exception) -> None:
         with patch(
             "products.replay_vision.backend.search.generate_embedding",
-            side_effect=exception_class("embedding service down"),
+            side_effect=exception,
         ):
             resp = self.client.get(f"{self.search_url}?q=anything")
         self.assertEqual(resp.status_code, 503)
@@ -4329,6 +4331,180 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         reasons = {item["observation"]["session_id"]: item["reason"]["kind"] for item in items}
         self.assertEqual(reasons["good-0"], "unviewed_recent")
 
+    def test_notability_ranks_below_intent_above_heuristics_and_carries_its_sentence(self) -> None:
+        # The scan's own judgment must beat keyword friction but never outrank what the user
+        # configured the scanner to find, and its sentence must reach the card.
+        scanner = self._create_scanner(name="m")
+        self._succeeded_observation(
+            scanner,
+            "notable-sess",
+            20,
+            {
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "no",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                    "notability": 0.8,
+                    "notability_reason": "Tried the same export three times and never saw an error.",
+                },
+                "signals_count": 0,
+            },
+        )
+        self._succeeded_observation(
+            scanner,
+            "friction-sess",
+            10,
+            {
+                "model_output": {
+                    "scanner_type": "summarizer",
+                    "title": "t",
+                    "summary": "The user hit an error and retried.",
+                    "confidence": 0.9,
+                },
+                "signals_count": 0,
+            },
+        )
+        self._succeeded_observation(scanner, "intent-hit", 30, self._monitor_result("yes"))
+
+        resp = self.client.get(self.feed_url)
+        items = resp.json()["results"]
+        self.assertEqual(
+            [item["observation"]["session_id"] for item in items],
+            ["intent-hit", "notable-sess", "friction-sess"],
+        )
+        self.assertEqual(items[1]["reason"]["kind"], "notable")
+        self.assertEqual(
+            items[1]["reason"]["notability_reason"], "Tried the same export three times and never saw an error."
+        )
+
+    def test_notability_reason_stays_off_rows_that_did_not_rank_on_notability(self) -> None:
+        # The scan writes a notability_reason on every session, so a routine or signal row carries one
+        # too; it must not override the copy those rows earned from their own reason kind.
+        scanner = self._create_scanner(name="m")
+        self._succeeded_observation(
+            scanner,
+            "routine",
+            10,
+            {
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "no",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                    "notability": 0.1,
+                    "notability_reason": "Nothing stands out in this session.",
+                },
+                "signals_count": 0,
+            },
+        )
+        # Notability above the notable threshold, so a candidate-level gate would wrongly attach the
+        # sentence; the signal still won the row, so its own copy must survive.
+        self._succeeded_observation(
+            scanner,
+            "signal",
+            20,
+            {
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "no",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                    "notability": 0.8,
+                    "notability_reason": "Tried the export three times.",
+                },
+                "signals_count": 2,
+            },
+        )
+
+        reasons = {
+            item["observation"]["session_id"]: item["reason"]
+            for item in self.client.get(self.feed_url).json()["results"]
+        }
+        self.assertEqual(reasons["signal"]["kind"], "signal_emitted")
+        self.assertNotIn("notability_reason", reasons["signal"])
+        self.assertEqual(reasons["routine"]["kind"], "unviewed_recent")
+        self.assertNotIn("notability_reason", reasons["routine"])
+
+    def test_notability_breaks_ties_between_rows_in_the_same_tier(self) -> None:
+        # Two unviewed plain rows share a tier, so the scan's notability score orders them.
+        scanner = self._create_scanner(name="m")
+        self._succeeded_observation(
+            scanner,
+            "lower",
+            10,
+            {
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "no",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                    "notability": 0.2,
+                },
+                "signals_count": 0,
+            },
+        )
+        self._succeeded_observation(
+            scanner,
+            "higher",
+            20,
+            {
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "no",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                    "notability": 0.5,
+                },
+                "signals_count": 0,
+            },
+        )
+
+        sessions = [item["observation"]["session_id"] for item in self.client.get(self.feed_url).json()["results"]]
+        self.assertEqual(sessions, ["higher", "lower"])
+
+    def test_stored_notability_is_clamped_and_booleans_are_ignored(self) -> None:
+        # ge/le only bind the LLM response; a stored row can carry anything, and bool is an int subclass.
+        scanner = self._create_scanner(name="m")
+        self._succeeded_observation(
+            scanner,
+            "out-of-range",
+            10,
+            {
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "no",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                    "notability": 5.0,
+                },
+                "signals_count": 0,
+            },
+        )
+        self._succeeded_observation(
+            scanner,
+            "boolean",
+            20,
+            {
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "no",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                    "notability": True,
+                },
+                "signals_count": 0,
+            },
+        )
+
+        reasons = {
+            item["observation"]["session_id"]: item["reason"]
+            for item in self.client.get(self.feed_url).json()["results"]
+        }
+        self.assertEqual(reasons["out-of-range"]["kind"], "notable")
+        self.assertEqual(reasons["out-of-range"]["notability"], 1.0)
+        self.assertEqual(reasons["boolean"]["kind"], "unviewed_recent")
+
     def test_no_verdict_monitor_negation_is_not_friction(self) -> None:
         # "Did they struggle? No" reasoning restates the question; keyword matching must not
         # read the negation as a friction hit.
@@ -4651,6 +4827,49 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self.assertEqual(allowed.status_code, 200, allowed.json())
         self.assertEqual(allowed.json()["results"][0]["observation"]["session_id"], "scoped-sess")
 
+    def test_search_matches_scan_prose_and_scanner_name_across_the_whole_window(self) -> None:
+        # Search runs before ranking, so a match that the ranking would never have surfaced still
+        # comes back — that is the whole point of the box on a capped feed.
+        checkout = self._create_scanner(name="Checkout watcher")
+        other = self._create_scanner(name="Inbox watcher")
+        self._succeeded_observation(
+            checkout,
+            "coupon-sess",
+            30,
+            {
+                "model_output": {
+                    "scanner_type": "summarizer",
+                    "title": "Coupon rejected",
+                    "summary": "The coupon field rejected a valid code.",
+                    "confidence": 0.9,
+                },
+                "signals_count": 0,
+            },
+        )
+        self._succeeded_observation(other, "inbox-sess", 1, self._monitor_result("no"))
+
+        resp = self.client.get(f"{self.feed_url}?search=coupon")
+        self.assertEqual([i["observation"]["session_id"] for i in resp.json()["results"]], ["coupon-sess"])
+
+        # The scanner's own name matches too, so typing an area name works.
+        resp = self.client.get(f"{self.feed_url}?search=inbox")
+        self.assertEqual([i["observation"]["session_id"] for i in resp.json()["results"]], ["inbox-sess"])
+
+        resp = self.client.get(f"{self.feed_url}?search=nothingmatchesthis")
+        self.assertEqual(resp.json()["results"], [])
+
+    def test_tag_filter_follows_current_scanner_tags_not_the_snapshot(self) -> None:
+        # Snapshots freeze config at scan time and never carried tags, so a retag has to take effect
+        # on existing observations immediately.
+        tagged = self._create_scanner(name="tagged")
+        untagged = self._create_scanner(name="untagged")
+        self._succeeded_observation(tagged, "tagged-sess", 10, self._monitor_result("no"))
+        self._succeeded_observation(untagged, "untagged-sess", 5, self._monitor_result("no"))
+        set_tags_on_object(["checkout"], tagged)
+
+        resp = self.client.get(f"{self.feed_url}?tags=checkout")
+        self.assertEqual([i["observation"]["session_id"] for i in resp.json()["results"]], ["tagged-sess"])
+
     def test_malformed_scanner_result_ranks_by_recency_instead_of_500(self) -> None:
         scanner = self._create_scanner(name="m")
         self._succeeded_observation(scanner, "broken", 1, {"model_output": "not-a-dict"})
@@ -4911,3 +5130,82 @@ class TestReplayVisionProductIntent(_VisionAPITestCase):
 
         self.assertEqual(resp.status_code, 202, resp.json())
         self.assertIsNone(self._intent())
+
+
+class TestScannerActivityLogging(_VisionAPITestCase):
+    def _logs(self, scanner_id: str) -> list[ActivityLog]:
+        return list(
+            ActivityLog.objects.filter(team_id=self.team.id, scope="ReplayScanner", item_id=str(scanner_id)).order_by(
+                "created_at"
+            )
+        )
+
+    def test_api_crud_is_audited(self) -> None:
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "checkout-monitor",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "did the user check out?"},
+                "model": ScannerModel.GEMINI_3_8_FLASH,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
+        scanner_id = resp.json()["id"]
+
+        self.client.patch(
+            f"{self.scanners_url}{scanner_id}/",
+            data={"scanner_config": {"prompt": "did the user abandon the cart?"}},
+            format="json",
+        )
+        self.client.delete(f"{self.scanners_url}{scanner_id}/")
+
+        logs = self._logs(scanner_id)
+        self.assertEqual([log.activity for log in logs], ["created", "updated", "deleted"])
+        self.assertEqual(logs[0].user, self.user)
+
+        detail = cast(dict[str, Any], logs[1].detail)
+        changed_fields = {change["field"] for change in detail["changes"]}
+        self.assertEqual(changed_fields, {"scanner_config"})
+
+    def test_machine_owned_writes_are_not_audited(self) -> None:
+        scanner = self._create_scanner()
+        ActivityLog.objects.all().delete()
+
+        scanner.feedback_themes = {"themes": []}
+        scanner.save(update_fields=["feedback_themes"])
+
+        self.assertEqual(self._logs(str(scanner.id)), [])
+
+    def test_inline_scanners_are_not_audited(self) -> None:
+        scanner = self._create_scanner(name="", origin=ScannerOrigin.INLINE, inline_key="fingerprint")
+
+        self.assertEqual(self._logs(str(scanner.id)), [])
+
+    def test_the_audit_diff_does_not_read_a_scanner_s_observations(self) -> None:
+        # changes_between walks reverse relations and reads each one in full, so an unexcluded
+        # `observations` would scan the whole table on every edit, under the save's row lock.
+        scanner = self._create_scanner()
+        ReplayObservation.objects.create(
+            scanner=scanner,
+            team=self.team,
+            session_id="sess-audit-diff",
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+        previous = ReplayScanner.objects.get(pk=scanner.pk)
+        current = ReplayScanner.objects.get(pk=scanner.pk)
+        current.scanner_config = {"prompt": "did the user abandon the cart?"}
+
+        with CaptureQueriesContext(connection) as queries:
+            changes = changes_between("ReplayScanner", previous=previous, current=current)
+
+        self.assertEqual({change.field for change in changes}, {"scanner_config"})
+        observation_reads = [q for q in queries.captured_queries if "replay_vision_replayobservation" in q["sql"]]
+        self.assertEqual(observation_reads, [])
+
+    def test_every_machine_owned_field_is_excluded(self) -> None:
+        # A machine-written column that misses the registry turns every sweep into an audit row.
+        self.assertEqual(set(ReplayScanner._MACHINE_OWNED_FIELDS) - set(replay_scanner_machine_fields), set())

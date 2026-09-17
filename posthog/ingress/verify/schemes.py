@@ -6,6 +6,7 @@ import json
 import time
 import base64
 from collections.abc import Callable, Mapping
+from dataclasses import field
 from enum import StrEnum
 from typing import Any, Literal, Protocol
 
@@ -27,6 +28,21 @@ class VerificationOutcome(StrEnum):
     NOT_CONFIGURED = "not_configured"
 
 
+@frozen
+class Verification:
+    """What a signature check concluded, and what it proved on the way.
+
+    A scheme that checks a signed token learns more than "this is really them": the claims it
+    validated name the sender and the audience. `facts` carries those to `deliveries`, so an
+    incarnation can cross-check the body against what was actually signed, rather than trusting
+    a field of the body that says the same thing. An HMAC over raw bytes proves nothing beyond
+    the signature and leaves `facts` empty.
+    """
+
+    outcome: VerificationOutcome
+    facts: Mapping[str, Any] = field(default_factory=dict)
+
+
 def header_value(headers: Mapping[str, str], name: str) -> str | None:
     """Read a header from either Django's case-insensitive mapping or a plain dict."""
     value = headers.get(name)
@@ -39,8 +55,27 @@ def header_value(headers: Mapping[str, str], name: str) -> str | None:
     return None
 
 
+def hmac_sha256_signature(
+    secret: str,
+    signed: bytes,
+    *,
+    encoding: SignatureEncoding = "hex",
+    prefix: str = "",
+) -> str:
+    digest = hmac.digest(secret.encode("utf-8"), signed, "sha256")
+    encoded = base64.b64encode(digest).decode("ascii") if encoding == "base64" else digest.hex()
+    return prefix + encoded
+
+
+def signatures_match(expected: str, provided: str) -> bool:
+    # Compared as bytes, because compare_digest raises TypeError on a str that holds a
+    # non-ASCII code point, and a header arrives here decoded as latin-1. An unauthenticated
+    # caller could otherwise turn a junk header into a 500.
+    return hmac.compare_digest(expected.encode("utf-8"), provided.encode("utf-8"))
+
+
 class SignatureScheme(Protocol):
-    def verify(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome: ...
+    def verify(self, *, body: bytes, headers: Mapping[str, str]) -> Verification: ...
 
 
 @frozen
@@ -77,11 +112,9 @@ class HmacSha256:
         return body
 
     def _expected_signature(self, secret: str, signed: bytes) -> str:
-        digest = hmac.digest(secret.encode("utf-8"), signed, "sha256")
-        encoded = base64.b64encode(digest).decode("ascii") if self.encoding == "base64" else digest.hex()
-        return self.prefix + encoded
+        return hmac_sha256_signature(secret, signed, encoding=self.encoding, prefix=self.prefix)
 
-    def verify(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
+    def _outcome(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
         secret = self.secret_getter()
         if not secret:
             return VerificationOutcome.NOT_CONFIGURED
@@ -99,12 +132,14 @@ class HmacSha256:
                 return VerificationOutcome.INVALID
 
         expected = self._expected_signature(secret, self._signed_bytes(body, timestamp))
-        # Compared as bytes, because compare_digest raises TypeError on a str that holds a
-        # non-ASCII code point, and a header arrives here decoded as latin-1. An unauthenticated
-        # caller could otherwise turn a junk header into a 500.
-        if hmac.compare_digest(expected.encode("utf-8"), provided.encode("utf-8")):
+        if signatures_match(expected, provided):
             return VerificationOutcome.VERIFIED
         return VerificationOutcome.INVALID
+
+    def verify(self, *, body: bytes, headers: Mapping[str, str]) -> Verification:
+        # No facts: an HMAC over the raw body proves the sender holds the secret and says
+        # nothing else about the delivery.
+        return Verification(outcome=self._outcome(body=body, headers=headers))
 
 
 @frozen
@@ -119,7 +154,7 @@ class SnsSignature:
     verify_message: Callable[[Mapping[str, Any]], bool]
     allowed_topic_arns: Callable[[], frozenset[str]]
 
-    def verify(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
+    def _outcome(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
         allowed = self.allowed_topic_arns()
         if not allowed:
             return VerificationOutcome.NOT_CONFIGURED
@@ -137,3 +172,8 @@ class SnsSignature:
             logger.warning("ingress_sns_invalid_signature", message_id=message.get("MessageId"))
             return VerificationOutcome.INVALID
         return VerificationOutcome.VERIFIED
+
+    def verify(self, *, body: bytes, headers: Mapping[str, str]) -> Verification:
+        # No facts: the allowlist and the RSA check both read the body the incarnation parses
+        # again, so there is nothing here that `deliveries` cannot see for itself.
+        return Verification(outcome=self._outcome(body=body, headers=headers))

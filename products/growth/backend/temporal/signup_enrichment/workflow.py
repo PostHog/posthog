@@ -12,8 +12,10 @@ import datetime as dt
 import dataclasses
 
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import get_regional_ph_client
 from posthog.temporal.common.base import PostHogWorkflow
@@ -198,6 +200,45 @@ async def enrich_signup_organization_activity(
             pha_client.shutdown()
 
 
+async def _execute_enrich_activity(
+    inputs: SignupEnrichmentInputs, *, is_recheck: bool, first_attempt_matched: bool = False
+) -> dict[str, typing.Any]:
+    return await workflow.execute_activity(
+        enrich_signup_organization_activity,
+        args=[inputs, is_recheck, first_attempt_matched],
+        start_to_close_timeout=ENRICH_ACTIVITY_TIMEOUT,
+        # Onboarding routing already degrades to a safe default when enrichment is absent.
+        retry_policy=RetryPolicy(maximum_attempts=MAX_ENRICH_ATTEMPTS, initial_interval=dt.timedelta(seconds=5)),
+    )
+
+
+@frozen
+class SignupEnrichmentRecheckInputs:
+    signup: SignupEnrichmentInputs
+    first_attempt_matched: bool = False
+
+
+@workflow.defn(name="signup-enrichment-recheck")
+class SignupEnrichmentRecheckWorkflow(PostHogWorkflow):
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> SignupEnrichmentRecheckInputs:
+        loaded = json.loads(inputs[0])
+        return SignupEnrichmentRecheckInputs(
+            signup=SignupEnrichmentInputs(**loaded["signup"]),
+            first_attempt_matched=loaded.get("first_attempt_matched", False),
+        )
+
+    @workflow.run
+    async def run(self, inputs: SignupEnrichmentRecheckInputs) -> dict[str, typing.Any]:
+        # Unconditional: give Harmonic's seeded async enrichment time to index the company, and
+        # Clay's bridge columns time to land, then look/score once more for every org, matched
+        # or not on the first pass.
+        await workflow.sleep(RECHECK_DELAY)
+        return await _execute_enrich_activity(
+            inputs.signup, is_recheck=True, first_attempt_matched=inputs.first_attempt_matched
+        )
+
+
 @workflow.defn(name="signup-enrichment")
 class SignupEnrichmentWorkflow(PostHogWorkflow):
     """Fire-and-forget enrichment for one organization, started right after signup."""
@@ -208,21 +249,22 @@ class SignupEnrichmentWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: SignupEnrichmentInputs) -> dict[str, typing.Any]:
-        first_result = await self._enrich(inputs, is_recheck=False)
+        first_result = await _execute_enrich_activity(inputs, is_recheck=False)
+        first_attempt_matched = bool(first_result.get("matched"))
 
-        # Unconditional: give Harmonic's seeded async enrichment time to index the company, and
-        # Clay's bridge columns time to land, then look/score once more — for every org, matched
-        # or not on the first pass.
+        if workflow.patched("signup-enrichment-recheck-child-2026-09"):
+            try:
+                await workflow.start_child_workflow(
+                    SignupEnrichmentRecheckWorkflow.run,
+                    SignupEnrichmentRecheckInputs(signup=inputs, first_attempt_matched=first_attempt_matched),
+                    id=f"signup-enrichment-recheck-{inputs.organization_id}",
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                )
+            except WorkflowAlreadyStartedError:
+                LOGGER.bind(organization_id=inputs.organization_id).info("signup_enrichment_recheck_already_pending")
+            return first_result
+
+        # Executions recorded before the recheck child existed replay through this path.
         await workflow.sleep(RECHECK_DELAY)
-        return await self._enrich(inputs, is_recheck=True, first_attempt_matched=bool(first_result.get("matched")))
-
-    async def _enrich(
-        self, inputs: SignupEnrichmentInputs, *, is_recheck: bool, first_attempt_matched: bool = False
-    ) -> dict[str, typing.Any]:
-        return await workflow.execute_activity(
-            enrich_signup_organization_activity,
-            args=[inputs, is_recheck, first_attempt_matched],
-            start_to_close_timeout=ENRICH_ACTIVITY_TIMEOUT,
-            # Onboarding routing already degrades to a safe default when enrichment is absent.
-            retry_policy=RetryPolicy(maximum_attempts=MAX_ENRICH_ATTEMPTS, initial_interval=dt.timedelta(seconds=5)),
-        )
+        return await _execute_enrich_activity(inputs, is_recheck=True, first_attempt_matched=first_attempt_matched)

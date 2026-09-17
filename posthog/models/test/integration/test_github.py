@@ -76,6 +76,21 @@ class TestExtractFailingChecks(SimpleTestCase):
         assert (failing == [{"key": "CI/unit tests", "details_url": "https://ci/1"}]) is expected_reported
 
 
+class TestGitHubPullRequestChecks(SimpleTestCase):
+    def test_reports_missing_checks_permission(self):
+        integration = MagicMock(kind="github", config={"permissions": {"contents": "read"}})
+        github = GitHubIntegration(integration)
+
+        with patch.object(github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f"}):
+            result = github.get_pull_request_checks("example/legacy", 7)
+
+        assert result == {
+            "success": False,
+            "error": "GitHub App is missing permission to read check runs",
+            "error_code": "github_checks_permission_missing",
+        }
+
+
 class TestParseRepoItemUrl(SimpleTestCase):
     @parameterized.expand(
         [
@@ -194,6 +209,50 @@ class TestGitHubIntegrationModel(BaseTest):
         # The scoped token must never clobber the shared full-permission credential other flows read.
         integration.refresh_from_db()
         assert integration.sensitive_config == {"token": "REFRESH", "access_token": "FULL_TOKEN"}
+
+    @parameterized.expand(
+        [
+            # An answer GitHub gave: the account committed, and this is when.
+            (
+                "dated_commit",
+                200,
+                [{"commit": {"author": {"date": "2021-02-09T10:00:00Z"}}}],
+                datetime(2021, 2, 9, 10, tzinfo=UTC),
+            ),
+            # Also an answer: the account has no commit on the default branch.
+            ("no_commits", 200, [], None),
+        ]
+    )
+    def test_author_last_commit_reports_what_github_answered(self, _name, status_code, body, expected):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=status_code)
+        mock_response.json.return_value = body
+
+        with patch.object(github, "api_request", return_value=mock_response):
+            result = github.get_author_last_commit("PostHog/posthog", "octocat")
+
+        assert result is not None
+        assert result.last_commit_at == expected
+
+    @parameterized.expand(
+        [
+            ("non_200", 404, []),
+            ("not_a_list", 200, {"message": "nope"}),
+            ("undated_commit", 200, [{"commit": {}}]),
+            ("author_not_a_dict", 200, [{"commit": {"author": "octocat"}}]),
+        ]
+    )
+    def test_author_last_commit_says_nothing_when_github_did_not_answer(self, _name, status_code, body):
+        # A caller drops a reviewer on a dated answer, so a failed lookup must not read as
+        # "this account never committed".
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=status_code)
+        mock_response.json.return_value = body
+
+        with patch.object(github, "api_request", return_value=mock_response):
+            assert github.get_author_last_commit("PostHog/posthog", "octocat") is None
 
     def test_get_diff_compares_branch_tips(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
@@ -880,6 +939,52 @@ class TestGitHubIntegrationModel(BaseTest):
             result = github.add_pull_request_assignees("PostHog/posthog", 123, ["alice"])
         assert result["success"] is False
         assert result["status_code"] == 422
+
+    @parameterized.expand(
+        [
+            ("assignable", 204, {"success": True, "assignable": True}),
+            ("not_assignable", 404, {"success": True, "assignable": False}),
+        ]
+    )
+    def test_is_assignable_reads_the_assignees_endpoint(self, _name: str, status_code: int, expected: dict):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(
+            github, "_installation_authenticated_get", return_value=MagicMock(status_code=status_code)
+        ) as mock_get:
+            result = github.is_assignable("PostHog/posthog", "alice")
+        assert result == expected
+        assert mock_get.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/assignees/alice"
+
+    def test_is_assignable_reports_a_github_error(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=403, text="Resource not accessible by integration")
+        with patch.object(github, "_installation_authenticated_get", return_value=mock_response):
+            result = github.is_assignable("PostHog/posthog", "alice")
+        assert result["success"] is False
+        assert result["status_code"] == 403
+
+    @parameterized.expand(
+        [
+            ("every_page_read", True, {"success": True, "logins": ["alice", "bob"]}),
+            # A partial member list would make a random pick skip part of the team.
+            ("a_page_failed", False, {"success": False}),
+        ]
+    )
+    def test_list_team_members_needs_every_page(self, _name: str, complete: bool, expected: dict):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        first = MagicMock(status_code=200)
+        first.json.return_value = [{"login": "alice"}]
+        second = MagicMock(status_code=200 if complete else 403, text="Resource not accessible by integration")
+        second.json.return_value = [{"login": "bob"}]
+        with patch.object(
+            github, "_installation_authenticated_get_pages", return_value=([first, second], complete)
+        ) as mock_pages:
+            result = github.list_team_members("PostHog", "team-devex")
+        assert {key: result[key] for key in expected} == expected
+        assert mock_pages.call_args.args[0] == "https://api.github.com/orgs/PostHog/teams/team-devex/members"
 
     def test_add_pull_request_assignees_from_url_parses_and_posts(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})

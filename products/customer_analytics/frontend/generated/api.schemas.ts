@@ -29,6 +29,101 @@ export type ExternalAccountApiRelationships = { [key: string]: ExternalAccountAs
  */
 export type ExternalAccountApiCustomProperties = { [key: string]: unknown }
 
+/**
+ * * `unmanaged` - Unmanaged
+ * * `assigned` - Assigned
+ * * `cleared` - Cleared
+ * * `blocked` - Blocked
+ */
+export type OwnershipRoleStateEnumApi = (typeof OwnershipRoleStateEnumApi)[keyof typeof OwnershipRoleStateEnumApi]
+
+export const OwnershipRoleStateEnumApi = {
+    Unmanaged: 'unmanaged',
+    Assigned: 'assigned',
+    Cleared: 'cleared',
+    Blocked: 'blocked',
+} as const
+
+export interface ExternalAccountOwnershipHolderApi {
+    /** PostHog user id of the holder. */
+    user_id: number
+    /**
+     * Current email address of the holder; null for a holder outside the organization.
+     * @nullable
+     */
+    email: string | null
+    /**
+     * Current display name of the holder; null when unset or outside the organization.
+     * @nullable
+     */
+    name: string | null
+    /** Whether the holder is currently a member of the project's organization. */
+    is_organization_member: boolean
+    /** Whether the holder's PostHog user account is active. */
+    is_active: boolean
+}
+
+/**
+ * * `holder_missing` - The active relationship has no user
+ * * `holder_inactive` - The holder's user account is deactivated
+ * * `holder_not_in_organization` - The holder is not a member of the organization
+ * * `multiple_active_holders` - More than one active relationship holds the role
+ */
+export type OwnershipRoleDiagnosticEnumApi =
+    (typeof OwnershipRoleDiagnosticEnumApi)[keyof typeof OwnershipRoleDiagnosticEnumApi]
+
+export const OwnershipRoleDiagnosticEnumApi = {
+    HolderMissing: 'holder_missing',
+    HolderInactive: 'holder_inactive',
+    HolderNotInOrganization: 'holder_not_in_organization',
+    MultipleActiveHolders: 'multiple_active_holders',
+} as const
+
+export interface ExternalAccountRoleOwnershipApi {
+    /** The controlled relationship definition. Map it to the role you project; it does not change. */
+    definition_id: string
+    /** Current name of the relationship definition. */
+    definition_name: string
+    /** `unmanaged`: customer analytics does not hold authority over this relationship on this account; the holder, if any, is a legacy assignment. `assigned`: the holder is authoritative. `cleared`: the relationship is authoritatively empty. `blocked`: the relationship is managed but its holder cannot be projected; see `diagnostics` and keep the last applied value.
+     *
+     * * `unmanaged` - Unmanaged
+     * * `assigned` - Assigned
+     * * `cleared` - Cleared
+     * * `blocked` - Blocked */
+    state: OwnershipRoleStateEnumApi
+    /**
+     * When customer analytics last decided this relationship on this account; null while unmanaged.
+     * @nullable
+     */
+    controlled_at: string | null
+    /**
+     * The active relationship holding the role, or null when empty.
+     * @nullable
+     */
+    relationship_id: string | null
+    /** The current holder, or null. */
+    holder: ExternalAccountOwnershipHolderApi | null
+    /** Why a managed relationship is blocked. Informational on an unmanaged one. */
+    diagnostics: OwnershipRoleDiagnosticEnumApi[]
+}
+
+export interface ExternalAccountOwnershipApi {
+    /** Account UUID, the canonical identity within this project. */
+    account_id: string
+    /**
+     * External account key: the group key the account is linked to.
+     * @nullable
+     */
+    external_id: string | null
+    /**
+     * Region of this PostHog instance (`us`, `eu`), or null when self-hosted.
+     * @nullable
+     */
+    region: string | null
+    /** One entry per controlled relationship definition of the project, in name order, whether or not this account is managed under it. Empty when the project controls no relationship. */
+    roles: ExternalAccountRoleOwnershipApi[]
+}
+
 export interface ExternalAccountApi {
     /** Account UUID. */
     id: string
@@ -51,6 +146,8 @@ export interface ExternalAccountApi {
     ignored_at: string | null
     /** Typed account properties: external-system ids. Role assignments live under `relationships`. */
     properties: ExternalAccountApiProperties
+    /** Authority state of each relationship the project controls. */
+    ownership: ExternalAccountOwnershipApi
     /** Tag names on the account, sorted alphabetically. */
     tags: string[]
     /** Active relationship assignments keyed by definition name (e.g. 'CSM'). Definitions with no active assignment are omitted. */
@@ -96,6 +193,8 @@ export interface ExternalAccountListItemApi {
      * @nullable
      */
     ignored_at: string | null
+    /** Authority state of each relationship the project controls. */
+    ownership: ExternalAccountOwnershipApi
     /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
     relationships: ExternalAccountListItemApiRelationships
 }
@@ -232,6 +331,8 @@ export interface AccountRelationshipDefinitionApi {
     description?: string | null
     /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
     is_single_holder?: boolean
+    /** Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API. */
+    readonly is_controlled: boolean
 }
 
 export interface PaginatedAccountRelationshipDefinitionListApi {
@@ -261,6 +362,8 @@ export interface PatchedAccountRelationshipDefinitionApi {
     description?: string | null
     /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
     is_single_holder?: boolean
+    /** Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API. */
+    readonly is_controlled?: boolean
 }
 
 /**
@@ -568,6 +671,24 @@ export interface AccountAssignmentApi {
 }
 
 /**
+ * * `human` - Human
+ * * `workflow` - Workflow
+ * * `ai` - AI
+ * * `salesforce_claim` - Salesforce claim
+ * * `migration` - Migration
+ */
+export type AccountRelationshipSourceEnumApi =
+    (typeof AccountRelationshipSourceEnumApi)[keyof typeof AccountRelationshipSourceEnumApi]
+
+export const AccountRelationshipSourceEnumApi = {
+    Human: 'human',
+    Workflow: 'workflow',
+    Ai: 'ai',
+    SalesforceClaim: 'salesforce_claim',
+    Migration: 'migration',
+} as const
+
+/**
  * One assignment of a user to an account relationship, with its effective range.
  */
 export interface AccountRelationshipApi {
@@ -584,6 +705,14 @@ export interface AccountRelationshipApi {
      * @nullable
      */
     readonly ended_at: string | null
+    /** Which kind of writer made this assignment; null on rows older than provenance tracking.
+     *
+     * * `human` - Human
+     * * `workflow` - Workflow
+     * * `ai` - AI
+     * * `salesforce_claim` - Salesforce claim
+     * * `migration` - Migration */
+    readonly source: AccountRelationshipSourceEnumApi | null
 }
 
 /**
@@ -1405,6 +1534,8 @@ export interface HogQLQueryModifiersApi {
     bounceRateDurationSeconds?: number | null
     bounceRatePageViewMode?: BounceRatePageViewModeApi | null
     convertToProjectTimezone?: boolean | null
+    /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
+    cookielessTrafficIsRegular?: boolean | null
     customBotDefinitions?: CustomBotRuleApi[] | null
     customChannelTypeRules?: CustomChannelRuleApi[] | null
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
@@ -1454,9 +1585,66 @@ export interface ClickhouseQueryProgressApi {
     time_elapsed: number
 }
 
+export type QueryScanFindingKindApi = (typeof QueryScanFindingKindApi)[keyof typeof QueryScanFindingKindApi]
+
+export const QueryScanFindingKindApi = {
+    NoEventFilter: 'no_event_filter',
+    NoStartDate: 'no_start_date',
+    PersonsJoin: 'persons_join',
+} as const
+
+export type QueryScanFindingReasonApi = (typeof QueryScanFindingReasonApi)[keyof typeof QueryScanFindingReasonApi]
+
+export const QueryScanFindingReasonApi = {
+    InOr: 'in_or',
+    Wrapped: 'wrapped',
+    Negated: 'negated',
+    Dynamic: 'dynamic',
+    NotPruned: 'not_pruned',
+    Filters: 'filters',
+} as const
+
+export interface QueryScanWarningApi {
+    /** The one fact the finding rests on. */
+    evidence?: string | null
+    /** What "Fix with AI" and the assistant are told to do. */
+    fix: string
+    kind: QueryScanFindingKindApi
+    /** Shown to the person: what happened and what to do. */
+    message: string
+    /** Only with `no_event_filter` and `no_start_date`. */
+    reason?: QueryScanFindingReasonApi | null
+}
+
+export interface QueryScanAnalysisApi {
+    /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
+    assistant_prompt?: string | null
+    /** Empty when the analysis found nothing to fix. */
+    findings: QueryScanWarningApi[]
+    /** How much of all the project's events the query read, 0 to 1. */
+    project_share?: number | null
+    /** How much of the project's events in the query's date range the query read, 0 to 1. */
+    range_share?: number | null
+}
+
+export interface QueryScanSummaryApi {
+    /** The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested. */
+    analysis?: QueryScanAnalysisApi | null
+    /** True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it. */
+    analysis_requested?: boolean | null
+    /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
+    duration_ms: number
+    /** True when ClickHouse stopped the run instead of finishing it. */
+    killed?: boolean | null
+    /** Rows ClickHouse read for the last fresh run, all tables included. */
+    rows_read: number
+}
+
 export interface QueryStatusApi {
     budget_remaining_bytes?: number | null
     bytes_read?: number | null
+    /** Cache key of the run that failed, so clients can ask for its query scan. */
+    cache_key?: string | null
     /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
     complete?: boolean | null
     dashboard_id?: number | null
@@ -1476,6 +1664,7 @@ export interface QueryStatusApi {
     /** ONLY async queries use QueryStatus. */
     query_async?: true
     query_progress?: ClickhouseQueryProgressApi | null
+    query_scan?: QueryScanSummaryApi | null
     results?: unknown
     /** When was query execution task enqueued. */
     start_time?: string | null
@@ -4067,6 +4256,10 @@ export type CustomerAnalyticsExternalAccountsRetrieveParams = {
      * Maximum number of accounts to return. Values below 1 are clamped to 1; values above 100 are clamped to 100.
      */
     limit?: number
+    /**
+     * When true, return only accounts where customer analytics holds authority over at least one controlled relationship, including accounts whose managed relationships are cleared and accounts that are ignored. Authority does not end when an account is ignored, so `include_ignored` is implied.
+     */
+    managed_only?: boolean
 }
 
 export type AccountNotesListParams = {
@@ -4236,6 +4429,15 @@ export type AccountsSupportTicketMessagesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type AccountsByExternalIdRetrieveParams = {
+    /**
+     * Exact external account identifier. Leading and trailing whitespace is significant.
+     * @minLength 1
+     * @maxLength 400
+     */
+    external_id: string
 }
 
 export type AnnouncementsListParams = {

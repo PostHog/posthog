@@ -300,7 +300,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         integration_id: zod
                             .number()
                             .describe(
-                                'ID of a snowflake-kind Integration providing the account, user and credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -320,7 +320,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['Snowflake']),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
@@ -996,7 +996,7 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         integration_id: zod
                             .number()
                             .describe(
-                                'ID of a snowflake-kind Integration providing the account, user and credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -1016,7 +1016,7 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['Snowflake']),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
@@ -1447,7 +1447,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         integration_id: zod
                             .number()
                             .describe(
-                                'ID of a snowflake-kind Integration providing the account, user and credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -1467,7 +1467,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['Snowflake']),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
@@ -1888,7 +1888,7 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['Snowflake']),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                         zod
                             .object({
@@ -2331,7 +2331,7 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['Snowflake']),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                         zod
                             .object({
@@ -2767,7 +2767,7 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['Snowflake']),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                         zod
                             .object({
@@ -3214,7 +3214,7 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['Snowflake']),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                         zod
                             .object({

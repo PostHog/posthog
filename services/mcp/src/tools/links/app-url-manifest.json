@@ -364,6 +364,11 @@
         "params": ["accountId"],
         "scope": "project"
     },
+    "customerAnalyticsAccountByExternalId": {
+        "template": "/customer_analytics/accounts/by-external-id/{externalId}",
+        "params": ["externalId"],
+        "scope": "project"
+    },
     "customerAnalyticsAccounts": {
         "template": "/customer_analytics/accounts",
         "params": [],
@@ -1382,6 +1387,11 @@
     "resourceTransfer": {
         "template": "/resource-transfer/{resourceKind}/{resourceId}",
         "params": ["resourceKind", "resourceId"],
+        "scope": "project"
+    },
+    "reusableWidget": {
+        "template": "/notebooks/widgets/{widgetId}",
+        "params": ["widgetId"],
         "scope": "project"
     },
     "revenueSettings": {

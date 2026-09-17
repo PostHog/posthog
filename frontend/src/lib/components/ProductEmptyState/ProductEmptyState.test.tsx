@@ -1,6 +1,8 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -121,5 +123,42 @@ describe('ProductEmptyState', () => {
             expect(screen.queryByLabelText(/Copy command/)).toBeNull()
         }
         expect(!!screen.queryByText('Hint')).toBe(expected)
+    })
+
+    // Overrides keyed by a flag let a config roll out a new call to action without a second
+    // config: they must apply only while the flag is on, `primaryAction: undefined` must drop
+    // the action, and a text field left out of the override must keep its base value.
+    it.each([
+        [false, false],
+        [true, true],
+    ])('with its flag on=%s applies the feature flag overrides: %s', async (flagOn, applied) => {
+        useMocks({ get: { '/_preflight/': { cloud: true } } })
+        preflightLogic.actions.loadPreflight()
+        await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], flagOn ? { [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD]: true } : {})
+        const overriddenConfig: ProductEmptyStateConfig = {
+            ...config,
+            text: { 'needs-setup': { headline: 'Headline', lead: 'Lead', hint: 'Base hint' } },
+            featureFlagOverrides: {
+                [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD]: {
+                    text: { 'needs-setup': { hint: 'Override hint' } },
+                    wizard: { slug: 'experiments' },
+                    primaryAction: undefined,
+                },
+            },
+        }
+
+        render(<ProductEmptyState config={overriddenConfig} mode="needs-setup" />)
+
+        if (applied) {
+            expect(await screen.findByLabelText(/Copy command/)).toBeTruthy()
+        } else {
+            expect(screen.queryByLabelText(/Copy command/)).toBeNull()
+        }
+        expect(!!screen.queryByTestId('create-experiment')).toBe(!applied)
+        expect(!!screen.queryByText('Override hint')).toBe(applied)
+        expect(!!screen.queryByText('Base hint')).toBe(!applied)
+        expect(screen.getByText('Headline')).toBeTruthy()
     })
 })

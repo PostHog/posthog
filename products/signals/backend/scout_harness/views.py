@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from django.db import transaction
+from django.db.models import Q, Value
+from django.db.models.functions import Coalesce, Lower, NullIf
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -51,6 +53,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
@@ -85,6 +88,7 @@ from products.signals.backend.scout_harness.run_gates import (
     check_spend_gates,
 )
 from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS, scout_costs
+from products.signals.backend.scout_harness.scout_naming import SLUG_ALLOCATION_ATTEMPTS, allocate_scout_slug
 from products.signals.backend.scout_harness.serializers import (
     REPOSITORIES_REACHABILITY_CHECKED_CONTEXT_KEY,
     EditReportRequestSerializer,
@@ -98,6 +102,8 @@ from products.signals.backend.scout_harness.serializers import (
     FleetFindingsSummarySerializer,
     ForgetRequestSerializer,
     ForgetResponseSerializer,
+    LighthouseAuditRequestSerializer,
+    LighthouseAuditResponseSerializer,
     ProjectProfileQuerySerializer,
     ProjectProfileSerializer,
     RecentEmissionsQuerySerializer,
@@ -143,6 +149,17 @@ from products.signals.backend.scout_harness.skill_loader import (
 from products.signals.backend.scout_harness.suggestions import find_suggestion, mark_suggestion_created
 from products.signals.backend.scout_harness.team_limits import resolve_team_metadata, withheld_skills_for_team
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
+from products.signals.backend.scout_harness.tools.lighthouse import (
+    MAX_AUDITS_PER_RUN,
+    RUN_AUDIT_COUNT_KEY,
+    InvalidLighthouseTargetError,
+    LighthouseAuditFailedError,
+    LighthouseFleetBusyError,
+    LighthouseUnavailableError,
+    audits_remaining_for_run,
+    execute_lighthouse_audit,
+    prepare_lighthouse_audit,
+)
 from products.signals.backend.scout_harness.tools.notes import (
     DEFAULT_NOTES_LIST_LIMIT,
     InvalidNoteError,
@@ -216,6 +233,22 @@ class _StructuredOutputDeliveryFailed(exceptions.APIException):
 
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_code = "structured_output_delivery_failed"
+
+
+class _LighthouseNotConfigured(exceptions.APIException):
+    """501 for a deployment with no Browserless provisioned: the capability is absent here,
+    which is a different thing from the request being wrong, and no retry will fix it."""
+
+    status_code = status.HTTP_501_NOT_IMPLEMENTED
+    default_code = "lighthouse_not_configured"
+
+
+class _LighthouseFleetBusy(exceptions.APIException):
+    """503 for an audit the fleet's egress budget refused. Nothing is wrong with the request and
+    the budget refills on its own, so this reads as "come back", not as a failed audit."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "lighthouse_fleet_busy"
 
 
 # `SignalScoutRunViewSet.lookup_field` is `run_id`, but the model's PK field is `id`, so
@@ -547,6 +580,13 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # otherwise, and the runtime shape diverges from the OpenAPI schema. Per-action overrides
     # on POSTs (emit-signal, forget) already disable pagination at the @action level.
     pagination_class = None
+
+    def get_throttles(self):
+        if self.action == "lighthouse_audit":
+            # A browser load under throttling, tens of seconds of a Browserless session. The
+            # per-run cap bounds one scout; this bounds the fleet if several start auditing at once.
+            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        return super().get_throttles()
 
     @validated_request(
         query_serializer=SearchRecentRunsQuerySerializer,
@@ -1324,6 +1364,163 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @validated_request(
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        request_serializer=LighthouseAuditRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=LighthouseAuditResponseSerializer,
+                description="The audit ran and the reduced report is attached.",
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "The url is not on an allowed host, is not https, redirected off the allowed hosts "
+                    "(the login-wall case), the run is not in progress, or the run has spent its audit "
+                    "budget. Also returned when the page could not be loaded at all. Every message ends "
+                    "with how many audits the run has left, so a rejection is distinguishable from an "
+                    "exhausted budget."
+                )
+            ),
+            404: OpenApiResponse(description="No such run in this project, or the run belongs to a different scout."),
+            429: OpenApiResponse(description="Audit rate limit exceeded; retry later."),
+            501: OpenApiResponse(description="Lighthouse audits are not configured on this deployment."),
+            503: OpenApiResponse(
+                description=(
+                    "The browser fleet is at capacity, so no audit ran and the run keeps the slot. Retry later."
+                )
+            ),
+        },
+        summary="Run a Lighthouse audit for a run",
+        description=(
+            "Load one page in a real browser and return what makes it slow — most usefully the element "
+            "the browser chose as the Largest Contentful Paint, and where the LCP time went. Field data "
+            "says a route is slow; this says which element and why, so a finding can name it instead of "
+            "guessing from source. Restricted to public PostHog pages: the browser signs in to nothing, "
+            "so a page behind a login would report the login screen's numbers. One throttled cold load "
+            "is not a p75 over real users — corroborate a field finding with it, never replace one. "
+            f"Capped at {MAX_AUDITS_PER_RUN} audits per run."
+        ),
+        operation_id="signals_scout_lighthouse_audit",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="lighthouse-audit",
+        required_scopes=["signal_scout_internal:write"],
+        pagination_class=None,
+    )
+    def lighthouse_audit(self, request: Request, **kwargs) -> Response:
+        run_id = _parse_run_id_or_404(kwargs)
+        run = (
+            SignalScoutRun.objects.select_related("task_run")
+            .filter(team_id=_canonical_team_id(self), id=run_id)
+            .first()
+        )
+        if run is None:
+            raise exceptions.NotFound()
+        # A sandbox token is minted for one run, so it may only spend that run's budget. Team
+        # scoping alone leaves the cap per-run in name only: a scout can list its siblings, and
+        # spending each one's five slots costs five more browser sessions every time. Answered as
+        # 404 like another team's run, so a caller learns nothing about a run it may not touch.
+        # A caller with no bound task is unaffected, the internal scope being server-mint-only.
+        bound_task_id = _sandbox_bound_task_id(request)
+        if bound_task_id is not None and bound_task_id != run.task_run.task_id:
+            raise exceptions.NotFound()
+        if run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
+            raise exceptions.ValidationError(
+                {"status": f"An audit can only run on an in-progress run (current: {run.task_run.status})."}
+            )
+
+        # Validate before reserving. A bad host, an http url, a team without the capability, or a
+        # deployment with no Browserless costs nothing to reject, so none of them should cost a
+        # slot — a scout that misread the host rule would otherwise burn its whole budget in five
+        # instant round-trips and then be told it had spent it on audits.
+        try:
+            prepared = prepare_lighthouse_audit(
+                team_id=_canonical_team_id(self),
+                url=request.validated_data["url"],
+                form_factor=request.validated_data["form_factor"],
+            )
+        except InvalidLighthouseTargetError as exc:
+            # The count rides in the message rather than a sibling field: the error body is
+            # rendered into `{type, code, detail, attr}`, so an extra key would not reach the
+            # scout — and telling a rejection apart from an exhausted budget is the whole point.
+            raise exceptions.ValidationError(
+                {"detail": f"{exc} ({self._audits_left(run)} of {MAX_AUDITS_PER_RUN} audits still available.)"}
+            )
+        except LighthouseUnavailableError as exc:
+            raise _LighthouseNotConfigured(detail=str(exc))
+
+        # Reserve under the run row's lock, so two concurrent calls can't both take the last slot.
+        # From here a browser load is about to happen, so the slot is spent whatever the outcome —
+        # a scout retrying a page that cannot be loaded is the runaway case the cap exists for.
+        with transaction.atomic():
+            # `all_teams` because the run's team was already verified above, matching how the
+            # structured-output channel reserves its own per-run cap.
+            locked = SignalScoutRun.all_teams.select_for_update(of=("self",)).filter(pk=run.pk).first()
+            if locked is None:
+                raise exceptions.NotFound()
+            metadata = dict(locked.metadata or {})
+            remaining = audits_remaining_for_run(metadata)
+            if remaining <= 0:
+                raise exceptions.ValidationError(
+                    {
+                        "detail": (
+                            f"This run has spent its {MAX_AUDITS_PER_RUN} Lighthouse audits "
+                            "(0 still available). Work from the field data and what you already measured."
+                        ),
+                    }
+                )
+            metadata[RUN_AUDIT_COUNT_KEY] = MAX_AUDITS_PER_RUN - remaining + 1
+            locked.metadata = metadata
+            locked.save(update_fields=["metadata"])
+
+        spent_message = f"({remaining - 1} of {MAX_AUDITS_PER_RUN} audits still available.)"
+        try:
+            audit = execute_lighthouse_audit(prepared)
+        except InvalidLighthouseTargetError as exc:
+            raise exceptions.ValidationError({"detail": f"{exc} {spent_message}"})
+        except LighthouseAuditFailedError as exc:
+            raise exceptions.ValidationError({"detail": f"{exc} {spent_message}"})
+        except LighthouseFleetBusyError as exc:
+            # No browser was started, so the reservation above bought nothing. Give the slot back
+            # rather than letting a busy fleet eat a run's whole budget in five instant refusals.
+            self._refund_audit(run)
+            raise _LighthouseFleetBusy(
+                detail=f"{exc} ({self._audits_left(run)} of {MAX_AUDITS_PER_RUN} audits still available.)"
+            )
+
+        payload = audit.as_dict()
+        payload["audits_remaining"] = remaining - 1
+        return Response(LighthouseAuditResponseSerializer(payload).data, status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _refund_audit(run: SignalScoutRun) -> None:
+        """Hand back a slot reserved for a browser load that never happened.
+
+        Re-read under the row lock rather than decrementing the count this request computed: a
+        concurrent audit on the same run may have reserved its own slot in between, and writing
+        back a stale total would hand that one back too.
+        """
+        with transaction.atomic():
+            locked = SignalScoutRun.all_teams.select_for_update(of=("self",)).filter(pk=run.pk).first()
+            if locked is None:
+                return
+            metadata = dict(locked.metadata or {})
+            spent = metadata.get(RUN_AUDIT_COUNT_KEY)
+            if not isinstance(spent, int) or spent <= 0:
+                return
+            metadata[RUN_AUDIT_COUNT_KEY] = spent - 1
+            locked.metadata = metadata
+            locked.save(update_fields=["metadata"])
+            run.metadata = metadata
+
+    @staticmethod
+    def _audits_left(run: SignalScoutRun) -> int:
+        """Budget left on a run, for a rejection that spent none of it. Told the remaining count
+        on every path, a scout can tell "you asked for the wrong thing" from "you are out"."""
+        return audits_remaining_for_run(run.metadata or {})
+
     # `EvidenceEntrySerializer` is referenced for OpenAPI nested-schema discovery; keep
     # the import live so drf-spectacular registers it even if the runtime never imports
     # it directly inside this module.
@@ -1634,6 +1831,11 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     burning 4-5 discovery calls. Lazy-recomputes on cache miss / TTL expiry / source-version
     bump; the response is always either the latest cached profile or a freshly-built one.
 
+    The response leads with the compact `summary` envelope and trails with `payload`, because
+    the inventory is large enough that a client can truncate the result before the emit gate
+    the scout has to read. `summary_only=true` drops `payload` for a caller that wants the
+    gate alone.
+
     Exposed as a `@action(detail=False, url_path="current")` rather than `list()` so the
     OpenAPI spec — and every generated client downstream of it (`api.ts`, MCP tool
     response shape, etc.) — types the response as a single `ProjectProfileApi` instead
@@ -1673,12 +1875,15 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         },
         summary="Get the current project profile",
         description=(
-            "Return the team's deterministic project profile. For the internal scout token the response "
-            "reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache miss); "
-            "`force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read callers "
-            "(session auth or a `signal_scout:read` PAK) get the newest cached profile, or 404 if none has been "
-            "built yet — they never trigger a rebuild. Read this at the start of a run to orient on the team's "
-            "product mix, integrations, warehouse sources, signal coverage, and existing inbox surface."
+            "Return the team's deterministic project profile. The response opens with a compact `summary` "
+            "envelope carrying the emit gate and the inbox report counts, then the full `payload`. The "
+            "inventory runs to tens of kilobytes, so a client that truncates a long tool result still keeps "
+            "the gate. Pass `summary_only=true` to omit `payload` entirely. For the internal scout token the "
+            "response reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache "
+            "miss); `force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read "
+            "callers (session auth or a `signal_scout:read` PAK) get the newest cached profile, or 404 if none "
+            "has been built yet — they never trigger a rebuild. Read this at the start of a run to orient on "
+            "the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface."
         ),
     )
     @action(
@@ -1715,7 +1920,12 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         )
         if profile is None:
             raise exceptions.NotFound("No project profile has been built for this team yet.")
-        return Response(ProjectProfileSerializer(profile.as_dict()).data)
+        body = profile.as_dict()
+        if validated.get("summary_only", False):
+            # `payload` is `required=False` on the serializer, so dropping the key here omits it
+            # from the response rather than rendering it null.
+            body.pop("payload", None)
+        return Response(ProjectProfileSerializer(body).data)
 
 
 class SignalScoutMetadataViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -1948,6 +2158,7 @@ def create_scout_for_source(
     team: Team,
     user: User,
     name: str,
+    display_name: str = "",
     description: str,
     body: str,
     files: list[Any],
@@ -1967,6 +2178,11 @@ def create_scout_for_source(
     Creating a scout creates an `LLMSkill` carrying the report-channel agent tools, so the caller
     clears the skill-authoring bar here whatever route they came in by. A product that owns the
     object checks its own access on top; it cannot stand in for this one.
+
+    `name` is the scout's permanent identity; `display_name` is the label, and it is the only one
+    of the two a rename ever touches. A caller that has a display name and no identity in mind
+    should go through `create_scout_with_generated_slug`, which derives one and handles the
+    collision case this function cannot see.
     """
     if not UserAccessControl(user=user, team=team).check_access_level_for_resource("llm_skill", "editor"):
         raise exceptions.PermissionDenied("Creating a scout requires editor access to skills.")
@@ -2000,6 +2216,10 @@ def create_scout_for_source(
             skill_created = False
 
         tunables = dict(config_options)
+        if display_name:
+            # Only when one was given: the upsert applies every tunable to a row that already
+            # exists, and a blank would clear a label the existing scout was renamed to.
+            tunables["display_name"] = display_name
         if "write_scopes" in tunables:
             # Creating the scout in this request makes the requester its author, which is who its
             # runs act as. Reusing an existing name adopts someone else's scout and its config, so
@@ -2047,6 +2267,48 @@ def create_scout_for_source(
         skill.category = SCOUT_SKILL_CATEGORY
 
     return ScoutCreationOutcome(skill=skill, config=config, created=skill_created or config_created)
+
+
+def create_scout_with_generated_slug(
+    *,
+    team: Team,
+    user: User,
+    display_name: str,
+    **kwargs: Any,
+) -> ScoutCreationOutcome:
+    """Create a scout under a slug derived from `display_name`, retrying when the slug is taken.
+
+    `allocate_scout_slug` picks a free slug by reading the names already in use, so a create that
+    lands between that read and the insert takes the chosen slug out from under this one. The loop
+    is what makes two concurrent creates of "Checkout failures" resolve to `checkout-failures` and
+    `checkout-failures-2` instead of one of them failing: each attempt re-allocates, holding back
+    the slugs it already lost so it cannot pick one of them twice.
+
+    Retrying is only correct for a generated slug, which is why it lives here rather than in
+    `create_scout_for_source`: a caller that named the scout itself gets the conflict, because
+    quietly storing a different identifier than the one it asked for would be worse. Each attempt
+    opens its own transaction, so a failed insert is rolled back before the next one starts.
+
+    One case the loop deliberately does not retry: the request loses the race to a create whose
+    definition matches byte for byte, and `create_scout_for_source` adopts that scout and answers
+    200 rather than suffixing past it. Only a concurrent double-submit reaches that — a later
+    repeat never does, because allocation has already moved on to the next free suffix — and
+    sharing one scout beats leaving a duplicate behind a request the client sent twice.
+
+    So a generated name is not the idempotent route an explicit `name` is: repeating the same
+    display name and body makes a second scout. That follows from generating the identity, since
+    nothing in a repeated request says which earlier scout it meant.
+    """
+    lost: set[str] = set()
+    for attempt in range(SLUG_ALLOCATION_ATTEMPTS):
+        name = allocate_scout_slug(team_id=team.id, display_name=display_name, taken=lost)
+        try:
+            return create_scout_for_source(team=team, user=user, name=name, display_name=display_name, **kwargs)
+        except (Conflict, LLMSkillDuplicateNameConflictError):
+            if attempt == SLUG_ALLOCATION_ATTEMPTS - 1:
+                raise
+            lost.add(name)
+    raise AssertionError("unreachable: the last attempt either returns or re-raises")
 
 
 def _skill_matches_scout_definition(
@@ -2293,12 +2555,15 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Create a scout",
         description=(
-            "Create a scout skill and its runnable config atomically. Any valid skill name works — the "
-            "config row is what makes the skill a scout. The skill always receives the "
-            "report-channel tools. The optional config controls schedule, enablement, dry-run posture, network "
-            "access, and typed destinations such as Slack. Repeating the same definition is safe and applies any "
-            "supplied config fields; "
-            "reusing its name for a different definition returns 409."
+            "Create a scout skill and its runnable config atomically. Give it a `display_name` — the "
+            "label people read, kept exactly as written — and the scout's permanent skill name is "
+            "generated from it, with a numeric suffix when that name is taken, so two scouts may "
+            "share a label without sharing an identity. Pass `name` instead to pick that identifier "
+            "yourself; any valid skill name works, since the config row is what makes a skill a "
+            "scout. The skill always receives the report-channel tools. The optional config controls "
+            "schedule, enablement, dry-run posture, network access, and typed destinations such as "
+            "Slack. Repeating the same definition is safe and applies any supplied config fields; "
+            "reusing an explicit `name` for a different definition returns 409."
         ),
         operation_id="signals_scout_create",
         include_serializer_context=True,
@@ -2311,16 +2576,24 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # No source here: this endpoint cannot check the caller's access to another product's object,
         # so a scout created through it records no owner. A product that stands scouts up for its own
         # objects calls `create_scout_for_source` after making that check itself.
-        outcome = create_scout_for_source(
-            team=canonical_team,
-            user=user,
-            name=validated["name"],
-            description=validated["description"],
-            body=validated["body"],
-            files=validated.get("files", []),
-            config_options=validated.get("config", {}),
-            request=request,
-            serializer_context={**self.get_serializer_context(), "project_id": self.team.project_id},
+        definition = {
+            "team": canonical_team,
+            "user": user,
+            "display_name": validated.get("display_name", ""),
+            "description": validated["description"],
+            "body": validated["body"],
+            "files": validated.get("files", []),
+            "config_options": validated.get("config", {}),
+            "request": request,
+            "serializer_context": {**self.get_serializer_context(), "project_id": self.team.project_id},
+        }
+        # A caller that named the scout keeps that name, conflict and all. One that only gave a
+        # display name has no identifier to be held to, so the slug is derived and re-derived until
+        # it lands.
+        outcome = (
+            create_scout_for_source(name=validated["name"], **definition)
+            if validated.get("name")
+            else create_scout_with_generated_slug(**definition)
         )
         # Hides the suggestion the moment its scout exists, rather than waiting for the read to
         # notice the name is taken — which it only does for enabled scouts and custom drafts.
@@ -2330,7 +2603,7 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if suggestion_id := validated.get("suggestion_id"):
             try:
                 record = find_suggestion(canonical_team.id, suggestion_id)
-                if record is not None and record.get("skill_name") == validated["name"]:
+                if record is not None and record.get("skill_name") == outcome.skill.name:
                     mark_suggestion_created(canonical_team.id, suggestion_id, config_id=str(outcome.config.id))
             except Exception:
                 logger.warning(
@@ -2341,7 +2614,7 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
         response = SignalScoutCreateResponseSerializer(
             {"created": outcome.created, "skill": outcome.skill, "config": outcome.config},
-            context=scout_config_context(canonical_team, [validated["name"]], request),
+            context=scout_config_context(canonical_team, [outcome.skill.name], request),
         )
         return Response(
             response.data,
@@ -2436,16 +2709,18 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(
                 response=SignalScoutConfigSerializer(many=True),
-                description="Per-scout configs for this project, ordered by skill name.",
+                description="Per-scout configs for this project, ordered by the name each scout displays under.",
             ),
         },
         summary="List scout configs",
         description=(
-            "List the per-(team, skill) scout configs for this project. Each row includes its schedule "
-            "(rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when set), `enabled`, "
-            "`emit` posture, and `tags`. A freshly authored scout skill appears here once its config is "
-            "registered, either explicitly via create or by the coordinator's next tick. Pass `tags` to "
-            "narrow the fleet to the scouts carrying at least one of the given labels."
+            "List the per-(team, skill) scout configs for this project. Each row includes its "
+            "`display_name` (the label people read), its `skill_name` (the permanent identifier), its "
+            "schedule (rolling `run_interval_minutes`, or a project-local `run_cron_schedule` when "
+            "set), `enabled`, `emit` posture, and `tags`. A freshly authored scout skill appears here "
+            "once its config is registered, either explicitly via create or by the coordinator's next "
+            "tick. Pass `tags` to narrow the fleet to the scouts carrying at least one of the given "
+            "labels, and `search` to narrow it to the scouts matching a substring of either name."
         ),
         operation_id="signals_scout_config_list",
     )
@@ -2461,10 +2736,19 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Any-of, matching how the fleet UI's tag picker reads. `&&` over the array column rather
         # than a join table or a GIN index: the team filter already bounds this to the handful of
         # scouts an org is allowed to create, so there is nothing left for an index to save.
-        tags = (getattr(request, "validated_query_data", None) or {}).get("tags")
+        query = getattr(request, "validated_query_data", None) or {}
+        tags = query.get("tags")
         if tags:
             queryset = queryset.filter(tags__overlap=tags)
-        configs = list(queryset.order_by("skill_name"))
+        # Either name matches, because the two audiences know the scout by different ones: a person
+        # types the label they see, a caller holding a stored identifier types the slug.
+        if search := query.get("search"):
+            queryset = queryset.filter(Q(display_name__icontains=search) | Q(skill_name__icontains=search))
+        # Ordered by the label the reader sees rather than by the identifier, which no surface shows
+        # first. A scout with no name of its own falls back to its slug, which is close enough to the
+        # label the clients derive from it to keep the two kinds interleaved instead of clumping the
+        # unnamed ones at one end.
+        configs = list(queryset.order_by(Lower(Coalesce(NullIf("display_name", Value("")), "skill_name"))))
         context = scout_config_context(team, [c.skill_name for c in configs], request)
         serializer = SignalScoutConfigSerializer(configs, many=True, context=context)
         return Response(serializer.data)

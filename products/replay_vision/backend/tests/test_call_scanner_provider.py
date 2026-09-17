@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.utils import timezone
 
 import httpx
+from google.genai import types
 from google.genai.errors import APIError
 from pydantic import BaseModel
 from temporalio.testing import ActivityEnvironment
@@ -27,13 +28,21 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     _step_config,
 )
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
+from products.replay_vision.backend.temporal.events_tool import events_tool
 from products.replay_vision.backend.temporal.metrics import REPLAY_VISION_VERIFICATION_OUTCOMES
-from products.replay_vision.backend.temporal.scanners.base import MissionStep, SignalFinding, SignalsResponse
+from products.replay_vision.backend.temporal.scanners.base import (
+    STEP_MAX_OUTPUT_TOKENS,
+    MissionStep,
+    SignalFinding,
+    SignalsResponse,
+)
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorOutput, MonitorScanner
 from products.replay_vision.backend.temporal.types import ScannerSnapshot, VerificationRecord
+from products.replay_vision.backend.temporal.video_clock import VideoClock
 
 _LABELS = {"provider": "gemini", "model": "gemini-3-flash-preview", "scanner_type": "monitor"}
 # The driver treats the video part opaquely (just appended to the conversation), so a sentinel is fine.
+_IDENTITY_CLOCK = VideoClock(spans=())
 _VIDEO: Any = "VIDEO"
 
 
@@ -52,10 +61,13 @@ class _FakeContent:
 
 
 class _Resp:
-    """Minimal genai response: `.text` and `.candidates[0].content.parts`."""
+    """Minimal genai response: `.text`, `.candidates[0].content.parts`, and an optional finish reason."""
 
-    def __init__(self, text: str = "", function_call: Any = None) -> None:
-        self.candidates = [type("Cand", (), {"content": _FakeContent(function_call)})()]
+    def __init__(
+        self, text: str = "", function_call: Any = None, finish_reason: Any = None, empty_content: bool = False
+    ) -> None:
+        content = None if empty_content else _FakeContent(function_call)
+        self.candidates = [type("Cand", (), {"content": content, "finish_reason": finish_reason})()]
         self.text = text
 
 
@@ -95,6 +107,7 @@ async def _run(
         preamble_text="PRE",
         cache_name=cache_name,
         dispatch=dispatch,
+        tools=[events_tool()],
         team_id=1,
         metric_labels=_LABELS,
         trace_id="trace-1",
@@ -133,6 +146,7 @@ async def test_scanner_generations_include_team_attribution() -> None:
             scanner=scanner,
             snapshot=snapshot,
             video_part=_VIDEO,
+            video_clock=_IDENTITY_CLOCK,
             preamble_text="PRE",
             team_id=42,
             llm_inputs=MagicMock(),
@@ -232,6 +246,31 @@ async def test_cached_tool_budget_exhaustion_forces_an_inline_tool_free_answer()
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("empty_content", [False, True])
+async def test_output_cap_hit_re_prompts_for_briefer_reasoning(empty_content: bool) -> None:
+    # A MAX_TOKENS finish means thinking ate the cap and the JSON never arrived. The generic "raw JSON only"
+    # correction would re-run the same reasoning into the same wall, so the re-prompt has to name the cause. When
+    # thinking consumed the whole cap the candidate has no content at all; resending that would 400 the retry.
+    steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
+    responses = [
+        _Resp(
+            text="" if empty_content else '{"verd',
+            finish_reason=types.FinishReason.MAX_TOKENS,
+            empty_content=empty_content,
+        ),
+        _Resp(text='{"verdict":"yes"}'),
+    ]
+    client = _FakeClient(responses)
+    with patch(f"{_MODULE}.record_provider_call") as record:
+        out = await _run(client, steps)
+    assert out["core"].verdict == "yes"
+    retry_contents = client.models.calls[1]["contents"]
+    assert "ran out of output tokens" in retry_contents[-1].text
+    assert all(item is not None for item in retry_contents)
+    assert [call.kwargs["outcome"] for call in record.call_args_list] == ["output_cap_hit", "ok"]
+
+
+@pytest.mark.asyncio
 async def test_step_survives_a_response_with_no_candidates() -> None:
     # Gemini can return zero candidates (safety filter / content policy); the step must fail cleanly rather than
     # IndexError on candidates[0].
@@ -328,6 +367,7 @@ async def test_signal_timestamps_use_recording_duration(
             scanner=scanner,
             snapshot=snapshot,
             video_part=_VIDEO,
+            video_clock=_IDENTITY_CLOCK,
             preamble_text="PRE",
             team_id=1,
             llm_inputs=MagicMock(metadata=MagicMock(duration_seconds=duration_seconds)),
@@ -578,6 +618,7 @@ class TestVerifyPositives:
                 scanner=scanner,
                 snapshot=snapshot,
                 video_part=_VIDEO,
+                video_clock=_IDENTITY_CLOCK,
                 preamble_text="PRE",
                 team_id=1,
                 llm_inputs=MagicMock(),
@@ -724,14 +765,21 @@ class TestVerifyPositives:
 
 class TestStepConfig:
     def test_inline_path_carries_tools_and_no_cache(self) -> None:
-        config = _step_config(MissionStep(name="core", instruction="c", response_model=_Core), cache_name=None)
+        config = _step_config(
+            MissionStep(name="core", instruction="c", response_model=_Core), cache_name=None, tools=[events_tool()]
+        )
         assert config.tools is not None
         assert config.cached_content is None
         assert config.response_json_schema is not None
         assert config.thinking_config is not None and config.thinking_config.include_thoughts is True
+        assert config.max_output_tokens == STEP_MAX_OUTPUT_TOKENS
 
     def test_cached_path_references_the_cache_and_omits_tools(self) -> None:
-        config = _step_config(MissionStep(name="core", instruction="c", response_model=_Core), cache_name="caches/abc")
+        config = _step_config(
+            MissionStep(name="core", instruction="c", response_model=_Core),
+            cache_name="caches/abc",
+            tools=[events_tool()],
+        )
         # Tools live in the cache; re-declaring them in the config alongside cached_content is rejected by Gemini.
         assert config.tools is None
         assert config.cached_content == "caches/abc"
@@ -748,6 +796,9 @@ class TestStepConfig:
         assert config.tool_config is None
         assert config.cached_content is None
         assert config.response_json_schema is not None
+        assert (
+            config.max_output_tokens == STEP_MAX_OUTPUT_TOKENS
+        )  # the one-shot forced answer is the likeliest to overrun
 
 
 @pytest.mark.asyncio
@@ -760,5 +811,7 @@ async def test_video_cache_creation_is_best_effort() -> None:
         aio = type("Aio", (), {"caches": _BoomCaches()})()
 
     # A cache that can't be created (e.g. too-short video) degrades to None, not an error.
-    result = await _maybe_create_video_cache(cast(Any, _BoomClient()), "models/gemini-3-flash-preview", _VIDEO, "PRE")
+    result = await _maybe_create_video_cache(
+        cast(Any, _BoomClient()), "models/gemini-3-flash-preview", _VIDEO, "PRE", tools=[events_tool()]
+    )
     assert result is None
