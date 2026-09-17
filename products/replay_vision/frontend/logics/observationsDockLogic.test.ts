@@ -6,6 +6,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { ReplayObservationApi, ReplayScannerApi } from '../generated/api.schemas'
+import { OBSERVE_POLL_GRACE_MS } from './observationPolling'
 import { observationsDockLogic } from './observationsDockLogic'
 import { visionDockPreferenceLogic } from './visionDockPreferenceLogic'
 import { visionScannersListLogic } from './visionScannersListLogic'
@@ -38,6 +39,7 @@ describe('observationsDockLogic', () => {
     let releaseScanners: () => void
     let inlineScanOutcome: string
     let observationResults: ReplayObservationApi[]
+    let observationsFail: boolean
     let scannerResults: ReplayScannerApi[]
 
     beforeEach(() => {
@@ -46,6 +48,7 @@ describe('observationsDockLogic', () => {
         inlineScanCalls = 0
         inlineScanOutcome = 'started'
         observationResults = []
+        observationsFail = false
         scannerResults = []
         useMocks({
             get: {
@@ -55,7 +58,8 @@ describe('observationsDockLogic', () => {
                     })
                     return [200, { results: scannerResults }]
                 },
-                '/api/projects/:team/vision/observations/': () => [200, { results: observationResults }],
+                '/api/projects/:team/vision/observations/': () =>
+                    observationsFail ? [500, {}] : [200, { results: observationResults }],
             },
             post: {
                 '/api/projects/:team/vision/scanners/:id/observe/': async () => {
@@ -265,6 +269,27 @@ describe('observationsDockLogic', () => {
         logic.actions.loadObservations()
         await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
         await expectLogic(logic).toMatchValues({ summaryInFlight: false, summarizePending: false })
+    })
+
+    it('stops showing the summary as pending once the reload keeps failing', async () => {
+        // With no summary row ever loaded, the grace window is the only thing keeping the poll alive.
+        // A run of failed reloads used to stop polling with nothing left to clear the pending state,
+        // so the button read "Summarizing…" until the dock remounted.
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        logic.actions.summarize()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        releaseInlineScan()
+        await expectLogic(logic).toDispatchActions(['summarizeSuccess'])
+        await expectLogic(logic).toMatchValues({ summarizePending: true })
+
+        // Past the grace window with the row still absent, so the next failure is the last poll.
+        const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + OBSERVE_POLL_GRACE_MS + 1)
+        observationsFail = true
+        logic.actions.loadObservations()
+
+        await expectLogic(logic).toDispatchActions(['loadObservationsFailure', 'summarizeSettled'])
+        await expectLogic(logic).toMatchValues({ summarizePending: false })
+        nowSpy.mockRestore()
     })
 
     it('keeps the summarizer picked from the dropdown on the next recording', async () => {
