@@ -110,9 +110,6 @@ export interface marketingAnalyticsSettingsLogicActions {
     closeIntegrationSettingsModal: () => {
         value: true
     }
-    setSetupEntryPoint: (entryPoint: SetupEntryPoint | null) => {
-        entryPoint: SetupEntryPoint | null
-    }
     loadIntegrationCampaigns: (integration: string) => {
         integration: string
     }
@@ -166,6 +163,9 @@ export interface marketingAnalyticsSettingsLogicActions {
         }[]
         integration: string
     }
+    setSetupEntryPoint: (entryPoint: SetupEntryPoint | null) => {
+        entryPoint: SetupEntryPoint | null
+    }
     setTestMappingResult: (
         tableId: string,
         result: TestMappingResult
@@ -216,11 +216,11 @@ export interface marketingAnalyticsSettingsLogicActions {
 export interface marketingAnalyticsSettingsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         sources_map: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => Record<string, SourceMap>
+        setupEntryPointLabel: (setupEntryPoint: SetupEntryPoint | null) => string
         conversion_goals: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => ConversionGoalFilter[]
         attribution_window_days: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => number
         attribution_mode: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => AttributionMode
         filter_test_accounts: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => boolean
-        setupEntryPointLabel: (setupEntryPoint: SetupEntryPoint | null) => string
         integrationCampaignTables: (
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null

@@ -339,6 +339,9 @@ export interface marketingAnalyticsLogicActions {
     addOrUpdateConversionGoal: (conversionGoal: ConversionGoalFilter) => {
         conversionGoal: ConversionGoalFilter
     } // marketingAnalyticsSettingsLogic
+    setSetupEntryPoint: (entryPoint: SetupEntryPoint | null) => {
+        entryPoint: SetupEntryPoint | null
+    } // marketingAnalyticsSettingsLogic
     updateFilterTestAccounts: (filterTestAccounts: boolean) => {
         filterTestAccounts: boolean
     } // marketingAnalyticsSettingsLogic
@@ -406,38 +409,35 @@ export interface marketingAnalyticsLogicActions {
     loadConversionGoal: (goal: ConversionGoalFilter) => {
         goal: ConversionGoalFilter
     }
+    openSetup: (
+        section: SetupSection,
+        entryPoint: SetupEntryPoint
+    ) => {
+        entryPoint: SetupEntryPoint
+        section: SetupSection
+    }
+    reportDashboardControlUsed: (
+        section: string,
+        control: string,
+        value?: boolean | string
+    ) => {
+        control: string
+        section: string
+        value: boolean | string | undefined
+    }
+    reportDashboardSectionViewed: (
+        section: string,
+        configured: DashboardGoalsConfigured
+    ) => {
+        configured: DashboardGoalsConfigured
+        section: string
+    }
     saveConversionGoal: () => {
         value: true
     }
     setActiveTab: (tab: MarketingAnalyticsTab) => {
         tab: MarketingAnalyticsTab
     }
-    openSetup: (
-        section: SetupSection,
-        entryPoint: SetupEntryPoint
-    ) => {
-        section: SetupSection
-        entryPoint: SetupEntryPoint
-    }
-    reportDashboardSectionViewed: (
-        section: string,
-        configured: DashboardGoalsConfigured
-    ) => {
-        section: string
-        configured: DashboardGoalsConfigured
-    }
-    reportDashboardControlUsed: (
-        section: string,
-        control: string,
-        value?: string | boolean
-    ) => {
-        section: string
-        control: string
-        value: string | boolean | undefined
-    }
-    setSetupEntryPoint: (entryPoint: SetupEntryPoint | null) => {
-        entryPoint: SetupEntryPoint | null
-    } // marketingAnalyticsSettingsLogic
     setAdPerformanceConversionGoals: (include: boolean) => {
         include: boolean
     }
