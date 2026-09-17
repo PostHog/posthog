@@ -42,9 +42,10 @@ _TUPLE_INNER_FIELDS: dict[str, frozenset[str]] = {
     "TryCatchStatement": frozenset({"catches"}),
 }
 
-# Per-class enum-typed field map, built once at import. Saves a per-node
-# `get_type_hints(cls)` call and a `hasattr(t, "__members__")` check.
-_ENUM_FIELDS: dict[type, dict[str, Any]] = {}
+# Per-class enum-typed field map, built once at import: each enum field maps to
+# a string -> member table. Saves a per-node `get_type_hints(cls)` call, a
+# `hasattr(t, "__members__")` check and the enum lookup machinery.
+_ENUM_FIELDS: dict[type, dict[str, dict[str, Any]]] = {}
 
 
 def _build_enum_fields() -> None:
@@ -53,7 +54,16 @@ def _build_enum_fields() -> None:
             hints = get_type_hints(cls)
         except Exception:
             continue
-        enum_map = {key: t for key, t in hints.items() if hasattr(t, "__members__")}
+        enum_map = {}
+        for key, enum_type in hints.items():
+            members = getattr(enum_type, "__members__", None)
+            if members is None:
+                continue
+            # The parser JSON carries the member value (`"=="`), so the value keys are
+            # written second and win a collision. The name (`"Eq"`) stays a fallback.
+            table: dict[str, Any] = dict(members)
+            table.update({m.value: m for m in members.values() if isinstance(m.value, str)})
+            enum_map[key] = table
         if enum_map:
             _ENUM_FIELDS[cls] = enum_map
 
@@ -174,14 +184,13 @@ def _deserialize_node(data: Any) -> Any:
 
         deserialized = _deserialize_node(value)
 
-        # Coerce enum strings to their StrEnum members.
+        # Coerce enum strings to their StrEnum members. A string left uncoerced still
+        # `==`s the member, so only `repr` shows the miss. The shadow parity check needs
+        # `repr` to compare a NaN-bearing AST.
         if enum_map is not None and isinstance(deserialized, str):
-            enum_type = enum_map.get(key)
-            if enum_type is not None:
-                try:
-                    deserialized = enum_type[deserialized]
-                except KeyError:
-                    pass
+            table = enum_map.get(key)
+            if table is not None:
+                deserialized = table.get(deserialized, deserialized)
 
         kwargs[key] = deserialized
 
