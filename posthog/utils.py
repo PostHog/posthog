@@ -694,6 +694,8 @@ def _build_template_context(
         posthog_app_context["oauth_application"] = context.pop("oauth_application")
     if "oauth_mcp_consent" in context:
         posthog_app_context["oauth_mcp_consent"] = context.pop("oauth_mcp_consent")
+    if "oauth_consent_access_controls" in context:
+        posthog_app_context["oauth_consent_access_controls"] = context.pop("oauth_consent_access_controls")
 
     # JSON dumps here since there may be objects like Queries
     # that are not serializable by Django's JSON serializer

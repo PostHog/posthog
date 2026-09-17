@@ -32,6 +32,7 @@ from posthog.api.oauth.cimd import CIMD_SUPPORTED_AUTH_METHODS
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
 from posthog.api.oauth.metadata import authorization_server_metadata, openid_provider_metadata
 from posthog.api.oauth.views import OAuthTokenView, OAuthValidator, _token_error_code
+from posthog.constants import AvailableFeature
 from posthog.helpers.oauth_pending_connection import (
     PENDING_OAUTH_CONNECTION_COOKIE,
     PENDING_OAUTH_CONNECTION_MAX_AGE_SECONDS,
@@ -50,6 +51,8 @@ from posthog.models.team.team import Team
 from posthog.scopes import get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
+
+from products.access_control.backend.models.access_control import AccessControl
 
 
 def jwks_entry_to_public_key(key_data: dict):
@@ -278,6 +281,24 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         template_context = mock_render.call_args.kwargs["context"]
         self.assertNotIn("oauth_mcp_consent", template_context)
+
+    def test_authorize_reports_whether_access_controls_apply(self):
+        def applies() -> bool:
+            response = self.client.get(self.base_authorization_url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            return json.loads(response.context["posthog_app_context"])["oauth_consent_access_controls"]["applies"]
+
+        self.assertFalse(applies())
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        # The feature alone changes nothing a person can reach; a rule does.
+        self.assertFalse(applies())
+
+        AccessControl.objects.create(team=self.team, resource="feature_flag", access_level="viewer")
+        self.assertTrue(applies())
 
     def test_first_party_app_auto_approves_with_org_scoped_grant(self):
         first_party_app = OAuthApplication.objects.create(

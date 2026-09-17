@@ -195,6 +195,36 @@ export const ManyOptionalScopes: Story = {
     },
 }
 
+// The organization has access rules, so a granted scope can still meet a 403. The screen says
+// so above the permissions instead of second-guessing each row.
+const withAccessControls: Decorator = function AccessControlsDecorator(Story): JSX.Element {
+    const appContext = (window as any).POSTHOG_APP_CONTEXT
+    const original = useRef<{ value: unknown } | null>(null)
+    if (!original.current) {
+        original.current = { value: appContext.oauth_consent_access_controls }
+        appContext.oauth_consent_access_controls = { applies: true }
+    }
+    useEffect(
+        () => () => {
+            appContext.oauth_consent_access_controls = original.current?.value
+        },
+        [appContext]
+    )
+    return <Story />
+}
+
+export const AccessControlsApply: Story = {
+    decorators: [withAccessControls, withOAuthApplication({ required_scopes: [] })],
+    render: () => {
+        useDelayedOnMountEffect(() =>
+            pushAuthorize(
+                'openid profile email project:read feature_flag:read feature_flag:write insight:write query:read'
+            )
+        )
+        return <App />
+    },
+}
+
 const everyScopeRequest = ['openid', 'profile', 'email', ...API_SCOPES.map(({ key }) => `${key}:write`)].join(' ')
 
 // The worst case for the layout: a client that asks for every scope PostHog has, which is one

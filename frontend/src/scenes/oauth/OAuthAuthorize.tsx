@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconCheckCircle, IconPlus, IconWarning } from '@posthog/icons'
+import { IconCheck, IconCheckCircle, IconLock, IconPlus, IconWarning } from '@posthog/icons'
 
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -146,6 +146,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         redirectUrl,
         scopesWereDefaulted,
         isMcpResource,
+        accessControlsApply,
         showCreateProject,
         newProjectLoading,
         selectedOrganization,
@@ -422,6 +423,13 @@ export const OAuthAuthorize = (): JSX.Element => {
                                     )}
                                 </div>
                                 <div className="flex flex-col gap-3 px-4 sm:px-6 py-4">
+                                    {accessControlsApply && (
+                                        <LemonBanner type="info" icon={<IconLock className="LemonBanner__icon" />}>
+                                            <strong>Access controls still apply.</strong> These permissions let{' '}
+                                            {appName} call PostHog on your behalf. Anything you can't view or edit in
+                                            PostHog stays off limits to {appName}, whatever it is granted here.
+                                        </LemonBanner>
+                                    )}
                                     {(identityScopeDescriptions.length > 0 || requiredScopeRows.length > 0) && (
                                         <ul className="space-y-2">
                                             {identityScopeDescriptions.map((description, idx) => (
