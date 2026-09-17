@@ -11,15 +11,11 @@ from posthog.hogql.database.models import (
     DateDatabaseField,
     DateTimeDatabaseField,
     ExpressionField,
-    FieldTraverser,
     FloatDatabaseField,
     IntegerDatabaseField,
-    LazyJoin,
-    LazyTable,
     StringArrayDatabaseField,
     StringJSONDatabaseField,
     Table,
-    VirtualTable,
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable
@@ -39,10 +35,6 @@ _FIELD_TYPES: list[tuple[type, DatabaseSerializedFieldType]] = [
     (BooleanDatabaseField, DatabaseSerializedFieldType.BOOLEAN),
     (ExpressionField, DatabaseSerializedFieldType.EXPRESSION),
     (DatabaseField, DatabaseSerializedFieldType.STRING),
-    (LazyJoin, DatabaseSerializedFieldType.LAZY_TABLE),
-    (LazyTable, DatabaseSerializedFieldType.LAZY_TABLE),
-    (VirtualTable, DatabaseSerializedFieldType.VIRTUAL_TABLE),
-    (FieldTraverser, DatabaseSerializedFieldType.FIELD_TRAVERSER),
 ]
 
 
@@ -58,7 +50,11 @@ class PostHogTable:
 
     @property
     def columns(self) -> dict[str, str]:
-        return {name: _field_type(field) for name, field in self.table_class().fields.items() if not field.hidden}
+        return {
+            name: _field_type(field)
+            for name, field in self.table_class().fields.items()
+            if isinstance(field, DatabaseField) and not field.hidden
+        }
 
 
 TABLES: tuple[PostHogTable, ...] = (
