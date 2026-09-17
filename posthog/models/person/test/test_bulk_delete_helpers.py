@@ -384,6 +384,28 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
             ["c1"],
         ]
 
+    def test_releases_each_batch_of_distinct_id_strings_after_its_steps_run(self):
+        p1 = create_person(team=self.team, distinct_ids=["a1", "a2"], properties={})
+        p2 = create_person(team=self.team, distinct_ids=["b1"], properties={})
+        seen: list[Person] = []
+
+        def capture(_team_id, persons, *_args, **_kwargs):
+            seen.extend(persons)
+            return 0
+
+        with patch("posthog.models.person.bulk_delete._run_queued_deletion_steps", side_effect=capture):
+            process_queued_person_deletion(
+                self.team.pk,
+                [str(p1.uuid), str(p2.uuid)],
+                delete_profile=True,
+                delete_recordings=False,
+                actor=self.user,
+                was_impersonated=False,
+                organization_id=self.organization.id,
+            )
+        assert {person.uuid for person in seen} == {p1.uuid, p2.uuid}
+        assert all(person._distinct_ids is None for person in seen)
+
     def test_stops_isolating_training_failures_after_repeated_failures(self):
         persons = [create_person(team=self.team, distinct_ids=[f"d{i}"], properties={}) for i in range(5)]
         with (
@@ -440,10 +462,15 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
 
     def test_recordings_only_pages_distinct_ids_into_workflows_without_deleting(self):
         p = create_person(team=self.team, distinct_ids=["a", "b", "c"], properties={})
+        # Snapshot at call time: the processor releases each person's IDs once its batch has run.
+        started: list[list[str]] = []
         with (
             patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE", 2),
             patch("posthog.models.person.bulk_delete.queue_person_training_deletion") as training,
-            patch("posthog.models.person.bulk_delete._start_recording_workflows") as start,
+            patch(
+                "posthog.models.person.bulk_delete._start_recording_workflows",
+                side_effect=lambda _t, persons, *_a: started.extend(sorted(p.distinct_ids) for p in persons),
+            ),
             patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
             patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
         ):
@@ -459,8 +486,7 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         assert result.deleted_count == 0
         assert result.errors == []
         assert sorted(training.call_args.args[1]) == ["a", "b", "c"]
-        [person] = start.call_args.args[1]
-        assert sorted(person.distinct_ids) == ["a", "b", "c"]
+        assert started == [["a", "b", "c"]]
         ch_delete.assert_not_called()
         pg_delete.assert_not_called()
 

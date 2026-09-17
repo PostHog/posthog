@@ -469,14 +469,19 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         task_side.assert_called_once_with(self.team.pk, ["ghost"])
 
     @override_settings(PERSON_BULK_DELETE_ASYNC=True)
-    @mock.patch("posthog.models.person.bulk_delete._start_recording_workflows")
-    def test_bulk_delete_async_keep_person_with_recordings(self, start_workflows):
+    def test_bulk_delete_async_keep_person_with_recordings(self):
         p1 = self._seed_person(team=self.team, distinct_ids=["did-1", "did-2"])
+        # Snapshot at call time: the task releases each person's IDs once its batch has run.
+        started: list[list[str]] = []
 
-        resp = self.client.post(
-            "/api/person/bulk_delete/",
-            {"ids": [str(p1.uuid)], "keep_person": True, "delete_recordings": True},
-        )
+        with mock.patch(
+            "posthog.models.person.bulk_delete._start_recording_workflows",
+            side_effect=lambda _t, persons, *_a: started.extend(sorted(p.distinct_ids) for p in persons),
+        ):
+            resp = self.client.post(
+                "/api/person/bulk_delete/",
+                {"ids": [str(p1.uuid)], "keep_person": True, "delete_recordings": True},
+            )
 
         assert resp.status_code == status.HTTP_202_ACCEPTED
         data = resp.json()
@@ -484,8 +489,7 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         assert data["persons_queued_for_deletion"] == 0
         assert data["recordings_queued_for_deletion"] is True
         self._assert_personhog_not_called("get_distinct_ids_for_persons")
-        [person] = start_workflows.call_args.args[1]
-        assert sorted(person.distinct_ids) == ["did-1", "did-2"]
+        assert started == [["did-1", "did-2"]]
         assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is not None
         self._assert_personhog_not_called("delete_persons")
 

@@ -272,10 +272,10 @@ def process_queued_person_deletion(
         batch_distinct_ids[person.pk] = distinct_ids
         batch_distinct_id_count += len(distinct_ids)
         if batch_distinct_id_count >= QUEUED_DELETION_DISTINCT_IDS_PER_BATCH:
-            deleted_count += _run_queued_deletion_steps(team_id, batch, batch_distinct_ids, failures, options)
+            deleted_count += _run_batch_and_release(team_id, batch, batch_distinct_ids, failures, options)
             batch, batch_distinct_ids, batch_distinct_id_count = [], {}, 0
     if batch:
-        deleted_count += _run_queued_deletion_steps(team_id, batch, batch_distinct_ids, failures, options)
+        deleted_count += _run_batch_and_release(team_id, batch, batch_distinct_ids, failures, options)
 
     if unmatched_distinct_ids:
         try:
@@ -286,6 +286,21 @@ def process_queued_person_deletion(
             )
 
     return PersonProfileDeletionResult(deleted_count=deleted_count, failures=failures)
+
+
+def _run_batch_and_release(
+    team_id: int,
+    persons: builtins.list[Person],
+    distinct_ids_by_person: dict[int, builtins.list[DistinctIdForPerson]],
+    failures: builtins.list[PersonDeletionFailure],
+    options: _QueuedDeletionOptions,
+) -> int:
+    deleted = _run_queued_deletion_steps(team_id, persons, distinct_ids_by_person, failures, options)
+    # The resolved person objects outlive the batch, so drop their ID strings too; without this the
+    # per-batch memory bound only covers the dataclass wrappers. Any later read raises, on purpose.
+    for person in persons:
+        person._distinct_ids = None
+    return deleted
 
 
 # After this many consecutive per-person failures the fallback stops and marks the rest failed,
