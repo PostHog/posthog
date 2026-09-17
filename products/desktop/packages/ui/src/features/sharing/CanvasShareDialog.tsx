@@ -22,6 +22,7 @@ import { useId } from "react";
 import { copyLinkToClipboard } from "./copyLink";
 import { LinkCopyRow } from "./LinkCopyRow";
 import { PublicShareSection } from "./PublicShareSection";
+import { PublishChangesButton } from "./PublishChangesButton";
 import { publicLinkHasUnpublishedChanges } from "./publicLink";
 import { ShareDialog } from "./ShareDialog";
 import { ShareSection } from "./ShareSection";
@@ -198,13 +199,14 @@ export function CanvasShareDialog({
     dashboard_id: dashboardId,
   };
   const publishChanges = () =>
-    void updateLink().then((result) =>
+    updateLink().then((result) => {
       track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
         action_type: "public_link_updated",
         ...analytics,
         success: result !== null,
-      }),
-    );
+      });
+      return result !== null;
+    });
 
   return (
     <ShareDialog
@@ -212,17 +214,12 @@ export function CanvasShareDialog({
       description={name}
       onClose={onClose}
       action={
-        newerVersionPublished ? (
-          <Button
-            variant="primary"
-            size="sm"
-            loading={isPending}
-            onClick={publishChanges}
-            data-attr="share-canvas-publish-changes"
-          >
-            Publish changes
-          </Button>
-        ) : null
+        <PublishChangesButton
+          visible={newerVersionPublished}
+          isPending={isPending}
+          onPublish={publishChanges}
+          dataAttr="share-canvas-publish-changes"
+        />
       }
     >
       <CanvasShareBodyView

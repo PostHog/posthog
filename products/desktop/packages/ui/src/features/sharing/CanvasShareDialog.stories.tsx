@@ -1,6 +1,7 @@
-import { Button } from "@posthog/quill";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { within } from "storybook/test";
 import { CanvasShareBodyView } from "./CanvasShareDialog";
+import { PublishChangesButton } from "./PublishChangesButton";
 import { ShareDialog } from "./ShareDialog";
 
 const off = {
@@ -43,11 +44,12 @@ const meta: Meta<typeof CanvasShareBodyView> = {
         description="Revenue board"
         onClose={() => {}}
         action={
-          context.args.newerVersionPublished ? (
-            <Button variant="primary" size="sm">
-              Publish changes
-            </Button>
-          ) : null
+          <PublishChangesButton
+            visible={context.args.newerVersionPublished}
+            isPending={context.args.isPending}
+            onPublish={async () => true}
+            dataAttr="share-canvas-publish-changes"
+          />
         }
       >
         <Story />
@@ -76,6 +78,20 @@ export const NewerVersionPublished: Story = {
     publicUrl: "https://us.posthog.com/shared/9f3c1b2a7d6e4f5a",
     sharing: on,
     newerVersionPublished: true,
+  },
+};
+
+/** Right after publishing: the footer says "Published" for a moment before the button goes. */
+export const JustPublished: Story = {
+  args: {
+    publicUrl: "https://us.posthog.com/shared/9f3c1b2a7d6e4f5a",
+    sharing: on,
+    newerVersionPublished: true,
+  },
+  play: async ({ canvasElement, userEvent }): Promise<void> => {
+    const body = within(canvasElement.ownerDocument.body);
+    await userEvent.click(await body.findByText("Publish changes"));
+    await body.findByText("Published");
   },
 };
 
