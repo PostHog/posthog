@@ -108,13 +108,8 @@ export const pullRequestTimelinesLogic = kea<pullRequestTimelinesLogicType>([
         timelinesFailed: [false, { loadTimelines: () => false, loadTimelinesFailure: () => true }],
     }),
 
-    listeners(({ actions, props }) => ({
-        // A single pull request is shown whatever its age, so only list scopes follow the window.
-        [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
-            if (props.scope.kind !== 'pull_request') {
-                actions.loadTimelines()
-            }
-        },
+    listeners(({ actions }) => ({
+        [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => actions.loadTimelines(),
     })),
 
     selectors({

@@ -28,6 +28,7 @@ from products.conversations.backend.slack import (
     handle_support_mention,
     handle_support_message,
     handle_support_reaction,
+    my_tickets_link,
     ticket_created_blocks,
     ticket_deep_link,
 )
@@ -1398,20 +1399,23 @@ class TestSupporthogInteractivity(BaseTest):
         assert kwargs["user"] == "U_CLICKER"
         assert kwargs["thread_ts"] == MESSAGE_TS
         assert ticket_deep_link(ticket, self.team) in kwargs["text"]
+        assert my_tickets_link(ticket) not in kwargs["text"]
         client.chat_postMessage.assert_not_called()
         client.chat_update.assert_not_called()
         assert self._link_click_properties()["is_org_member"] is True
 
     @patch(f"{TASKS_MODULE}.resolve_slack_user")
     @patch(f"{TASKS_MODULE}.get_slack_client")
-    def test_view_withholds_the_link_from_a_non_member(self, mock_get_client, mock_resolve_user):
+    def test_view_sends_a_non_member_to_their_own_ticket_list(self, mock_get_client, mock_resolve_user):
         ticket = _create_slack_ticket(self.team)
         mock_resolve_user.return_value = {"name": "Customer", "email": "customer@example.com", "team_id": "T123"}
 
         process_supporthog_interactivity(self._view_payload(ticket.ticket_number), "T123")
 
         text = mock_get_client.return_value.chat_postEphemeral.call_args.kwargs["text"]
+        # The internal ticket view is never named; the requester-facing list is.
         assert ticket_deep_link(ticket, self.team) not in text
+        assert my_tickets_link(ticket) in text
         assert "reply in this thread" in text.lower()
         assert self._link_click_properties()["is_org_member"] is False
 
@@ -1427,6 +1431,7 @@ class TestSupporthogInteractivity(BaseTest):
 
         text = mock_get_client.return_value.chat_postEphemeral.call_args.kwargs["text"]
         assert ticket_deep_link(ticket, self.team) not in text
+        assert my_tickets_link(ticket) in text
         assert self._link_click_properties()["is_org_member"] is False
 
     @parameterized.expand([("unknown_number", 4242), ("malformed_value", None)])
@@ -1449,7 +1454,7 @@ class TestTicketConfirmationBlocks(BaseTest):
     def test_confirmation_carries_a_view_button_and_no_url(self):
         ticket = _create_slack_ticket(self.team)
 
-        blocks = ticket_created_blocks(ticket, self.team)
+        blocks = ticket_created_blocks(ticket)
 
         assert ticket_deep_link(ticket, self.team) not in json.dumps(blocks)
         actions = [block for block in blocks if block["type"] == "actions"]
@@ -1466,4 +1471,10 @@ class TestTicketConfirmationBlocks(BaseTest):
         )
 
     def test_no_button_without_a_ticket(self):
-        assert [block["type"] for block in ticket_created_blocks(None, self.team)] == ["section"]
+        assert [block["type"] for block in ticket_created_blocks(None)] == ["section"]
+
+    def test_my_tickets_link_opens_the_requester_list_on_this_ticket(self):
+        ticket = _create_slack_ticket(self.team)
+
+        # The requester scene addresses a ticket by UUID, unlike the Support scene's number.
+        assert my_tickets_link(ticket).endswith(f"/my-tickets?ticket={ticket.id}")

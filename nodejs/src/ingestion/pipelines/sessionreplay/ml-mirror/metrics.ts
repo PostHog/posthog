@@ -1,4 +1,4 @@
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { MlWireVersion } from './keys/schema'
 
@@ -136,6 +136,20 @@ export class MlMirrorMetrics {
      * observing each one puts the size of the payload on the mirror's hot path.
      */
     private static urlBytesSeen = 0
+    private static readonly mlKeyRowCacheLookups = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_key_row_cache_lookups_total',
+        help: 'Lookups of a stored ML key row in the per-process cache, by outcome. A hit skips the DynamoDB read, and skips the KMS decrypt as well while the plaintext cache still holds that key. A hit also does not see a tombstone written since the row was read. Note that dynamodb_read on ml_key_request_duration counts misses only, so read that rate against this one rather than as total key traffic',
+        labelNames: ['outcome'],
+    })
+    private static readonly mlKeyRowCacheEntries = new Gauge({
+        name: 'recording_blob_ingestion_v2_ml_key_row_cache_entries',
+        help: 'Stored ML key rows the per-process cache holds, counted after a read. Expired rows stay counted until a read or an eviction removes them, so this tracks the memory held rather than the rows still usable, and it stands still on an idle lane',
+    })
+    private static readonly mlKeyReadRetries = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_key_read_retries_total',
+        help: 'Retries of an ML key read, by reason. BatchGetItem answers a partial throttle with HTTP 200 and unprocessed keys rather than an exception, so unprocessed_keys is the usual throttle signal and transient_error is the request-level one. Commits log ml_key_commit_retry for the write path; reads have no equivalent log',
+        labelNames: ['reason'],
+    })
     private static readonly mlKeyPhaseDuration = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_key_phase_duration_ms',
         help: 'Wall time of one ML key phase per Kafka batch. The consumer handles one batch at a time, so these phases plus anonymization are the batch wall time; a phase that dominates while pod CPU stays low is the lane waiting on KMS, DynamoDB or Kafka rather than working',
@@ -165,6 +179,18 @@ export class MlMirrorMetrics {
 
     public static observeMlKeyRequest(request: MlKeyRequest, ms: number): void {
         this.mlKeyRequestDuration.labels(request).observe(ms)
+    }
+
+    public static incrementMlKeyRowCacheLookup(outcome: 'hit' | 'miss'): void {
+        this.mlKeyRowCacheLookups.labels(outcome).inc()
+    }
+
+    public static setMlKeyRowCacheEntries(entries: number): void {
+        this.mlKeyRowCacheEntries.set(entries)
+    }
+
+    public static incrementMlKeyReadRetry(reason: 'transient_error' | 'unprocessed_keys'): void {
+        this.mlKeyReadRetries.labels(reason).inc()
     }
 
     public static observeMlAnonymizeDuration(impl: MlAnonymizeImpl, ms: number, route: MlAnonymizeRoute = ''): void {

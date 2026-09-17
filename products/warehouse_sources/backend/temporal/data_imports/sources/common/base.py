@@ -141,6 +141,11 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # silently sync unfiltered rows.
     supports_row_filters: bool = False
 
+    # `True` only for sources whose discovery reads primary keys off the table itself, so an
+    # incremental table with none found has nothing to merge on. Sources left `False` declare
+    # the key in code at sync time, and are never asked for one.
+    detects_primary_keys: bool = False
+
     # `True` for sources whose HogQL tables use a PostHog-managed canonical schema
     # (`external_table_definitions`) — Stripe, Paddle, Zendesk. Their query exposes a fixed
     # field set (and powers revenue analytics), so the physical column set must stay complete.

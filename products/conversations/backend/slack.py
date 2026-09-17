@@ -14,7 +14,7 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal, NamedTuple
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from django.conf import settings
@@ -149,7 +149,21 @@ def ticket_deep_link(ticket: "Ticket", team: Team) -> str:
     return f"{settings.SITE_URL}/project/{_get_team_id(team)}/support/tickets/{ticket.ticket_number}"
 
 
-def ticket_created_blocks(ticket: "Ticket | None", team: Team) -> list[dict]:
+def my_tickets_link(ticket: "Ticket") -> str:
+    """Deep link into the requester's own ticket list, opened on this ticket.
+
+    A Slack ticket is keyed by the author's Slack profile email and created
+    ``identity_verified``, which is what the widget's email bridge matches on
+    (``api/widget.py:_identity_ticket_filter``), so it reaches a requester whose verified
+    PostHog email is that same address. For anyone else the scene clears the unresolvable
+    id and renders their plain list, so the link degrades instead of erroring. The id is
+    not a capability: widget access is decided by the viewer's session and attested email,
+    never by knowing a ticket's UUID.
+    """
+    return f"{settings.SITE_URL}/my-tickets?{urlencode({'ticket': str(ticket.id)})}"
+
+
+def ticket_created_blocks(ticket: "Ticket | None") -> list[dict]:
     """Blocks for the ticket confirmation, carrying a "View ticket" button when there is a ticket.
 
     The button holds the ticket number rather than the link, so the channel never shows the URL.
@@ -632,7 +646,7 @@ def create_or_update_slack_ticket(
             "channel": slack_channel_id,
             "thread_ts": thread_ts,
             "text": f"Ticket #{ticket.ticket_number} created.",
-            "blocks": ticket_created_blocks(ticket, team),
+            "blocks": ticket_created_blocks(ticket),
         }
         bot_display_name = support_settings.get("slack_bot_display_name")
         bot_icon_url = support_settings.get("slack_bot_icon_url")

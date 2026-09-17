@@ -10,9 +10,18 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AutoresearchListParams,
+    AutoresearchModelApi,
+    AutoresearchModelsListParams,
     AutoresearchPipelineApi,
     AutoresearchPipelineCreateApi,
+    AutoresearchRunApi,
+    AutoresearchRunsListParams,
+    AutoresearchTrainingRunApi,
+    AutoresearchTrainingRunsListParams,
+    PaginatedAutoresearchModelListApi,
     PaginatedAutoresearchPipelineListApi,
+    PaginatedAutoresearchRunListApi,
+    PaginatedAutoresearchTrainingRunListApi,
     PatchedAutoresearchPipelineCreateApi,
     ResolveTemplateRequestApi,
     ResolvedTemplateApi,
@@ -76,6 +85,185 @@ export const autoresearchCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(autoresearchPipelineCreateApi),
+    })
+}
+
+export const getAutoresearchModelsListUrl = (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchModelsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/autoresearch/${pipelineId}/models/?${stringifiedParams}`
+        : `/api/projects/${projectId}/autoresearch/${pipelineId}/models/`
+}
+
+/**
+ * List and retrieve champion/challenger models for a pipeline.
+ *
+ * Models are the persisted artifacts produced by training runs. Each model
+ * holds a portable recipe (feature SQL, transforms, model class, params) that
+ * the daily inference workflow compiles to score users.
+ */
+export const autoresearchModelsList = async (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchModelsListParams,
+    options?: RequestInit
+): Promise<PaginatedAutoresearchModelListApi> => {
+    return apiMutator<PaginatedAutoresearchModelListApi>(getAutoresearchModelsListUrl(projectId, pipelineId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchModelsRetrieveUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/models/${id}/`
+}
+
+/**
+ * List and retrieve champion/challenger models for a pipeline.
+ *
+ * Models are the persisted artifacts produced by training runs. Each model
+ * holds a portable recipe (feature SQL, transforms, model class, params) that
+ * the daily inference workflow compiles to score users.
+ */
+export const autoresearchModelsRetrieve = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchModelApi> => {
+    return apiMutator<AutoresearchModelApi>(getAutoresearchModelsRetrieveUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchRunsListUrl = (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchRunsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/autoresearch/${pipelineId}/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/autoresearch/${pipelineId}/runs/`
+}
+
+/**
+ * List and retrieve inference and validation runs for a pipeline.
+ */
+export const autoresearchRunsList = async (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedAutoresearchRunListApi> => {
+    return apiMutator<PaginatedAutoresearchRunListApi>(getAutoresearchRunsListUrl(projectId, pipelineId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchRunsRetrieveUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/runs/${id}/`
+}
+
+/**
+ * List and retrieve inference and validation runs for a pipeline.
+ */
+export const autoresearchRunsRetrieve = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchRunApi> => {
+    return apiMutator<AutoresearchRunApi>(getAutoresearchRunsRetrieveUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchTrainingRunsListUrl = (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchTrainingRunsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/`
+}
+
+/**
+ * List and retrieve training runs for a pipeline.
+ *
+ * A training run records the agent's search for a model: each iteration's recipe and holdout
+ * score, and the summary of the run once it completes.
+ */
+export const autoresearchTrainingRunsList = async (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchTrainingRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedAutoresearchTrainingRunListApi> => {
+    return apiMutator<PaginatedAutoresearchTrainingRunListApi>(
+        getAutoresearchTrainingRunsListUrl(projectId, pipelineId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAutoresearchTrainingRunsRetrieveUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/`
+}
+
+/**
+ * List and retrieve training runs for a pipeline.
+ *
+ * A training run records the agent's search for a model: each iteration's recipe and holdout
+ * score, and the summary of the run once it completes.
+ */
+export const autoresearchTrainingRunsRetrieve = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchTrainingRunApi> => {
+    return apiMutator<AutoresearchTrainingRunApi>(getAutoresearchTrainingRunsRetrieveUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
