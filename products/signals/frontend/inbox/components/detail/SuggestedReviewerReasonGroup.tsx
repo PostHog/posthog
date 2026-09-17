@@ -1,10 +1,10 @@
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { EnrichedReviewer } from '../../types'
-import { getReviewerDisplayName } from './reviewerDisplay'
+import { getReviewerDisplayName, getUnlinkedReviewerTooltip } from './reviewerDisplay'
 
 export function SuggestedReviewerReasonGroup({
     reviewers,
@@ -24,19 +24,24 @@ export function SuggestedReviewerReasonGroup({
             <div className="flex flex-col p-1">
                 {reviewers.map((reviewer) => {
                     const displayName = getReviewerDisplayName(reviewer)
+                    const unlinkedTooltip = getUnlinkedReviewerTooltip(reviewer, displayName)
 
                     return (
                         <div
                             key={reviewer.user?.uuid ?? reviewer.user_uuid ?? reviewer.github_login}
                             className="group/member relative flex min-w-0 items-center rounded py-0.5 pr-7 pl-1.5 hover:bg-fill-highlight"
                         >
-                            <PersonDisplay
-                                person={{ properties: { email: reviewer.user?.email, name: displayName } }}
-                                displayName={displayName}
-                                withIcon="xs"
-                                noLink
-                                noPopover
-                            />
+                            <Tooltip title={unlinkedTooltip}>
+                                <span className={`flex min-w-0 items-center ${reviewer.user ? '' : 'opacity-75'}`}>
+                                    <PersonDisplay
+                                        person={{ properties: { email: reviewer.user?.email, name: displayName } }}
+                                        displayName={displayName}
+                                        withIcon="xs"
+                                        noLink
+                                        noPopover
+                                    />
+                                </span>
+                            </Tooltip>
                             <LemonButton
                                 type="tertiary"
                                 size="xsmall"

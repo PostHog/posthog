@@ -94,6 +94,13 @@ export function getReviewerDisplayName(reviewer: EnrichedReviewer): string {
     )
 }
 
+/** Hover hint for a reviewer that matched no PostHog member: the dimmed row alone doesn't say why. */
+export function getUnlinkedReviewerTooltip(reviewer: EnrichedReviewer, displayName: string): string | undefined {
+    return reviewer.user
+        ? undefined
+        : `${displayName} hasn't connected their GitHub account to PostHog. Ask them to connect it in settings.`
+}
+
 /** Does an existing reviewer match an available option? Match by user uuid. */
 export function reviewerMatchesOption(reviewer: EnrichedReviewer, option: AvailableReviewerOption): boolean {
     return !!reviewer.user?.uuid && reviewer.user.uuid === option.user_uuid

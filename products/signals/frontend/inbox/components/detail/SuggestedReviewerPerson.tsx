@@ -1,10 +1,10 @@
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { EnrichedReviewer } from '../../types'
-import { getReviewerDisplayName } from './reviewerDisplay'
+import { getReviewerDisplayName, getUnlinkedReviewerTooltip } from './reviewerDisplay'
 
 export function getReviewerSourceLabel(reviewer: EnrichedReviewer): string {
     if (reviewer.source_label) {
@@ -38,19 +38,22 @@ export function SuggestedReviewerPerson({
     const displayName = getReviewerDisplayName(reviewer)
     const explanation = getReviewerExplanation(reviewer)
     const sourceLabel = getReviewerSourceLabel(reviewer)
+    const unlinkedTooltip = getUnlinkedReviewerTooltip(reviewer, displayName)
 
     return (
         <div className="group relative grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2 rounded px-1.5 py-1.5">
-            <div className={`flex min-w-0 flex-col gap-0.5 ${reviewer.user ? '' : 'opacity-75'}`}>
-                <PersonDisplay
-                    person={{ properties: { email: reviewer.user?.email, name: displayName } }}
-                    displayName={displayName}
-                    withIcon="xs"
-                    noLink
-                    noPopover
-                />
-                {explanation && <span className="text-xs leading-snug text-tertiary">{explanation}</span>}
-            </div>
+            <Tooltip title={unlinkedTooltip}>
+                <div className={`flex min-w-0 flex-col gap-0.5 ${reviewer.user ? '' : 'opacity-75'}`}>
+                    <PersonDisplay
+                        person={{ properties: { email: reviewer.user?.email, name: displayName } }}
+                        displayName={displayName}
+                        withIcon="xs"
+                        noLink
+                        noPopover
+                    />
+                    {explanation && <span className="text-xs leading-snug text-tertiary">{explanation}</span>}
+                </div>
+            </Tooltip>
             <LemonTag type="muted" size="small">
                 {sourceLabel}
             </LemonTag>
