@@ -46,7 +46,7 @@ describe("settingsBackupState", () => {
       useSettingsStore.getState().setDefaultMessagingMode("steer");
       const storedBeforeImport = data.get("settings-storage");
 
-      await settingsBackupState.apply({
+      settingsBackupState.apply({
         settings: {
           completionSound: "custom:portable",
           completionVolume: 42,

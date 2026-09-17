@@ -15,14 +15,22 @@ import {
   settingsBackupSchema,
 } from "./schemas";
 
-export type BackupScope = "all" | "sounds";
+const settingsSchemas = {
+  all: portableSettingsSchema,
+  sounds: portableSettingsSchema.pick({
+    completionSound: true,
+    completionVolume: true,
+    scaleSoundWithTaskLength: true,
+  }),
+};
+export type BackupScope = keyof typeof settingsSchemas;
 export interface SettingsBackupSnapshot {
   settings: PortableSettings;
   sounds: CustomSound[];
 }
 export interface SettingsBackupState {
   read(): SettingsBackupSnapshot;
-  apply(snapshot: SettingsBackupSnapshot): Promise<void>;
+  apply(snapshot: SettingsBackupSnapshot): void;
 }
 export const SETTINGS_BACKUP_STATE = Symbol.for("posthog.settings.backupState");
 export const SETTINGS_BACKUP_SERVICE = Symbol.for(
@@ -41,11 +49,9 @@ export interface BackupReview {
   currentVersion: string;
 }
 
-export const SOUND_SETTINGS: ReadonlySet<string> = new Set([
-  "completionSound",
-  "completionVolume",
-  "scaleSoundWithTaskLength",
-]);
+export const SOUND_SETTINGS: ReadonlySet<string> = new Set(
+  Object.keys(settingsSchemas.sounds.shape),
+);
 
 export interface SettingsBackupSoundMerge {
   sounds: CustomSound[];
@@ -108,13 +114,7 @@ export class SettingsBackupService {
         throw new Error(
           "This backup has more than 1,000 sounds. Remove unused clips and try again.",
         );
-      const settings = portableSettingsSchema.safeParse(
-        Object.fromEntries(
-          Object.entries(snapshot.settings).filter(
-            ([key]) => scope === "all" || SOUND_SETTINGS.has(key),
-          ),
-        ),
-      );
+      const settings = settingsSchemas[scope].safeParse(snapshot.settings);
       if (!settings.success)
         throw new Error(
           "Some saved settings are no longer supported. Export sounds only, or reset the affected preferences before trying again.",
@@ -239,17 +239,11 @@ export class SettingsBackupService {
         current.sounds,
         validated.sounds,
       );
-      const settings = portableSettingsSchema.parse(
-        Object.fromEntries(
-          Object.entries(validated.settings).filter(
-            ([key]) => scope === "all" || SOUND_SETTINGS.has(key),
-          ),
-        ),
-      );
+      const settings = settingsSchemas[scope].parse(validated.settings);
       if (settings.completionSound?.startsWith("custom:")) {
         settings.completionSound = `custom:${remappedIds.get(settings.completionSound.slice(7))}`;
       }
-      await this.state.apply({ settings, sounds });
+      this.state.apply({ settings, sounds });
       return sounds.length - current.sounds.length;
     });
   }

@@ -49,7 +49,7 @@ function setup(
       return true;
     },
   };
-  const apply = vi.fn(async (patch: SettingsBackupSnapshot) => {
+  const apply = vi.fn((patch: SettingsBackupSnapshot) => {
     snapshot = {
       settings: { ...snapshot.settings, ...patch.settings },
       sounds: patch.sounds,
@@ -306,23 +306,27 @@ describe("SettingsBackupService", () => {
     expect(target.apply).not.toHaveBeenCalled();
   });
 
-  it("blocks overlapping operations while an import is being saved", async () => {
-    const target = setup();
-    let finish!: () => void;
-    target.apply.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
+  it.each(["export", "open", "import"] as const)(
+    "blocks %s while an export is running",
+    async (operation) => {
+      const target = setup();
+      let finish!: (version: string) => void;
+      target.files.getAppVersion = () =>
+        new Promise<string>((resolve) => {
           finish = resolve;
-        }),
-    );
-    const review = target.service.inspect(JSON.stringify(backup()), "2.0.0");
-    const importing = target.service.importBackup(review, "all");
-    await expect(target.service.importBackup(review, "all")).rejects.toThrow(
-      "already running",
-    );
-    finish();
-    await importing;
-  });
+        });
+      const review = target.service.inspect(JSON.stringify(backup()), "2.0.0");
+      const exporting = target.service.exportBackup("all");
+      const operations = {
+        export: () => target.service.exportBackup("all"),
+        open: () => target.service.openBackup(),
+        import: () => target.service.importBackup(review, "all"),
+      };
+      await expect(operations[operation]()).rejects.toThrow("already running");
+      finish("2.0.0");
+      await exporting;
+    },
+  );
 
   it("rejects a sound library that exceeds the import limit before saving", async () => {
     const target = setup({

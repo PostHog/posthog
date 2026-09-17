@@ -29,11 +29,13 @@ const WARNING_TEXT = {
   selection: "The selected sound is missing; your current selection will stay.",
 };
 
+type BackupOperation = "export" | "open" | "import";
+
 export interface SettingsBackupViewProps {
   soundCount: number;
   scope: BackupScope;
   onScopeChange: (scope: BackupScope) => void;
-  busy: "export" | "open" | "import" | null;
+  busy: BackupOperation | null;
   review: BackupReview | null;
   error: string | null;
   message: string | null;
@@ -232,44 +234,30 @@ function SettingsBackupConnected(): React.ReactElement {
   const soundCount = useSettingsStore((state) => state.customSounds.length);
   const [scope, setScope] = useState<BackupScope>("all");
   const [review, setReview] = useState<BackupReview | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const onMutate = (): void => {
-    setError(null);
-    setMessage(null);
-  };
-  const onError = (error: Error): void => {
-    setError(error.message);
-  };
-  const exportMutation = useMutation({
-    mutationFn: () => service.exportBackup(scope),
-    onMutate,
-    onError,
-    onSuccess: (saved) => {
-      if (saved)
-        setMessage(
-          "Backup saved. Copy this file to your other machine, then import it in Advanced settings.",
-        );
-    },
-  });
-  const openMutation = useMutation({
-    mutationFn: () => service.openBackup(),
-    onMutate,
-    onError,
-    onSuccess: setReview,
-  });
-  const importMutation = useMutation({
-    mutationFn: () => {
-      if (!review) throw new Error("Choose a backup first.");
-      return service.importBackup(review, scope);
-    },
-    onMutate,
-    onError,
-    onSuccess: (added) => {
-      setReview(null);
-      setMessage(
-        `Backup imported. Added ${added} custom ${added === 1 ? "sound" : "sounds"}. Your settings are ready to use.`,
-      );
+  const mutation = useMutation({
+    onMutate: () => setMessage(null),
+    mutationFn: async (operation: BackupOperation): Promise<void> => {
+      switch (operation) {
+        case "export":
+          if (await service.exportBackup(scope))
+            setMessage(
+              "Backup saved. Copy this file to your other machine, then import it in Advanced settings.",
+            );
+          break;
+        case "open":
+          setReview(await service.openBackup());
+          break;
+        case "import": {
+          if (!review) throw new Error("Choose a backup first.");
+          const added = await service.importBackup(review, scope);
+          setReview(null);
+          setMessage(
+            `Backup imported. Added ${added} custom ${added === 1 ? "sound" : "sounds"}. Your settings are ready to use.`,
+          );
+          break;
+        }
+      }
     },
   });
   return (
@@ -278,23 +266,15 @@ function SettingsBackupConnected(): React.ReactElement {
       scope={scope}
       onScopeChange={setScope}
       review={review}
-      error={error}
+      error={mutation.error?.message ?? null}
       message={message}
-      busy={
-        exportMutation.isPending
-          ? "export"
-          : openMutation.isPending
-            ? "open"
-            : importMutation.isPending
-              ? "import"
-              : null
-      }
-      onExport={() => exportMutation.mutate()}
-      onOpen={() => openMutation.mutate()}
-      onImport={() => importMutation.mutate()}
+      busy={mutation.isPending ? mutation.variables : null}
+      onExport={() => mutation.mutate("export")}
+      onOpen={() => mutation.mutate("open")}
+      onImport={() => mutation.mutate("import")}
       onCancel={() => {
         setReview(null);
-        setError(null);
+        mutation.reset();
       }}
     />
   );

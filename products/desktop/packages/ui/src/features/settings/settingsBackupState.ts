@@ -15,7 +15,7 @@ export const settingsBackupState: SettingsBackupState = {
       sounds: state.customSounds,
     };
   },
-  async apply({ settings, sounds }: SettingsBackupSnapshot): Promise<void> {
+  apply({ settings, sounds }: SettingsBackupSnapshot): void {
     const { theme, ...preferences } = settings;
     useSettingsStore.setState({ ...preferences, customSounds: sounds });
     if (theme !== undefined) useThemeStore.getState().setTheme(theme);
