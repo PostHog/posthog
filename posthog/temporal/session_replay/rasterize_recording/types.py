@@ -28,6 +28,9 @@ class RasterizeRecordingInputs(BaseModel, frozen=True):
 
     exported_asset_id: int
     product: Literal["session_replay", "replay_vision"] = "session_replay"
+    # Routes the render activity. None keeps the shared rasterization queue, so histories
+    # recorded before this field existed replay unchanged.
+    task_queue: str | None = None
 
 
 class RasterizationActivityInput(BaseModel, frozen=True):

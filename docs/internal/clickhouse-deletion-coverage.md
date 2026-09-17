@@ -93,6 +93,7 @@ Skipping one of those tables is worse than under-deleting: the overrides that re
 - `sharded_events` — all sweeps.
 - `sharded_events_json` — all sweeps. Optional: only present after the native-JSON migration.
 - `sharded_flag_evaluations` — person, team, queued-uuid and event removal. Not property removal (below). Optional.
+- `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
 
 ## Tables on TTL alone
 

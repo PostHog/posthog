@@ -67,7 +67,6 @@ export interface SavedInsightFilters {
     page: number
     dashboardId: number | undefined | null
     events: string[] | undefined | null
-    hideFeatureFlagInsights: boolean | undefined | null
     favorited: boolean | undefined | null
 }
 
@@ -89,7 +88,6 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
         page: parseInt(String(values.page)) || 1,
         dashboardId: values.dashboardId,
         events: values.events,
-        hideFeatureFlagInsights: values.hideFeatureFlagInsights || false,
         favorited: values.favorited || false,
     }
 }
@@ -101,6 +99,8 @@ function insightsListParams(filters: SavedInsightFilters): Record<string, any> {
         limit: INSIGHTS_PER_PAGE,
         offset: Math.max(0, (filters.page - 1) * INSIGHTS_PER_PAGE),
         saved: true,
+        // PostHog no longer generates these, and the flag Usage tab still shows the same charts
+        hide_feature_flag_insights: true,
         ...(filters.favorited && { favorited: true }),
         ...(filters.search && { search: filters.search }),
         ...(filters.insightType?.toLowerCase() !== 'all types' && {
@@ -130,12 +130,11 @@ function insightsListParams(filters: SavedInsightFilters): Record<string, any> {
         ...(!!filters.dashboardId && {
             dashboards: [filters.dashboardId],
         }),
-        ...(filters.hideFeatureFlagInsights && { hide_feature_flag_insights: true }),
     }
 }
 
 /** Params that scope, page, or sort the list rather than filter it. */
-const NON_NARROWING_PARAM_KEYS = ['order', 'limit', 'offset', 'saved', 'user']
+const NON_NARROWING_PARAM_KEYS = ['order', 'limit', 'offset', 'saved', 'user', 'hide_feature_flag_insights']
 
 /**
  * Whether any filter that narrows the insights list is active, i.e. the API request would carry a

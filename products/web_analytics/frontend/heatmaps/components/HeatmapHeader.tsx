@@ -10,6 +10,7 @@ import { heatmapLogic } from '../scenes/heatmap/heatmapLogic'
 import { HeatmapAdvancedSettings } from './HeatmapAdvancedSettings'
 import { HeatmapRecordingFallback } from './HeatmapRecordingFallback'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { HeatmapScreenshotAccessNotice } from './HeatmapScreenshotAccessNotice'
 import { HeatmapsForbiddenURL } from './HeatmapsForbiddenURL'
 import { HeatmapsInvalidURL } from './HeatmapsInvalidURL'
 
@@ -110,6 +111,9 @@ export function HeatmapHeader(): JSX.Element {
                             </LemonBanner>
                             {displayUrl && !displayUrlIsPattern ? <HeatmapRecordingFallback url={displayUrl} /> : null}
                         </div>
+                    )}
+                    {type === 'screenshot' && source !== 'toolbar' && !screenshotError && (
+                        <HeatmapScreenshotAccessNotice url={displayUrl} />
                     )}
                     <HeatmapAdvancedSettings
                         dataUrlPlaceholderFallback="Enter a URL"

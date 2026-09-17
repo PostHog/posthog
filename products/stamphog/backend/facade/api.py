@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any, TypeVar, overload
+from uuid import UUID
 
 from django.db import IntegrityError, router, transaction
 from django.db.models import Q, QuerySet
@@ -189,6 +190,20 @@ def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
 
 def get_repo_config(team_id: int, repository: str) -> contracts.RepoConfigDTO | None:
     obj = StamphogRepoConfig.objects.for_team(team_id).filter(repository=repository).first()
+    return _repo_config_to_dto(obj) if obj is not None else None
+
+
+def get_repo_config_by_id(team_id: int, config_id: str) -> contracts.RepoConfigDTO | None:
+    """Resolve one config by its primary key, or None when the team has no such row.
+
+    An id that is not a UUID is a miss rather than an error, because the value comes straight off
+    the URL and Django raises on a malformed one before the query runs.
+    """
+    try:
+        parsed_id = UUID(config_id)
+    except ValueError:
+        return None
+    obj = StamphogRepoConfig.objects.for_team(team_id).filter(id=parsed_id).first()
     return _repo_config_to_dto(obj) if obj is not None else None
 
 

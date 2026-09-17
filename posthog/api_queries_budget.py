@@ -3,7 +3,7 @@
 Each team has a token bucket in Redis measured in bytes read. The rate comes from the team's
 organization, since the subscription belongs to the organization: teams of a paying organization
 refill API_QUERIES_BUDGET_PAID_MULTIPLIER times faster. The ClickHouse client debits what every
-chargeable query read after it runs (posthog/clickhouse/client/execute.py) and the query runner
+budgeted query read after it runs (posthog/clickhouse/client/execute.py) and the query runner
 reads the balance before admitting one. Refill is lazy: the balance is only brought up to date
 when it is read, so a debit never needs to know the team's rate. The balance floors at minus one
 hour of refill, so the query that crosses the line can never lock a team out for longer than an

@@ -24,6 +24,7 @@ import { WindowComparisonCard } from '../components/WindowComparisonCard'
 import { compactHoursLabel } from '../lib/format'
 import { githubFileUrl } from '../lib/github'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
+import { TeamDeliveryPanel } from './TeamDeliveryPanel'
 import { TeamDetailLogicProps, TeamTestSignalRow, teamDetailLogic } from './teamDetailLogic'
 import {
     DEFAULT_TEAMS_WINDOW,
@@ -54,6 +55,8 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
         mergeTrendSeries,
         window,
         ownerTeam,
+        deliveryScope,
+        sourceId,
     } = useValues(teamDetailLogic)
     const { setWindow } = useActions(teamDetailLogic)
     const { activeSource } = useValues(engineeringAnalyticsLogic)
@@ -110,7 +113,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
 
     return (
         <SceneContent className="pb-16">
-            <SceneTitleSection name="Team CI health" resourceType={{ type: 'health' }} />
+            <SceneTitleSection name="Team" resourceType={{ type: 'health' }} />
             <EntityHeader
                 icon={<IconPeople />}
                 title={isUnowned ? 'Unowned surfaces' : ownerTeam}
@@ -131,6 +134,8 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                 ]}
                 showDate={false}
             />
+
+            {deliveryScope && <TeamDeliveryPanel scope={deliveryScope} sourceId={sourceId} />}
 
             <ScopePanel
                 busy={healthRowLoading || mergeTrendLoading}

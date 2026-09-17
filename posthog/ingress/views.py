@@ -10,7 +10,6 @@ import structlog
 from rest_framework.request import Request as DRFRequest
 from rest_framework.throttling import ScopedRateThrottle
 
-from posthog.ingress.contracts import DeliveryOwnership
 from posthog.ingress.dispatch.budget import DeliveryBudget, delivery_budget_seconds
 from posthog.ingress.dispatch.forward import forward_to_secondary_region
 from posthog.ingress.dispatch.loading import get_dispatcher
@@ -45,11 +44,27 @@ def _throttle_refusal(provider: WebhookProvider, request: HttpRequest) -> HttpRe
     return response
 
 
+def _retry_refusal(provider: WebhookProvider, consumers: list[str]) -> HttpResponse:
+    """The status a provider that redelivers needs, for a delivery ingress cannot vouch for."""
+    # The dispatcher already logged and captured the failure itself, so this only says the request
+    # is not being receipted, and which consumers cost it that.
+    logger.warning(
+        "ingress_delivery_retry_requested",
+        provider=provider.provider,
+        app=provider.app,
+        consumers=consumers,
+    )
+    observe_delivery(provider=provider.provider, app=provider.app, outcome="retry_requested")
+    return HttpResponse("Delivery not accepted", status=provider.retry_status)
+
+
 def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], HttpResponse]:
     """A Django view for one provider app.
 
-    The response is a transport receipt. The method, the throttle, verification and the payload
-    decide the status; consumers never do, and their return values are ignored.
+    The response is a transport receipt: the method, the throttle, verification and the payload
+    decide the status, and a consumer's return value is ignored. A provider that sets
+    `retry_status` also gets that status when the work did not run at all, which is the
+    transport saying so rather than a consumer choosing an answer.
     """
     # Refused at build rather than per request, because the failure is silent at request time:
     # a ScopedRateThrottle reads its rate from the view's `throttle_scope`, finds none here, and
@@ -80,6 +95,13 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
             observe_delivery(provider=provider.provider, app=provider.app, outcome="not_configured")
             reason = "Webhook not configured" if provider.explains_rejections else ""
             return HttpResponse(reason, status=provider.unconfigured_status)
+        if verification.outcome is VerificationOutcome.UNAVAILABLE:
+            # The check never ran, so nothing here is the caller's fault. 503 asks any sender that
+            # retries a server error to send the delivery again, which the invalid-signature status
+            # would not: that one reads as a verdict on the signature.
+            logger.warning("ingress_verify_unavailable", provider=provider.provider, app=provider.app)
+            observe_delivery(provider=provider.provider, app=provider.app, outcome="verify_unavailable")
+            return HttpResponse("Verification unavailable", status=503)
         if verification.outcome is not VerificationOutcome.VERIFIED:
             observe_delivery(provider=provider.provider, app=provider.app, outcome="invalid_signature")
             reason = "Invalid signature" if provider.explains_rejections else ""
@@ -114,17 +136,32 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
         budget = DeliveryBudget(delivery_budget_seconds())
 
         elsewhere: dict[str, None] = {}
+        unanswered: dict[str, None] = {}
         for delivery in deliveries:
-            ownership, consumers = dispatcher.ownership_of(delivery)
-            if ownership is DeliveryOwnership.ELSEWHERE:
-                elsewhere.update(dict.fromkeys(consumers))
+            answers = dispatcher.ownership_of(delivery)
+            elsewhere.update(dict.fromkeys(answers.elsewhere_consumers))
+            unanswered.update(dict.fromkeys(answers.failed_consumers))
+
+        if unanswered and provider.retry_status is not None:
+            # A lookup that did not answer rules no region out, so this region cannot tell whether
+            # the other one owns the delivery. Dispatching locally would run every consumer, find
+            # nothing to do, and receipt a delivery the owning region never sees. Asking for the
+            # delivery again runs the lookups again, and it happens here, before the forward and
+            # before any consumer claims a dedup mark that would swallow the redelivery.
+            return _retry_refusal(provider, list(unanswered))
+
         if elsewhere:
             if is_primary_region(request):
                 # Once for the request, not once per delivery: what is replayed is the signed body.
-                forwarded = forward_to_secondary_region(request, provider=provider.provider, app=provider.app)
-                if not forwarded and provider.forward_failure_status is not None:
+                forwarded = forward_to_secondary_region(
+                    request,
+                    provider=provider.provider,
+                    app=provider.app,
+                    timeout=provider.forward_timeout_seconds,
+                )
+                if not forwarded and provider.retry_status is not None:
                     observe_delivery(provider=provider.provider, app=provider.app, outcome="forward_failed")
-                    return HttpResponse(status=provider.forward_failure_status)
+                    return HttpResponse(status=provider.retry_status)
             else:
                 # A local miss on the secondary region is that consumer's unresolved routing, not
                 # proof that no region owns the delivery.
@@ -135,8 +172,13 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
                     consumers=list(elsewhere),
                 )
 
+        unaccepted: dict[str, None] = {}
         for delivery in deliveries:
-            dispatcher.dispatch(delivery, budget=budget)
+            dispatched = dispatcher.dispatch(delivery, budget=budget)
+            unaccepted.update(dict.fromkeys(dispatched.unaccepted_consumers))
+
+        if unaccepted and provider.retry_status is not None:
+            return _retry_refusal(provider, list(unaccepted))
 
         observe_delivery(provider=provider.provider, app=provider.app, outcome="accepted")
         return HttpResponse(status=provider.success_status)

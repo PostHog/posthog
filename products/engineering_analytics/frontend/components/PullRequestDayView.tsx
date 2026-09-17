@@ -10,14 +10,15 @@ import { urls } from 'scenes/urls'
 
 import type { PullRequestTimelinesApi } from '../generated/api.schemas'
 import { compactAgeLabel, compactUsd } from '../lib/format'
+import { DayViewAlignment, DayViewGroup, DayViewRow, rowOrigin } from '../lib/pullRequestDayView'
 import {
     DAY_START_HOUR,
-    DayViewAlignment,
-    DayViewGroup,
-    DayViewRow,
+    NIGHT_START_HOUR,
     SEGMENT_KIND_STYLES,
+    TIMELINE_TIME_FORMAT,
     segmentBackground,
-} from '../lib/pullRequestDayView'
+    timeAxis,
+} from '../lib/pullRequestTimeline'
 import { withCurrentScope } from '../lib/scope'
 import { PullRequestTimelineLegend } from './PullRequestTimelineLegend'
 import { PullRequestTimelineTrack } from './PullRequestTimelineTrack'
@@ -30,24 +31,20 @@ function DayViewRowItem({
     row,
     alignment,
     days,
-    generatedAt,
     sourceId,
-    showAuthor,
 }: {
     row: DayViewRow
     alignment: DayViewAlignment
     days: number
-    generatedAt: string
     sourceId: string | null
-    showAuthor: boolean
 }): JSX.Element {
     const { pr } = row
+    const origin = rowOrigin(pr.started_at, alignment)
     const highlight = SEGMENT_KIND_STYLES[row.highlightKind]
     const hover = [
         pr.title,
-        showAuthor ? `by ${pr.author.handle}` : null,
-        `timeline from ${dayjs(pr.started_at).format('ddd D MMM HH:mm')}`,
-        pluralize(pr.pushes, 'push', 'pushes'),
+        `timeline from ${dayjs(pr.started_at).format(TIMELINE_TIME_FORMAT)}`,
+        pluralize(pr.pushes.length, 'push', 'pushes'),
         pr.estimated_cost_usd != null ? `CI cost ${compactUsd(pr.estimated_cost_usd)}` : null,
     ]
         .filter(Boolean)
@@ -66,7 +63,11 @@ function DayViewRowItem({
                     <span className="truncate text-[11px] text-secondary">{pr.title}</span>
                 </Link>
             </Tooltip>
-            <PullRequestTimelineTrack pr={pr} alignment={alignment} days={days} generatedAt={generatedAt} />
+            <PullRequestTimelineTrack
+                pr={pr}
+                axis={timeAxis(origin.valueOf(), origin.add(days, 'day').valueOf())}
+                className="h-3.5"
+            />
             <span className="text-right text-[11px] tabular-nums text-tertiary">
                 {row.isOpen && <span className="mr-1 inline-block size-1.5 rounded-full bg-success align-middle" />}
                 {compactAgeLabel(row.lengthSeconds)}
@@ -91,7 +92,6 @@ export function PullRequestDayView({
     onAlignmentChange,
     loading,
     sourceId,
-    showAuthor = false,
 }: {
     timelines: PullRequestTimelinesApi | null
     groups: DayViewGroup[]
@@ -100,8 +100,6 @@ export function PullRequestDayView({
     onAlignmentChange: (alignment: DayViewAlignment) => void
     loading: boolean
     sourceId: string | null
-    /** Name each pull request's author on hover, for scopes that list several authors (a team). */
-    showAuthor?: boolean
 }): JSX.Element {
     const step = days > 7 ? 2 : 1
     const ticks = Array.from({ length: Math.ceil(days / step) }).map((_, index) => index * step)
@@ -116,7 +114,7 @@ export function PullRequestDayView({
                 <PullRequestTimelineLegend />
                 <div className="flex items-center gap-2">
                     <Tooltip
-                        title={`${alignmentNote} Shaded: nights 22:00 to 06:00 and weekends, in your time zone. The axis stretches to fit 90% of the pull requests; longer bars end in ›.`}
+                        title={`${alignmentNote} Shaded: nights ${NIGHT_START_HOUR}:00 to ${DAY_START_HOUR}:00 and weekends, in your time zone. The axis stretches to fit 90% of the pull requests; longer bars end in ›.`}
                     >
                         <span className="cursor-default text-[11px] text-tertiary">
                             axis fits {pluralize(days, 'day')}
@@ -142,9 +140,7 @@ export function PullRequestDayView({
                 </div>
             ) : groups.length === 0 ? (
                 <div className="py-6 text-center text-xs text-secondary">
-                    {timelines?.scope_kind === 'github_team' && !timelines.has_membership_data
-                        ? 'Team pull requests appear once the team members table on this GitHub source is synced.'
-                        : 'No open pull requests, and nothing merged in the window.'}
+                    No open pull requests, and nothing merged in the window.
                 </div>
             ) : (
                 <>
@@ -176,9 +172,7 @@ export function PullRequestDayView({
                                     row={row}
                                     alignment={alignment}
                                     days={days}
-                                    generatedAt={timelines?.generated_at ?? ''}
                                     sourceId={sourceId}
-                                    showAuthor={showAuthor}
                                 />
                             ))}
                         </div>

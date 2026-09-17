@@ -318,12 +318,23 @@ impl PersonHogReplica for PersonHogReplicaService {
         let req = request.into_inner();
         let consistency = to_storage_consistency(&req.read_options);
         let limit = req.limit.filter(|&l| l > 0);
+        let cursor_id = req.cursor_id;
 
         let distinct_ids = self
             .storage
-            .get_distinct_ids_for_person(req.team_id, req.person_id, consistency, limit)
+            .get_distinct_ids_for_person(req.team_id, req.person_id, consistency, limit, cursor_id)
             .await
             .map_err(|e| log_and_convert_error(e, "get_distinct_ids_for_person"))?;
+
+        let next_cursor_id = if let Some(l) = limit {
+            if distinct_ids.len() as i64 >= l {
+                distinct_ids.last().map(|d| d.id)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         Ok(Response::new(GetDistinctIdsForPersonResponse {
             distinct_ids: distinct_ids
@@ -331,8 +342,10 @@ impl PersonHogReplica for PersonHogReplicaService {
                 .map(|d| DistinctIdWithVersion {
                     distinct_id: d.distinct_id,
                     version: d.version,
+                    id: Some(d.id),
                 })
                 .collect(),
+            next_cursor_id,
         }))
     }
 
@@ -364,6 +377,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                 .push(DistinctIdWithVersion {
                     distinct_id: mapping.distinct_id,
                     version: mapping.version,
+                    id: None,
                 });
         }
 

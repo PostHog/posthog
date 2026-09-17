@@ -99,6 +99,7 @@ interface SyncMethodFormProps {
     ) => void
     availableColumns?: AvailableColumn[]
     detectedPrimaryKeys?: string[] | null
+    primaryKeyDetectionSupported?: boolean
     primaryKeyLocked?: boolean
     saveButtonIsLoading?: boolean
     isNewSource?: boolean
@@ -136,7 +137,7 @@ export const getSaveDisabledReason = (
     incrementalField: string | null,
     appendField: string | null,
     mergeKey: string[] | null,
-    columnsKnown: boolean
+    keyRequired: boolean
 ): string | undefined => {
     if (!syncType) {
         return 'You must select a sync method before saving'
@@ -148,9 +149,7 @@ export const getSaveDisabledReason = (
 
     // An incremental sync merges rows on a key. Saved without one, the table syncs once and then
     // fails on every later run, so the key is required here rather than at the first merge.
-    // Only when the columns are known: without them the picker is empty, and the source
-    // resolves its key at sync time instead.
-    if (syncType === 'incremental' && columnsKnown && !mergeKey?.length) {
+    if (syncType === 'incremental' && keyRequired && !mergeKey?.length) {
         return 'Select primary key columns, or use full table replication instead'
     }
 
@@ -196,6 +195,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         onSave,
         availableColumns,
         detectedPrimaryKeys,
+        primaryKeyDetectionSupported,
         primaryKeyLocked,
         saveButtonIsLoading,
         isNewSource,
@@ -208,10 +208,18 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
     const cdcSyncSupported = getCdcSyncSupported(schema)
 
-    const columns = availableColumns ?? schema.available_columns ?? []
+    // An empty discovered list means "not discovered", not "this relation has no columns": a
+    // Redshift materialized view under a restricted role is listed from the stored metadata alone.
+    // The API judges an incremental switch against that stored list, so the key picker offers it
+    // too — otherwise the switch is refused with no way to satisfy it.
+    const columns = availableColumns?.length ? availableColumns : (schema.available_columns ?? [])
     const resolvedDetectedPks = detectedPrimaryKeys ?? schema.detected_primary_keys ?? null
-    // With no column list there is nothing to pick from, and the key resolves at sync time.
-    const keyResolvable = columns.length === 0 || !!(schema.primary_key_columns?.length || resolvedDetectedPks?.length)
+    // A key is only asked for when the source reads keys off the table and the columns are
+    // known. A source that declares its key in code resolves it at sync time, and with no
+    // column list there is nothing to pick from.
+    const keyRequired =
+        (primaryKeyDetectionSupported ?? schema.primary_key_detection_supported ?? false) && columns.length > 0
+    const keyResolvable = !keyRequired || !!(schema.primary_key_columns?.length || resolvedDetectedPks?.length)
 
     const defaultField = schema.incremental_field ?? schema.incremental_fields[0]?.field ?? null
 
@@ -656,7 +664,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         incrementalFieldValue,
         appendFieldValue,
         primaryKeyColumns.length ? primaryKeyColumns : resolvedDetectedPks,
-        columns.length > 0
+        keyRequired
     )
     const saveDisabledReason = validationDisabledReason ?? (!isDirty ? 'No changes to save' : undefined)
 

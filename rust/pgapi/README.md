@@ -11,11 +11,12 @@ PGAPI_DEV_MODE=1 PGAPI_DEV_USER=you@posthog.com \
   cargo run -p pgapi -- --database-url postgres://.../pgcollector
 curl localhost:3400/api/v1/servers
 curl "localhost:3400/api/v1/servers/<id>/queries?since=1h&order=total_exec_time"
+curl "localhost:3400/api/v1/servers/<id>/tags?since=1h&key=operation"        # load per code path (query tags)
 ```
 
 MCP client config (Claude Code / Desktop): `{"type": "http", "url": "http://localhost:3400/mcp"}`.
-17 tools: `list_servers`, `server_overview`, `top_queries`, `query_detail`,
-`wait_events`, `current_activity`, `table_stats`, `index_stats`,
+18 tools: `list_servers`, `server_overview`, `top_queries`, `query_detail`,
+`query_tags`, `wait_events`, `current_activity`, `table_stats`, `index_stats`,
 `vacuum_status`, `events`, `settings`, `schema`, `log_errors`, `system_stats`,
 `collector_health`, `describe_stats_schema`, `query_stats_db` (guarded raw SQL).
 
