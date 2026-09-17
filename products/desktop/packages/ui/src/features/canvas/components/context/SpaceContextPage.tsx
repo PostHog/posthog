@@ -226,7 +226,6 @@ export function SpaceContextPage({
                   <div className="@4xl:order-none order-last min-w-0">
                     <KnowledgeList
                       channelName={channelName}
-                      knowledge={doc.knowledge}
                       links={doc.links}
                       objects={doc.objects}
                       filesFolder={wikiPath ? spaceFilesFolder(wikiPath) : null}

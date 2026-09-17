@@ -47,7 +47,6 @@ import { connectLabel, unconnectedWarning } from "./sourceStatus";
 
 interface KnowledgeListProps {
   channelName: string;
-  knowledge: string;
   links: ContextLink[];
   objects: ContextObject[];
   /** Where this space's extra Markdown files live; null without the context wiki. */
@@ -66,7 +65,6 @@ interface KnowledgeListProps {
  */
 export function KnowledgeList({
   channelName,
-  knowledge,
   links,
   objects,
   filesFolder,
@@ -146,10 +144,7 @@ export function KnowledgeList({
           <KnowledgeRow
             icon={<FileMdIcon size={15} />}
             title="CONTEXT.md"
-            meta={
-              firstLine(knowledge) ||
-              "Nothing written yet. What this is, how to work here, key files, gotchas."
-            }
+            meta="The root context of this space. Every agent reads it first."
             onOpen={onOpenContextFile}
             trailing={<CaretRightIcon size={13} />}
           />
@@ -456,15 +451,6 @@ function OpenGlyph() {
       className="opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100"
     />
   );
-}
-
-function firstLine(markdown: string): string {
-  const body = markdown.replace(/^---\n[\s\S]*?\n---\n?/, "");
-  const line = body
-    .split("\n")
-    .map((l) => l.trim())
-    .find((l) => !l.startsWith("#") && /[\p{L}\p{N}]/u.test(l));
-  return line ?? "";
 }
 
 function hostOf(url: string): string {
