@@ -95831,7 +95831,7 @@ export namespace Schemas {
       query: _LogsQueryResponseQuery;
       /** Log entries matching the query. */
       results: _LogEntry[];
-      /** True if more results exist beyond this page. */
+      /** True when there may be more logs beyond this page: either more rows matched, or the query stopped before it read the whole date range. Follow `nextCursor` until this is false. The last page can come back empty. */
       hasMore: boolean;
       /**
          * Opaque cursor to pass as `after` in the next request to fetch the next page. Null when hasMore is false.

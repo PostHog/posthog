@@ -684,7 +684,13 @@ class _LogsQueryResponseSerializer(serializers.Serializer):
         help_text="The parsed query that was executed, echoed back for confirmation.",
     )
     results = _LogEntrySerializer(many=True, help_text="Log entries matching the query.")
-    hasMore = serializers.BooleanField(help_text="True if more results exist beyond this page.")
+    hasMore = serializers.BooleanField(
+        help_text=(
+            "True when there may be more logs beyond this page: either more rows matched, or the "
+            "query stopped before it read the whole date range. Follow `nextCursor` until this is "
+            "false. The last page can come back empty."
+        ),
+    )
     nextCursor = serializers.CharField(
         required=False,
         allow_null=True,
