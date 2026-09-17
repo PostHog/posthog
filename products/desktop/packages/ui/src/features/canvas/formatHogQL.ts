@@ -7,26 +7,38 @@ const LITERAL = /'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`[^`]*`/g;
 const MASK = String.fromCharCode(0);
 const MASKED = new RegExp(`${MASK}(\\d+)${MASK}`, "g");
 
-interface Segment {
+export interface Segment {
   keyword: string;
   body: string;
 }
 
-export function formatHogQL(sql: string): string {
-  const source = sql.trim();
-  if (!source) return sql;
+export function maskLiterals(text: string): {
+  masked: string;
+  literals: string[];
+} {
   const literals: string[] = [];
-  const masked = source
+  const masked = text
     .replace(LITERAL, (match) => {
       literals.push(match);
       return `${MASK}${literals.length - 1}${MASK}`;
     })
     .replace(/\s+/g, " ");
-  const rendered = splitClauses(masked).map(renderSegment).join("\n");
-  const restored = rendered.replace(
+  return { masked, literals };
+}
+
+export function restoreLiterals(text: string, literals: string[]): string {
+  return text.replace(
     MASKED,
     (_, index: string) => literals[Number(index)] ?? "",
   );
+}
+
+export function formatHogQL(sql: string): string {
+  const source = sql.trim();
+  if (!source) return sql;
+  const { masked, literals } = maskLiterals(source);
+  const rendered = splitClauses(masked).map(renderSegment).join("\n");
+  const restored = restoreLiterals(rendered, literals);
   return normalize(restored) === normalize(source) ? restored : sql;
 }
 
@@ -34,7 +46,7 @@ function normalize(text: string): string {
   return text.replace(/\s+/g, "").toLowerCase();
 }
 
-function splitClauses(text: string): Segment[] {
+export function splitClauses(text: string): Segment[] {
   const segments: Segment[] = [];
   let current: Segment = { keyword: "", body: "" };
   let depth = 0;
@@ -75,7 +87,7 @@ function renderSegment({ keyword, body }: Segment): string {
   return `${keyword} ${text}`;
 }
 
-function splitTopLevel(text: string, separator: string): string[] {
+export function splitTopLevel(text: string, separator: string): string[] {
   const parts: string[] = [];
   let depth = 0;
   let start = 0;

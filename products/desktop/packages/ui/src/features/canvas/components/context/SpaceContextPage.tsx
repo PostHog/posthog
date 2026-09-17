@@ -9,12 +9,9 @@ import { spaceFilesFolder } from "@posthog/core/canvas/contextFiles";
 import { Button, cn, Text } from "@posthog/quill";
 import { isTerminalStatus, type Task } from "@posthog/shared/domain-types";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
-import { channelPageIcon } from "@posthog/ui/features/canvas/components/channelPages";
 import {
   buildGoalMeasurePrompt,
-  buildGoalTrendPrompt,
   goalMeasureTaskTitle,
-  goalTrendTaskTitle,
 } from "@posthog/ui/features/canvas/contextPrompt";
 import { GOAL_MEASURE_AGENT } from "@posthog/ui/features/canvas/goalMeasureAgent";
 import {
@@ -30,7 +27,6 @@ import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import {
   PageHeader,
   PageHeaderActions,
-  PageHeaderChip,
   PageHeaderDescription,
   PageHeaderHeading,
   PageHeaderTitle,
@@ -108,20 +104,6 @@ export function SpaceContextPage({
     }
     return map;
   }, [doc.goals, measureTaskIds, channelTasks, channelTasksLoading]);
-  const trendTasks = useMemo(() => {
-    const map = new Map<string, GoalMeasureTask>();
-    for (const goal of doc.goals) {
-      const taskId = measureTaskIds[`trend:${goal.name}`];
-      const needsTrend =
-        goal.measure?.kind === "hogql" && !goal.measure.trendSql?.trim();
-      if (taskId && needsTrend)
-        map.set(
-          goal.name,
-          taskStateFor(taskId, channelTasks, channelTasksLoading),
-        );
-    }
-    return map;
-  }, [doc.goals, measureTaskIds, channelTasks, channelTasksLoading]);
 
   const rememberTask = (key: string, taskId: string) => {
     const next = { ...measureTaskIds, [key]: taskId };
@@ -150,25 +132,6 @@ export function SpaceContextPage({
     if (task) rememberTask(goal.name, task.id);
   };
 
-  const askAgentForTrend = async (goal: ContextGoal) => {
-    if (goal.measure?.kind !== "hogql") return;
-    const task = await generate({
-      channelId,
-      channelName,
-      description: "",
-      prompt: buildGoalTrendPrompt({
-        channelName,
-        channelId,
-        goalName: goal.name,
-        measureSql: goal.measure.sql,
-        contextLayerEnabled,
-      }),
-      title: goalTrendTaskTitle(goal.name),
-      agent: GOAL_MEASURE_AGENT,
-    });
-    if (task) rememberTask(`trend:${goal.name}`, task.id);
-  };
-
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <PageHeader className="px-0">
@@ -176,11 +139,6 @@ export function SpaceContextPage({
           <PageHeaderHeading>
             <PageHeaderTitleRow>
               <PageHeaderTitle>Context</PageHeaderTitle>
-              {store.versionLabel ? (
-                <PageHeaderChip icon={channelPageIcon("context", { size: 12 })}>
-                  {store.versionLabel}
-                </PageHeaderChip>
-              ) : null}
               {store.isRefreshing || store.isSaving ? (
                 <Spinner size="xs" aria-hidden="true" />
               ) : null}
@@ -259,8 +217,6 @@ export function SpaceContextPage({
                   onChange={(goals) => saveDoc({ ...doc, goals })}
                   onAskAgentForMeasure={askAgentForMeasure}
                   measureTasks={measureTasks}
-                  trendTasks={trendTasks}
-                  onAskAgentForTrend={askAgentForTrend}
                   onOpenMeasureTask={(taskId) =>
                     navigateToChannelTask(channelId, taskId)
                   }

@@ -391,7 +391,7 @@ function KnowledgeRow({
     </>
   );
   return (
-    <div className="group/row -mx-3 flex w-[calc(100%+1.5rem)] items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-fill-hover">
+    <div className="group/row flex items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-fill-hover">
       {onOpen ? (
         <button
           type="button"

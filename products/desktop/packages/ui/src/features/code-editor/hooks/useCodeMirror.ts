@@ -1,4 +1,4 @@
-import { EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import { useEffect, useRef } from "react";
@@ -10,36 +10,73 @@ interface UseCodeMirrorOptions {
   filePath?: string;
 }
 
+/**
+ * One EditorView for the life of the container. Extensions swap through a
+ * compartment and an outside document change lands as a transaction, so a
+ * consumer that mirrors edits into React state never rebuilds the editor or
+ * loses the caret on a keystroke.
+ */
 export function useCodeMirror(options: UseCodeMirrorOptions) {
   const containerRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<EditorView | null>(null);
+  const compartmentRef = useRef(new Compartment());
+  const latestRef = useRef(options);
+  latestRef.current = options;
   const { openForFile } = useFileContextMenu();
   const hostClient = useHostTRPCClient();
+  const { doc, extensions, filePath } = options;
 
   useEffect(() => {
-    if (!containerRef.current) return;
-
-    instanceRef.current?.destroy();
-    instanceRef.current = null;
-
-    instanceRef.current = new EditorView({
+    const parent = containerRef.current;
+    if (!parent) return;
+    const initial = latestRef.current;
+    const view = new EditorView({
       state: EditorState.create({
-        doc: options.doc,
-        extensions: options.extensions,
+        doc: initial.doc,
+        extensions: compartmentRef.current.of(initial.extensions),
       }),
-      parent: containerRef.current,
+      parent,
     });
-
+    instanceRef.current = view;
     return () => {
-      instanceRef.current?.destroy();
+      view.destroy();
       instanceRef.current = null;
     };
-  }, [options]);
+  }, []);
 
   useEffect(() => {
-    if (!instanceRef.current || !options.filePath) return;
+    const view = instanceRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: compartmentRef.current.reconfigure(extensions),
+    });
+  }, [extensions]);
 
-    const filePath = options.filePath;
+  useEffect(() => {
+    const view = instanceRef.current;
+    if (!view) return;
+    const current = view.state.doc.toString();
+    if (current === doc) return;
+    view.dispatch({
+      changes: { from: 0, to: current.length, insert: doc },
+      selection: {
+        anchor: Math.min(view.state.selection.main.head, doc.length),
+      },
+    });
+  }, [doc]);
+
+  useEffect(() => {
+    const view = instanceRef.current;
+    if (!view || !filePath) return;
+    view.dispatch({
+      selection: { anchor: 0 },
+      effects: EditorView.scrollIntoView(0),
+    });
+  }, [filePath]);
+
+  useEffect(() => {
+    if (!instanceRef.current || !filePath) return;
+
     const domElement = instanceRef.current.dom;
 
     const handleContextMenu = async (e: MouseEvent) => {
@@ -67,7 +104,7 @@ export function useCodeMirror(options: UseCodeMirrorOptions) {
     return () => {
       domElement.removeEventListener("contextmenu", handleContextMenu);
     };
-  }, [options.filePath, openForFile, hostClient]);
+  }, [filePath, openForFile, hostClient]);
 
   return { containerRef, instanceRef };
 }

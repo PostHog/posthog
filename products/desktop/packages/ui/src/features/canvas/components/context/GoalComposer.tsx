@@ -95,6 +95,7 @@ export function GoalComposer({
   );
   const [dueDate, setDueDate] = useState(initial?.target?.dueDate ?? "");
   const [askedAgent, setAskedAgent] = useState(false);
+  const primary = initial?.primary ?? false;
   const askRef = useRef<HTMLTextAreaElement>(null);
 
   const isHogQL = looksLikeHogQL(sentence);
@@ -153,6 +154,7 @@ export function GoalComposer({
     name: sentenceCase(name.trim()) || "Untitled goal",
     why: initial?.why ?? "",
     measure: withMeasure,
+    primary,
     target:
       parsedTarget !== null && Number.isFinite(parsedTarget)
         ? { direction, value: parsedTarget, dueDate: dueDate || null }

@@ -60,6 +60,8 @@ export interface ContextGoal {
   /** Null until a person or an agent adds one. */
   measure: GoalMeasure | null;
   target: GoalTarget | null;
+  /** The one goal this space is judged on. At most one per document. */
+  primary: boolean;
 }
 
 export interface ContextDocument {
@@ -221,7 +223,13 @@ function parseGoals(lines: string[]): ContextGoal[] {
     const heading = /^###\s+(.+?)\s*$/.exec(line);
     if (heading) {
       flush();
-      current = { name: heading[1], why: "", measure: null, target: null };
+      current = {
+        name: heading[1],
+        why: "",
+        measure: null,
+        target: null,
+        primary: false,
+      };
       continue;
     }
     if (!current) continue;
@@ -231,6 +239,10 @@ function parseGoals(lines: string[]): ContextGoal[] {
     }
     if (/^\s*```(sql|hogql)?\s*$/i.test(line)) {
       fence = "measure";
+      continue;
+    }
+    if (/^\s*-\s*Primary( goal)?\s*$/i.test(line)) {
+      current.primary = true;
       continue;
     }
     const target = parseTargetLine(line);
@@ -340,6 +352,7 @@ export function serializeContextDocument(doc: ContextDocument): string {
       const lines = [`### ${goal.name}`];
       if (goal.why.trim()) lines.push("", goal.why.trim());
       if (goal.target) lines.push("", formatTarget(goal.target));
+      if (goal.primary) lines.push("", "- Primary goal");
       if (goal.measure?.kind === "insight") {
         lines.push(
           "",

@@ -103,12 +103,12 @@ function SignalRow({ signal }: { signal: SpaceSignal }) {
         <button
           type="button"
           onClick={() => openExternalUrl(url)}
-          className="group/signal -mx-3 flex w-[calc(100%+1.5rem)] flex-col gap-1 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-fill-hover"
+          className="group/signal flex w-full flex-col gap-1 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-fill-hover"
         >
           {body}
         </button>
       ) : (
-        <div className="flex flex-col gap-1 py-2.5">{body}</div>
+        <div className="flex flex-col gap-1 px-3 py-2.5">{body}</div>
       )}
     </li>
   );
@@ -122,7 +122,7 @@ function SignalsNote({
   children: ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2 border-border border-y py-4">
+    <div className="flex items-center gap-2 border-border border-y px-3 py-4">
       {leading}
       <Text size="xs" variant="muted">
         {children}

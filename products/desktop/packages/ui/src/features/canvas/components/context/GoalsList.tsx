@@ -2,6 +2,7 @@ import {
   ChartBarIcon,
   PlusIcon,
   SparkleIcon,
+  StarIcon,
   WarningCircleIcon,
 } from "@phosphor-icons/react";
 import {
@@ -9,7 +10,6 @@ import {
   formatNumber,
   type GoalStatus,
   type GoalTarget,
-  goalProgress,
   goalStatus,
 } from "@posthog/core/canvas/contextDocument";
 import {
@@ -22,7 +22,10 @@ import {
   DialogTitle,
   Text,
 } from "@posthog/quill";
-import { Sparkline, useChartTheme } from "@posthog/quill-charts";
+import {
+  statusColor,
+  useGoalPalette,
+} from "@posthog/ui/features/canvas/goalColors";
 import type { GoalMeasureTask } from "@posthog/ui/features/canvas/goalMeasureTasks";
 import { goalValueSuffix } from "@posthog/ui/features/canvas/goalUnits";
 import {
@@ -32,6 +35,7 @@ import {
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
 import { GoalComposer } from "./GoalComposer";
+import { GoalTrendChart } from "./GoalTrendChart";
 import { SectionHeader } from "./SectionHeader";
 
 interface GoalsListProps {
@@ -41,17 +45,16 @@ interface GoalsListProps {
   onAskAgentForMeasure: (goal: ContextGoal) => Promise<void>;
   /** The agent task behind each goal that has no measure yet, by goal name. */
   measureTasks: ReadonlyMap<string, GoalMeasureTask>;
-  /** The agent task writing a trend for a measured goal that has none, by goal name. */
-  trendTasks: ReadonlyMap<string, GoalMeasureTask>;
-  onAskAgentForTrend: (goal: ContextGoal) => Promise<void>;
   onOpenMeasureTask: (taskId: string) => void;
   isSaving: boolean;
 }
 
 type Editing = { index: number | null } | null;
 
+const GOAL_GRID = "grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4";
+
 /**
- * The numbers this space moves, as rows at the top of the document. A row
+ * The numbers this space moves, as cards at the top of the document. A card
  * opens the goal in a dialog, where removal lives too, so the list never
  * changes shape while someone is writing.
  */
@@ -60,8 +63,6 @@ export function GoalsList({
   onChange,
   onAskAgentForMeasure,
   measureTasks,
-  trendTasks,
-  onAskAgentForTrend,
   onOpenMeasureTask,
   isSaving,
 }: GoalsListProps) {
@@ -70,13 +71,22 @@ export function GoalsList({
     editing && editing.index !== null ? goals[editing.index] : null;
 
   const save = async (goal: ContextGoal) => {
-    if (editing?.index == null) {
-      await onChange([...goals, goal]);
+    const adding = editing?.index == null;
+    const primary = goal.primary || (adding && goals.length === 0);
+    const next = { ...goal, primary };
+    const rest = primary ? goals.map((g) => ({ ...g, primary: false })) : goals;
+    if (adding) {
+      await onChange([...rest, next]);
     } else {
-      await onChange(goals.map((g, i) => (i === editing.index ? goal : g)));
+      await onChange(rest.map((g, i) => (i === editing.index ? next : g)));
     }
     setEditing(null);
   };
+  const makePrimary = (index: number) =>
+    onChange(goals.map((g, i) => ({ ...g, primary: i === index })));
+  const ordered = goals
+    .map((goal, index) => ({ goal, index }))
+    .sort((a, b) => Number(b.goal.primary) - Number(a.goal.primary));
 
   const askAgent = async (goal: ContextGoal) => {
     await save(goal);
@@ -90,7 +100,7 @@ export function GoalsList({
   };
 
   return (
-    <section className="flex flex-col gap-2">
+    <section className="flex flex-col gap-3">
       <SectionHeader
         label="Goals"
         action={
@@ -107,37 +117,40 @@ export function GoalsList({
       />
 
       {goals.length > 0 ? (
-        <ul className="flex flex-col divide-y divide-border border-border border-y">
-          {goals.map((goal, index) => (
-            <li key={`${goal.name}-${index}`}>
-              <GoalRow
+        <ul className={GOAL_GRID}>
+          {ordered.map(({ goal, index }) => (
+            <li key={`${goal.name}-${index}`} className="min-w-0">
+              <GoalCard
                 goal={goal}
                 selected={editing?.index === index}
                 measureTask={measureTasks.get(goal.name) ?? null}
-                trendTask={trendTasks.get(goal.name) ?? null}
                 onOpen={() => setEditing({ index })}
                 onOpenTask={onOpenMeasureTask}
                 onRetry={() => onAskAgentForMeasure(goal)}
-                onAskTrend={() => onAskAgentForTrend(goal)}
+                onMakePrimary={
+                  goal.primary ? undefined : () => makePrimary(index)
+                }
                 disabled={isSaving}
               />
             </li>
           ))}
         </ul>
       ) : (
-        <button
-          type="button"
-          onClick={() => setEditing({ index: null })}
-          disabled={isSaving}
-          className="flex items-baseline gap-2 border-border border-y py-4 text-left transition-colors hover:bg-fill-hover"
-        >
-          <Text size="sm" weight="medium">
-            No goals yet.
-          </Text>
-          <Text size="xs" variant="muted">
-            Say one in a sentence. An agent writes the query.
-          </Text>
-        </button>
+        <div className={GOAL_GRID}>
+          <button
+            type="button"
+            onClick={() => setEditing({ index: null })}
+            disabled={isSaving}
+            className="flex flex-col items-start gap-1 rounded-lg border border-border border-dashed p-4 text-left transition-colors hover:bg-fill-hover"
+          >
+            <Text size="sm" weight="medium">
+              No goals yet.
+            </Text>
+            <Text size="xs" variant="muted">
+              Say one in a sentence. An agent writes the query.
+            </Text>
+          </button>
+        </div>
       )}
 
       {editing ? (
@@ -194,14 +207,6 @@ const STATUS_LABEL: Record<GoalStatus, string> = {
   unmeasured: "Not measured",
 };
 
-const STATUS_DOT: Record<GoalStatus, string> = {
-  met: "bg-success-foreground",
-  on_track: "bg-info-foreground",
-  behind: "bg-warning-foreground",
-  no_target: "bg-muted-foreground/50",
-  unmeasured: "bg-muted-foreground/50",
-};
-
 function describeTarget(target: GoalTarget): string {
   const sign = target.direction === "at_most" ? "≤" : "≥";
   const due = target.dueDate ? ` by ${formatDueDate(target.dueDate)}` : "";
@@ -214,82 +219,151 @@ function formatDueDate(iso: string): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function GoalRow({
+function GoalCard({
   goal,
   selected,
   measureTask,
-  trendTask,
   onOpen,
   onOpenTask,
   onRetry,
-  onAskTrend,
+  onMakePrimary,
   disabled,
 }: {
   goal: ContextGoal;
   selected: boolean;
   measureTask: GoalMeasureTask | null;
-  trendTask: GoalMeasureTask | null;
   onOpen: () => void;
   onOpenTask: (taskId: string) => void;
   onRetry: () => Promise<void>;
-  onAskTrend: () => Promise<void>;
+  onMakePrimary?: () => Promise<void>;
   disabled: boolean;
 }) {
   const measure = useGoalMeasure(goal.measure);
-  const trend = useGoalTrend(goal.measure);
-  const theme = useChartTheme();
+  const trend = useGoalTrend(goal.name, goal.measure);
+  const palette = useGoalPalette();
   const current = measure.data ?? null;
   const status = goalStatus(current, goal.target);
   const measured = current !== null;
-  const progress =
-    goal.target && measured ? goalProgress(current, goal.target) : 0;
   const detail = goal.target
     ? `${STATUS_LABEL[status]} · ${describeTarget(goal.target)}`
     : STATUS_LABEL[status];
   const agentRunning =
     goal.measure === null && measureTask?.state === "running";
   const agentEnded = goal.measure === null && measureTask?.state === "ended";
-  const hasTrendQuery =
-    goal.measure?.kind === "hogql" && Boolean(goal.measure.trendSql?.trim());
-  const canAskTrend =
-    goal.measure?.kind === "hogql" && !hasTrendQuery && trendTask === null;
-  const points = trend.data ?? [];
+  const points = trend.data?.points ?? [];
 
   return (
     <div
       className={cn(
-        "-mx-3 grid w-[calc(100%+1.5rem)] grid-cols-[minmax(12rem,1fr)_minmax(0,2fr)_minmax(10rem,auto)] items-center gap-8 rounded-md px-3 transition-colors hover:bg-fill-hover",
-        selected && "bg-fill-selected",
+        "group/card relative flex h-full min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-background transition-colors hover:border-muted-foreground/50",
+        selected && "border-muted-foreground",
       )}
     >
+      {onMakePrimary ? (
+        <Button
+          variant="default"
+          size="icon-xs"
+          aria-label="Make primary"
+          disabled={disabled}
+          onClick={() => void onMakePrimary()}
+          className="absolute top-3 right-3 z-10 opacity-0 transition-opacity focus-visible:opacity-100 group-hover/card:opacity-100"
+        >
+          <StarIcon size={13} />
+        </Button>
+      ) : null}
       <button
         type="button"
         onClick={onOpen}
         disabled={disabled}
         aria-pressed={selected}
-        className="flex min-w-0 flex-col gap-0.5 py-4 text-left"
+        className="flex flex-col gap-4 p-4 text-left"
       >
-        <span className="flex items-center gap-1.5 font-medium text-foreground text-sm">
-          {goal.measure?.kind === "insight" ? (
-            <ChartBarIcon
-              size={13}
-              className="shrink-0 text-muted-foreground"
-            />
-          ) : null}
-          <span className="truncate">{goal.name}</span>
-        </span>
-        {goal.why ? (
-          <span className="truncate text-muted-foreground text-xs">
-            {goal.why}
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span
+            className={cn(
+              "flex items-center gap-1.5 font-medium text-foreground text-sm",
+              onMakePrimary && "pr-7",
+            )}
+          >
+            {goal.measure?.kind === "insight" ? (
+              <ChartBarIcon
+                size={13}
+                className="shrink-0 text-muted-foreground"
+              />
+            ) : null}
+            <span className="truncate">{goal.name}</span>
+            {goal.primary ? (
+              <span className="ml-auto flex shrink-0 items-center gap-1 font-normal text-muted-foreground text-xs">
+                <StarIcon size={12} weight="fill" />
+                Primary
+              </span>
+            ) : null}
           </span>
-        ) : null}
+          {goal.why ? (
+            <span className="line-clamp-1 text-muted-foreground text-xs">
+              {goal.why}
+            </span>
+          ) : null}
+        </span>
+        <span className="flex items-end justify-between gap-3">
+          <span className="font-semibold text-2xl text-foreground tabular-nums leading-none">
+            {measured ? (
+              <>
+                {formatNumber(current)}
+                {goalValueSuffix(goal.name)}
+              </>
+            ) : measure.isLoading ? (
+              <Spinner size="xs" aria-hidden="true" />
+            ) : (
+              <span className="text-muted-foreground">–</span>
+            )}
+          </span>
+          {goal.measure === null ? (
+            <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+              {agentRunning ? (
+                <Spinner size="xs" aria-hidden="true" />
+              ) : agentEnded ? (
+                <WarningCircleIcon
+                  size={13}
+                  className="shrink-0 text-warning-foreground"
+                />
+              ) : (
+                <SparkleIcon size={13} className="shrink-0" />
+              )}
+              {agentRunning
+                ? "Agent writing the measure"
+                : agentEnded
+                  ? "No measure came back"
+                  : "Waiting for a measure"}
+            </span>
+          ) : measure.error ? (
+            <span className="flex items-center gap-1.5 text-warning-foreground text-xs">
+              <WarningCircleIcon size={13} className="shrink-0" />
+              Query failed
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+              <span
+                className="size-1.5 shrink-0 rounded-full"
+                style={{ backgroundColor: statusColor(status, palette) }}
+              />
+              {detail}
+            </span>
+          )}
+        </span>
       </button>
-
-      <div className="flex h-10 min-w-0 items-center">
+      <div className="mt-auto flex h-16 items-center justify-center">
         {points.length > 1 ? (
-          <div className="h-10 w-full">
-            <Sparkline data={points} theme={theme} height={40} />
+          <div className="h-full w-full">
+            <GoalTrendChart
+              points={points}
+              period={trend.data?.period ?? "day"}
+              target={goal.target}
+              unit={goalValueSuffix(goal.name)}
+            />
           </div>
+        ) : trend.isLoading ? (
+          <Spinner size="xs" aria-hidden="true" />
         ) : agentEnded && measureTask ? (
           <span className="flex items-center gap-1">
             <Button
@@ -308,112 +382,8 @@ function GoalRow({
               Try again
             </Button>
           </span>
-        ) : trendTask?.state === "running" ? (
-          <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
-            <Spinner size="xs" aria-hidden="true" />
-            An agent is writing the trend
-          </span>
-        ) : trendTask?.state === "ended" ? (
-          <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
-            <WarningCircleIcon
-              size={13}
-              className="shrink-0 text-warning-foreground"
-            />
-            The agent finished without a trend
-            <Button
-              variant="link-muted"
-              size="xs"
-              disabled={disabled}
-              onClick={() => void onAskTrend()}
-            >
-              Try again
-            </Button>
-          </span>
-        ) : (
-          <span className="flex w-full items-center gap-3">
-            <span className="h-px flex-1 border-border border-t border-dashed" />
-            {canAskTrend ? (
-              <Button
-                variant="link-muted"
-                size="xs"
-                disabled={disabled}
-                onClick={() => void onAskTrend()}
-              >
-                <SparkleIcon size={12} />
-                Add trend
-              </Button>
-            ) : null}
-            <span className="h-px flex-1 border-border border-t border-dashed" />
-          </span>
-        )}
+        ) : null}
       </div>
-
-      <button
-        type="button"
-        onClick={onOpen}
-        disabled={disabled}
-        tabIndex={-1}
-        className="flex min-w-0 flex-col items-end gap-1.5 py-4 text-right"
-      >
-        {measured ? (
-          <span className="font-semibold text-foreground text-xl tabular-nums leading-none">
-            {formatNumber(current)}
-            {goalValueSuffix(goal.name)}
-          </span>
-        ) : measure.isLoading ? (
-          <Spinner size="xs" aria-hidden="true" />
-        ) : null}
-        {goal.measure === null ? (
-          <span className="flex items-center gap-1.5 whitespace-nowrap text-muted-foreground text-xs">
-            {agentRunning ? (
-              <Spinner size="xs" aria-hidden="true" />
-            ) : agentEnded ? (
-              <WarningCircleIcon
-                size={13}
-                className="shrink-0 text-warning-foreground"
-              />
-            ) : (
-              <SparkleIcon size={13} className="shrink-0" />
-            )}
-            {agentRunning
-              ? "An agent is writing the measure"
-              : agentEnded
-                ? "The agent finished without a measure"
-                : "Waiting for a measure"}
-          </span>
-        ) : measure.error ? (
-          <span className="flex items-center gap-1.5 whitespace-nowrap text-warning-foreground text-xs">
-            <WarningCircleIcon size={13} className="shrink-0" />
-            Query failed
-          </span>
-        ) : (
-          <span className="flex items-center gap-1.5 whitespace-nowrap text-muted-foreground text-xs">
-            <span
-              className={cn(
-                "size-1.5 shrink-0 rounded-full",
-                STATUS_DOT[status],
-              )}
-            />
-            {detail}
-          </span>
-        )}
-        {goal.target && measured ? (
-          <span
-            className="h-1 w-full overflow-hidden rounded-full bg-border"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(progress * 100)}
-          >
-            <span
-              className={cn("block h-full rounded-full", STATUS_DOT[status])}
-              style={{
-                width: `${progress > 0 ? Math.max(2, Math.round(progress * 100)) : 0}%`,
-              }}
-            />
-          </span>
-        ) : null}
-      </button>
     </div>
   );
 }
