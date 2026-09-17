@@ -21,6 +21,8 @@ describe('windowStartFromUrl', () => {
         ['an absolute window inside the cap', '2026-01-01', '2026-06-30', '2026-01-01'],
         ['a window with an unsigned relative end', '-3y', '2y', '-3y'],
         ['a window with a plus relative start', '+3y', null, '+3y'],
+        ['a window ending at a week boundary', '-2y', '-1wStart', '-2y'],
+        ['a calendar date that does not exist', '2024-02-31', null, '2024-02-31'],
         ['an unparseable start', 'garbage', null, 'garbage'],
         ['a malformed date', '2026-01-01garbage', null, '2026-01-01garbage'],
     ])('keeps or caps %s', (_name, dateFrom, dateTo, expected) => {

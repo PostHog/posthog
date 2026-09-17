@@ -2,7 +2,7 @@ import { MakeLogicType, actions, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { dateStringToDayJs, isStringDateRegex } from 'lib/utils/dateFilters'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import { EngineeringAnalyticsWorkflowHealthRunScope } from '../generated/api.schemas'
 
@@ -67,33 +67,41 @@ function runScopeFromUrl(runScope: string | undefined, legacyBranch: string | un
 // time zone and the UTC dates parsed here.
 export const MAX_WINDOW_DAYS = 365
 
-// A malformed value can make the parser throw or return an invalid date.
+// A plain past offset such as -90d or -2y. The cap leaves every other relative form alone: the backend reads
+// an unsigned or `+` offset as time ago where the browser reads time ahead, and it resolves a -1wStart style
+// boundary in the team's time zone.
+const PAST_OFFSET = /^-\d+[dwmqy]$/
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}/
+
+// Null for a value the cap should not reason about. That includes a calendar date Dayjs rolls over, such as
+// 2024-02-31, which the backend does not read as March 2.
 function parseUrlDate(date: string): Dayjs | null {
+    if (PAST_OFFSET.test(date)) {
+        return dateStringToDayJs(date)
+    }
+    if (!ISO_DATE.test(date)) {
+        return null
+    }
     try {
-        const parsed = dateStringToDayJs(date)
-        return parsed?.isValid() ? parsed : null
+        const parsed = dayjs.utc(date)
+        return parsed.isValid() && parsed.format('YYYY-MM-DD') === date.slice(0, 10) ? parsed : null
     } catch {
         return null
     }
 }
 
 /** The start of a URL's window, moved up to MAX_WINDOW_DAYS before its end when the URL asks for more, so
- *  a shared link with a long range still loads instead of failing every panel. A rolling window (relative
- *  start, no end or a relative end) stays rolling. Anything with a fixed date gets a fixed start: a relative
+ *  a shared link with a long range still loads instead of failing every panel. A rolling window (a past offset
+ *  with no end or a past-offset end) stays rolling. Anything with a fixed date gets a fixed start: a relative
  *  start against a fixed end would drift past the end over time. */
 export function windowStartFromUrl(dateFrom: string, dateTo: string | null): string {
-    // The backend reads an unsigned or `+` relative date as time ago, the browser as time ahead. Leave such a
-    // window as it is rather than cap it on a reading the backend does not share.
-    if ([dateFrom, dateTo].some((date) => date && isStringDateRegex.test(date) && !date.startsWith('-'))) {
-        return dateFrom
-    }
     const from = parseUrlDate(dateFrom)
     const to = dateTo ? parseUrlDate(dateTo) : dayjs.utc()
     if (!from || !to || to.diff(from, 'day') <= MAX_WINDOW_DAYS) {
         return dateFrom
     }
     const start = to.utc().subtract(MAX_WINDOW_DAYS, 'day').startOf('day')
-    const rolling = isStringDateRegex.test(dateFrom) && (!dateTo || isStringDateRegex.test(dateTo))
+    const rolling = PAST_OFFSET.test(dateFrom) && (!dateTo || PAST_OFFSET.test(dateTo))
     const daysAgo = dayjs.utc().startOf('day').diff(start, 'day')
     return rolling && daysAgo > 0 ? `-${daysAgo}d` : start.format('YYYY-MM-DD')
 }
