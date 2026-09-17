@@ -5120,6 +5120,10 @@ snapshots:
         hash: v1.k794b7964.6351563996282eddb3ae33121d7dcf8e2e31ebe5ad69db2464179c405d86bd24.IlTIycUAQ8pO4uGcT68dfvXC5o1C_TVuiI2-OAPybh8
     logs-logsretentionperiodpicker--stored-custom-months-without-flag--light:
         hash: v1.k794b7964.3b75256a9f10257b59e553ea6dd50f156d4bb3eaca060757ae418a7260eb9aaf.Bd3DaT36fdW6E8TlosPxzlUs-cToSFuebbW5U7F0BpU
+    logs-logsretentionperiodpicker--stored-custom-months-without-paid-retention--dark:
+        hash: v1.k794b7964.f9059da612f8cb309c1100982a7352bf0c010c585701ed9f703ed1962da1a8b2.4Wbe0lwcRKZju4mbcJDVTwzvT2DtSSqF1VwdFStAA5o
+    logs-logsretentionperiodpicker--stored-custom-months-without-paid-retention--light:
+        hash: v1.k794b7964.d8d79824779beb9150246c932e4f2b756133d02aca4ca269271b98d0e9082480.PCD7I0jw8Fis5NRmUgRrjvUpwz5Dap-BO1UKMSJu5Ns
     marketing-analytics-customer-acquisition-cards--configuration-loading--dark:
         hash: v1.k794b7964.4e3295796230b8ccc9ce5cb239d9ffe000af9d00324d31584d3fa6fde8550fe9.04jR2iHz7Mn5n3Z6KmK4yt-R520UGYL9im_4Icykhxk
     marketing-analytics-customer-acquisition-cards--configuration-loading--light:
