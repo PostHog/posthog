@@ -145,7 +145,17 @@ def mint_refusal(
     if not model_allowed_by_product_pin(ai_product, model):
         return "model_outside_pin"
     # The Python gateway refuses every call once AI credits run out; the Go gateway has no such check.
-    if _team_over_ai_credit_budget(team_id):
+    # An unknown balance is no licence to spend.
+    try:
+        over_budget = _team_over_ai_credit_budget(team_id)
+    except Exception:
+        logger.warning(
+            "ai_gateway_token: ai credit lookup failed, run stays on the Python gateway",
+            extra={"team_id": team_id},
+            exc_info=True,
+        )
+        return "ai_credits_unknown"
+    if over_budget:
         return "ai_credits_exhausted"
     return None
 
