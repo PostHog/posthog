@@ -94617,6 +94617,8 @@ export namespace Schemas {
          * @nullable
          */
       signals_count?: number | null;
+      /** Distinct issue types of the emitted signals (`bug`, `crash`, `design_flaw`, `ux_friction`), in first-seen order, for `signal_emitted`. Absent on signals scanned before this field shipped. */
+      problem_types?: string[];
       /**
          * The monitor's answer, for `unusual_verdict`.
          * @nullable
