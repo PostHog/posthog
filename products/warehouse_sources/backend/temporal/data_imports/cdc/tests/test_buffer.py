@@ -1,6 +1,7 @@
 import io
 import random
 from contextlib import contextmanager
+from typing import cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -341,7 +342,7 @@ class TestCDCBufferWriter:
         writer._s3.rm = MagicMock(side_effect=FileNotFoundError)
 
         assert writer.cleanup_superseded_files(team_id=1, schema_id="abc", restart_seq=300) == 2
-        assert writer._logger.info.call_args.kwargs["trimmed"] == 0
+        assert cast(MagicMock, writer._logger).info.call_args.kwargs["trimmed"] == 0
 
     def test_cleanup_handles_missing_prefix(self):
         writer, _files = self._writer_with_captured_files()
