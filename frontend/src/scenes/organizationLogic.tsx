@@ -81,8 +81,8 @@ export interface organizationLogicValues {
     currentOrganizationId: string
     currentOrganizationLoading: boolean
     isAdminOrOwner: boolean | null
-    isCurrentOrganizationNew: boolean
     isCurrentOrganizationBlocked: boolean
+    isCurrentOrganizationNew: boolean
     isCurrentOrganizationUnavailable: boolean
     isNotActiveReason: string | null
     migrateAccessControlVersionLoading: boolean
@@ -213,7 +213,7 @@ export interface organizationLogicMeta {
         ) => boolean
         projectCreationForbiddenReason: (
             currentOrganization: OrganizationType | null,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => string | null
         isAdminOrOwner: (currentOrganization: OrganizationType | null) => boolean | null
         isCurrentOrganizationNew: (currentOrganization: OrganizationType | null) => boolean

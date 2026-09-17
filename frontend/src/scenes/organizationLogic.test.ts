@@ -162,6 +162,7 @@ describe('organizationLogic', () => {
             mountWith({ is_active: false, teams: [{ id: 1 }] } as unknown as Partial<OrganizationType>)
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
             const originalLocation = window.location
+            const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location')!
             Object.defineProperty(window, 'location', {
                 configurable: true,
                 value: { ...originalLocation, href: originalLocation.href },
@@ -174,7 +175,7 @@ describe('organizationLogic', () => {
                 // The server resolves which organization the project belongs to, and blocks it from there.
                 expect(window.location.href).toBe('/project/424242/dashboard')
             } finally {
-                Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
+                Object.defineProperty(window, 'location', originalLocationDescriptor)
             }
         })
 
