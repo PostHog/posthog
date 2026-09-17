@@ -29,6 +29,10 @@ class CensusEndpointConfig:
     # on sources/destinations carries warehouse account identifiers (account, user, warehouse
     # name) that shouldn't be copied into a table any project member can query.
     strip_fields: tuple[str, ...] = ()
+    # Set when an otherwise-valid token can be refused for this endpoint. `get_endpoint_permissions`
+    # probes those endpoints so the schema picker names the token the table needs instead of letting
+    # the user select a table that can only fail at sync time.
+    permission_denied_reason: str | None = None
 
 
 CENSUS_ENDPOINTS: dict[str, CensusEndpointConfig] = {
@@ -68,6 +72,21 @@ CENSUS_ENDPOINTS: dict[str, CensusEndpointConfig] = {
         path="/api/v1/destinations",
         partition_key="created_at",
         strip_fields=("connection_details",),
+    ),
+    "datasets": CensusEndpointConfig(
+        name="datasets",
+        path="/api/v1/datasets",
+        # The published list schema echoes the create-dataset request body (`type`, `query`,
+        # `source_id`) and names no timestamp, so there is nothing stable to partition on.
+        # Datasets are addressable at `/api/v1/datasets/{dataset_id}`, so `id` stays the key.
+        permission_denied_reason="Census refused access to datasets. Check that datasets are enabled for your Census organization, then reconnect.",
+    ),
+    "workspaces": CensusEndpointConfig(
+        name="workspaces",
+        path="/api/v1/workspaces",
+        partition_key="created_at",
+        # Workspaces is an organization-level endpoint, so a workspace-scoped token cannot read it.
+        permission_denied_reason="Listing workspaces needs an organization-level Census API token. Reconnect with an organization token, or deselect this table.",
     ),
 }
 
