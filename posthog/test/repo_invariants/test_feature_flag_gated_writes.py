@@ -110,7 +110,6 @@ def _mentions_model(annotation: ast.expr | None, models: set[str]) -> bool:
 
 
 def _own_nodes(scope: ast.AST):
-    """Yield the nodes of `scope` without entering nested functions, classes or lambdas."""
     stack = list(ast.iter_child_nodes(scope))
     while stack:
         node = stack.pop()
@@ -170,7 +169,6 @@ def _names_gated_field(values: list[ast.expr]) -> bool:
 def _write_target(
     node: ast.AST, flag_names: set[str], models: set[str], serializers: set[str], *, serializer_exempt: bool
 ) -> str | None:
-    """Describe the gated write at `node`, or return None when `node` is not one."""
     if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
         for target in targets:
@@ -208,11 +206,8 @@ def _write_target(
 
 
 def gated_writes(tree: ast.AST, *, serializer_exempt: bool = False) -> list[str]:
-    """List every gated write in `tree` as `<enclosing scope>::<write>`.
-
-    The enclosing scope keeps an entry stable when lines move, so the baseline changes only when
-    a write is added or removed. A nested scope sees the names its enclosing scopes bound.
-    """
+    # Entries read `<enclosing scope>::<write>`. The scope keeps an entry stable when lines move, so
+    # the baseline changes only when a write is added or removed.
     models = _imported_aliases(tree, "FeatureFlag")
     serializers = _imported_aliases(tree, "FeatureFlagSerializer")
     found: list[str] = []
