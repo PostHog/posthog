@@ -6,7 +6,7 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.db import OperationalError
+from django.db import InterfaceError, OperationalError
 
 from parameterized import parameterized
 
@@ -115,11 +115,21 @@ class TestConversationsGitHubDeliveries(BaseTest):
 
         assert conversations_facade.github_delivery_ownership(delivery) == expected
 
+    @parameterized.expand(
+        [
+            ("a_cancelled_statement", OperationalError("canceling statement due to statement timeout")),
+            ("a_connection_that_went_away", OperationalError("server closed the connection unexpectedly")),
+            ("a_driver_that_reports_the_connection_gone", InterfaceError("connection already closed")),
+        ]
+    )
     @patch(f"{GITHUB_EVENTS_MODULE}.Integration.objects.filter")
-    def test_a_lookup_that_hits_its_timeout_forwards_rather_than_claiming_the_delivery(self, mock_filter):
+    def test_a_lookup_that_never_answered_forwards_rather_than_claiming_the_delivery(
+        self, _name: str, error: Exception, mock_filter
+    ):
         # Forwarding is the recoverable answer: the other region repeats the lookup and no-ops if
         # it does not own the installation, while claiming it here would drop the delivery.
-        mock_filter.side_effect = OperationalError("canceling statement due to statement timeout")
+        # Undecided is what a re-raise buys, and that forwards nothing on a receipted delivery.
+        mock_filter.side_effect = error
 
         answer = conversations_facade.github_delivery_ownership(_delivery(_issue_event()))
 

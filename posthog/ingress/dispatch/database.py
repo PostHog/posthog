@@ -5,11 +5,12 @@ can cost the whole delivery rather than just the piece of work that issued it. B
 statement degrades that to a missing lookup.
 """
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import ExitStack, contextmanager
+from typing import TypeVar
 
 from django.conf import settings
-from django.db import OperationalError, connections, router, transaction
+from django.db import InterfaceError, OperationalError, connections, router, transaction
 from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.models import Model
 
@@ -18,6 +19,21 @@ from django.db.models import Model
 # `sqlstate`, psycopg2 `pgcode`. The message check is the fallback for anything that loses
 # the cause on the way up.
 _QUERY_CANCELED_SQLSTATE = "57014"
+
+# PostgreSQL's connection exception class. A connection that goes away under a statement
+# usually loses the SQLSTATE on the way up, so the messages are the first check and the
+# class is the fallback.
+_CONNECTION_EXCEPTION_SQLSTATE_CLASS = "08"
+_CONNECTION_FAILURE_MESSAGES = (
+    "server closed the connection unexpectedly",
+    "connection already closed",
+    "connection is closed",
+    "consuming input failed",
+    "ssl connection has been closed unexpectedly",
+    "terminating connection",
+)
+
+T = TypeVar("T")
 
 
 def is_statement_timeout(error: Exception) -> bool:
@@ -34,6 +50,25 @@ def is_statement_timeout(error: Exception) -> bool:
     if getattr(cause, "pgcode", None) == _QUERY_CANCELED_SQLSTATE:
         return True
     return "statement timeout" in str(error).lower()
+
+
+def is_connection_failure(error: Exception) -> bool:
+    """Whether the connection itself went away, rather than a statement on it failing.
+
+    A dropped connection is not the cap firing, so `is_statement_timeout` says no to it. It
+    still means the read never answered, which is the part a caller on the request path has
+    to handle: the statement that installs the cap is the first one the read issues, so it is
+    also the first one a dropped connection takes.
+    """
+    if not isinstance(error, OperationalError | InterfaceError):
+        return False
+    cause = error.__cause__
+    for attribute in ("sqlstate", "pgcode"):
+        sqlstate = getattr(cause, attribute, None)
+        if isinstance(sqlstate, str) and sqlstate.startswith(_CONNECTION_EXCEPTION_SQLSTATE_CLASS):
+            return True
+    message = str(error).lower()
+    return any(fragment in message for fragment in _CONNECTION_FAILURE_MESSAGES)
 
 
 def read_aliases(models: Sequence[type[Model]]) -> list[str]:
@@ -101,3 +136,24 @@ def bounded_statement_timeout(timeout_ms: int, *, models: Sequence[type[Model]])
             stack.enter_context(transaction.atomic(using=alias))
             stack.enter_context(_statement_timeout(connection, timeout_ms, restore=restore))
         yield
+
+
+def read_with_reconnect(read: Callable[[], T], *, models: Sequence[type[Model]]) -> T:
+    """Run a read, once more on a fresh connection when the first attempt lost its own.
+
+    A dropped connection takes the whole read with it, so nothing ran and running it again
+    costs one more short lookup rather than repeating work. Only in autocommit: inside a
+    transaction the caller owns, replacing the connection would throw that transaction away
+    too, so the error goes back to the caller instead.
+    """
+    try:
+        return read()
+    except (OperationalError, InterfaceError) as error:
+        if not is_connection_failure(error):
+            raise
+        aliases = read_aliases(models)
+        if any(connections[alias].in_atomic_block for alias in aliases):
+            raise
+        for alias in aliases:
+            connections[alias].close()
+        return read()

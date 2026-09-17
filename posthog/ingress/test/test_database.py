@@ -1,12 +1,18 @@
 from unittest.mock import patch
 
 from django.conf import settings
-from django.db import OperationalError, connections
-from django.test import SimpleTestCase, TestCase
+from django.db import InterfaceError, OperationalError, connections
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 
 from parameterized import parameterized
 
-from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout, read_aliases
+from posthog.ingress.dispatch.database import (
+    bounded_statement_timeout,
+    is_connection_failure,
+    is_statement_timeout,
+    read_aliases,
+    read_with_reconnect,
+)
 from posthog.models import Team, User
 
 
@@ -45,6 +51,66 @@ class TestIsStatementTimeout(SimpleTestCase):
     def test_an_unrelated_database_failure_is_not_the_cap_firing(self) -> None:
         self.assertFalse(is_statement_timeout(OperationalError("server closed the connection unexpectedly")))
         self.assertFalse(is_statement_timeout(ValueError("not a database error")))
+
+
+class TestIsConnectionFailure(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "a_socket_that_went_away_under_the_statement",
+                OperationalError("server closed the connection unexpectedly"),
+                True,
+            ),
+            ("a_driver_that_reports_the_connection_gone", InterfaceError("connection already closed"), True),
+            ("the_cap_firing", OperationalError("canceling statement due to statement timeout"), False),
+            ("an_unrelated_database_failure", OperationalError("deadlock detected"), False),
+            ("an_error_from_somewhere_else", ValueError("not a database error"), False),
+        ]
+    )
+    def test_tells_a_lost_connection_from_a_failed_statement(self, _name, error, expected) -> None:
+        # The two cannot be one predicate: a cancelled statement ran and a lost connection
+        # did not, so retrying a timeout would spend the delivery's budget twice.
+        self.assertEqual(is_connection_failure(error), expected)
+
+    def test_reads_the_connection_exception_class_off_the_cause(self) -> None:
+        # A driver that keeps the SQLSTATE says 08006 rather than any particular wording.
+        error = OperationalError("the driver said little")
+        error.__cause__ = type("Cause", (Exception,), {"sqlstate": "08006"})()
+
+        self.assertTrue(is_connection_failure(error))
+
+
+class TestReadWithReconnect(TransactionTestCase):
+    def test_a_read_that_lost_its_connection_runs_once_more(self) -> None:
+        # Autocommit on purpose: the retry replaces the connection, which a TestCase's own
+        # transaction would hide. The delivery this guards is lost without the second attempt.
+        attempts: list[str] = []
+
+        def read() -> int:
+            attempts.append("called")
+            if len(attempts) == 1:
+                raise OperationalError("server closed the connection unexpectedly")
+            with bounded_statement_timeout(50, models=[Team]):
+                return Team.objects.count()
+
+        self.assertEqual(read_with_reconnect(read, models=[Team]), Team.objects.count())
+        self.assertEqual(len(attempts), 2)
+
+
+class TestReadWithReconnectInsideACallersTransaction(TestCase):
+    def test_a_caller_owned_transaction_gets_the_error_rather_than_a_new_connection(self) -> None:
+        # A Django TestCase wraps every test in a transaction, which is the joining case:
+        # replacing the connection would throw the caller's transaction away with it.
+        attempts: list[str] = []
+
+        def read() -> None:
+            attempts.append("called")
+            raise OperationalError("server closed the connection unexpectedly")
+
+        with self.assertRaises(OperationalError):
+            read_with_reconnect(read, models=[Team])
+
+        self.assertEqual(len(attempts), 1)
 
 
 class TestBoundedStatementTimeout(TestCase):

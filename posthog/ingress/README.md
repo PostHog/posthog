@@ -138,6 +138,7 @@ When it is spent, the consumers that have not started are skipped with outcome `
 The budget is a backstop, not a scheduler: it cannot interrupt a consumer that is already running.
 A consumer that touches the database on this path wraps its reads in `bounded_statement_timeout(ms, models=...)`, which installs `SET LOCAL statement_timeout` on each alias those models route to.
 Pass the models rather than capping every configured alias: opening an alias is itself unbounded, so reaching for one the read never uses can stall the delivery on connection setup before the cap is even installed.
+A read whose connection drops never ran at all, so a consumer that cannot lose the delivery wraps it in `read_with_reconnect(read, models=...)`, which runs it once more on a fresh connection and leaves a second failure to the caller.
 
 Both controls exist because the incidents on the GitHub webhook path came from unbounded query cost against a shared connection pool, not from running consumers inside the request.
 The fixes that worked bounded the queries: [#83852](https://github.com/PostHog/posthog/pull/83852) scoped the run lookup to the installation's teams and put a statement timeout on the attribution lookup, and [#87779](https://github.com/PostHog/posthog/pull/87779) added the indexes it needed.

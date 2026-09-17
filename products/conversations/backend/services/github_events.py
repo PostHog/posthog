@@ -10,13 +10,18 @@ import json
 import hashlib
 from typing import Any, cast
 
-from django.db import OperationalError
+from django.db import InterfaceError, OperationalError
 
 import structlog
 
 from posthog.github.installations import installation_id
 from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
-from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
+from posthog.ingress.dispatch.database import (
+    bounded_statement_timeout,
+    is_connection_failure,
+    is_statement_timeout,
+    read_with_reconnect,
+)
 from posthog.models.integration import Integration
 
 from products.conversations.backend.tasks.github import process_github_event
@@ -39,6 +44,13 @@ def _payload_delivery_id(data: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()[:32]
 
 
+def _installation_integrations(external_id: str) -> list[Integration]:
+    with bounded_statement_timeout(_INSTALLATION_LOOKUP_TIMEOUT_MS, models=[Integration]):
+        return list(
+            Integration.objects.filter(kind="github", integration_id=external_id).select_related("team").order_by("id")
+        )
+
+
 def _team_for_github_installation(external_id: str) -> tuple[int | None, bool]:
     """Resolve team ID from a GitHub App installation ID.
 
@@ -50,13 +62,11 @@ def _team_for_github_installation(external_id: str) -> tuple[int | None, bool]:
     whose conversations_settings.github_integration_id explicitly points back
     to the Integration row, ensuring deterministic routing.
 
-    A cancelled statement raises, because a lookup that never finished is not an answer. Each
+    A dropped connection gets one more attempt on a fresh one, because the read never ran. A
+    cancelled statement raises, because a lookup that never finished is not an answer. Each
     caller decides what to do with it.
     """
-    with bounded_statement_timeout(_INSTALLATION_LOOKUP_TIMEOUT_MS, models=[Integration]):
-        integrations = list(
-            Integration.objects.filter(kind="github", integration_id=external_id).select_related("team").order_by("id")
-        )
+    integrations = read_with_reconnect(lambda: _installation_integrations(external_id), models=[Integration])
 
     for integration in integrations:
         settings_dict = integration.team.conversations_settings or {}
@@ -87,12 +97,17 @@ def github_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
 
     try:
         team_id, github_enabled = _team_for_github_installation(external_id)
-    except OperationalError as error:
-        if not is_statement_timeout(error):
+    except (OperationalError, InterfaceError) as error:
+        if is_statement_timeout(error):
+            logger.warning("github_issues_webhook_installation_lookup_timed_out", installation_id=external_id)
+        elif is_connection_failure(error):
+            logger.warning("github_issues_webhook_installation_lookup_lost_connection", installation_id=external_id)
+        else:
             raise
         # Elsewhere rather than an error: the two answers here are "this region owns it" and
-        # "somebody else does", and a lookup that never finished has not shown ownership here.
-        logger.warning("github_issues_webhook_installation_lookup_timed_out", installation_id=external_id)
+        # "somebody else does", and a lookup that never answered has not shown ownership here.
+        # Raising answers undecided instead, which forwards nothing on a delivery GitHub has
+        # already been receipted for and never sends again.
         return DeliveryOwnership.ELSEWHERE
 
     if team_id and github_enabled:
