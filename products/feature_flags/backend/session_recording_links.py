@@ -604,8 +604,13 @@ def clear_replay_gates(*, flag_id: int, key: str, project_id: int) -> None:
 @receiver(post_delete, sender=FeatureFlag)
 def clear_replay_gates_on_delete(sender: type[FeatureFlag], instance: FeatureFlag, **kwargs: Any) -> None:
     # The API serializer refuses to delete a flag a team gates replay on, so this covers the
-    # writers that go around it: a management command, a cascade, and the Django admin. Wired to
-    # the model signal for the reason `relink_teams_on_key_change` is.
+    # writers that go around it with a hard delete: a management command, a cascade, and the
+    # Django admin. Wired to the model signal for the reason `relink_teams_on_key_change` is.
+    #
+    # The file system delete path goes around the serializer too, but it soft-deletes, which fires
+    # no `post_delete`. Neither the guard nor this cleanup runs for it, so the gate keeps naming a
+    # flag `FeatureFlag.objects` no longer returns, and `repair_replay_linked_flag_keys` reports
+    # that row as flag_soft_deleted and leaves it alone.
     #
     # The id and key are read here rather than in the callback because Django clears the id off the
     # instance once the collector finishes, which is before the callback runs.
