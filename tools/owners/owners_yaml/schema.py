@@ -391,7 +391,8 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
         if key not in TOP_LEVEL_KEYS:
             errors.append(f"unknown top-level field '{key}'")
 
-    if not _is_version_one(data.get("version")):
+    version_ok = _is_version_one(data.get("version"))
+    if not version_ok:
         errors.append("'version: 1' is required")
 
     if "owners" not in data:
@@ -428,7 +429,7 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
                 file.rules.extend(_parse_rule(raw_rule, i, errors))
 
     # A missing version or owners makes the file unusable for resolution.
-    if not _is_version_one(data.get("version")) or "owners" not in data:
+    if not version_ok or "owners" not in data:
         return None, errors
     return file, errors
 

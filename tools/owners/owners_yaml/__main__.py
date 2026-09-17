@@ -32,7 +32,7 @@ import argparse
 from pathlib import Path
 from typing import cast
 
-from .codeowners import package_dirs_from, project
+from .codeowners import project_repo
 from .matcher import normalize_path
 from .resolver import DEFAULT_PURPOSE, OwnersResolver, Purpose, RepoRootNotFound, read_stdin_paths, resolution_to_wire
 
@@ -70,20 +70,12 @@ def main() -> None:
         parser.error(str(exc))
 
     if ns.codeowners:
-        settings = resolver.settings()
-        org = ns.org or settings.github_org
+        org = ns.org or resolver.settings().github_org
         if not org:
             parser.error(
                 "--codeowners needs a GitHub organization: set github_org in the root owners.yaml or pass --org"
             )
-        tracked = resolver.tracked_files()
-        rendered = project(
-            tracked,
-            resolver,
-            org=org,
-            package_dirs=package_dirs_from(tracked),
-            settings=settings.codeowners,
-        ).render()
+        rendered = project_repo(resolver, org).render()
         if ns.codeowners == "-":
             sys.stdout.write(rendered)
         else:

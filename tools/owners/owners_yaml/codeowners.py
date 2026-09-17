@@ -160,3 +160,15 @@ def package_dirs_from(paths: Iterable[str]) -> tuple[str, ...]:
     repo-relative spelling."""
     directories = {dirname(path) for path in paths if path.endswith("package.json") and dirname(path)}
     return tuple(sorted(directories, key=len, reverse=True))
+
+
+def project_repo(resolver: OwnersResolver, org: str) -> CodeownersProjection:
+    """The projection of every tracked file, with the root file's ``codeowners`` settings."""
+    tracked = resolver.tracked_files()
+    return project(
+        tracked,
+        resolver,
+        org=org,
+        package_dirs=package_dirs_from(tracked),
+        settings=resolver.settings().codeowners,
+    )

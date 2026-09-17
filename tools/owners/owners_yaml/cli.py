@@ -15,7 +15,7 @@ from typing import cast
 import click
 
 from .census import census
-from .codeowners import package_dirs_from, project
+from .codeowners import project_repo
 from .github import GitHubLookupError, GitHubOrg
 from .matcher import compile_pattern, normalize_path
 from .resolver import OWNERS_FILENAME, OwnersResolver, Purpose, RepoRootNotFound, read_stdin_paths, resolution_to_wire
@@ -128,15 +128,7 @@ def cmd_census(as_json: bool, repo_root: Path | None, prefix: str | None) -> Non
 @repo_root_option
 def cmd_codeowners(output: str | None, org: str | None, repo_root: Path | None) -> None:
     resolver = _resolver(repo_root)
-    settings = resolver.settings()
-    tracked = resolver.tracked_files()
-    projection = project(
-        tracked,
-        resolver,
-        org=_github_org(org, settings),
-        package_dirs=package_dirs_from(tracked),
-        settings=settings.codeowners,
-    )
+    projection = project_repo(resolver, _github_org(org, resolver.settings()))
     if output:
         Path(output).write_text(projection.render())
     else:

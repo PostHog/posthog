@@ -331,10 +331,10 @@ class OwnersResolver:
         """Every ownership file that could decide any of ``paths``. A source that fetches over the
         network reads this first, so it can fetch the batch's files together."""
         directories = {d for path in paths for d in self._ancestor_dirs(normalize_path(path))}
+        filenames = self.ownership_filenames()
         # No alias applies in the root directory (see _load_dir_file), so none is listed there.
         return sorted(
-            {OWNERS_FILENAME}
-            | {f"{directory}/{name}" for directory in directories if directory for name in self.ownership_filenames()}
+            {OWNERS_FILENAME} | {f"{directory}/{name}" for directory in directories if directory for name in filenames}
         )
 
     def resolve(self, path: str) -> Resolution:
@@ -434,10 +434,6 @@ class OwnersResolver:
             paths = _walk_files(self.repo_root, prefix)
         self._tracked_cache[prefix] = paths
         return paths
-
-    def ownership_files(self) -> list[Path]:
-        """Absolute paths of every tracked ownership file (owners.yaml plus the alias files)."""
-        return [entry.path for entry in self.parsed_ownership_files()]
 
     def parsed_ownership_files(self) -> list[ParsedOwnershipFile]:
         """Every tracked ownership file, parsed exactly once (cached). This is the
