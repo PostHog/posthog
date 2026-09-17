@@ -248,6 +248,9 @@ const viewCreate = (): ToolBase<
         if (params.incremental !== undefined) {
             body['incremental'] = params.incremental
         }
+        if (params.snapshot !== undefined) {
+            body['snapshot'] = params.snapshot
+        }
         if (params.description !== undefined) {
             body['description'] = params.description
         }
@@ -447,6 +450,9 @@ const viewUnmaterialize = (): ToolBase<
         if (params.incremental !== undefined) {
             body['incremental'] = params.incremental
         }
+        if (params.snapshot !== undefined) {
+            body['snapshot'] = params.snapshot
+        }
         if (params.description !== undefined) {
             body['description'] = params.description
         }
@@ -509,6 +515,9 @@ const viewUpdate = (): ToolBase<
         }
         if (params.incremental !== undefined) {
             body['incremental'] = params.incremental
+        }
+        if (params.snapshot !== undefined) {
+            body['snapshot'] = params.snapshot
         }
         if (params.description !== undefined) {
             body['description'] = params.description

@@ -28,6 +28,7 @@ export const DataModelingJobStatusEnumApi = {
 /**
  * * `full_refresh` - Full refresh
  * * `incremental` - Incremental
+ * * `snapshot` - Snapshot
  */
 export type DataModelingJobRunModeEnumApi =
     (typeof DataModelingJobRunModeEnumApi)[keyof typeof DataModelingJobRunModeEnumApi]
@@ -35,6 +36,7 @@ export type DataModelingJobRunModeEnumApi =
 export const DataModelingJobRunModeEnumApi = {
     FullRefresh: 'full_refresh',
     Incremental: 'incremental',
+    Snapshot: 'snapshot',
 } as const
 
 export interface DataModelingJobApi {
@@ -45,7 +47,8 @@ export interface DataModelingJobApi {
     /** What this run wrote: full_refresh rebuilt the whole table, so rows_materialized is the table's size; incremental wrote only its window, so rows_materialized counts just the rows synced. Null for runs from before modes were recorded, or that failed before the plan resolved.
      *
      * * `full_refresh` - Full refresh
-     * * `incremental` - Incremental */
+     * * `incremental` - Incremental
+     * * `snapshot` - Snapshot */
     readonly run_mode: DataModelingJobRunModeEnumApi | null
     /**
      * Why this run rebuilt the whole table instead of updating only new rows, for example first run, definition changed, or table missing. Null when the run was incremental.
@@ -1131,6 +1134,14 @@ export const DataWarehouseSavedQueryStatusEnumApi = {
     Skipped: 'Skipped',
 } as const
 
+export type MaterializationModeEnumApi = (typeof MaterializationModeEnumApi)[keyof typeof MaterializationModeEnumApi]
+
+export const MaterializationModeEnumApi = {
+    FullRefresh: 'full_refresh',
+    Incremental: 'incremental',
+    Snapshot: 'snapshot',
+} as const
+
 /**
  * * `data_warehouse` - Data Warehouse
  * * `endpoint` - Endpoint
@@ -1177,6 +1188,8 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly is_materialized: boolean | null
     /** Whether this view is set up to update incrementally. A run can still rebuild the whole table, for example on the first run or after the query changes. */
     readonly is_incremental: boolean
+    /** Effective materialization mode: full_refresh, incremental, or snapshot. */
+    readonly materialization_mode: MaterializationModeEnumApi
     /** Where this SavedQuery is created.
      *
      * * `data_warehouse` - Data Warehouse
@@ -1290,6 +1303,29 @@ export interface IncrementalStateApi {
      * * `incremental` - incremental
      * * `full_refresh` - full_refresh */
     last_run_mode?: LastRunModeEnumApi | null
+}
+
+export interface SnapshotConfigApi {
+    /** Output columns that identify an entity. Every key column must be present, non-null, and unique. */
+    unique_key: string[]
+}
+
+export interface SnapshotStateApi {
+    /** @nullable */
+    generation?: string | null
+    /** @nullable */
+    definition_fingerprint?: string | null
+    /** @nullable */
+    first_observation_at?: string | null
+    /** @nullable */
+    last_observation_at?: string | null
+    /** @nullable */
+    last_run_id?: string | null
+    inserted?: number
+    changed?: number
+    removed?: number
+    unchanged?: number
+    rows_scanned?: number
 }
 
 /**
@@ -1446,6 +1482,12 @@ export interface DataWarehouseSavedQueryApi {
     incremental?: IncrementalConfigApi | null
     /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
     readonly incremental_state: IncrementalStateApi | null
+    /** Keep a history of changes observed each time this query runs. */
+    snapshot?: SnapshotConfigApi | null
+    /** System-written snapshot observation and generation state. */
+    readonly snapshot_state: SnapshotStateApi | null
+    /** Effective materialization mode: full_refresh, incremental, or snapshot. */
+    readonly materialization_mode: MaterializationModeEnumApi
     readonly created_by: UserBasicApi
     readonly created_at: string
     /** @nullable */
@@ -1573,6 +1615,12 @@ export interface PatchedDataWarehouseSavedQueryApi {
     incremental?: IncrementalConfigApi | null
     /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
     readonly incremental_state?: IncrementalStateApi | null
+    /** Keep a history of changes observed each time this query runs. */
+    snapshot?: SnapshotConfigApi | null
+    /** System-written snapshot observation and generation state. */
+    readonly snapshot_state?: SnapshotStateApi | null
+    /** Effective materialization mode: full_refresh, incremental, or snapshot. */
+    readonly materialization_mode?: MaterializationModeEnumApi
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     /** @nullable */

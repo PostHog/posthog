@@ -79,6 +79,14 @@ class DataWarehouseSavedQuerySerializerMixin:
     def get_is_incremental(self, view: DataWarehouseSavedQuery) -> bool:
         return get_incremental_config(view) is not None
 
+    @extend_schema_field(serializers.ChoiceField(choices=["full_refresh", "incremental", "snapshot"]))
+    def get_materialization_mode(self, view: DataWarehouseSavedQuery) -> str:
+        if isinstance(view.snapshot_config, dict) and view.snapshot_config.get("unique_key"):
+            return "snapshot"
+        if get_incremental_config(view) is not None:
+            return "incremental"
+        return "full_refresh"
+
     @extend_schema_field(sync_cadence.SyncFrequencyBoundsSerializer())
     def get_sync_frequency_bounds(self, view: DataWarehouseSavedQuery) -> dict[str, Any]:
         from products.data_modeling.backend.facade.api import saved_query_target_bounds
@@ -147,6 +155,9 @@ class DataWarehouseSavedQueryMinimalSerializer(
         help_text="Whether this view is set up to update incrementally. A run can still rebuild the "
         "whole table, for example on the first run or after the query changes.",
     )
+    materialization_mode = serializers.SerializerMethodField(
+        help_text="Effective materialization mode: full_refresh, incremental, or snapshot."
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -167,6 +178,7 @@ class DataWarehouseSavedQueryMinimalSerializer(
             "latest_error",
             "is_materialized",
             "is_incremental",
+            "materialization_mode",
             "origin",
             "is_test",
             "expires_at",

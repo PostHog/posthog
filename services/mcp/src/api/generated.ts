@@ -23652,6 +23652,7 @@ export namespace Schemas {
     /**
      * * `full_refresh` - Full refresh
      * * `incremental` - Incremental
+     * * `snapshot` - Snapshot
      */
     export type DataModelingJobRunModeEnum = typeof DataModelingJobRunModeEnum[keyof typeof DataModelingJobRunModeEnum];
 
@@ -23659,6 +23660,7 @@ export namespace Schemas {
     export const DataModelingJobRunModeEnum = {
       FullRefresh: 'full_refresh',
       Incremental: 'incremental',
+      Snapshot: 'snapshot',
     } as const;
 
     export interface DataModelingJob {
@@ -23669,7 +23671,8 @@ export namespace Schemas {
       /** What this run wrote: full_refresh rebuilt the whole table, so rows_materialized is the table's size; incremental wrote only its window, so rows_materialized counts just the rows synced. Null for runs from before modes were recorded, or that failed before the plan resolved.
        *
        * * `full_refresh` - Full refresh
-       * * `incremental` - Incremental */
+       * * `incremental` - Incremental
+       * * `snapshot` - Snapshot */
       readonly run_mode: DataModelingJobRunModeEnum | null;
       /**
          * Why this run rebuilt the whole table instead of updating only new rows, for example first run, definition changed, or table missing. Null when the run was incremental.
@@ -24373,6 +24376,38 @@ export namespace Schemas {
       last_run_mode?: LastRunModeEnum | null;
     }
 
+    export interface SnapshotConfig {
+      /** Output columns that identify an entity. Every key column must be present, non-null, and unique. */
+      unique_key: string[];
+    }
+
+    export interface SnapshotState {
+      /** @nullable */
+      generation?: string | null;
+      /** @nullable */
+      definition_fingerprint?: string | null;
+      /** @nullable */
+      first_observation_at?: string | null;
+      /** @nullable */
+      last_observation_at?: string | null;
+      /** @nullable */
+      last_run_id?: string | null;
+      inserted?: number;
+      changed?: number;
+      removed?: number;
+      unchanged?: number;
+      rows_scanned?: number;
+    }
+
+    export type MaterializationModeEnum = typeof MaterializationModeEnum[keyof typeof MaterializationModeEnum];
+
+
+    export const MaterializationModeEnum = {
+      FullRefresh: 'full_refresh',
+      Incremental: 'incremental',
+      Snapshot: 'snapshot',
+    } as const;
+
     /**
      * * `never` - never
      * * `15min` - 15min
@@ -24562,6 +24597,12 @@ export namespace Schemas {
       incremental?: IncrementalConfig | null;
       /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
       readonly incremental_state: IncrementalState | null;
+      /** Keep a history of changes observed each time this query runs. */
+      snapshot?: SnapshotConfig | null;
+      /** System-written snapshot observation and generation state. */
+      readonly snapshot_state: SnapshotState | null;
+      /** Effective materialization mode: full_refresh, incremental, or snapshot. */
+      readonly materialization_mode: MaterializationModeEnum;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /** @nullable */
@@ -24763,6 +24804,8 @@ export namespace Schemas {
       readonly is_materialized: boolean | null;
       /** Whether this view is set up to update incrementally. A run can still rebuild the whole table, for example on the first run or after the query changes. */
       readonly is_incremental: boolean;
+      /** Effective materialization mode: full_refresh, incremental, or snapshot. */
+      readonly materialization_mode: MaterializationModeEnum;
       /** Where this SavedQuery is created.
        *
        * * `data_warehouse` - Data Warehouse
@@ -66747,6 +66790,12 @@ export namespace Schemas {
       incremental?: IncrementalConfig | null;
       /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
       readonly incremental_state?: IncrementalState | null;
+      /** Keep a history of changes observed each time this query runs. */
+      snapshot?: SnapshotConfig | null;
+      /** System-written snapshot observation and generation state. */
+      readonly snapshot_state?: SnapshotState | null;
+      /** Effective materialization mode: full_refresh, incremental, or snapshot. */
+      readonly materialization_mode?: MaterializationModeEnum;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       /** @nullable */

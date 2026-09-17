@@ -21,6 +21,7 @@ from products.data_modeling.backend.models.dag import (
 from products.data_modeling.backend.models.data_modeling_job import (
     DataModelingJob,
     DataModelingJobEngine,
+    DataModelingJobRunMode,
     DataModelingJobStatus,
 )
 from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
@@ -45,6 +46,7 @@ __all__ = [
     "REVENUE_ANALYTICS_DAG_NAME",
     "DataModelingJob",
     "DataModelingJobEngine",
+    "DataModelingJobRunMode",
     "DataModelingJobStatus",
     "DataWarehouseManagedViewSet",
     "DataWarehouseSavedQuery",
