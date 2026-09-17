@@ -13,8 +13,10 @@ from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutp
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
 from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
 from products.replay_vision.backend.temporal.snapshots import (
+    VERIFY_DRAW_MODES as VERIFY_DRAW_MODES,
     BackfillScannerSnapshot as BackfillScannerSnapshot,
     ScannerSnapshot as ScannerSnapshot,
+    VerifyPositivesMode as VerifyPositivesMode,
 )
 
 AnyScannerOutput = Annotated[

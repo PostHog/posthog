@@ -51,6 +51,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
 from products.replay_vision.backend.quota import QuotaSnapshot
 from products.replay_vision.backend.temporal import ApplyScannerWorkflow
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
@@ -115,6 +116,7 @@ from products.replay_vision.backend.temporal.state import (
 from products.replay_vision.backend.temporal.sweep_types import CountInFlightAppliesInputs, InFlightApplyCounts
 from products.replay_vision.backend.temporal.types import (
     ApplyScannerInputs,
+    BackfillScannerSnapshot,
     CallScannerProviderInputs,
     CleanupGeminiFileInputs,
     CreateObservationInputs,
@@ -195,6 +197,27 @@ def _make_observation(scanner: ReplayScanner, **overrides) -> ReplayObservation:
     }
     defaults.update(overrides)
     return ReplayObservation.objects.create(**defaults)
+
+
+def _make_backfill(scanner: ReplayScanner, **overrides) -> ReplayScannerBackfill:
+    defaults: dict = {
+        "scanner": scanner,
+        "team": scanner.team,
+        "window_start": timezone.now() - dt.timedelta(days=1),
+        "window_end": timezone.now(),
+        "scanner_snapshot": BackfillScannerSnapshot.from_scanner(scanner).model_dump(mode="json"),
+        "credits_per_observation": 1,
+        "total_count": 1,
+    }
+    defaults.update(overrides)
+    return ReplayScannerBackfill.objects.for_team(scanner.team_id).create(**defaults)
+
+
+def _patch_verify_flag(variant: object) -> Any:
+    return patch(
+        "products.replay_vision.backend.temporal.activities.create_observation.get_feature_flag_or_none",
+        return_value=variant,
+    )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -330,7 +353,9 @@ class TestCreateObservationActivity:
         observation = ReplayObservation.objects.get(id=result.observation_id)
         assert observation.scanner_snapshot["scanner_config"] == original_config
 
-    def _assert_verify_mode(self, scanner: ReplayScanner, expected: str) -> None:
+    def _assert_verify_mode(
+        self, scanner: ReplayScanner, expected: str, *, backfill_id: uuid.UUID | None = None
+    ) -> None:
         result = create_observation_activity(
             CreateObservationInputs(
                 scanner_id=scanner.id,
@@ -339,6 +364,7 @@ class TestCreateObservationActivity:
                 triggered_by=ObservationTrigger.SCHEDULE,
                 triggered_by_user_id=None,
                 workflow_id="wf-1",
+                backfill_id=backfill_id,
             )
         )
         assert result.observation_id is not None
@@ -348,40 +374,28 @@ class TestCreateObservationActivity:
     @pytest.mark.parametrize("variant", ["shadow", "enforce"])
     def test_monitor_snapshot_stamps_the_flag_variant(self, variant: str) -> None:
         scanner = _make_scanner()
-        with patch(
-            "products.replay_vision.backend.temporal.activities.create_observation.get_feature_flag_or_none",
-            return_value=variant,
-        ):
+        with _patch_verify_flag(variant):
             self._assert_verify_mode(scanner, variant)
+
+    @pytest.mark.parametrize("variant", ["shadow", "enforce"])
+    def test_monitor_backfill_stamps_the_flag_variant(self, variant: str) -> None:
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner)
+        with _patch_verify_flag(variant):
+            self._assert_verify_mode(scanner, variant, backfill_id=backfill.id)
 
     @pytest.mark.parametrize("variant", ["control", True, None, False])
     def test_monitor_maps_unknown_variant_and_flag_failure_to_off(self, variant: object) -> None:
         scanner = _make_scanner()
-        with patch(
-            "products.replay_vision.backend.temporal.activities.create_observation.get_feature_flag_or_none",
-            return_value=variant,
-        ):
+        with _patch_verify_flag(variant):
             self._assert_verify_mode(scanner, "off")
 
-    def test_non_monitor_snapshot_never_carries_a_verify_mode(self) -> None:
-        scanner = _make_scanner(scanner_type=ScannerType.SUMMARIZER)
-        with patch(
-            "products.replay_vision.backend.temporal.activities.create_observation.get_feature_flag_or_none",
-            return_value="enforce",
-        ):
-            result = create_observation_activity(
-                CreateObservationInputs(
-                    scanner_id=scanner.id,
-                    team_id=scanner.team_id,
-                    session_id="sess-1",
-                    triggered_by=ObservationTrigger.SCHEDULE,
-                    triggered_by_user_id=None,
-                    workflow_id="wf-1",
-                )
-            )
-        assert result.observation_id is not None
-        observation = ReplayObservation.objects.get(id=result.observation_id)
-        assert observation.scanner_snapshot["verify_positives"] == "off"
+    @pytest.mark.parametrize("use_backfill", [False, True])
+    def test_non_monitor_snapshot_never_carries_a_verify_mode(self, use_backfill: bool) -> None:
+        scanner = _make_scanner(scanner_type=ScannerType.CLASSIFIER)
+        backfill = _make_backfill(scanner) if use_backfill else None
+        with _patch_verify_flag("enforce"):
+            self._assert_verify_mode(scanner, "off", backfill_id=backfill.id if backfill else None)
 
     def test_returns_existing_observation_on_unique_conflict(self) -> None:
         scanner = _make_scanner()

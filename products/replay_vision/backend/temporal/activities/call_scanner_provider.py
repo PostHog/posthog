@@ -71,6 +71,7 @@ from products.replay_vision.backend.temporal.scanners.classifier import Classifi
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorScanner
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs
 from products.replay_vision.backend.temporal.types import (
+    VERIFY_DRAW_MODES,
     CallScannerProviderInputs,
     ScannerCallOutput,
     ScannerLlmInputs,
@@ -96,8 +97,6 @@ def _tool_budget(model: str) -> int:
     return _MAX_TOOL_ITERATIONS_BY_MODEL.get(model.removeprefix("models/"), DEFAULT_MAX_TOOL_ITERATIONS)
 
 
-# Snapshot `verify_positives` values that draw; anything else (including a typo) behaves as `off`.
-_VERIFY_MODES = ("shadow", "enforce")
 # Activity time kept free of verify draws, so assembling and returning the result never races the timeout.
 _VERIFY_BUDGET_RESERVE_SECONDS = 60.0
 # Cache TTL: a scan is a handful of turns and finishes in minutes; well under this.
@@ -456,7 +455,7 @@ async def _run_mission(
         if (
             isinstance(scanner, MonitorScanner)
             and isinstance(core, MonitorLlmResponse)
-            and snapshot.verify_positives in _VERIFY_MODES
+            and snapshot.verify_positives in VERIFY_DRAW_MODES
             and core.verdict == "yes"
         ):
             # Verification re-draws over the cache, so it has to finish before the `finally` below deletes it.

@@ -1,4 +1,4 @@
-from typing import Any, Literal, cast
+from typing import Any, Literal
 from uuid import UUID
 
 from django.db import IntegrityError, OperationalError, connection, transaction
@@ -41,7 +41,12 @@ from products.replay_vision.backend.temporal.metrics import (
     record_scanner_admission_busy,
     record_scanner_limit_reached,
 )
-from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot, ScannerSnapshot
+from products.replay_vision.backend.temporal.snapshots import (
+    VERIFY_DRAW_MODES,
+    BackfillScannerSnapshot,
+    ScannerSnapshot,
+    VerifyPositivesMode,
+)
 from products.replay_vision.backend.temporal.types import CreateObservationInputs, CreateObservationOutput
 
 # One event per scanner and reason per hour. Without a gate, an org past its limit emits one event
@@ -57,7 +62,7 @@ def _build_scanner_snapshot(scanner: ReplayScanner) -> dict[str, Any]:
 VERIFY_POSITIVES_FLAG = "replay-vision-verify-positives"
 
 
-def _monitor_verify_mode(scanner: ReplayScanner) -> str:
+def _monitor_verify_mode(scanner: ReplayScanner) -> VerifyPositivesMode:
     """Flag-driven `verify_positives` value for monitors; any failure or unknown variant maps to `off`."""
     variant = get_feature_flag_or_none(
         VERIFY_POSITIVES_FLAG,
@@ -67,7 +72,10 @@ def _monitor_verify_mode(scanner: ReplayScanner) -> str:
         group_properties={"organization": {"id": str(scanner.team.organization_id)}},
         send_feature_flag_events=False,
     )
-    return cast(str, variant) if variant in ("shadow", "enforce") else "off"
+    for mode in VERIFY_DRAW_MODES:
+        if variant == mode:
+            return mode
+    return "off"
 
 
 def _capture_scan_blocked(
@@ -282,14 +290,15 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
     # Backfill applies run the frozen config, not the scanner's current one.
     if backfill is not None:
         frozen = BackfillScannerSnapshot.load_for_backfill(backfill.id, backfill.scanner_snapshot)
-        snapshot_dict = frozen.to_observation_snapshot().model_dump(mode="json")
+        snapshot = frozen.to_observation_snapshot()
         priced_model = frozen.model
     else:
         snapshot = ScannerSnapshot.from_scanner(scanner)
-        if snapshot.scanner_type == ScannerType.MONITOR:
-            snapshot = snapshot.model_copy(update={"verify_positives": _monitor_verify_mode(scanner)})
-        snapshot_dict = snapshot.model_dump(mode="json")
         priced_model = scanner.model
+
+    if snapshot.scanner_type == ScannerType.MONITOR:
+        snapshot = snapshot.model_copy(update={"verify_positives": _monitor_verify_mode(scanner)})
+    snapshot_dict = snapshot.model_dump(mode="json")
 
     # Deliberately check-then-act: the snapshot doesn't count enqueue claims, so a concurrent burst can
     # overshoot by at most the in-flight caps allow, which is accepted.
