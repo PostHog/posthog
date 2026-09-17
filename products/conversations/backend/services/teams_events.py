@@ -9,12 +9,10 @@ the forward to the region that owns the tenant.
 
 from typing import Any, cast
 
-from django.db import OperationalError
-
 import structlog
 
 from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
-from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
+from posthog.ingress.dispatch.database import bounded_statement_timeout
 
 from products.conversations.backend.models import TeamConversationsTeamsConfig
 from products.conversations.backend.support_teams import get_bot_from_id, is_trusted_teams_service_url
@@ -49,8 +47,8 @@ def _tenant_is_connected_here(tenant_id: str) -> bool:
     """Whether a team in this region has SupportHog connected for this Teams tenant.
 
     The Celery task resolves the team again from the tenant id, so nothing here needs the row
-    itself. A cancelled statement raises, because a lookup that never finished is not an answer.
-    Each caller decides what to do with it.
+    itself. A cancelled statement raises, because a lookup that never finished is not an answer,
+    and both callers let it out.
     """
     with bounded_statement_timeout(_TENANT_LOOKUP_TIMEOUT_MS, models=[TeamConversationsTeamsConfig]):
         return TeamConversationsTeamsConfig.objects.filter(
@@ -69,8 +67,14 @@ def teams_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
 
     A regular message is the only kind a team answers for. A tenant this region does not know is
     `ELSEWHERE` rather than undecided, so the delivery reaches the other region: it is the only
-    one that can tell a tenant it holds from one nobody holds. A lookup that timed out answers
-    the same way, for the same reason.
+    one that can tell a tenant it holds from one nobody holds.
+
+    A lookup that spends its statement timeout raises out of here on purpose. The dispatcher
+    turns that into `FAILED`, and ingress answers the provider's `retry_status` with no forward,
+    no dispatch and no dedup mark, so Bot Framework sends the activity again and the lookup runs
+    again with it. `ELSEWHERE` would be a guess: a timeout is no evidence that the other region
+    holds the tenant, and the forward carries the customer's message content into a region that
+    may not own it.
     """
     if not _service_url_is_trusted(delivery):
         # Nothing acts on this activity, here or elsewhere, so there is nothing to forward.
@@ -84,17 +88,7 @@ def teams_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
     if not tenant_id:
         return DeliveryOwnership.UNDECIDED
 
-    try:
-        connected_here = _tenant_is_connected_here(tenant_id)
-    except OperationalError as error:
-        if not is_statement_timeout(error):
-            raise
-        # Elsewhere rather than an error: the two answers here are "this region owns it" and
-        # "somebody else does", and a lookup that never finished has not shown ownership here.
-        logger.warning("supporthog_teams_tenant_lookup_timed_out", tenant_id=tenant_id)
-        return DeliveryOwnership.ELSEWHERE
-
-    return DeliveryOwnership.LOCAL if connected_here else DeliveryOwnership.ELSEWHERE
+    return DeliveryOwnership.LOCAL if _tenant_is_connected_here(tenant_id) else DeliveryOwnership.ELSEWHERE
 
 
 def _is_from_the_bot_itself(activity: dict[str, Any]) -> bool:

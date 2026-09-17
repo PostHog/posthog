@@ -8,6 +8,7 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import OperationalError
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -303,6 +304,30 @@ class TestTeamsEventHandler(BaseTest):
         assert response.status_code == expected_status
         mock_forward.assert_called_once()
         mock_process.delay.assert_not_called()
+
+    @patch(f"{TEAMS_EVENTS_MODULE}.process_teams_event")
+    def test_a_tenant_lookup_that_does_not_answer_is_redelivered_rather_than_forwarded(self, mock_process: MagicMock):
+        with (
+            patch("posthog.regions.PRIMARY_REGION_DOMAIN", "testserver"),
+            patch("posthog.ingress.dispatch.forward.requests.request") as mock_forward,
+            patch("posthog.ingress.dispatch.dispatcher.capture_exception"),
+            patch(
+                f"{TEAMS_EVENTS_MODULE}._tenant_is_connected_here",
+                side_effect=OperationalError("canceling statement due to statement timeout"),
+            ),
+        ):
+            response = self._post(_make_activity(tenant_id="tenant-abc"))
+
+        assert response.status_code == 503
+        mock_forward.assert_not_called()
+        mock_process.delay.assert_not_called()
+
+        # Nothing claimed a dedup mark on the refused delivery, so Bot Framework's retry of the
+        # same activity id runs the lookup again instead of being swallowed as a duplicate.
+        retry = self._post(_make_activity(tenant_id="tenant-abc"))
+
+        assert retry.status_code == 202
+        mock_process.delay.assert_called_once()
 
 
 class TestTeamsChannelsEndpoints(APIBaseTest):

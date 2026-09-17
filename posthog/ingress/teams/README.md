@@ -67,8 +67,13 @@ The Teams Store certification requires a reply to a command message such as "hel
 Neither needs a tenant that PostHog knows, so the consumer answers `UNDECIDED` for both and the delivery runs here exactly once.
 A regular message from a tenant the other region holds answers `ELSEWHERE`, and the local run of that delivery is a no-op.
 
+**The tenant lookup runs under a bounded statement timeout, and a lookup that spends it raises rather than answering.**
+The dispatcher records that as `FAILED`, so the view answers 503 before the forward and before any consumer runs, and Bot Framework sends the activity again.
+Answering `ELSEWHERE` through a timeout would be a guess, because a lookup that never finished rules no region out, and the forward would carry the customer's message content into a region that may not hold the tenant.
+This is also what the handler before ingress did: it proxied to the other region only when the local lookup found no team, and a lookup that raised cost the request its receipt.
+
 **Bot Framework retries an activity for about ten minutes on a 5xx or a timeout, with the same activity id.**
-So `retry_status` is 503: a forward that never landed, or a handoff that raised, must not be receipted.
+So `retry_status` is 503: a forward that never landed, an ownership lookup that did not answer, or a handoff that raised, must not be receipted.
 Every other status code is the default.
 
 ## Consumers
