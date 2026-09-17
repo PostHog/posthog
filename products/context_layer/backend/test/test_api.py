@@ -27,7 +27,6 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.context_layer.backend import dreams, enablement, store
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.presentation import views
-from products.context_layer.backend.scaffold import ORG_OVERVIEW_MD
 from products.tasks.backend.facade import api as tasks_facade
 
 
@@ -160,7 +159,7 @@ class TestContextLayerAPI(APIBaseTest):
 
     def test_status_reports_overview_landing_as_org_context(self, _flag) -> None:
         head = self._enable()
-        overview = ORG_OVERVIEW_MD.replace("- Mission:", "- Mission: Build products.")
+        overview = _page("Organization overview")
         response = self.client.put(
             f"{self.base_url}/pages/",
             {"path": "org/overview.md", "content": overview, "base_head": head},
