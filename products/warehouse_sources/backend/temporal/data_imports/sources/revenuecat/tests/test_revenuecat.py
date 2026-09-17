@@ -428,6 +428,10 @@ class TestCreateWebhook:
             "url": "https://example.com/h",
             "authorization_header": "Bearer my-secret",
         }
+        # PostHog mints this value, and it rides in the body under a key the sampler's name
+        # denylist does not match. Without value redaction a captured sample holds a verifier
+        # that accepts forged deliveries, next to the endpoint it works against.
+        assert mock_session.call_args.kwargs["redact"] == ("Bearer my-secret",)
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._find_webhook_integration"

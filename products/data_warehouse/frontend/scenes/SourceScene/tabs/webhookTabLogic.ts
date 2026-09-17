@@ -44,6 +44,7 @@ export interface webhookTabLogicValues {
         objectType: string
         tableName: string
     }[]
+    providerWebhookMissing: boolean
     showWebhookFieldInputsErrors: boolean
     source: ExternalDataSource | null
     sourceConfig: SourceConfigResponseApi | null
@@ -155,6 +156,7 @@ export interface webhookTabLogicMeta {
             tagType: 'danger' | 'default' | 'success' | 'warning'
         }
         hasWebhookSchemas: (source: ExternalDataSource | null) => boolean
+        providerWebhookMissing: (webhookInfo: WebhookInfo | null) => boolean
         canDeleteWebhook: (webhookInfo: WebhookInfo | null, hasWebhookSchemas: boolean) => boolean
         mappedTables: (
             webhookInfo: WebhookInfo | null,
@@ -246,6 +248,16 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
                     }).selectors.sourceFieldConfig(state),
             ],
             (sourceFieldConfig: SourceConfigResponseApi | null): SourceConfigResponseApi | null => sourceFieldConfig,
+        ],
+        providerWebhookMissing: [
+            (s) => [s.webhookInfo],
+            // `webhookInfo.exists` covers the local delivery function. This one covers the webhook on
+            // the provider. The two are independent: a source keeps its function after the provider
+            // webhook is deleted, and then the webhook has to be registered again.
+            (webhookInfo: WebhookInfo | null): boolean =>
+                !!webhookInfo?.external_status &&
+                !webhookInfo.external_status.exists &&
+                !webhookInfo.external_status.error,
         ],
         internalStateLabel: [
             (s) => [s.webhookInfo],
@@ -419,7 +431,10 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             actions.loadWebhookInfo()
         },
         submitWebhookFields: async () => {
-            if (!values.webhookInfo?.exists && values.sourceConfig?.webhookFieldsBeforeCreate) {
+            // The same form collects the credential before a first create and before a re-create, so
+            // saving the inputs alone would leave the provider with no webhook to deliver from.
+            const needsProviderWebhook = !values.webhookInfo?.exists || values.providerWebhookMissing
+            if (needsProviderWebhook && values.sourceConfig?.webhookFieldsBeforeCreate) {
                 actions.createWebhook()
                 return
             }

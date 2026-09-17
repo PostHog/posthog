@@ -9322,7 +9322,6 @@ class TestCreateWebhook(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_update_webhook_inputs_partial_update_preserves_other_required_fields(self, mock_create_webhook):
-
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         mock_create_webhook.return_value = self._webhook_result(extra_inputs={"signing_secret": "whsec_initial"})
@@ -12350,6 +12349,34 @@ class TestExternalDataSourceSetup(APIBaseTest):
         assert response.json()["webhook"]["pending_inputs"] == []
         hog_function = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook", deleted=False)
         assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_upfront"
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_will_not_register_a_pre_create_webhook_without_its_credential(
+        self, _mock_validate, mock_create_webhook, _mock_sync_views, _mock_person_join
+    ):
+        # Mailgun's shape: the vendor never returns the key, so a webhook registered without it
+        # accepts every delivery and drops it. `webhook_inputs` is optional, so a caller that omits
+        # it must get the polling defaults, not a registered webhook that receives nothing.
+        pre_create_config = StripeSource().get_source_config.model_copy(update={"webhookFieldsBeforeCreate": True})
+        self._create_stripe_webhook_template()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_source_config",
+            new_callable=PropertyMock,
+            return_value=pre_create_config,
+        ):
+            response = self._setup_stripe()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["webhook"]["success"] is False
+        assert response.json()["webhook"]["pending_inputs"] == ["signing_secret"]
+        mock_create_webhook.assert_not_called()
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.ensure_person_join")
     @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")

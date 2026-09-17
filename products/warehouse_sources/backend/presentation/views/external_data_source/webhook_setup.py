@@ -221,6 +221,26 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
         if blocked_reason is not None:
             return {"success": False, "webhook_url": None, "error": blocked_reason, "pending_inputs": []}
 
+        # A source that needs its credential before registration must not register without it. The
+        # webhook would accept every delivery and drop it, which is the gap this endpoint closes.
+        # One-shot setup has no form to ask in, so leave the polling defaults and name the inputs
+        # the caller has to send.
+        source_config = source.get_source_config
+        if source_config.webhookFieldsBeforeCreate:
+            supplied = webhook_inputs or {}
+            absent = [
+                field.name
+                for field in (source_config.webhookFields or [])
+                if getattr(field, "required", False) and not supplied.get(field.name)
+            ]
+            if absent:
+                return {
+                    "success": False,
+                    "webhook_url": None,
+                    "error": f"Pass webhook_inputs to register this webhook: {', '.join(absent)}",
+                    "pending_inputs": absent,
+                }
+
         eligible_schemas = list(
             ExternalDataSchema.objects.filter(source=instance, team_id=self.team_id, name__in=webhook_capable).exclude(
                 deleted=True

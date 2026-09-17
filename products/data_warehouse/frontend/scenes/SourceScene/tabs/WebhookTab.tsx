@@ -63,6 +63,7 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
         canDeleteWebhook,
         webhookDeleting,
         currentSection,
+        providerWebhookMissing,
     } = useValues(webhookTabLogic({ id }))
     const { createWebhook, loadWebhookInfo, deleteWebhook, setCurrentSection } = useActions(webhookTabLogic({ id }))
 
@@ -95,8 +96,7 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
     }
 
     // Webhook exists but is missing at the source — offer re-creation
-    const externalMissing =
-        webhookInfo.external_status && !webhookInfo.external_status.exists && !webhookInfo.external_status.error
+    const externalMissing = providerWebhookMissing
 
     const hogFunctionId = webhookInfo.hog_function?.id
     const hasConfiguration = !!sourceConfig && (sourceConfig.webhookFields?.length ?? 0) > 0

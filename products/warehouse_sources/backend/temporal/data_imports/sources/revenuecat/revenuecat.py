@@ -66,8 +66,11 @@ def _auth_headers(api_key: str) -> dict[str, str]:
     }
 
 
-def _session(api_key: str) -> requests.Session:
-    return make_tracked_session(headers=_auth_headers(api_key))
+def _session(api_key: str, *, redact: tuple[str, ...] = ()) -> requests.Session:
+    # PostHog mints the Authorization value RevenueCat sends back on every delivery, and that value
+    # travels in the request body under a key the sampler's name denylist does not match. A caller
+    # that carries one passes it in `redact`, so a captured sample cannot hold a usable verifier.
+    return make_tracked_session(headers=_auth_headers(api_key), redact_values=(api_key, *redact))
 
 
 def _project_path(project_id: str, suffix: str) -> str:
@@ -398,7 +401,9 @@ def _update_webhook_integration(api_key: str, project_id: str, webhook_id: str, 
     fields present in the body change.
     """
     url = f"{REVENUECAT_API_BASE_URL}{_project_path(project_id, f'/integrations/webhooks/{webhook_id}')}"
-    response = _session(api_key).post(url, json=updates, timeout=REQUEST_TIMEOUT_SECONDS)
+    header_value = updates.get("authorization_header")
+    session = _session(api_key, redact=(header_value,) if header_value else ())
+    response = session.post(url, json=updates, timeout=REQUEST_TIMEOUT_SECONDS)
     response.raise_for_status()
 
 
@@ -472,7 +477,8 @@ def create_webhook(
             # responses, so we can't tell whether one is already set.
             return WebhookCreationResult(success=True, pending_inputs=["authorization_header"])
 
-        response = _session(api_key).post(url, json=body, timeout=REQUEST_TIMEOUT_SECONDS)
+        session = _session(api_key, redact=(authorization_header_value,) if authorization_header_value else ())
+        response = session.post(url, json=body, timeout=REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
     except requests.HTTPError as e:
         logger.warning("Failed to register RevenueCat webhook integration", error=str(e))
