@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
@@ -48,8 +48,6 @@ jest.mock('lib/api', () => ({
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn(), info: jest.fn(), warning: jest.fn() },
 }))
-
-jest.mock('./DataQualityGateToggle', () => ({ DataQualityGateToggle: () => null }))
 
 jest.mock('products/data_quality/frontend/generated/api', () => ({
     dataQualityChecksList: jest.fn(),
@@ -108,6 +106,10 @@ function queryAll(selector: string): HTMLElement[] {
 
 function runSubjectButtons(): HTMLElement[] {
     return queryAll('[data-attr="data-quality-overview-run-subject"]')
+}
+
+function settingsLinkHref(): string | null | undefined {
+    return document.querySelector('[data-attr="data-quality-overview-settings"]')?.getAttribute('href')
 }
 
 function isSpinning(button: HTMLElement): boolean {
@@ -198,6 +200,7 @@ describe('DataQualityOverview', () => {
         await waitFor(() => expect(runSubjectButtons()).toHaveLength(1))
 
         const disclosure = queryAll('[data-attr="data-quality-subject-disclosure"]')[0]
+        expect(within(disclosure.parentElement!).getByText('Failing')).toBeTruthy()
         // Suffix match: the rendered href carries the /project/:id prefix, so an exact match on the
         // path would find nothing and the assertion below would pass on a null link.
         const link = document.querySelector('a[href$="/models/node-1/tests"]')
@@ -225,11 +228,27 @@ describe('DataQualityOverview', () => {
         expect(document.querySelector('[data-attr="data-quality-overview-new-check"]')).not.toBeNull()
         expect(document.querySelector('[data-attr="data-quality-overview-browse"]')).toBeNull()
         expect(document.querySelector('[data-attr="data-quality-overview-empty-state"] img')).not.toBeNull()
+        expect(screen.queryByPlaceholderText('Search checks')).toBeNull()
+        expect(document.querySelector('[data-attr="data-quality-overview-run-all"]')).toBeNull()
 
         fireEvent.click(document.querySelector('[data-attr="data-quality-overview-first-check"]')!)
 
         expect(await screen.findByText('Table, view, or metric')).toBeTruthy()
         expect(document.querySelector('.ReactModal__Content')?.textContent).toContain('Browse tables and views')
+    })
+
+    it('links to the data quality settings from both the populated and the empty toolbar', async () => {
+        await renderOverview()
+
+        expect(settingsLinkHref()).toMatch(/\/settings\/environment-data-quality$/)
+
+        cleanup()
+        ;(dataQualityChecksList as jest.Mock).mockResolvedValue({ results: [] })
+        ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([])
+        render(<DataQualityOverview />)
+        await screen.findByText('No checks yet')
+
+        expect(settingsLinkHref()).toMatch(/\/settings\/environment-data-quality$/)
     })
 
     it('keeps the existing subject-scoped editor free of a subject picker', async () => {

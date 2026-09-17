@@ -190,6 +190,18 @@ export const CdcTableModeEnumApi = {
     Both: 'both',
 } as const
 
+/**
+ * * `missing_primary_key` - Missing primary key
+ * * `duplicate_primary_key` - Duplicate primary key
+ */
+export type IncrementalSyncBlockedReasonEnumApi =
+    (typeof IncrementalSyncBlockedReasonEnumApi)[keyof typeof IncrementalSyncBlockedReasonEnumApi]
+
+export const IncrementalSyncBlockedReasonEnumApi = {
+    MissingPrimaryKey: 'missing_primary_key',
+    DuplicatePrimaryKey: 'duplicate_primary_key',
+} as const
+
 export interface ExternalDataSourceApiVersionDeprecationApi {
     /** The deprecated vendor API version this source is pinned to. */
     version: string
@@ -322,6 +334,11 @@ export interface ExternalDataSchemaApi {
      * * `cdc_only` - cdc_only
      * * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+    /** Why the last sync run could not merge rows for this table, or `null` when no such failure is current, which includes a run that failed for another reason. A blocked table is disabled, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.
+     *
+     * * `missing_primary_key` - Missing primary key
+     * * `duplicate_primary_key` - Duplicate primary key */
+    readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnumApi | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
@@ -485,6 +502,11 @@ export interface PatchedExternalDataSchemaApi {
      * * `cdc_only` - cdc_only
      * * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+    /** Why the last sync run could not merge rows for this table, or `null` when no such failure is current, which includes a run that failed for another reason. A blocked table is disabled, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.
+     *
+     * * `missing_primary_key` - Missing primary key
+     * * `duplicate_primary_key` - Duplicate primary key */
+    readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnumApi | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
@@ -1901,6 +1923,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Substack` - Substack
  * * `ElectricityMaps` - ElectricityMaps
  * * `Amplemarket` - Amplemarket
+ * * `Quo` - Quo
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3246,6 +3269,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Substack: 'Substack',
     ElectricityMaps: 'ElectricityMaps',
     Amplemarket: 'Amplemarket',
+    Quo: 'Quo',
 } as const
 
 /**
@@ -4737,7 +4761,8 @@ export interface ExternalDataSourceCreateApi {
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
-     * * `Amplemarket` - Amplemarket */
+     * * `Amplemarket` - Amplemarket
+     * * `Quo` - Quo */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
     payload: ExternalDataSourceCreateApiPayload
@@ -4927,11 +4952,269 @@ export interface ExternalDataSourceBulkUpdateSchemasApi {
 }
 
 /**
+ * * `posthog` - posthog
+ * * `self_managed` - self_managed
+ */
+export type ManagementModeEnumApi = (typeof ManagementModeEnumApi)[keyof typeof ManagementModeEnumApi]
+
+export const ManagementModeEnumApi = {
+    Posthog: 'posthog',
+    SelfManaged: 'self_managed',
+} as const
+
+export interface CdcStatusApi {
+    /** Whether CDC is enabled on this source. */
+    enabled: boolean
+    /** Who owns the slot and publication: PostHog or the customer.
+     *
+     * * `posthog` - posthog
+     * * `self_managed` - self_managed */
+    management_mode?: ManagementModeEnumApi
+    /** Replication slot PostHog consumes from. Empty when unset. */
+    slot_name?: string
+    /** Publication PostHog reads changes from. Empty when unset. */
+    publication_name?: string
+    /** Lag in MB above which the UI warns. */
+    lag_warning_threshold_mb?: number
+    /** Lag in MB above which the UI alerts. */
+    lag_critical_threshold_mb?: number
+    /** True when a non-retryable failure paused the extraction schedule; the UI then offers Resume instead of Repair. Degrades to false when the schedule lookup fails. */
+    schedule_paused?: boolean
+    /** Whether the replication slot exists on the source, when the source was reachable. */
+    slot_exists?: boolean
+    /** Whether the publication exists on the source, when the source was reachable. */
+    publication_exists?: boolean
+    /**
+     * Current slot lag in bytes, when the source was reachable.
+     * @nullable
+     */
+    lag_bytes?: number | null
+    /** Tables in the publication, when the source was reachable and a publication exists. */
+    published_tables?: string[]
+}
+
+export interface CreateWebhookResponseApi {
+    /** Whether the webhook was created and registered with the source. */
+    success: boolean
+    /**
+     * The PostHog endpoint the external service delivers events to.
+     * @nullable
+     */
+    webhook_url: string | null
+    /**
+     * Why creation failed, when success is false.
+     * @nullable
+     */
+    error: string | null
+    /** Inputs the external service needs before delivery works. Submit via update_webhook_inputs. */
+    pending_inputs: string[]
+}
+
+export interface DeleteWebhookResponseApi {
+    /** Whether the webhook delivery function was deleted. */
+    success: boolean
+    /** Whether the webhook was also removed from the external service. False when the source config was already gone and only the local function was cleaned up, or when the external call failed. */
+    external_deleted: boolean
+    /**
+     * Why the external deletion failed, when external_deleted is false.
+     * @nullable
+     */
+    error: string | null
+}
+
+/**
  * Response shape for a source's destination set.
  */
 export interface SourceDestinationsApi {
     /** Destinations every table on this source syncs to. */
     destination_ids: string[]
+}
+
+export interface CdcEnableResponseApi {
+    /** Whether CDC was enabled on the source. */
+    success: boolean
+    /** Whether the extraction and cleanup schedules could be created. False means CDC is enabled but scheduling failed; the schedule self-heals on the first CDC schema toggle. */
+    schedules_ready: boolean
+}
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+export interface SimpleExternalDataSchemaApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    label?: string | null
+    should_sync?: boolean
+    /** @nullable */
+    last_synced_at?: string | null
+    sync_type?: ExternalDataSchemaSyncTypeEnumApi | BlankEnumApi | null
+}
+
+export interface ExternalDataJobSerializersApi {
+    readonly id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly finished_at: string | null
+    readonly status: string
+    readonly schema: SimpleExternalDataSchemaApi
+    /** @nullable */
+    readonly rows_synced: number | null
+    /**
+     * The latest error that occurred during this run.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    /** @nullable */
+    readonly workflow_run_id: string | null
+    /**
+     * For CDC syncs with `cdc_table_mode='both'`, distinguishes the two ExternalDataJob rows produced per sync: `incremental_merge` (consolidated table) vs `scd2_append` (cdc-only history table). `null` for non-CDC syncs. Read from `schema_snapshot`.
+     * @nullable
+     */
+    readonly cdc_write_mode: string | null
+    /**
+     * Whether the rows synced by this job count toward billing. `false` for system-initiated runs the customer isn't charged for (e.g. rebuilding a table after an internal issue). `null` on legacy rows and means billable.
+     * @nullable
+     */
+    readonly billable: boolean | null
+    /** Destinations this run delivered to, snapshotted when it started. Empty on runs that predate destinations, which wrote to the PostHog warehouse alone. `rows_synced` counts the rows read from the source once, not once per destination. */
+    readonly destination_ids: readonly string[]
+}
+
+export interface UpdateWebhookInputsResponseApi {
+    /** Whether the inputs were saved and pushed to the external service. */
+    success: boolean
+}
+
+/**
+ * Resource name to external schema id, as configured on the webhook function.
+ */
+export type WebhookInfoResponseApiSchemaMapping = { [key: string]: string }
+
+/**
+ * * `hog` - hog
+ * * `liquid` - liquid
+ */
+export type HogFunctionTemplatingEnumApi =
+    (typeof HogFunctionTemplatingEnumApi)[keyof typeof HogFunctionTemplatingEnumApi]
+
+export const HogFunctionTemplatingEnumApi = {
+    Hog: 'hog',
+    Liquid: 'liquid',
+} as const
+
+export interface InputsItemApi {
+    value?: unknown
+    templating?: HogFunctionTemplatingEnumApi
+    readonly bytecode: readonly unknown[]
+    readonly order: number
+    readonly transpiled: unknown
+}
+
+/**
+ * Current webhook function inputs keyed by the source's declared webhook field names.
+ */
+export type WebhookInfoResponseApiInputs = { [key: string]: InputsItemApi }
+
+/**
+ * Delivery health reported by the pipeline: `state` and `tokens` counters.
+ */
+export type WebhookHogFunctionApiStatus = { [key: string]: unknown }
+
+export interface WebhookHogFunctionApi {
+    /** ID of the webhook delivery hog function. */
+    id: string
+    /** Name of the webhook delivery hog function. */
+    name: string
+    /** Whether the webhook delivery function is enabled. */
+    enabled: boolean
+    /** When the webhook delivery function was created (ISO 8601). */
+    created_at: string
+    /** Delivery health reported by the pipeline: `state` and `tokens` counters. */
+    status: WebhookHogFunctionApiStatus
+}
+
+export interface WebhookExternalStatusApi {
+    /** Whether the webhook exists on the external service. */
+    exists: boolean
+    /**
+     * The webhook URL on the external service.
+     * @nullable
+     */
+    url: string | null
+    /**
+     * Events the external webhook is subscribed to.
+     * @nullable
+     */
+    enabled_events: string[] | null
+    /**
+     * Delivery health as the external service reports it (e.g. 'enabled').
+     * @nullable
+     */
+    status: string | null
+    /**
+     * Description the external service holds for it.
+     * @nullable
+     */
+    description: string | null
+    /**
+     * When the external webhook was created.
+     * @nullable
+     */
+    created_at: string | null
+    /**
+     * Vendor API version the endpoint delivers at, when pinned.
+     * @nullable
+     */
+    api_version: string | null
+    /**
+     * Read error the external service returned, if any.
+     * @nullable
+     */
+    error: string | null
+}
+
+export interface WebhookInfoResponseApi {
+    /** Whether the source type supports webhooks at all. When false, the other fields are absent. */
+    supports_webhooks: boolean
+    /** Whether a PostHog webhook delivery function exists for this source yet. */
+    exists: boolean
+    /**
+     * Set when the connection's credentials can never create the webhook, so only manual setup is left. Null means 'not known to be blocked'.
+     * @nullable
+     */
+    auto_creation_blocked_reason: string | null
+    /** The webhook delivery function, present once the webhook exists. */
+    hog_function: WebhookHogFunctionApi | null
+    /**
+     * The PostHog endpoint the external service delivers events to.
+     * @nullable
+     */
+    webhook_url: string | null
+    /** Resource name to external schema id, as configured on the webhook function. */
+    schema_mapping: WebhookInfoResponseApiSchemaMapping
+    /** Current webhook function inputs keyed by the source's declared webhook field names. */
+    inputs?: WebhookInfoResponseApiInputs
+    /** Live webhook state as the external service reports it, when it could be read. */
+    external_status: WebhookExternalStatusApi | null
+    /** Desired provider events not yet on the webhook (manual setup, or created before a new table). */
+    missing_events?: string[]
+}
+
+export interface CdcPrerequisitesResponseApi {
+    /** Whether the source satisfies every CDC prerequisite. */
+    valid: boolean
+    /** Unmet prerequisites, empty when valid is true. */
+    errors: string[]
 }
 
 /**
@@ -6320,7 +6603,8 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
-     * * `Amplemarket` - Amplemarket */
+     * * `Amplemarket` - Amplemarket
+     * * `Quo` - Quo */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -7694,7 +7978,8 @@ export interface DatabaseSchemaRequestApi {
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
-     * * `Amplemarket` - Amplemarket */
+     * * `Amplemarket` - Amplemarket
+     * * `Quo` - Quo */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -9043,7 +9328,8 @@ export interface DirectConnectionSourceOptionApi {
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
-     * * `Amplemarket` - Amplemarket */
+     * * `Amplemarket` - Amplemarket
+     * * `Quo` - Quo */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -10477,7 +10763,8 @@ export interface SourcePreviewRequestApi {
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
-     * * `Amplemarket` - Amplemarket */
+     * * `Amplemarket` - Amplemarket
+     * * `Quo` - Quo */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -11861,7 +12148,8 @@ export interface SourceSetupApi {
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
-     * * `Amplemarket` - Amplemarket */
+     * * `Amplemarket` - Amplemarket
+     * * `Quo` - Quo */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -13252,7 +13540,8 @@ export interface SourceCredentialCreateApi {
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
-     * * `Amplemarket` - Amplemarket */
+     * * `Amplemarket` - Amplemarket
+     * * `Quo` - Quo */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -13639,6 +13928,25 @@ export type ExternalDataSourcesListParams = {
     search?: string
 }
 
+export type ExternalDataSourcesJobsListParams = {
+    /**
+     * ISO timestamp — only return jobs created after this date.
+     */
+    after?: string
+    /**
+     * ISO timestamp — only return jobs created before this date.
+     */
+    before?: string
+    /**
+     * Filter jobs by table schema names.
+     */
+    schemas?: string[]
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
 export type ExternalDataSourcesRepairCdcCreate200 = {
     success?: boolean
     schemas_reset?: number
@@ -13646,11 +13954,6 @@ export type ExternalDataSourcesRepairCdcCreate200 = {
 
 export type ExternalDataSourcesResumeCdcCreate200 = {
     success?: boolean
-}
-
-export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
-    valid?: boolean
-    errors?: string[]
 }
 
 export type ExternalDataSourcesConnectLinkRetrieveParams = {

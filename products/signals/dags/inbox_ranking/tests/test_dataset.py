@@ -502,6 +502,25 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         assert row["first_dismissal_reason"] == reason
         assert row["wrong_dismissal_count"] == 0
         assert row["first_wrong_dismissed_at"] is None
+        # The forged dismissal is the only one in the later_bucket case, so an unscoped min() dates
+        # a dismissal the report's tenant never made.
+        assert row["first_dismissed_server_at"] != T1
+
+    def test_no_status_column_reads_an_event_from_another_tenant(self):
+        # Forged-event invariance: transitions naming another team, all earlier than the genuine
+        # ones, must leave every status column exactly as the genuine transitions alone produce it.
+        # Asserted over STATUS_COLUMNS rather than a list written out here, so an aggregate added
+        # later is covered without being enumerated. The genuine transitions carry distinct
+        # timestamps so the latest-wins columns have one unambiguous winner.
+        statuses = ("resolved", "suppressed", "failed", "potential")
+        for offset, status in enumerate(statuses):
+            self._transition(T2 + datetime.timedelta(hours=offset), "ready", status)
+        genuine_only = self._status_row()
+
+        for status in statuses:
+            self._transition(T1, "ready", status, "analysis_wrong", team_id=999)
+
+        assert self._status_row() == genuine_only
 
     def test_tied_tenants_count_and_report_the_same_team(self):
         # Two tenants' buckets with the same last timestamp: whichever wins the tie, the count and
