@@ -88,7 +88,7 @@ export interface CdpDlqReplayCounts {
  *
  * It commits offsets only once every invocation in the batch is queued. Anything else leaves them
  * where they are and fails the batch, so a record that cannot be replayed blocks rather than being
- * skipped. Turning the worker off is how an operator unblocks it and fixes forward. Batch size is
+ * skipped. Scaling it back to zero is how an operator unblocks it and fixes forward. Batch size is
  * the deployment's `CONSUMER_BATCH_SIZE`: nothing here depends on it, but it decides how much of a
  * batch waits behind one record that will not replay.
  */
@@ -110,22 +110,18 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
     ) {
         super(config, deps)
 
-        // Offsets are stored by hand, once the invocations for a record are queued. Letting the
-        // consumer store them would commit a record the moment it was read, which is the one thing
-        // that could lose a parked event.
+        // Offsets are left to the consumer, which stores them once the batch handler resolves. That
+        // is the guarantee this worker needs: the handler awaits the rebuild and the queueing, so a
+        // record is only committed after its invocations exist, and a throw anywhere leaves the
+        // offset where it was.
         //
-        // Set rather than inherited, because KAFKA_CONSUMER_AUTO_OFFSET_RESET applies to every
-        // consumer in the deployment. This worker only joins while it is enabled, so records
-        // normally land before it ever connects: a `latest` value would skip the backlog it was
-        // turned on to drain and report a clean run having replayed nothing.
-        this.kafkaConsumer = createKafkaConsumer(
-            {
-                groupId: REPLAY_GROUP_ID,
-                topic: config.CDP_DLQ_REPLAY_TOPIC,
-                autoOffsetStore: false,
-            },
-            { 'auto.offset.reset': 'earliest' } as RdKafkaConsumerConfig
-        )
+        // `auto.offset.reset` is set rather than inherited, because KAFKA_CONSUMER_AUTO_OFFSET_RESET
+        // applies to every consumer in the deployment. This one runs at zero replicas, so records
+        // always land before it connects: a `latest` value would skip the backlog it was scaled up
+        // to drain and report a clean run having replayed nothing.
+        this.kafkaConsumer = createKafkaConsumer({ groupId: REPLAY_GROUP_ID, topic: config.CDP_DLQ_REPLAY_TOPIC }, {
+            'auto.offset.reset': 'earliest',
+        } as RdKafkaConsumerConfig)
 
         this.hogFunctionPipeline = new HogFunctionInvocationPipeline(config, {
             hogFunctionManager: this.hogFunctionManager,
@@ -340,16 +336,6 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
             }
 
             await instrumentFn('cdpDlqReplay.handleEachBatch', () => this.replayBatch(messages))
-
-            // Only now, with every invocation in the batch queued. A throw above skips this, so the
-            // offset stays where it is and the record is read again.
-            this.kafkaConsumer.offsetsStore(
-                messages.map((message) => ({
-                    topic: message.topic,
-                    partition: message.partition,
-                    offset: message.offset + 1,
-                }))
-            )
 
             logger.info('☠️', 'cdp_dlq_replay_progress', this.counts)
         })
