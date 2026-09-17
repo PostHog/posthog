@@ -142,7 +142,7 @@ class UserAdmin(DjangoUserAdmin):
             },
         ),
         (_("Personal info"), {"fields": ("first_name", "last_name")}),
-        (_("Permissions"), {"fields": ("is_active", "is_staff", "groups")}),
+        (_("Permissions"), {"fields": ("is_active", "is_staff", "llm_gateway_access_blocked", "groups")}),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
     )
     add_fieldsets = ((None, {"classes": ("wide",), "fields": ("email", "password1", "password2")}),)

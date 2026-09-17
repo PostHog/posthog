@@ -13,6 +13,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.llm.gateway_access import require_gateway_access
 from posthog.models import User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import generate_random_token_secret, hash_key_value, mask_key_value
@@ -99,6 +100,7 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         return scopes
 
     def _llm_gateway_grantable(self) -> bool:
+        require_gateway_access(self.context["request"].user)
         existing_has_llm_gateway = self.instance is not None and any(
             s.startswith("llm_gateway:") for s in (self.instance.scopes or [])
         )
@@ -199,6 +201,8 @@ class ProjectSecretAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True, url_path="roll")
     def roll(self, request, *args, **kwargs):
         instance = self.get_object()
+        if "llm_gateway:read" in (instance.scopes or []):
+            require_gateway_access(cast(User, request.user))
         serializer = cast(ProjectSecretAPIKeySerializer, self.get_serializer(instance))
         serializer.roll(instance)
         return response.Response(serializer.data, status=status.HTTP_200_OK)

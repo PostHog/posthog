@@ -39,7 +39,7 @@ _OAUTH_KIND = "oauth_access_token"
 @skip_team_scope_audit
 def update_gateway_credential_cache_task(credential_kind: str, credential_id: str) -> None:
     if credential_kind == _SECRET_KEY_KIND:
-        credential = ProjectSecretAPIKey.objects.select_related("team").filter(pk=credential_id).first()
+        credential = ProjectSecretAPIKey.objects.select_related("team", "created_by").filter(pk=credential_id).first()
     elif credential_kind == _OAUTH_KIND:
         credential = OAuthAccessToken.objects.select_related("user", "application").filter(pk=credential_id).first()
     else:
@@ -60,14 +60,18 @@ def update_gateway_credential_cache_task(credential_kind: str, credential_id: st
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
 def reproject_user_gateway_credentials_task(user_id: int) -> None:
-    """Re-project a user's OAuth credentials after a user/membership/RBAC change.
-    Project secret keys have no user, so they're unaffected and not touched here."""
     for token in (
         OAuthAccessToken.with_scope(GATEWAY_CREDENTIAL_REQUIRED_SCOPE)
         .select_related("user", "application")
         .filter(user_id=user_id)
     ):
         project_gateway_credential(token)
+
+    for secret_key in ProjectSecretAPIKey.objects.select_related("team", "created_by").filter(
+        created_by_id=user_id,
+        scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE],
+    ):
+        project_gateway_credential(secret_key)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
@@ -79,7 +83,7 @@ def reproject_team_gateway_credentials_task(team_id: int) -> None:
     No FK binding any more: a secret key resolves by its canonical (project-root) team, so
     catch the team and its child envs; an OAuth token resolves by its application's org, so
     catch every token in the team's organization (all resolve to this same gateway)."""
-    for secret_key in ProjectSecretAPIKey.objects.select_related("team").filter(
+    for secret_key in ProjectSecretAPIKey.objects.select_related("team", "created_by").filter(
         Q(team_id=team_id) | Q(team__parent_team_id=team_id),
         scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE],
     ):

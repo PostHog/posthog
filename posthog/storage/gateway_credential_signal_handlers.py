@@ -4,8 +4,8 @@ Signal handlers that keep the gateway credential cache in sync with credential a
 The blob is keyed by the credential hash, so a revoke / scope removal / rotation that
 doesn't invalidate it leaves a stale entry for the full TTL. OAuth access also depends on
 user state the token row doesn't carry (deactivation, email verification, org membership,
-RBAC), so those re-project the user's OAuth credentials. Project secret keys have no user,
-so they re-project only on their own save/delete and on gateway/team changes.
+RBAC), so those re-project the user's OAuth credentials. Account gateway restrictions also
+re-project project secret keys created by that user.
 
 A pre_save fallback handles credentials loaded with hash/scope deferred (.only()/.defer()),
 where post_init skips the snapshot — without it a deferred-load rotation wouldn't clear the
@@ -48,6 +48,7 @@ _LOADED_HASH_ATTR = "_fp_loaded_hash"
 _LOADED_ELIGIBLE_ATTR = "_fp_loaded_eligible"
 _LOADED_IS_ACTIVE_ATTR = "_fp_loaded_is_active"
 _LOADED_IS_EMAIL_VERIFIED_ATTR = "_fp_loaded_is_email_verified"
+_LOADED_GATEWAY_ACCESS_BLOCKED_ATTR = "_fp_loaded_gateway_access_blocked"
 _LOADED_MEMBERSHIP_LEVEL_ATTR = "_fp_loaded_membership_level"
 _LOADED_TEAM_API_TOKEN_ATTR = "_fp_loaded_team_api_token"
 _LOADED_TEAM_OVERSPEND_ATTR = "_fp_loaded_team_overspend_allowance"
@@ -106,27 +107,36 @@ def _snapshot_user(sender: type[User], instance: User, **kwargs: Any) -> None:
         instance.__dict__[_LOADED_IS_ACTIVE_ATTR] = instance.is_active
     if "is_email_verified" not in deferred:
         instance.__dict__[_LOADED_IS_EMAIL_VERIFIED_ATTR] = instance.is_email_verified
+    if "llm_gateway_access_blocked" not in deferred:
+        instance.__dict__[_LOADED_GATEWAY_ACCESS_BLOCKED_ATTR] = instance.llm_gateway_access_blocked
 
 
 def _capture_old_user_fields_if_deferred(sender: type[User], instance: User, **kwargs: Any) -> None:
-    # Fallback for a user loaded with is_active/is_email_verified deferred (.only()/.defer()):
+    # Fallback for a user loaded with access policy fields deferred (.only()/.defer()):
     # re-read the old values so a deferred-load change still clears or restores the blob. No
-    # query on the common full-load path, where post_init already snapshotted both.
+    # query on the common full-load path, where post_init already snapshotted them.
     if not settings.AI_GATEWAY_REDIS_URL:
         return
     needs_is_active = _LOADED_IS_ACTIVE_ATTR not in instance.__dict__
     needs_is_email_verified = _LOADED_IS_EMAIL_VERIFIED_ATTR not in instance.__dict__
-    if not needs_is_active and not needs_is_email_verified:
+    needs_gateway_access_blocked = _LOADED_GATEWAY_ACCESS_BLOCKED_ATTR not in instance.__dict__
+    if not needs_is_active and not needs_is_email_verified and not needs_gateway_access_blocked:
         return
     if not instance.pk or instance._state.adding:
         return
-    row = User.objects.filter(pk=instance.pk).values("is_active", "is_email_verified").first()
+    row = (
+        User.objects.filter(pk=instance.pk)
+        .values("is_active", "is_email_verified", "llm_gateway_access_blocked")
+        .first()
+    )
     if row is None:
         return
     if needs_is_active:
         instance.__dict__[_LOADED_IS_ACTIVE_ATTR] = row["is_active"]
     if needs_is_email_verified:
         instance.__dict__[_LOADED_IS_EMAIL_VERIFIED_ATTR] = row["is_email_verified"]
+    if needs_gateway_access_blocked:
+        instance.__dict__[_LOADED_GATEWAY_ACCESS_BLOCKED_ATTR] = row["llm_gateway_access_blocked"]
 
 
 def _capture_old_secret_key_if_deferred(
@@ -258,20 +268,23 @@ def _reproject_user_sync_then_async(user_id: int) -> None:
 
 
 def _reproject_user_on_save(sender: type[User], instance: User, created: bool, **kwargs: Any) -> None:
-    # Only OAuth carries a user. Deactivation and losing email verification must clear
-    # it (the token row doesn't change on either flip); reversing either re-grants.
     if not settings.AI_GATEWAY_REDIS_URL or created:
         return
     old_is_active = instance.__dict__.get(_LOADED_IS_ACTIVE_ATTR)
     old_is_email_verified = instance.__dict__.get(_LOADED_IS_EMAIL_VERIFIED_ATTR, _UNSET)
+    old_gateway_access_blocked = instance.__dict__.get(_LOADED_GATEWAY_ACCESS_BLOCKED_ATTR, _UNSET)
     instance.__dict__[_LOADED_IS_ACTIVE_ATTR] = instance.is_active
     instance.__dict__[_LOADED_IS_EMAIL_VERIFIED_ATTR] = instance.is_email_verified
+    instance.__dict__[_LOADED_GATEWAY_ACCESS_BLOCKED_ATTR] = instance.llm_gateway_access_blocked
 
     is_active_changed = old_is_active is not None and old_is_active != instance.is_active
     is_email_verified_changed = (
         old_is_email_verified is not _UNSET and old_is_email_verified != instance.is_email_verified
     )
-    if not is_active_changed and not is_email_verified_changed:
+    gateway_access_blocked_changed = (
+        old_gateway_access_blocked is not _UNSET and old_gateway_access_blocked != instance.llm_gateway_access_blocked
+    )
+    if not is_active_changed and not is_email_verified_changed and not gateway_access_blocked_changed:
         return
 
     _reproject_user_sync_then_async(instance.pk)

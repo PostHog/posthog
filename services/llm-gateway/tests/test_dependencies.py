@@ -760,6 +760,7 @@ class TestSandboxTaskIdPlumbing:
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
                 "is_staff": False,
+                "llm_gateway_access_blocked": False,
                 "sandbox_task_id": sandbox_task_id,
             }
         )

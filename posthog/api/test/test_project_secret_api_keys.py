@@ -1,10 +1,10 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.api.project_secret_api_key import MAX_PROJECT_SECRET_API_KEYS_PER_TEAM
-from posthog.models import Organization, OrganizationMembership, Team
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret, hash_key_value
@@ -137,13 +137,18 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("blocked_when_flag_disabled", False, 400),
-            ("allowed_when_flag_enabled", True, 201),
+            ("blocked_when_flag_disabled", False, False, 400),
+            ("allowed_when_flag_enabled", True, False, 201),
+            ("account_blocked", True, True, 403),
         ]
     )
     @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
-    def test_create_llm_gateway_scope_gated_on_flag(self, _name, flag_enabled, expected_status, mock_feature_enabled):
+    def test_create_llm_gateway_scope_gated_on_flag(
+        self, _name: str, flag_enabled: bool, blocked: bool, expected_status: int, mock_feature_enabled: MagicMock
+    ) -> None:
         mock_feature_enabled.return_value = flag_enabled
+        self.user.llm_gateway_access_blocked = blocked
+        self.user.save(update_fields=["llm_gateway_access_blocked"])
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",
@@ -152,13 +157,23 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         if expected_status == 201:
             assert response.json()["scopes"] == ["llm_gateway:read"]
+        elif blocked:
+            assert response.json()["code"] == "provisioned_account_gateway_disabled"
         else:
             assert "LLM gateway scope is not available" in response.json()["detail"]
-        mock_feature_enabled.assert_called_once()
+        if blocked:
+            mock_feature_enabled.assert_not_called()
+        else:
+            mock_feature_enabled.assert_called_once()
 
+    @parameterized.expand([("allowed", False, 200), ("account_blocked", True, 403)])
     @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
-    def test_update_keeps_existing_llm_gateway_scope_when_flag_disabled(self, mock_feature_enabled):
+    def test_update_keeps_existing_llm_gateway_scope_when_flag_disabled(
+        self, _name: str, blocked: bool, expected_status: int, mock_feature_enabled: MagicMock
+    ) -> None:
         mock_feature_enabled.return_value = False
+        self.user.llm_gateway_access_blocked = blocked
+        self.user.save(update_fields=["llm_gateway_access_blocked"])
 
         key = ProjectSecretAPIKey.objects.create(
             team=self.team,
@@ -172,9 +187,12 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
             f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
             {"label": "renamed", "scopes": ["llm_gateway:read"]},
         )
-        assert response.status_code == 200
-        assert response.json()["label"] == "renamed"
-        assert response.json()["scopes"] == ["llm_gateway:read"]
+        assert response.status_code == expected_status
+        if blocked:
+            assert response.json()["code"] == "provisioned_account_gateway_disabled"
+        else:
+            assert response.json()["label"] == "renamed"
+            assert response.json()["scopes"] == ["llm_gateway:read"]
         mock_feature_enabled.assert_not_called()
 
     @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
@@ -287,6 +305,34 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
 
         key = ProjectSecretAPIKey.objects.get(id=key_id)
         assert key.secure_value != original_secure_value
+
+    def test_gateway_disabled_user_cannot_roll_a_teammates_gateway_key(self) -> None:
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="gateway",
+            secure_value=hash_key_value(generate_random_token_secret()),
+            scopes=["llm_gateway:read"],
+            created_by=teammate,
+        )
+        original_hash = key.secure_value
+        self.user.llm_gateway_access_blocked = True
+        self.user.save(update_fields=["llm_gateway_access_blocked"])
+
+        response = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/roll")
+
+        assert response.status_code == 403
+        assert response.json()["code"] == "provisioned_account_gateway_disabled"
+        key.refresh_from_db()
+        assert key.secure_value == original_hash
+
+        ordinary = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "ordinary", "scopes": ["endpoint:read"]},
+        )
+        assert ordinary.status_code == 201
+        rolled = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{ordinary.json()['id']}/roll")
+        assert rolled.status_code == 200
 
     def test_list_only_current_team_keys(self):
         self.client.post(

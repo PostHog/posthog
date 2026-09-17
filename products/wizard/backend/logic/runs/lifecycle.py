@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.db import transaction as database_transaction
 
+from posthog.llm.gateway_access import require_gateway_access
 from posthog.models import Team, User
 
 from products.wizard.backend.facade.config import DEFAULT_WIZARD_VERSION
@@ -76,7 +77,9 @@ def create_run_with_result(params: CreateWizardRunInput) -> WizardRunCreationRes
 
             return WizardRunCreationResult(run=existing, created=False)
 
-    user = User.objects.only("distinct_id").get(id=params.created_by_id)
+    user = User.objects.only("distinct_id", "llm_gateway_access_blocked").get(id=params.created_by_id)
+    if is_cloud_run:
+        require_gateway_access(user)
     team = Team.objects.only("organization_id").get(id=params.team_id)
 
     program = registry_service.get_program(

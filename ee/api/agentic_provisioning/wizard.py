@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.api.github_callback.team_services import link_github_installation_for_user
 from posthog.exceptions_capture import capture_exception
+from posthog.llm.gateway_access import GatewayAccessBlocked, require_gateway_access
 from posthog.models.integration import GitHubInstallationAccessFetchError, GitHubIntegration, Integration
 from posthog.models.oauth import OAuthApplication
 from posthog.models.team.team import Team
@@ -140,6 +141,12 @@ def create_wizard_run(
             resource_id=str(team.id),
             status=403,
         )
+
+    try:
+        require_gateway_access(User.objects.get(pk=user_id))
+    except GatewayAccessBlocked as exc:
+        capture_provisioning_event("wizard_run", "error", partner=partner, error_code=exc.default_code)
+        raise ProvisioningError(exc.default_code, str(exc.detail), resource_id=str(team.id), status=403)
 
     if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
         capture_provisioning_event("wizard_run", "error", partner=partner, error_code="wizard_unavailable")

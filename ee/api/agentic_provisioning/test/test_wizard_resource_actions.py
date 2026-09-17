@@ -166,6 +166,15 @@ class TestWizardResourceActions(ProvisioningTestBase):
         assert response.json()["error"]["code"] == "forbidden"
         mock_create.assert_not_called()
 
+    def test_gateway_disabled_account_cannot_start_a_partner_wizard_run(self) -> None:
+        self.user.llm_gateway_access_blocked = True
+        self.user.save(update_fields=["llm_gateway_access_blocked"])
+
+        response = self._post_wizard_runs(self.team.id, {"repository": "example/app"})
+
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "provisioned_account_gateway_disabled"
+
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="")
     def test_wizard_runs_unavailable_without_oauth_client_id(self):
         response = self._post_wizard_runs(self.team.id, {"repository": "octocat/hello-world"})

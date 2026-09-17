@@ -313,6 +313,7 @@ def _wire_authenticated_user(mock_db_pool, distinct_id: str):
             "current_team_id": 1,
             "distinct_id": distinct_id,
             "is_staff": False,
+            "llm_gateway_access_blocked": False,
         }
     )
     mock_db_pool.acquire = AsyncMock(return_value=conn)

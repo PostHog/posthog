@@ -112,6 +112,7 @@ class TestChatCompletionsEndpoint:
                 "current_team_id": 1,
                 "distinct_id": "test-distinct-id",
                 "is_staff": False,
+                "llm_gateway_access_blocked": False,
             }
         )
         mock_db_pool.acquire = AsyncMock(return_value=conn)

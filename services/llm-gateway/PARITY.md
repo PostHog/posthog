@@ -103,6 +103,10 @@ Last verified on 2026-09-08 against:
 - `PostHog/posthog` working tree compared with master at `5d1154d4f2d93613a5d9875e9c11d66778958a79`
 - `PostHog/ai-gateway` main at `7f61cfe690a855d465e362297ff76b98d6526314`
 
+Account gateway access policy checked on 2026-09-17 against the PostHog working tree based on master at `5de0582c50cd1233055041f53cf233fb65c6d6a7` and Go main at `27d883dccce5189096b55394857e27a39fabff65`. This focused check does not refresh the other contracts above.
+
+Pending deployment: accounts created through wizard provisioning carry `User.llm_gateway_access_blocked`. Python rejects their personal and OAuth gateway credentials regardless of email verification, OAuth application, or current project. Django refuses their wizard token mints, hosted wizard runs, and Go credential projections for OAuth tokens and project keys they created. Ordinary API access remains available. Apply the user-field migration before deploying this Python gateway; it reads the new column on the already-granted `posthog_user` table. Go relies on Django's credential projection and does not read this user policy itself.
+
 ## References
 
 - Python gateway: [`services/llm-gateway`](./README.md)

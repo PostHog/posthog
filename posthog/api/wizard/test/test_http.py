@@ -10,6 +10,7 @@ from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed, Throttled
@@ -461,6 +462,32 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert response.json()["detail"] == WIZARD_EMAIL_UNVERIFIED_DETAIL
+        mock_mint.assert_not_called()
+
+    @parameterized.expand([False, True])
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_gateway_disabled_account_gets_skill_handoff_without_minting(
+        self,
+        verified: bool,
+        mock_authentication: MagicMock,
+        _mock_flag: MagicMock,
+        mock_mint: MagicMock,
+        _mock_authorized: MagicMock,
+    ) -> None:
+        self._mock_oauth(mock_authentication)
+        self.user.is_email_verified = verified
+        self.user.llm_gateway_access_blocked = True
+        self.user.save(update_fields=["is_email_verified", "llm_gateway_access_blocked"])
+
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert response.json()["code"] == "provisioned_account_gateway_disabled"
         mock_mint.assert_not_called()
 
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)

@@ -229,7 +229,7 @@ def _oauth_authorization_ok(credential: OAuthAccessToken, team: Any, team_id: in
     )
 
     user = credential.user
-    if user is None or not user.is_active:
+    if user is None or not user.is_active or user.llm_gateway_access_blocked:
         return False
     if email_verification_pending(user):
         return False
@@ -275,10 +275,16 @@ def _policy_for_credential(
 
     The credential's team (not a user's current team) is the source of truth for the billed
     team. Fails closed on missing scope, an unresolvable team, a team with no token, or — for
-    OAuth — the user/expiry/scope/membership/RBAC checks. A project secret key has no user, so
-    scope + resolvable-team + team-has-token is sufficient.
+    OAuth — the user/expiry/scope/membership/RBAC checks.
     """
     if not credential_has_gateway_scope(credential):
+        return HyperCacheStoreMissing()
+
+    if (
+        isinstance(credential, ProjectSecretAPIKey)
+        and credential.created_by is not None
+        and credential.created_by.llm_gateway_access_blocked
+    ):
         return HyperCacheStoreMissing()
 
     team = _team_for_credential(credential, memo)
@@ -422,7 +428,9 @@ def refresh_all_gateway_credentials() -> int:
     now = timezone.now()
     memo = _RefreshMemo()
     querysets = (
-        ProjectSecretAPIKey.objects.select_related("team").filter(scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]),
+        ProjectSecretAPIKey.objects.select_related("team", "created_by").filter(
+            scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]
+        ),
         OAuthAccessToken.with_scope(GATEWAY_CREDENTIAL_REQUIRED_SCOPE)
         .select_related("user", "application")
         .filter(user__is_active=True, expires__gt=now),

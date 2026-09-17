@@ -14,6 +14,7 @@ from django.utils import timezone as django_timezone
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
+from posthog.llm.gateway_access import GatewayAccessBlocked
 from posthog.models import Integration, Organization, OrganizationMembership, Team
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
@@ -1323,6 +1324,19 @@ class TestFacadeReadsAndMappers(TestCase):
         # overlap-clone-boot launch (before run_wizard) burns the prompt on an untouched repo
         # and the run never opens a PR. Wizard runs must pin the overlap boot off.
         self.assertIs(run.state.get("overlap_clone_boot_enabled"), False)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_gateway_disabled_account_cannot_create_cloud_wizard_run(self, mock_workflow: MagicMock) -> None:
+        Integration.objects.create(team=self.team, kind="github", config={})
+        self.user.llm_gateway_access_blocked = True
+        self.user.save(update_fields=["llm_gateway_access_blocked"])
+        before = Task.objects.filter(team=self.team).count()
+
+        with self.assertRaises(GatewayAccessBlocked):
+            facade.create_wizard_cloud_run(team=self.team, user_id=self.user.id, repository="example/app")
+
+        self.assertEqual(Task.objects.filter(team=self.team).count(), before)
+        mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_wizard_cloud_run_pins_its_model(self, _mock_workflow):

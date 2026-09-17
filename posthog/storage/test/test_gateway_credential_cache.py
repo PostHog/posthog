@@ -59,13 +59,16 @@ class GatewayCredentialTestMixin(BaseTest):
         # LocMemCache persists across tests in-process; isolate each test.
         hypercache.cache_client.clear()
 
-    def _make_secret_key(self, scopes: list[str], token: str | None = None) -> tuple[ProjectSecretAPIKey, str]:
+    def _make_secret_key(
+        self, scopes: list[str], token: str | None = None, created_by: User | None = None
+    ) -> tuple[ProjectSecretAPIKey, str]:
         token = token or generate_random_token_secret()
         key = ProjectSecretAPIKey.objects.create(
             label=f"sk {token[-12:]}",  # unique_team_label requires a distinct label per team
             team=self.team,
             secure_value=hash_key_value(token),
             scopes=scopes,
+            created_by=created_by,
         )
         return key, token
 
@@ -300,10 +303,15 @@ class TestGatewayCredentialScopeGating(GatewayCredentialTestMixin):
             ("secret_key_wildcard_does_not_subsume", ["*"], False),
             ("secret_key_write_only_not_projected", ["llm_gateway:write"], False),
             ("secret_key_has_scope", [GATEWAY_SCOPE], True),
+            ("secret_key_blocked_creator", [GATEWAY_SCOPE], False, True),
         ]
     )
-    def test_secret_key_scope_gating(self, _name: str, scopes: list[str], should_write: bool):
-        credential, _ = self._make_secret_key(scopes)
+    def test_secret_key_scope_gating(
+        self, _name: str, scopes: list[str], should_write: bool, gateway_access_blocked: bool = False
+    ):
+        self.user.llm_gateway_access_blocked = gateway_access_blocked
+        self.user.save(update_fields=["llm_gateway_access_blocked"])
+        credential, _ = self._make_secret_key(scopes, created_by=self.user)
         project_gateway_credential(credential)
         self.assertEqual(self._read_blob(credential_hash(credential)) is not None, should_write)
 
@@ -349,9 +357,6 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
         project_gateway_credential(credential)
         self.assertIsNone(self._read_blob(credential_hash(credential)))
 
-    # The user / scope-narrowing / membership / RBAC enforcement only applies to OAuth
-    # — project secret keys carry no user, no scoped_*, and no membership. These cases
-    # exercise the surviving OAuth authorization path.
     def test_inactive_user_clears(self):
         credential = self._make_oauth(GATEWAY_SCOPE)
         project_gateway_credential(credential)
@@ -370,6 +375,8 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
             ("unverified", False, True, False, False),
             ("unverified_instance_without_email", False, False, False, True),
             ("unverified_org_verification_disabled", False, True, True, True),
+            ("verified_blocked_other_oauth_app", True, True, False, False, True),
+            ("verification_disabled_blocked", False, True, True, False, True),
         ]
     )
     def test_email_verification_gating(
@@ -379,9 +386,11 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
         email_available: bool,
         verification_disabled: bool,
         should_write: bool,
+        gateway_access_blocked: bool = False,
     ):
         credential = self._make_oauth(GATEWAY_SCOPE)
         self.user.is_email_verified = is_email_verified
+        self.user.llm_gateway_access_blocked = gateway_access_blocked
         self.user.save()
         with (
             patch("posthog.api.email_verification.is_email_available", return_value=email_available),
@@ -513,7 +522,6 @@ class TestGatewayCredentialTasks(GatewayCredentialTestMixin):
         update_gateway_credential_cache_task("unknown_kind", "x")
 
     def test_reproject_user_task_projects_oauth(self):
-        # reproject_user is user-scoped, so it covers OAuth only; secret keys have no user.
         oauth = self._make_oauth(GATEWAY_SCOPE)
         reproject_user_gateway_credentials_task(self.user.pk)
         self.assertIsNotNone(self._read_blob(credential_hash(oauth)))
@@ -694,20 +702,30 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
     @parameterized.expand(
         [
-            ("becomes_verified", False, True),
-            ("becomes_unverified", True, False),
+            ("becomes_verified", "is_email_verified", False, True, False),
+            ("becomes_unverified", "is_email_verified", True, False, False),
+            ("gateway_blocked", "llm_gateway_access_blocked", False, True, False),
+            ("gateway_unblocked", "llm_gateway_access_blocked", True, False, False),
+            ("deferred_gateway_blocked", "llm_gateway_access_blocked", False, True, True),
+            ("deferred_gateway_unblocked", "llm_gateway_access_blocked", True, False, True),
         ]
     )
     @patch("posthog.api.email_verification.is_email_available", return_value=True)
-    def test_user_email_verification_change_reprojects_synchronously(
-        self, _name: str, initial: bool, new: bool, _mock_email_available
+    def test_user_access_change_reprojects_synchronously(
+        self, _name: str, field: str, initial: bool, new: bool, deferred: bool, _mock_email_available
     ):
-        self.user.is_email_verified = initial
+        self.user.is_email_verified = True
+        setattr(self.user, field, initial)
         self.user.save()
         oauth = self._make_oauth(GATEWAY_SCOPE)
+        secret_key, _ = self._make_secret_key([GATEWAY_SCOPE], created_by=self.user)
         project_gateway_credential(oauth)
-        cache_hash = credential_hash(oauth)
-        self.assertEqual(self._read_blob(cache_hash) is not None, initial)
+        project_gateway_credential(secret_key)
+        oauth_hash = credential_hash(oauth)
+        secret_key_hash = credential_hash(secret_key)
+        gateway_access_changed = field == "llm_gateway_access_blocked"
+        self.assertEqual(self._read_blob(oauth_hash) is not None, not initial if gateway_access_changed else initial)
+        self.assertEqual(self._read_blob(secret_key_hash) is not None, not initial if gateway_access_changed else True)
 
         with (
             patch("posthog.storage.gateway_credential_signal_handlers.settings") as mock_settings,
@@ -716,11 +734,13 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
         ):
             mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
             mock_transaction.on_commit.side_effect = lambda fn: fn()
-            user = User.objects.get(pk=self.user.pk)
-            user.is_email_verified = new
-            user.save()
+            queryset = User.objects.only("id") if deferred else User.objects.all()
+            user = queryset.get(pk=self.user.pk)
+            setattr(user, field, new)
+            user.save(update_fields=[field])
 
-        self.assertEqual(self._read_blob(cache_hash) is not None, new)
+        self.assertEqual(self._read_blob(oauth_hash) is not None, not new if gateway_access_changed else new)
+        self.assertEqual(self._read_blob(secret_key_hash) is not None, not new if gateway_access_changed else True)
         mock_delay.assert_not_called()  # sync reprojection succeeded, no async retry needed
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")

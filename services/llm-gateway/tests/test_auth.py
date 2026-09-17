@@ -119,6 +119,7 @@ def _token_row(**overrides) -> dict:
         "application_id": 789,
         "distinct_id": "test-distinct-id",
         "is_staff": False,
+        "llm_gateway_access_blocked": False,
         "scoped_teams": None,
         "scoped_organizations": None,
     }
@@ -161,6 +162,7 @@ class TestAuthService:
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
                 "is_staff": False,
+                "llm_gateway_access_blocked": False,
             }
         )
 
@@ -187,6 +189,7 @@ class TestAuthService:
                 "current_team_id": 101,
                 "distinct_id": "test-distinct-id",
                 "is_staff": False,
+                "llm_gateway_access_blocked": False,
             }
         )
 
@@ -242,6 +245,7 @@ class TestAuthService:
                     "application_id": 789,
                     "distinct_id": "test-distinct-id",
                     "is_staff": False,
+                    "llm_gateway_access_blocked": False,
                     "scoped_teams": scoped_teams,
                     "scoped_organizations": scoped_organizations,
                 },
@@ -281,6 +285,7 @@ class TestAuthService:
                     "application_id": 789,
                     "distinct_id": "test-distinct-id",
                     "is_staff": False,
+                    "llm_gateway_access_blocked": False,
                     "scoped_teams": [],
                     "scoped_organizations": ["org-1"],
                 },
@@ -324,6 +329,7 @@ class TestAuthService:
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
                 "is_staff": False,
+                "llm_gateway_access_blocked": False,
                 "scoped_teams": [456],
                 "scoped_organizations": ["org-1"],
             }
@@ -356,6 +362,7 @@ class TestAuthService:
                     "application_id": 789,
                     "distinct_id": "test-distinct-id",
                     "is_staff": False,
+                    "llm_gateway_access_blocked": False,
                     "scoped_teams": None,
                     "scoped_organizations": None,
                 },
@@ -404,6 +411,7 @@ class TestAuthService:
                     "application_id": 789,
                     "distinct_id": "test-distinct-id",
                     "is_staff": False,
+                    "llm_gateway_access_blocked": False,
                     "scoped_teams": None,
                     "scoped_organizations": None,
                 },
@@ -686,8 +694,9 @@ class TestPersonalApiKeyAuthenticator:
         assert authenticator.matches("random_token") is False
 
     @pytest.mark.asyncio
-    async def test_valid_key_returns_authenticated_user(
-        self, authenticator: PersonalApiKeyAuthenticator, mock_pool: MagicMock
+    @pytest.mark.parametrize("gateway_access_blocked", [False, True], ids=["allowed", "blocked"])
+    async def test_valid_key_checks_account_gateway_access(
+        self, authenticator: PersonalApiKeyAuthenticator, mock_pool: MagicMock, gateway_access_blocked: bool
     ) -> None:
         conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(
@@ -698,11 +707,17 @@ class TestPersonalApiKeyAuthenticator:
                 "current_team_id": 456,
                 "distinct_id": "test-distinct-id",
                 "is_staff": False,
+                "is_email_verified": True,
+                "llm_gateway_access_blocked": gateway_access_blocked,
             }
         )
 
         token_hash = authenticator.hash_token("phx_test_key")
         result = await authenticator.authenticate(token_hash, mock_pool)
+
+        if gateway_access_blocked:
+            assert result is None
+            return
 
         assert result is not None
         assert result.user_id == 123
@@ -817,6 +832,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
                 "is_staff": False,
+                "llm_gateway_access_blocked": False,
             }
         )
 
@@ -903,6 +919,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
                 "is_staff": False,
+                "llm_gateway_access_blocked": False,
             }
         )
 
@@ -913,8 +930,9 @@ class TestOAuthAccessTokenAuthenticator:
         assert result.scopes == expected_scopes
 
     @pytest.mark.asyncio
-    async def test_valid_token_returns_authenticated_user(
-        self, authenticator: OAuthAccessTokenAuthenticator, mock_pool: MagicMock
+    @pytest.mark.parametrize("gateway_access_blocked", [False, True], ids=["allowed", "blocked"])
+    async def test_valid_token_checks_account_gateway_access(
+        self, authenticator: OAuthAccessTokenAuthenticator, mock_pool: MagicMock, gateway_access_blocked: bool
     ) -> None:
         conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(
@@ -927,11 +945,17 @@ class TestOAuthAccessTokenAuthenticator:
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
                 "is_staff": True,
+                "is_email_verified": True,
+                "llm_gateway_access_blocked": gateway_access_blocked,
             }
         )
 
         token_hash = authenticator.hash_token("pha_valid_token")
         result = await authenticator.authenticate(token_hash, mock_pool)
+
+        if gateway_access_blocked:
+            assert result is None
+            return
 
         assert result is not None
         assert result.user_id == 123
@@ -968,6 +992,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
                 "is_staff": False,
+                "llm_gateway_access_blocked": False,
             }
         )
 

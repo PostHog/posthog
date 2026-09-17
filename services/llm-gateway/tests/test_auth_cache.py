@@ -239,6 +239,7 @@ class TestAuthServiceCaching:
                 "current_team_id": 456,
                 "distinct_id": "test-distinct-id",
                 "is_staff": False,
+                "llm_gateway_access_blocked": False,
             }
         )
 
@@ -279,6 +280,7 @@ class TestAuthServiceCaching:
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
                 "is_staff": False,
+                "llm_gateway_access_blocked": False,
             }
         )
 
@@ -319,6 +321,7 @@ class TestAuthServiceCaching:
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
                 "is_staff": False,
+                "llm_gateway_access_blocked": False,
             }
         )
 
@@ -377,6 +380,7 @@ class TestAuthServiceMetrics:
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "distinct_id": "test-distinct-id",
                 "is_staff": False,
+                "llm_gateway_access_blocked": False,
             }
         )
 
@@ -408,6 +412,7 @@ class TestAuthServiceMetrics:
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "distinct_id": "test-distinct-id",
                 "is_staff": False,
+                "llm_gateway_access_blocked": False,
             }
         )
 

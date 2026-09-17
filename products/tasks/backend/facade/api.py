@@ -47,6 +47,7 @@ import posthoganalytics
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
+from posthog.llm.gateway_access import require_gateway_access
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
@@ -1582,6 +1583,7 @@ def create_wizard_cloud_run(
     they route to the unbilled ``onboarding`` gateway product, whose model allowlist is narrow, and
     PostHog absorbs the cost. Keep the pin inside that allowlist or the run fails at the gateway.
     """
+    require_gateway_access(User.objects.get(pk=user_id))
     head_branch = generate_wizard_head_branch()
     prompt = build_wizard_pr_agent_prompt(head_branch)
     return create_and_run_task(
