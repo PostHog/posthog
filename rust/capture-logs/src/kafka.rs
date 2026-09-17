@@ -10,12 +10,14 @@ use capture::config::KafkaConfig;
 use chrono::Utc;
 use health::HealthHandle;
 use metrics::{counter, gauge};
-use rdkafka::error::KafkaError;
+use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::message::{Header, OwnedHeaders};
+use rdkafka::producer::future_producer::OwnedDeliveryResult;
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use std::result::Result::Ok;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::log::{debug, info};
 
@@ -194,6 +196,48 @@ async fn build_producer(
     };
 
     Ok(producer)
+}
+
+fn count_produce_error(topic: &str, reason: &'static str) {
+    counter!(
+        "capture_kafka_produce_errors_total",
+        "topic" => Arc::<str>::from(topic),
+        "reason" => reason
+    )
+    .increment(1);
+}
+
+/// The outer error means no delivery report arrived, which is what `message.timeout.ms`
+/// expiring during retries looks like. It and the inner broker error both mean the batch
+/// is not in Kafka, so both must reach the handler, which answers 5xx and makes the
+/// sender redeliver. `E` is generic to keep the `futures` oneshot channel out of this
+/// crate's dependencies.
+fn interpret_delivery_result<E>(
+    result: Result<OwnedDeliveryResult, E>,
+    topic: &str,
+) -> Result<(), anyhow::Error> {
+    match result {
+        Err(_) => {
+            count_produce_error(topic, "cancelled");
+            Err(anyhow!(
+                "kafka error: delivery timed out before the broker acknowledged the batch"
+            ))
+        }
+        Ok(Err((KafkaError::MessageProduction(RDKafkaErrorCode::MessageSizeTooLarge), _))) => {
+            // Counted apart from the retryable failures because a batch above
+            // message.max.bytes cannot succeed on a retry. Still an error: the batch is
+            // lost either way, and every caller maps any error to the same 5xx.
+            count_produce_error(topic, "message_too_large");
+            Err(anyhow!(
+                "kafka error: broker rejected the batch as too large"
+            ))
+        }
+        Ok(Err((err, _))) => {
+            count_produce_error(topic, "broker_error");
+            Err(anyhow!("kafka error: delivery failed: {err}"))
+        }
+        Ok(Ok(_)) => Ok(()),
+    }
 }
 
 impl KafkaSink {
@@ -406,13 +450,14 @@ impl KafkaSink {
                     })
             }),
         }) {
-            Err((err, _)) => Err(anyhow!(format!("kafka error: {err}"))),
+            Err((err, _)) => {
+                count_produce_error(topic, "enqueue");
+                Err(anyhow!(format!("kafka error: {err}")))
+            }
             Ok(delivery_future) => Ok(delivery_future),
         }?;
 
-        drop(future.await?);
-
-        Ok(())
+        interpret_delivery_result(future.await, topic)
     }
 
     pub async fn write(
@@ -512,5 +557,46 @@ impl KafkaSink {
         .await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rdkafka::message::OwnedMessage;
+    use rdkafka::Timestamp;
+
+    fn rejected_by_broker(err: KafkaError) -> Result<OwnedDeliveryResult, ()> {
+        Ok(Err((
+            err,
+            OwnedMessage::new(
+                Some(b"avro batch".to_vec()),
+                None,
+                "logs".to_string(),
+                Timestamp::NotAvailable,
+                0,
+                0,
+                None,
+            ),
+        )))
+    }
+
+    #[test]
+    fn a_failed_delivery_is_never_reported_as_a_write() {
+        let cancelled: Result<OwnedDeliveryResult, ()> = Err(());
+        assert!(interpret_delivery_result(cancelled, "logs").is_err());
+
+        let broker_error = rejected_by_broker(KafkaError::MessageProduction(
+            RDKafkaErrorCode::BrokerTransportFailure,
+        ));
+        assert!(interpret_delivery_result(broker_error, "logs").is_err());
+
+        let too_large = rejected_by_broker(KafkaError::MessageProduction(
+            RDKafkaErrorCode::MessageSizeTooLarge,
+        ));
+        assert!(interpret_delivery_result(too_large, "logs").is_err());
+
+        let delivered: Result<OwnedDeliveryResult, ()> = Ok(Ok((0, 42)));
+        assert!(interpret_delivery_result(delivered, "logs").is_ok());
     }
 }
