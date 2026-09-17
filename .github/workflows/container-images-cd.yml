@@ -477,6 +477,8 @@ jobs:
                         - 'products/signals/backend/**'
                         - 'products/signals/skills/**'
                         - 'products/review_hog/backend/**'
+                        - 'products/reaperhog/backend/**'
+                        - 'products/reaperhog/skills/**'
                         - 'products/business_knowledge/backend/**'
                         - 'products/customer_analytics/backend/**'
                         - 'posthog/temporal/common/**'
