@@ -1846,21 +1846,30 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
         The value was measured without a viewer, exactly like a report metric snapshot, so the same
         policy decides. The outcome tag stays so the timeline still reads; the numbers and the line
         that quotes them do not. A result whose check no longer exists fails closed.
+
+        An `agent` result is not measured that way and is not gated here. A scout run wrote it from
+        what its own token could read, which is the provenance every other thing that run writes on
+        the report already has, and the policy would refuse it outright because it judges a stored
+        query an agent check does not carry.
         """
         policy = report_metric_access_policy(self.context)
-        configs: dict[str, object] = self.context.setdefault("_signals_check_configs", {})
+        checks: dict[str, tuple[str, object] | None] = self.context.setdefault("_signals_check_configs", {})
         check_id = str(content.get("check_id"))
-        if check_id not in configs:
-            configs[check_id] = (
+        if check_id not in checks:
+            checks[check_id] = (
                 SignalReportCheck.all_teams.filter(id=check_id, report_id=obj.report_id)
-                .values_list("config", flat=True)
+                .values_list("kind", "config")
                 .first()
                 if _is_uuid(check_id)
                 else None
             )
-        config = configs[check_id]
-        if isinstance(config, Mapping) and policy.may_read_snapshot(config):
-            return content
+        check = checks[check_id]
+        if check is not None:
+            kind, config = check
+            if kind == SignalReportCheck.Kind.AGENT:
+                return content
+            if isinstance(config, Mapping) and policy.may_read_snapshot(config):
+                return content
         return {
             **content,
             "observed_value": None,
