@@ -1046,7 +1046,7 @@ def get_cache_stats() -> dict[str, Any]:
 #
 # Transitional surface: KAFKA_ROUTING_FLAG, _evaluate_kafka_routing_flag,
 # _route_to_kafka, get_team_primary_flags_writer (and its config binding on
-# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), REFRESH_ROUTING_FLAG, _route_refresh_to_kafka,
+# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), REFRESH_ROUTING_FLAG, _refresh_routing_enabled,
 # route_refresh_to_kafka (and its config binding), SHADOW_COMPARE_FLAG,
 # _shadow_compare_enabled, publish_shadow_invalidation, _produce_invalidation,
 # _enqueue_invalidation, and the Kafka branch inside it.
@@ -1162,7 +1162,7 @@ def _route_to_kafka(team_id: int) -> bool:
 REFRESH_ROUTING_FLAG = "flags-cache-refresh-kafka"
 
 
-def _route_refresh_to_kafka(team_id: int) -> bool:
+def _refresh_routing_enabled(team_id: int) -> bool:
     """Return True if this team's hourly refresh should be raised as a Kafka
     invalidation instead of being built in the Celery worker.
 
@@ -1206,9 +1206,12 @@ def route_refresh_to_kafka(team_id: int) -> bool:
     makes the sweep skip its own build and count the team as enqueued.
 
     A produce failure propagates instead of returning True, so the sweep counts the
-    team as failed. The enqueued count is what the ramp is read from, and a run that
-    counted a lost message as enqueued would report a clean hand-off while the producer
-    was down.
+    team as failed rather than enqueued. That covers what `produce` reports
+    synchronously: a full local queue, a serialization error, and a producer that
+    cannot be constructed. It does not cover broker-side loss, because `flush_timeout=0`
+    returns before any ack, so an unreachable cluster still queues the message locally
+    and the team reads as enqueued. The expiry backlog gauge and the verifier are what
+    catch that class, never this count.
 
     A propagated error is still not a Celery fallback, for the reason
     `_enqueue_invalidation` gives: the two paths are mutually exclusive so a broken
@@ -1217,7 +1220,7 @@ def route_refresh_to_kafka(team_id: int) -> bool:
     failed. A team whose message is lost stays inside the expiry window, so the next
     hourly run raises it again, and the verifier repairs it in the meantime.
     """
-    if not _route_refresh_to_kafka(team_id):
+    if not _refresh_routing_enabled(team_id):
         return False
 
     _produce_invalidation(team_id, source="refresh", raise_on_error=True)
@@ -1342,9 +1345,11 @@ def _produce_invalidation(
     whose builder predates the field must not be sent anything but the default.
 
     `raise_on_error` belongs to the caller, not to the wire: it says whether a caller
-    is there to report the failure. The refresh sweep sets it so a lost message counts
-    as a failed team instead of a hand-off that never happened. Signal handlers leave
-    it off, because a flag edit has nothing to report a produce failure to.
+    is there to report the failure. The refresh sweep sets it so a team the `except`
+    below catches counts as failed instead of as a hand-off that never happened. It
+    reaches only that synchronous class, never a delivery failure, which arrives after
+    this function has returned. Signal handlers leave it off, because a flag edit has
+    nothing to report a produce failure to.
     """
     try:
         msg = FlagsCacheInvalidation(team_id=team_id, emitted_at=datetime.now(UTC), shadow=shadow, source=source)

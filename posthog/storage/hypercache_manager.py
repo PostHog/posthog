@@ -248,9 +248,10 @@ class HyperCacheManagementConfig:
     # sweep would call update_fn. True hands the refresh to another builder, which
     # makes the sweep skip its own build and count the team as enqueued. Unset, the
     # sweep only ever builds, which is what every cache that has not opted in gets.
-    # The hook owns its own gating, so a cache can ramp the handover per team, and it
-    # must swallow a gate failure: raising costs the team a build it would otherwise
-    # have had, because the sweep counts the exception as a failed refresh.
+    # The hook owns its own gating, so a cache can ramp the handover per team. A hook
+    # that raises makes the sweep count the team as failed and skip the build, so it
+    # should swallow a gate failure it can decide around, and raise only where failed
+    # is the reading it wants.
     # Takes a team id rather than a Team: `refresh_only_fields` defers most columns on
     # the Team the sweep loads, so a hook reading any other field would trigger a lazy
     # refetch, or fail outright against a read replica that has not applied the column.
