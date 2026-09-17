@@ -87,7 +87,7 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _materialized_column_name(self, table: str, prop: str, table_column: str = "properties") -> str:
-        from ee.clickhouse.materialized_columns.columns import get_materialized_columns  # noqa: PLC0415
+        from posthog.clickhouse.materialized_columns.columns import get_materialized_columns  # noqa: PLC0415
 
         column = get_materialized_columns(table).get((prop, cast(TableColumn, table_column)))
         assert column is not None, f"expected materialized column for {table}.{prop} ({table_column})"

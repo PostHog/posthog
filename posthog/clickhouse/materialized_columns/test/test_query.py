@@ -13,7 +13,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(len(queries))
 
         # make sure that the queries start with a discoverable prefix.
-        # If this changes, also update ee/clickhouse/materialized_columns/analyze.py::_get_queries to
+        # If this changes, also update posthog/clickhouse/materialized_columns/analyze.py::_get_queries to
         # filter on the right queries
         for q in queries:
             self.assertTrue(q.startswith("/* user_id"))

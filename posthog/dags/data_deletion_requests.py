@@ -30,6 +30,7 @@ from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, LightweightDeleteMutationRunner
+from posthog.clickhouse.materialized_columns.columns import MaterializedColumnDetails
 from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
 from posthog.dags.deletes import deletes_job
@@ -73,8 +74,6 @@ from posthog.models.person.bulk_delete import (
 )
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-
-from ee.clickhouse.materialized_columns.columns import MaterializedColumnDetails
 
 OWNER_TAG = {"owner": JobOwners.TEAM_CLICKHOUSE.value}
 
@@ -326,7 +325,7 @@ def _get_affected_mat_columns(
     ``table_column="person_properties"`` to discover columns materialised from
     ``events.person_properties``.  Comments live on the distributed ``events``
     table while the DEFAULT expression lives on ``sharded_events`` (see
-    ``materialize()`` in ee/clickhouse/materialized_columns), so we cannot
+    ``materialize()`` in posthog/clickhouse/materialized_columns), so we cannot
     filter by ``default_kind`` on the same row that carries the comment.
     The comment itself is a sufficient identifier — it is PostHog-specific and the
     ``elements_chain::*`` family is excluded explicitly.

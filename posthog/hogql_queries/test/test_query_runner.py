@@ -65,6 +65,7 @@ from posthog.hogql.query_stats import get_active, record
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.materialized_columns.analyze import materialize
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, wrap_clickhouse_query_error
@@ -902,19 +903,12 @@ class TestQueryRunner(BaseTest):
         self.assertEqual(response.cache_target_age, runner.cache_target_age(response.last_refresh))
 
     def test_modifier_passthrough(self):
-        try:
-            from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+        from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
-            from ee.clickhouse.materialized_columns.analyze import materialize
-
-            # The column outlives this test otherwise, and every later test on the shard that
-            # filters on $browser then snapshots the materialized form
-            self.addCleanup(cleanup_materialized_columns)
-            materialize("events", "$browser")
-        except ModuleNotFoundError:
-            # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
-            return
+        # The column outlives this test otherwise, and every later test on the shard that
+        # filters on $browser then snapshots the materialized form
+        self.addCleanup(cleanup_materialized_columns)
+        materialize("events", "$browser")
 
         runner = HogQLQueryRunner(
             query=HogQLQuery(query="select properties.$browser from events"),

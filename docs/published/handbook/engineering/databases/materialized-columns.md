@@ -24,7 +24,7 @@ Note that materialized columns also require backfilling the materialized columns
 
 ### Automatic materialization
 
-We have a cron-job which analyzes slow queries ran last week and tries to find properties that are used in these slow queries, materializing some of these. Code for this can be found in `ee/clickhouse/materialized_columns/analyze.py`
+We have a cron-job which analyzes slow queries ran last week and tries to find properties that are used in these slow queries, materializing some of these. Code for this can be found in `posthog/clickhouse/materialized_columns/analyze.py`
 
 Note that this cron can often be disabled due to cluster issues or ongoing data migrations.
 

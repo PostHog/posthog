@@ -22,6 +22,7 @@
 1 posthog/errors.py
 1 posthog/helpers/two_factor_session.py
 1 posthog/hogql/compiler/javascript.py
+1 posthog/hogql/context.py
 1 posthog/hogql/database/database.py
 1 posthog/hogql/database/schema/channel_type.py
 1 posthog/hogql/filters.py
@@ -40,6 +41,7 @@
 1 posthog/management/commands/backfill_distinct_id_overrides.py
 1 posthog/management/commands/backfill_raw_sessions_table.py
 1 posthog/management/commands/create_channel_definitions_file.py
+1 posthog/management/migration_analysis/models.py
 1 posthog/models/file_system/file_system_representation.py
 1 posthog/models/group/util.py
 1 posthog/models/integration/oauth.py
@@ -71,6 +73,7 @@
 1 posthog/temporal/data_modeling/activities/fail_materialization.py
 1 posthog/temporal/data_modeling/activities/materialize_view.py
 1 posthog/temporal/data_modeling/activities/preempt_dag_run.py
+1 posthog/temporal/data_modeling/workflows/execute_dag.py
 1 posthog/temporal/exports/workflows.py
 1 posthog/temporal/ingestion_acceptance_test/test_cases_discovery.py
 1 posthog/temporal/mcp_analytics/intent_clustering/coordinator.py
@@ -1357,7 +1360,7 @@
 10 products/signals/backend/temporal/summary.py
 10 products/tasks/backend/temporal/process_task/activities/provision_sandbox.py
 104 posthog/hogql/ast.py
-12 ee/clickhouse/materialized_columns/columns.py
+12 posthog/clickhouse/materialized_columns/columns.py
 14 products/marketing_analytics/backend/hogql_queries/adapters/base.py
 16 posthog/temporal/ai_observability/eval_reports/types.py
 17 products/exports/backend/temporal/subscriptions/types.py
@@ -1373,10 +1376,8 @@
 2 posthog/dags/person_overrides.py
 2 posthog/dags/scripts/extract_reconciliation_results.py
 2 posthog/helpers/email_utils.py
-1 posthog/hogql/context.py
 2 posthog/hogql/database/models.py
 2 posthog/management/commands/generate_test_events.py
-1 posthog/management/migration_analysis/models.py
 2 posthog/models/data_deletion_request.py
 2 posthog/models/js_snippet_versioning.py
 2 posthog/models/kafka_partition_stats/sql.py
@@ -1392,7 +1393,6 @@
 2 posthog/temporal/data_modeling/activities/get_dag_structure.py
 2 posthog/temporal/data_modeling/activities/prepare_queryable_table.py
 2 posthog/temporal/data_modeling/activities/succeed_materialization.py
-1 posthog/temporal/data_modeling/workflows/execute_dag.py
 2 posthog/temporal/dlq_replay/workflow.py
 2 posthog/temporal/ingestion_acceptance_test/client.py
 2 posthog/temporal/ingestion_acceptance_test/results.py
@@ -1498,7 +1498,6 @@
 3 posthog/cdp/internal_events.py
 3 posthog/dags/backups.py
 3 posthog/hogql/compiler/bytecode.py
-3 products/product_analytics/backend/hogql_queries/trends/test/test_trends_query_runner.py
 3 posthog/hogql_queries/utils/test/test_time_sliced_query.py
 3 posthog/local_bootstrap/importer.py
 3 posthog/models/kafka_debug/sql.py
@@ -1530,6 +1529,7 @@
 3 products/notebooks/backend/markdown_collab.py
 3 products/posthog_ai/eval_harness/acp_log.py
 3 products/posthog_ai/eval_harness/engines/types.py
+3 products/product_analytics/backend/hogql_queries/trends/test/test_trends_query_runner.py
 3 products/pulse/backend/temporal/inputs.py
 3 products/signals/backend/temporal/backfill_error_tracking.py
 3 products/tasks/backend/facade/api.py

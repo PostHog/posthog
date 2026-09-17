@@ -1703,7 +1703,7 @@ def _add_default_mat_columns(col_defs: list[tuple[str, str, str]], client: Clien
     Mirrors production: ``sharded_events`` gets the column with the ``DEFAULT``
     expression but no comment, ``events`` (distributed) gets just the type plus
     the ``column_materializer::`` comment. See ``materialize()`` in
-    ee/clickhouse/materialized_columns/columns.py.
+    posthog/clickhouse/materialized_columns/columns.py.
 
     Each entry is (col_name, prop_name, col_type).
     """

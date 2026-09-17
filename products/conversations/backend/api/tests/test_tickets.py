@@ -30,6 +30,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
 from posthog.models import ActivityLog, Comment, Organization, Tag, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -52,8 +53,6 @@ from products.conversations.backend.models import (
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
 from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
-
-from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
 
 
 class TestComposeTicketSerializer(SimpleTestCase):

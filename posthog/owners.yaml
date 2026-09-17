@@ -17,6 +17,8 @@ rules:
       owners: team-web-analytics
     - match: '/hogql/'
       owners: team-data-tools
+    - match: '/clickhouse/materialized_columns/'
+      owners: team-analytics-platform
     - match: '/management/migration_analysis/'
       owners: team-devex
     - match: '/queries/'

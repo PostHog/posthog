@@ -3,8 +3,6 @@ owners: []
 rules:
     - match: ['/api/billing.py', '/api/test/test_billing.py', '/billing/']
       owners: team-billing
-    - match: '/clickhouse/materialized_columns/'
-      owners: team-analytics-platform
     - match: ['/clickhouse/queries/related_actors_query.py', '/clickhouse/views/groups.py']
       owners: team-product-analytics
     - match: '/hogai/'

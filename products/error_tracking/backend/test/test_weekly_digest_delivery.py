@@ -11,6 +11,7 @@ from django.utils import timezone
 
 import requests
 
+from posthog.clickhouse.materialized_columns.columns import materialize
 from posthog.models import Team, User
 from posthog.models.messaging import MessagingRecord
 from posthog.models.utils import uuid7
@@ -23,8 +24,6 @@ from products.error_tracking.backend.models import (
     sync_issues_to_clickhouse,
 )
 from products.error_tracking.backend.weekly_digest_delivery import send_digest_to_workflow
-
-from ee.clickhouse.materialized_columns.columns import materialize
 
 
 def _days_ago(n: int) -> str:

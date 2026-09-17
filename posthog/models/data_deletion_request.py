@@ -871,8 +871,7 @@ def discover_affected_mat_columns(properties: list[str], table_column: str) -> l
 
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.client.connection import ClickHouseUser
-
-    from ee.clickhouse.materialized_columns.columns import MaterializedColumnDetails
+    from posthog.clickhouse.materialized_columns.columns import MaterializedColumnDetails
 
     rows = sync_execute(
         """

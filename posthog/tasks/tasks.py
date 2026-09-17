@@ -1089,12 +1089,9 @@ def recompute_materialized_columns_enabled() -> bool:
 @shared_task(ignore_result=True)
 def clickhouse_materialize_columns() -> None:
     if recompute_materialized_columns_enabled():
-        try:
-            from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
-        except ImportError:
-            pass
-        else:
-            materialize_properties_task()
+        from posthog.clickhouse.materialized_columns.analyze import materialize_properties_task
+
+        materialize_properties_task()
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.USAGE_REPORTS.value)

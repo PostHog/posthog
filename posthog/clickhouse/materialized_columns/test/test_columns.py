@@ -14,13 +14,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns
-from posthog.conftest import create_clickhouse_tables
-from posthog.constants import GROUP_TYPES_LIMIT
-from posthog.models.event.sql import EVENTS_DATA_TABLE
-from posthog.models.property import PropertyName, TableColumn
-from posthog.settings import CLICKHOUSE_DATABASE
-
-from ee.clickhouse.materialized_columns.columns import (
+from posthog.clickhouse.materialized_columns.columns import (
     MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
     MaterializedColumnDetails,
@@ -36,6 +30,11 @@ from ee.clickhouse.materialized_columns.columns import (
     materialize,
     update_column_is_disabled,
 )
+from posthog.conftest import create_clickhouse_tables
+from posthog.constants import GROUP_TYPES_LIMIT
+from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.property import PropertyName, TableColumn
+from posthog.settings import CLICKHOUSE_DATABASE
 
 EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS = [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)] + [
     "$session_id",

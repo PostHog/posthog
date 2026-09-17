@@ -175,15 +175,15 @@ in. The agents research and report only; they do not change code.
 Not every recommendation is researchable this way. Spawn an agent only where source code is the source of
 truth; skip operational / infra items:
 
-| Recommendation shape                     | Researchable? | What the agent reads                                                     |
-| ---------------------------------------- | ------------- | ------------------------------------------------------------------------ |
-| Rewrite a slow insight / query shape     | yes           | the query runner under `posthog/hogql_queries/`, the HogQL it emits      |
-| Materialize property X                   | yes           | the materialized-column registry (`ee/clickhouse/materialized_columns/`) |
-| Make pipeline Y incremental              | yes           | the dagster / temporal job that builds it                                |
-| Cap memory / add a query guard per key   | yes           | where ClickHouse SETTINGS and per-key throttling are applied             |
-| Add a breakdown cardinality guard        | yes           | the trends / breakdown query runner                                      |
-| Investigate an infra incident window     | no            | n/a (deploys, node health, cluster state)                                |
-| Watch / confirm a tenant's intended load | no            | n/a (a judgement call for a human)                                       |
+| Recommendation shape                     | Researchable? | What the agent reads                                                          |
+| ---------------------------------------- | ------------- | ----------------------------------------------------------------------------- |
+| Rewrite a slow insight / query shape     | yes           | the query runner under `posthog/hogql_queries/`, the HogQL it emits           |
+| Materialize property X                   | yes           | the materialized-column registry (`posthog/clickhouse/materialized_columns/`) |
+| Make pipeline Y incremental              | yes           | the dagster / temporal job that builds it                                     |
+| Cap memory / add a query guard per key   | yes           | where ClickHouse SETTINGS and per-key throttling are applied                  |
+| Add a breakdown cardinality guard        | yes           | the trends / breakdown query runner                                           |
+| Investigate an infra incident window     | no            | n/a (deploys, node health, cluster state)                                     |
+| Watch / confirm a tenant's intended load | no            | n/a (a judgement call for a human)                                            |
 
 Give each agent a focused prompt: the recommendation, the specific question, and an instruction to return
 file paths + current behavior + the precise change point and to change nothing. The agents read the

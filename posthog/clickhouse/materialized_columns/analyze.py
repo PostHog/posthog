@@ -5,16 +5,15 @@ from typing import Optional
 import structlog
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models.property import PropertyName, TableColumn, TableWithProperties
-from posthog.settings import CLICKHOUSE_CLUSTER
-
-from ee.clickhouse.materialized_columns.columns import (
+from posthog.clickhouse.materialized_columns.columns import (
     MaterializedColumn,
     backfill_materialized_columns,
     get_materialized_columns,
     materialize,
 )
-from ee.settings import (
+from posthog.models.property import PropertyName, TableColumn, TableWithProperties
+from posthog.settings import (
+    CLICKHOUSE_CLUSTER,
     MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
     MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
     MATERIALIZE_COLUMNS_MAX_AT_ONCE,

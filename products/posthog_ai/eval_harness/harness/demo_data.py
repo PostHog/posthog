@@ -4,6 +4,11 @@ import logging
 from datetime import timedelta
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.materialized_columns.columns import (
+    backfill_materialized_columns,
+    get_materialized_columns,
+    materialize,
+)
 
 from products.posthog_ai.eval_harness.data_setup import (
     copy_demo_data_to_new_team,
@@ -11,12 +16,6 @@ from products.posthog_ai.eval_harness.data_setup import (
     ensure_master_demo_team,
 )
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, create_skill_isolation_environment
-
-from ee.clickhouse.materialized_columns.columns import (
-    backfill_materialized_columns,
-    get_materialized_columns,
-    materialize,
-)
 
 from .django_env import NullDbBlocker
 

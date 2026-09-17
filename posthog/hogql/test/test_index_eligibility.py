@@ -38,12 +38,11 @@ from posthog.hogql.property_planner import (
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.property_types import build_property_swapper
 
+from posthog.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 from posthog.schema_enums import QueryIndexUsage
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.event_definitions.backend.property_type import PropertyType
-
-from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
 Op = ast.CompareOperationOp
 

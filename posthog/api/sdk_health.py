@@ -26,7 +26,7 @@ from products.growth.backend.sdk_health import SdkHealthReport, compute_sdk_heal
 
 # NOTE: products.growth.backend.team_sdk_versions is imported lazily inside get_team_data
 # below. Importing it pulls posthog.hogql.query, the direct-SQL adapters, and
-# ee.clickhouse.materialized_columns, none of which the rest of posthog/api needs.
+# posthog.clickhouse.materialized_columns, none of which the rest of posthog/api needs.
 
 logger = structlog.get_logger(__name__)
 

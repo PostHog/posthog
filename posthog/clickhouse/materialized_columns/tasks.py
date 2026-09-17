@@ -4,9 +4,8 @@ from celery.utils.log import get_task_logger
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
+from posthog.clickhouse.materialized_columns.columns import MaterializedColumn
 from posthog.settings import CLICKHOUSE_DATABASE
-
-from ee.clickhouse.materialized_columns.columns import MaterializedColumn
 
 logger = get_task_logger(__name__)
 

@@ -15,6 +15,7 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 
 from posthog.api.test.test_team import create_team
+from posthog.clickhouse.materialized_columns.columns import materialize
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
@@ -39,7 +40,6 @@ from ee.billing.quota_limiting import (
     update_org_billing_quotas,
     update_organization_usage_fields,
 )
-from ee.clickhouse.materialized_columns.columns import materialize
 
 
 def zero_trust_scores():

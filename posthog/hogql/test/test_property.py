@@ -41,6 +41,7 @@ from posthog.hogql.property import (
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import TraversingVisitor, clear_locations
 
+from posthog.clickhouse.materialized_columns.columns import materialize
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
 from posthog.models import Property, PropertyDefinition, Team
 from posthog.models.property import PropertyGroup
@@ -51,8 +52,6 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
-
-from ee.clickhouse.materialized_columns.columns import materialize
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
 elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})

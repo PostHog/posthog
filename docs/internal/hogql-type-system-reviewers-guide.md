@@ -193,7 +193,7 @@ The branch adds `posthog/hogql/test/test_type_system.py` and expands coverage in
 - `posthog/hogql/transforms/test/test_property_types.py`
 - `posthog/hogql/printer/test/test_printer.py`
 - `posthog/hogql/test/test_property_skip_indexes.py`
-- `ee/clickhouse/materialized_columns/test/test_columns.py`
+- `posthog/clickhouse/materialized_columns/test/test_columns.py`
 
 It also updates snapshots for resolver, printer, query, property type, and skip-index behavior.
 Snapshot churn is expected, but reviewers should treat every removed `ifNull(...)`, changed cast, or direct materialized-column comparison as a semantic claim that needs supporting test coverage.
@@ -222,7 +222,7 @@ Start with the tests and docs, then review from the compatibility boundary inwar
 3. Review `posthog/hogql/type_system.py` for algebra, parser, and generic inference correctness.
 4. Review `posthog/hogql/resolver.py` for where inferred types are attached to AST nodes.
 5. Review `posthog/hogql/printer/clickhouse.py` for behavior-changing SQL output.
-6. Review materialized-column type introspection and cache-version changes in `ee/clickhouse/materialized_columns/columns.py`.
+6. Review materialized-column type introspection and cache-version changes in `posthog/clickhouse/materialized_columns/columns.py`.
 7. Review snapshot changes last, checking that every SQL change follows from a type fact introduced in code and covered by a focused test.
 8. Re-run or regenerate the revenue analytics snapshots from the full test classes before accepting the current revenue `.ambr` deletions.
 
@@ -323,7 +323,7 @@ hogli test posthog/hogql/test/test_property_skip_indexes.py
 Run materialized-column DDL/type coverage:
 
 ```bash
-hogli test ee/clickhouse/materialized_columns/test/test_columns.py
+hogli test posthog/clickhouse/materialized_columns/test/test_columns.py
 ```
 
 Regenerate or verify the revenue analytics snapshots before merge:

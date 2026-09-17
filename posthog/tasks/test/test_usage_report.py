@@ -40,6 +40,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.logs.logs32 import TABLE_NAME as LOGS_LOCAL_TABLE
+from posthog.clickhouse.materialized_columns.columns import materialize
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
@@ -99,7 +100,6 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.materialized_columns.columns import materialize
 from ee.models.license import License
 
 ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")

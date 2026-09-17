@@ -5,8 +5,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandParser
 
 from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
-
-from ee.clickhouse.materialized_columns.columns import drop_column, update_column_is_disabled
+from posthog.clickhouse.materialized_columns.columns import drop_column, update_column_is_disabled
 
 logger = logging.getLogger(__name__)
 

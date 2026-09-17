@@ -4,10 +4,7 @@ import dagster
 from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster
-from posthog.dags.common import JobOwners
-from posthog.settings import TEST
-
-from ee.clickhouse.materialized_columns.columns import (
+from posthog.clickhouse.materialized_columns.columns import (
     BloomFilterIndex,
     BloomFilterLowerIndex,
     MaterializedColumn,
@@ -17,6 +14,8 @@ from ee.clickhouse.materialized_columns.columns import (
     get_materialized_columns,
     tables,
 )
+from posthog.dags.common import JobOwners
+from posthog.settings import TEST
 
 
 class AddIndexConfig(dagster.Config):

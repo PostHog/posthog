@@ -168,13 +168,13 @@ Signals to read off the plan:
 
 ## Codebase map (in `../posthog` or the public repo)
 
-| Path                                            | What it explains                                                                                             |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `posthog/hogql/printer/base.py`                 | HogQL → SQL; the materialization decision tree (`mat_*` → `dmat_*` → property groups → JSONExtract fallback) |
-| `posthog/hogql/transforms/property_types.py`    | Whether a property access uses a materialized column or JSON extraction                                      |
-| `posthog/hogql/property.py`                     | How property filters become AST (person properties → `["person","properties"]` chain)                        |
-| `posthog/hogql/database/schema/events.py`       | Events table schema; lazy joins to person, pdi, sessions, groups                                             |
-| `posthog/hogql/database/database.py`            | Person-on-events mode: how `person_id` resolves via overrides vs pdi2                                        |
-| `posthog/hogql_queries/experiments/`            | How experiment queries build exposure CTEs and resolve persons                                               |
-| `ee/clickhouse/materialized_columns/analyze.py` | Auto-materialization logic (properties in 10+ slow queries reading >20GB or >5M rows)                        |
-| `posthog/clickhouse/query_tagging.py`           | The `QueryTags` model behind the `lc_*` columns                                                              |
+| Path                                                 | What it explains                                                                                             |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `posthog/hogql/printer/base.py`                      | HogQL → SQL; the materialization decision tree (`mat_*` → `dmat_*` → property groups → JSONExtract fallback) |
+| `posthog/hogql/transforms/property_types.py`         | Whether a property access uses a materialized column or JSON extraction                                      |
+| `posthog/hogql/property.py`                          | How property filters become AST (person properties → `["person","properties"]` chain)                        |
+| `posthog/hogql/database/schema/events.py`            | Events table schema; lazy joins to person, pdi, sessions, groups                                             |
+| `posthog/hogql/database/database.py`                 | Person-on-events mode: how `person_id` resolves via overrides vs pdi2                                        |
+| `posthog/hogql_queries/experiments/`                 | How experiment queries build exposure CTEs and resolve persons                                               |
+| `posthog/clickhouse/materialized_columns/analyze.py` | Auto-materialization logic (properties in 10+ slow queries reading >20GB or >5M rows)                        |
+| `posthog/clickhouse/query_tagging.py`                | The `QueryTags` model behind the `lc_*` columns                                                              |

@@ -27,6 +27,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
 
 from posthog.api.services.query import process_query_model
+from posthog.clickhouse.materialized_columns.analyze import materialize
 from posthog.models import EventDefinition, PropertyDefinition, Team
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -852,12 +853,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_metadata_property_type_notice_debug(self):
-        try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
-        except ModuleNotFoundError:
-            # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
-            return
         materialize("events", "number")
 
         PropertyDefinition.objects.create(team=self.team, name="string", property_type="String")
@@ -918,12 +913,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("company_name", metadata.errors[0].message)
 
     def test_metadata_property_type_notice_no_debug(self):
-        try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
-        except ModuleNotFoundError:
-            # EE not available? Assume we're good
-            self.assertEqual(1 + 2, 3)
-            return
         materialize("events", "number")
 
         PropertyDefinition.objects.create(team=self.team, name="string", property_type="String")

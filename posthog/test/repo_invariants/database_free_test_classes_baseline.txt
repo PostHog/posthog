@@ -20,7 +20,6 @@ ee/billing/test/test_salesforce_enrichment.py::TestValuesMatch
 ee/billing/test/test_salesforce_enrichment.py::TestYCCompanyDetection
 ee/billing/test/test_usage_signals.py::TestFetchUsageSignalsFromGroups
 ee/billing/test/test_usage_signals.py::TestUsageSignalsDataClass
-ee/clickhouse/materialized_columns/test/test_analyze.py::TestMaterializedColumnsAnalyze
 ee/clickhouse/models/test/test_dead_letter_queue.py::TestDeadLetterQueue
 ee/clickhouse/models/test/test_property.py::TestPropDenormalized
 ee/hogai/chat_agent/funnels/test/test_toolkit.py::TestFunnelToolkit
@@ -104,6 +103,7 @@ posthog/cdp/templates/rudderstack/test_template_rudderstack.py::TestTemplateMigr
 posthog/cdp/templates/salesforce/test_template_salesforce.py::TestTemplateMigration
 posthog/cdp/templates/sendgrid/test_template_sendgrid.py::TestTemplateMigration
 posthog/clickhouse/client/test/test_limit.py::TestRateLimit
+posthog/clickhouse/materialized_columns/test/test_analyze.py::TestMaterializedColumnsAnalyze
 posthog/clickhouse/test/test_deletion_coverage.py::TestDeletionCoverage
 posthog/clickhouse/test/test_query_tagging.py::TestAddFallbackQueryTags
 posthog/helpers/test_markdown_safety.py::TestStripExternalLinks

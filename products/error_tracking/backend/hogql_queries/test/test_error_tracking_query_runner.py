@@ -141,7 +141,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
     @classmethod
     def setUpClass(cls) -> None:
-        from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
+        from posthog.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
 
         materialized_columns = get_materialized_columns("events")
         for property_name in ("$exception_issue_id", "$exception_types", "$exception_values"):

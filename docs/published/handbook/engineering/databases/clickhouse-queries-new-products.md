@@ -111,7 +111,7 @@ We have a test helper `get_index_from_explain()` that runs `EXPLAIN PLAN indexes
 
 ```python
 from posthog.test.base import get_index_from_explain, materialized
-from ee.clickhouse.materialized_columns.columns import get_minmax_index_name
+from posthog.clickhouse.materialized_columns.columns import get_minmax_index_name
 
 def test_skip_index_is_used(self):
     with materialized("events", "test_prop", create_minmax_index=True) as mat_col:

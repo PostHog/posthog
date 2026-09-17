@@ -64,7 +64,7 @@ HogQL side: query entry [`query.py`](../../../posthog/hogql/query.py); printers 
 
 Materialization (auto-rewrites property access away from `JSONExtract`):
 
-- Registry: [`ee/clickhouse/materialized_columns/columns.py`](../../../ee/clickhouse/materialized_columns/columns.py), `get_materialized_columns(table)` / `get_enabled_materialized_columns(table)`, cached 15 min against the connected ClickHouse.
+- Registry: [`posthog/clickhouse/materialized_columns/columns.py`](../../../posthog/clickhouse/materialized_columns/columns.py), `get_materialized_columns(table)` / `get_enabled_materialized_columns(table)`, cached 15 min against the connected ClickHouse.
 - Property groups: [`posthog/clickhouse/property_groups.py`](../../../posthog/clickhouse/property_groups.py).
 - Printer swap: `_get_materialized_property_source_for_property_type()` / `visit_property_type()` in [`base.py`](../../../posthog/hogql/printer/base.py) (~1260, ~1354), ClickHouse override in [`clickhouse.py`](../../../posthog/hogql/printer/clickhouse.py) (~412). On each property access the printer emits the best form available (direct column, property group, or `JSONExtract` fallback) for the connected ClickHouse.
 

@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from django.conf import settings
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.materialized_columns.columns import materialize
 from posthog.conftest import create_clickhouse_tables
 from posthog.management.commands.sync_replicated_schema import Command
 
@@ -50,18 +51,13 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
         self.assertEqual(out_of_sync_hosts, {})
 
     def test_create_missing_tables(self):
-        try:
-            from ee.clickhouse.materialized_columns.columns import materialize
-        except ImportError:
-            pass
-        else:
-            self.recreate_database(create_tables=True)
-            materialize("events", "some_property")
-            _, create_table_queries, _ = Command().analyze_cluster_tables()
-            sync_execute("DROP TABLE sharded_events SYNC")
+        self.recreate_database(create_tables=True)
+        materialize("events", "some_property")
+        _, create_table_queries, _ = Command().analyze_cluster_tables()
+        sync_execute("DROP TABLE sharded_events SYNC")
 
-            self.assertIn("mat_some_property", create_table_queries["sharded_events"])
-            Command().create_missing_tables({"test_host": {"sharded_events"}}, create_table_queries)
+        self.assertIn("mat_some_property", create_table_queries["sharded_events"])
+        Command().create_missing_tables({"test_host": {"sharded_events"}}, create_table_queries)
 
-            schema = sync_execute("SHOW CREATE TABLE sharded_events")[0][0]
-            self.assertIn("mat_some_property", schema)
+        schema = sync_execute("SHOW CREATE TABLE sharded_events")[0][0]
+        self.assertIn("mat_some_property", schema)

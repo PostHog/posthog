@@ -40,16 +40,15 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
-
-from products.event_definitions.backend.models.property_definition import PropertyType
-
-from ee.clickhouse.materialized_columns.columns import (
+from posthog.clickhouse.materialized_columns.columns import (
     get_bloom_filter_index_name,
     get_minmax_index_name,
     get_ngram_lower_index_name,
     materialize,
 )
+from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 # Property key chosen to land in ``properties_group_custom`` — no ``$`` prefix and not in ``ignore_custom_properties`` (``token``, ``distinct_id``, ``utm_*``, ...).
 EVENT_PROP_KEY = "test_prop"

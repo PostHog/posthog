@@ -2,11 +2,11 @@
 # Needs to be first to set up django environment
 from .helpers import benchmark_clickhouse, no_materialized_columns
 from datetime import timedelta
-from ee.clickhouse.materialized_columns.analyze import (
+from posthog.clickhouse.materialized_columns.analyze import (
     backfill_materialized_columns,
     materialize,
 )
-from ee.clickhouse.materialized_columns.columns import MaterializedColumn
+from posthog.clickhouse.materialized_columns.columns import MaterializedColumn
 from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_unfiltered

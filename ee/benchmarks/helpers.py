@@ -16,10 +16,9 @@ import django  # noqa: E402
 django.setup()
 
 from posthog.clickhouse.client import sync_execute  # noqa: E402
+from posthog.clickhouse.materialized_columns.columns import get_enabled_materialized_columns  # noqa: E402
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries  # noqa: E402
 from posthog.models.utils import UUIDT  # noqa: E402
-
-from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns  # noqa: E402
 
 get_column = lambda rows, index: [row[index] for row in rows]
 

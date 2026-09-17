@@ -786,7 +786,7 @@ if TEST:
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)
 # Default on in TEST: the schema-introspection query behind materialized-column lookups otherwise runs
 # hundreds of times per suite, and the test cache backend is process-local (LocMem) with all column
-# mutations invalidating the key (see ee/clickhouse/materialized_columns/columns.py).
+# mutations invalidating the key (see posthog/clickhouse/materialized_columns/columns.py).
 MATERIALIZED_COLUMNS_USE_CACHE: bool = get_from_env("MATERIALIZED_COLUMNS_USE_CACHE", TEST, type_cast=str_to_bool)
 
 # Limiting event_list API, saving ClickHouse, 0 - disabled, 1 - migration period, 2 - enabled.

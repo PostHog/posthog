@@ -16,7 +16,7 @@ def drop_materialized_columns_op(
     context: dagster.OpExecutionContext,
     config: DropMaterializedColumnConfig,
 ):
-    from ee.clickhouse.materialized_columns.columns import drop_column
+    from posthog.clickhouse.materialized_columns.columns import drop_column
 
     if config.dry_run:
         context.log.warning(

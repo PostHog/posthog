@@ -249,9 +249,8 @@ def test_compile_hogql_predicate_emits_unqualified_materialized_column(team, sna
     references, so ``sharded_events.mat_$current_url`` would fail with "Missing
     columns" even when the column exists on every replica.
     """
+    from posthog.clickhouse.materialized_columns.analyze import materialize
     from posthog.models.data_deletion_request import compile_hogql_predicate
-
-    from ee.clickhouse.materialized_columns.analyze import materialize
 
     materialize("events", "$current_url")
 

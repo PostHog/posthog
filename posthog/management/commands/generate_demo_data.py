@@ -14,6 +14,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db.utils import OperationalError
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+from posthog.clickhouse.materialized_columns.analyze import materialize_properties_task
 from posthog.health import get_pending_postgres_migrations
 from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
 from posthog.models import User
@@ -31,8 +32,6 @@ from products.demo.backend.facade.api import (
     get_group_type_mapping_count,
     seed_dev_dashboard_templates,
 )
-
-from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
 logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
 

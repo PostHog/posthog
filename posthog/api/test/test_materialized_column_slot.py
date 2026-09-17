@@ -199,7 +199,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert "utm_source" not in prop_names
 
     @patch("posthog.api.materialized_column_slot.get_materialized_columns")
-    @patch("posthog.api.materialized_column_slot.EE_AVAILABLE", True)
     def test_auto_materialized_returns_only_properties_columns(self, mock_get_mat_cols):
         """Test that auto_materialized excludes person_properties columns."""
         mock_column = MagicMock()
@@ -226,14 +225,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()) == 1
         assert response.json()[0]["property_name"] == "$current_url"
-
-    @patch("posthog.api.materialized_column_slot.EE_AVAILABLE", False)
-    def test_auto_materialized_returns_empty_without_ee(self):
-        """Test that auto_materialized returns [] when EE not available."""
-        response = self.client.get(f"/api/environments/{self.team.id}/materialized_column_slots/auto_materialized/")
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == []
 
     def test_assign_slot_success(self):
         """Test successfully queueing a property as PENDING."""

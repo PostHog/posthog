@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.clickhouse.materialized_columns.columns import materialize
 from posthog.models import Team
 from posthog.models.organization import Organization
 from posthog.models.utils import uuid7
@@ -32,8 +33,6 @@ from products.error_tracking.backend.weekly_digest import (
     get_source_maps_recommendation_for_team,
     get_top_issues_for_team,
 )
-
-from ee.clickhouse.materialized_columns.columns import materialize
 
 
 def _days_ago(n: int) -> str:

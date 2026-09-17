@@ -27,6 +27,7 @@ from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
 from posthog.api.cohort import COHORT_USED_IN_PAGE_SIZE, CohortFilters
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.materialized_columns.analyze import materialize
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
@@ -53,8 +54,6 @@ from products.cohorts.backend.models.util import count_cohort_members, list_coho
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
-
-from ee.clickhouse.materialized_columns.analyze import materialize
 
 
 def _cohort_member_uuids(team_id: int, cohort: Cohort) -> set[str]:

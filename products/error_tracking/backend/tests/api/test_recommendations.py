@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from rest_framework import status
 
+from posthog.clickhouse.materialized_columns.columns import materialize
 from posthog.models.utils import uuid7
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -24,8 +25,6 @@ from products.error_tracking.backend.models import (
     ErrorTrackingStackFrame,
     sync_issues_to_clickhouse,
 )
-
-from ee.clickhouse.materialized_columns.columns import materialize
 
 MOCK_ALERTS_META = {
     "alerts": [

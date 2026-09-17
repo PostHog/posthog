@@ -11,6 +11,8 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsArgM
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.materialized_columns.analyze import materialize
+
 from products.cohorts.backend.models.cohort import Cohort
 
 
@@ -280,10 +282,6 @@ class TestModifiers(BaseTest):
         assert "LEFT JOIN" in response.clickhouse
 
     def test_modifiers_materialization_mode(self):
-        try:
-            from ee.clickhouse.materialized_columns.analyze import materialize
-        except ModuleNotFoundError:
-            self.skipTest("EE materialized-column helpers are not available")
         materialize("events", "$browser")
 
         response = execute_hogql_query(

@@ -2,11 +2,10 @@ from typing import Any, cast
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from posthog.clickhouse.materialized_columns.columns import materialize
 from posthog.constants import PropertyOperatorType
 from posthog.models.property import Property
 from posthog.models.property.util import PropertyGroup, get_property_string_expr
-
-from ee.clickhouse.materialized_columns.columns import materialize
 
 
 class TestPropDenormalized(ClickhouseTestMixin, BaseTest):

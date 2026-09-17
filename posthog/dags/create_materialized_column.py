@@ -19,7 +19,7 @@ def create_materialized_columns_op(
     context: dagster.OpExecutionContext,
     config: MaterializeColumnConfig,
 ):
-    from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
+    from posthog.clickhouse.materialized_columns.analyze import materialize_properties_task
 
     if config.dry_run:
         context.log.warning("Dry run: No changes to the tables will be made!")

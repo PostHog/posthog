@@ -650,7 +650,7 @@ class TestArgMaxNonNullableSimplification(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_nullable_property_keeps_wrap_and_latest_null_wins(self, label, prop, materialize_first, read_marker):
         if materialize_first:
-            from ee.clickhouse.materialized_columns.analyze import materialize  # noqa: PLC0415
+            from posthog.clickhouse.materialized_columns.analyze import materialize  # noqa: PLC0415
 
             materialize("person", prop, is_nullable=True)
         person = self._person_unsetting_prop_in_latest_version(f"null-{label}", prop)

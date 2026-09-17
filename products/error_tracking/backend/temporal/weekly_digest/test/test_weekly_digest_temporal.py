@@ -19,6 +19,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.clickhouse.materialized_columns.columns import materialize
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.messaging import MessagingRecord
@@ -51,8 +52,6 @@ from products.error_tracking.backend.temporal.weekly_digest.workflow import (
     ErrorTrackingWeeklyDigestWorkflow,
 )
 from products.error_tracking.backend.weekly_digest import build_team_digest_data
-
-from ee.clickhouse.materialized_columns.columns import materialize
 
 _WEBHOOK_POST = "products.error_tracking.backend.weekly_digest_delivery.requests.post"
 _BUILD_TEAM_DIGEST_DATA = "products.error_tracking.backend.weekly_digest.build_team_digest_data"

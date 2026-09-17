@@ -10,24 +10,18 @@ from rest_framework import (
 from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.materialized_columns.columns import get_materialized_columns
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.materialized_column_slots import MAX_SLOTS_PER_TEAM
 from posthog.permissions import IsStaffUserOrImpersonating
-from posthog.settings import EE_AVAILABLE
-
-if EE_AVAILABLE:
-    from ee.clickhouse.materialized_columns.columns import get_materialized_columns
 
 logger = structlog.get_logger(__name__)
 
 
 def get_auto_materialized_property_names() -> set[str]:
     """Get set of property names that are already auto-materialized by PostHog."""
-    if not EE_AVAILABLE:
-        return set()
-
     try:
         materialized_columns = get_materialized_columns("events")
         return {col.details.property_name for col in materialized_columns.values()}
@@ -136,9 +130,6 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         These are managed by PostHog's automatic materialization system and cannot be modified here.
         Uses the same cached function that HogQL uses for query rewriting.
         """
-        if not EE_AVAILABLE:
-            return response.Response([])
-
         try:
             # Get all auto-materialized columns using the cached function
             # This is the same cache that HogQL uses (15 minute TTL with background refresh)
