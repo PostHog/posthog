@@ -286,7 +286,8 @@ export function InsightVizDisplay({
                     query={query}
                     queryId={timedOutQueryId}
                     onRetry={() => {
-                        loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
+                        // shouldQueryBeAsync reads the source, not the InsightVizNode that wraps it
+                        loadData(querySource && shouldQueryBeAsync(querySource) ? 'force_async' : 'force_blocking')
                     }}
                 />
             )
