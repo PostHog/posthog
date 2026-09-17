@@ -340,9 +340,15 @@ the model and the UX so both stay in step with the code.
   activates the tab instead.
 - Activating a tab in a group shows the group with the outlet moved to that
   tab's tile. Tabs outside a group show alone, as before.
-- Each tile has a slim header: icon, name, and an X that removes it from the
-  split. **The header is the only place that switches the active tab.** A
-  click inside a background page never moves the outlet out from under it.
+- Each tile has a `ChromeBar` header with an X that removes it from the split.
+  A background tile shows icon and name. The active tile shows what its page
+  pushes to the header store (the editable title) and, on a task, the
+  `TaskHeaderActions` row; a page that pushes nothing shows the tab name.
+  **The header is the only place that switches the active tab.** A click
+  inside a background page never moves the outlet out from under it.
+- The pane-wide header rows (`ContentHeader`, `SpaceHeaderRow`) hide while
+  the active tab is in a group (`useActiveTabTiled`): one title above several
+  tiles named the wrong thing, and the active tile's header carries it now.
 - Resizes persist through `onLayout` → `setSplitSizes`, which returns the same
   array for an unchanged layout so the mount-time callback writes nothing.
 

@@ -1,11 +1,12 @@
-import { type BrowserTab, primaryWindow } from "@posthog/shared";
+import type { BrowserTab } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { usePinnedTabsStore } from "@posthog/ui/features/browser-tabs/pinnedTabsStore";
 import { pushTabHistoryEntry } from "@posthog/ui/features/browser-tabs/tabHistory";
 import { useTabReorderStore } from "@posthog/ui/features/browser-tabs/tabReorderStore";
+import { useActiveTabId } from "@posthog/ui/features/browser-tabs/useActiveTabId";
 import { useTabsSnapshot } from "@posthog/ui/features/browser-tabs/useBrowserTabs";
 import { track } from "@posthog/ui/shell/analytics";
-import { useRouter, useRouterState } from "@tanstack/react-router";
+import { useRouter } from "@tanstack/react-router";
 import {
   Fragment,
   type ReactNode,
@@ -118,25 +119,16 @@ export function TileLayout({ children }: { children: ReactNode }) {
     !pinnedTabIds.includes(rawDraggingTabId)
       ? rawDraggingTabId
       : null;
-  const historyTabId = useRouterState({
-    select: (s) => s.location.state.tabId ?? null,
-  });
+  const activeTabId = useActiveTabId();
 
   useEffect(() => {
     prune(snapshot.tabs.map((t) => t.id));
   }, [snapshot, prune]);
 
-  // Same fallback as the strip: history names the active tab first because
-  // the server's activeTabId lags a navigation by a round trip.
   const tabsById = useMemo(
     () => new Map(snapshot.tabs.map((t) => [t.id, t])),
     [snapshot.tabs],
   );
-  const win = primaryWindow(snapshot);
-  const activeTabId =
-    (historyTabId && tabsById.has(historyTabId) ? historyTabId : null) ??
-    win?.activeTabId ??
-    null;
 
   const onActivate = useCallback(
     (tab: BrowserTab) => {

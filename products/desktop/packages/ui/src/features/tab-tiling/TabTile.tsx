@@ -5,6 +5,11 @@ import {
   isTabAppView,
   TAB_APP_VIEW_META,
 } from "@posthog/ui/features/browser-tabs/tabAppViews";
+import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
+import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
+import { useAppView } from "@posthog/ui/router/useAppView";
+import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 import type { ReactNode } from "react";
 import { BackgroundTileProvider } from "./backgroundTile";
 import { TileDropZones } from "./TileDropZones";
@@ -25,6 +30,97 @@ function tileIcon(tab: BrowserTab): ReactNode {
   return null;
 }
 
+function TileName({
+  tab,
+  isActive,
+  onActivate,
+}: {
+  tab: BrowserTab;
+  isActive: boolean;
+  onActivate: (tab: BrowserTab) => void;
+}) {
+  const label = tileLabel(tab);
+  const icon = tileIcon(tab);
+  return (
+    <button
+      type="button"
+      className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left"
+      onClick={() => {
+        if (!isActive) onActivate(tab);
+      }}
+      title={label}
+    >
+      {icon && <span className="flex shrink-0 items-center">{icon}</span>}
+      <Text
+        className={cn(
+          "truncate text-xs",
+          isActive ? "font-medium" : "text-muted-foreground",
+        )}
+      >
+        {label}
+      </Text>
+    </button>
+  );
+}
+
+/**
+ * The active tile stands in for the pane-wide header, which hides during a
+ * split: it shows what the page pushes to the header store and, on a task,
+ * the task's action row. A page that pushes nothing shows the tab name.
+ */
+function ActiveTileHeader({
+  tab,
+  onActivate,
+  onUntile,
+}: {
+  tab: BrowserTab;
+  onActivate: (tab: BrowserTab) => void;
+  onUntile: (tab: BrowserTab) => void;
+}) {
+  const content = useHeaderStore((state) => state.content);
+  const view = useAppView();
+  const { data: tasks } = useTasks();
+  const task =
+    view.type === "task-detail"
+      ? tasks?.find((t) => t.id === view.taskId)
+      : undefined;
+  return (
+    <ChromeBar
+      inset={content ? "control" : "text"}
+      className="bg-background"
+      actions={<RemoveButton tab={tab} onUntile={onUntile} />}
+    >
+      {content ? (
+        <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
+          {content}
+        </div>
+      ) : (
+        <TileName tab={tab} isActive onActivate={onActivate} />
+      )}
+      {task && <TaskHeaderActions task={task} />}
+    </ChromeBar>
+  );
+}
+
+function RemoveButton({
+  tab,
+  onUntile,
+}: {
+  tab: BrowserTab;
+  onUntile: (tab: BrowserTab) => void;
+}) {
+  return (
+    <Button
+      size="icon-sm"
+      aria-label="Remove from split"
+      className="shrink-0"
+      onClick={() => onUntile(tab)}
+    >
+      <XIcon size={12} />
+    </Button>
+  );
+}
+
 interface TabTileProps {
   tab: BrowserTab;
   /** The active tab's tile renders the route outlet passed as children. */
@@ -38,7 +134,7 @@ interface TabTileProps {
 }
 
 /**
- * One tile of a tiled group: a slim header naming the tab, then the page. The
+ * One tile of a tiled group: a header naming the tab, then the page. The
  * header is the only place that switches the active tab, so a click inside a
  * background page never moves the route outlet out from under it.
  */
@@ -51,8 +147,6 @@ export function TabTile({
   onUntile,
   children,
 }: TabTileProps) {
-  const label = tileLabel(tab);
-  const icon = tileIcon(tab);
   return (
     <div
       className={cn(
@@ -61,39 +155,20 @@ export function TabTile({
       )}
       data-active={isActive || undefined}
     >
-      <div
-        className={cn(
-          "flex h-7 shrink-0 items-center gap-1.5 border-border border-b px-2",
-          isActive ? "bg-background" : "bg-muted",
-        )}
-      >
-        {icon && <span className="flex shrink-0 items-center">{icon}</span>}
-        <button
-          type="button"
-          className="min-w-0 flex-1 truncate text-left"
-          onClick={() => {
-            if (!isActive) onActivate(tab);
-          }}
-          title={label}
+      {isActive ? (
+        <ActiveTileHeader
+          tab={tab}
+          onActivate={onActivate}
+          onUntile={onUntile}
+        />
+      ) : (
+        <ChromeBar
+          className="bg-muted"
+          actions={<RemoveButton tab={tab} onUntile={onUntile} />}
         >
-          <Text
-            className={cn(
-              "truncate text-xs",
-              isActive ? "font-medium" : "text-muted-foreground",
-            )}
-          >
-            {label}
-          </Text>
-        </button>
-        <Button
-          size="icon-sm"
-          aria-label="Remove from split"
-          className="shrink-0"
-          onClick={() => onUntile(tab)}
-        >
-          <XIcon size={12} />
-        </Button>
-      </div>
+          <TileName tab={tab} isActive={false} onActivate={onActivate} />
+        </ChromeBar>
+      )}
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {isActive ? (
           children
