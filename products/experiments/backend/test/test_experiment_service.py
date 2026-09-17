@@ -4467,6 +4467,13 @@ class TestExperimentService(APIBaseTest):
         cohort.refresh_from_db()
         assert cohort.deleted is True
 
+        # The reset's freeze-strip flag write carries the unfreeze trigger, like an unfreeze.
+        flag_log = ActivityLog.objects.filter(
+            scope="FeatureFlag", item_id=str(experiment.feature_flag_id), activity="updated"
+        ).latest("created_at")
+        assert flag_log.detail is not None
+        assert flag_log.detail["trigger"]["job_type"] == "experiment_exposure_unfrozen"
+
     def test_reset_experiment_clears_freeze_without_request(self):
         experiment = self._create_running_experiment(name="Reset No Request", feature_flag_key="reset-no-request-flag")
         original_groups = deepcopy(experiment.feature_flag.filters["groups"])
