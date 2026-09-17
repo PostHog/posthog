@@ -6,7 +6,9 @@ import { AvailableFeature } from '~/types'
 
 import { LogsRetentionPeriodPicker, LogsRetentionPeriodPickerProps } from './LogsRetentionPeriodPicker'
 
-type StoryProps = Pick<LogsRetentionPeriodPickerProps, 'value' | 'allowCustom' | 'customCommit'>
+type StoryProps = Pick<LogsRetentionPeriodPickerProps, 'value' | 'allowCustom' | 'customCommit'> & {
+    features?: AvailableFeature[]
+}
 
 const meta: Meta<StoryProps> = {
     title: 'Logs/LogsRetentionPeriodPicker',
@@ -19,7 +21,7 @@ const meta: Meta<StoryProps> = {
 export default meta
 
 const Template: StoryFn<StoryProps> = (args) => {
-    useAvailableFeatures([AvailableFeature.LOGS_RETENTION_30D])
+    useAvailableFeatures(args.features ?? [AvailableFeature.LOGS_RETENTION_30D])
     const [value, setValue] = useState(args.value)
     return (
         <div className="max-w-2xl">
@@ -48,3 +50,6 @@ CustomMonthsInForm.args = { value: 180, allowCustom: true, customCommit: 'change
 
 export const StoredCustomMonthsWithoutFlag = Template.bind({})
 StoredCustomMonthsWithoutFlag.args = { value: 180, allowCustom: false, customCommit: 'apply' }
+
+export const StoredCustomMonthsWithoutPaidRetention = Template.bind({})
+StoredCustomMonthsWithoutPaidRetention.args = { value: 180, allowCustom: true, customCommit: 'apply', features: [] }
