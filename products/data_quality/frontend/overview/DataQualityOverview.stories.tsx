@@ -3,7 +3,6 @@ import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DataQualityOverview } from './DataQualityOverview'
 
@@ -99,7 +98,6 @@ function mocks(overviewChecks: unknown[], subjectHealth: unknown[]): Record<stri
                 count: overviewChecks.length,
             },
             '/api/projects/:team_id/data_quality_checks/health/': subjectHealth,
-            '/api/projects/:team_id/data_warehouse/data_quality_gate/': { gate_materialization_on_checks: true },
         },
     }
 }
@@ -115,17 +113,6 @@ const narrowDecorators: Decorator[] = [
 const meta: Meta<typeof DataQualityOverview> = {
     title: 'Products/Data quality/Overview',
     component: DataQualityOverview,
-    beforeEach: () => {
-        const context = window.POSTHOG_APP_CONTEXT!
-        const previous = context.resource_access_control
-        context.resource_access_control = {
-            ...previous,
-            [AccessControlResourceType.WarehouseObjects]: AccessControlLevel.Editor,
-        }
-        return () => {
-            context.resource_access_control = previous
-        }
-    },
     decorators: [
         (Story) => (
             <div className="@container/main-content w-256">

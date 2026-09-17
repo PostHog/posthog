@@ -23,6 +23,10 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.signals.backend.billing import current_billing_period_bounds
+from products.signals.backend.implementation_dispatch_tasks import (
+    dispatch_implementation_replacement as dispatch_implementation_replacement,
+    sweep_implementation_dispatches as sweep_implementation_dispatches,
+)
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
 from products.signals.backend.models import (
     SignalReport,
@@ -61,6 +65,26 @@ from products.signals.backend.tracker_issues import close_tracker_issue_for_repo
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    max_retries=5,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    soft_time_limit=210,
+    time_limit=240,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+@with_team_scope()
+def reconcile_implementation_replacement(self, team_id: int, replacement_id: str) -> None:
+    from products.signals.backend.supersession import reconcile_replacement
+
+    if reconcile_replacement(team_id, replacement_id):
+        raise self.retry(countdown=min(60 * (2**self.request.retries), 900))
+
 
 # Bounded exponential backoff: 2m, 4m, 8m, ... capped at 1h, 8 retries ≈ 5h total. Deliberately
 # NOT unbounded — a hard failure should land with the sweeper (and its 7-day horizon) rather
@@ -555,7 +579,7 @@ def send_reviewer_added_slack_notifications(
 )
 @with_team_scope()
 def assign_reviewers_on_implementation_pr(team_id: int, report_id: str, pr_url: str) -> None:
-    """Add a report's opted-in suggested reviewers as GitHub assignees on its implementation PR.
+    """Put a report's opted-in reviewers, or else one DRI, on its implementation PR as GitHub assignees.
 
     Runs on a worker because the GitHub calls (integration probe, PR read, assign) must not hold up
     the claim, sync, or reviewer edit that queued it. Best-effort end to end, so the assigner

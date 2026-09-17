@@ -308,8 +308,10 @@ tools:
         title: Reorder dashboard tiles
         description: >
             Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use
-            dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved; see the
-            layout parameter to force a 2-column or full-width grid instead.
+            dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved. Use the
+            layout parameter only when every tile should use the same size: `two_column` makes every tile 6-wide,
+            `three_column` makes every tile 4-wide, and `full_width` makes every tile 12-wide. For a mixed layout, set
+            each tile's `layouts` with dashboard-update instead.
     dashboard-saved-views-create:
         operation: dashboard_saved_views_create
         enabled: false
@@ -421,12 +423,20 @@ tools:
         title: Update dashboard
         description: >
             Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and
-            restriction level, and widget tile placement (layouts, show_description). To change a widget's own settings
-            (config, name, description), prefer dashboard-widgets-batch-update, which takes just a tile_id per widget.
-            You can also update widget tiles here by passing `tiles` with each tile's `id` and nested `widget.id` plus
-            fields to change (`config`, `name`, `description`) from dashboard-get — the same PATCH path the UI uses. To
-            add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit
-            insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.
+            restriction level. To resize or move tiles, pass `tiles` with each tile's `id` from dashboard-get and a
+            `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, insight tiles
+            included. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its
+            content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size.
+            Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so
+            send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not
+            resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the
+            dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only for a
+            whole-dashboard repack where every tile should use the same size. The same `tiles` array also updates a
+            widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`,
+            `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update,
+            which takes just a tile_id per widget. To add new widget tiles to this dashboard, use
+            dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use
+            dashboard-insights-run to fetch the actual data for each insight.
         exclude_params:
             - creation_mode
             - effective_restriction_level

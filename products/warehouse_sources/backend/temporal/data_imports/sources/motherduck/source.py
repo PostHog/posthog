@@ -97,7 +97,12 @@ class MotherduckSource(SQLSource[MotherduckSourceConfig]):
             **self.default_non_retryable_errors(),
             "Catalog Error": "A database, schema, or table this source syncs no longer exists in MotherDuck, or your access token lost access to it. Check that it still exists, then resync.",
             "Binder Error": "A column this source syncs no longer exists in MotherDuck. Reset the table so we pick up its new shape, then resync.",
-            "Invalid Input Error": "MotherDuck rejected the connection details. Check the database name and access token, then resync.",
+            # `connect()` (motherduck.py) already translates a raw "Invalid Input Error" into this
+            # user-facing text before raising `MotherDuckConnectionError`, so a connection failure's
+            # message never contains the DuckDB class name to match on — only the translated text does.
+            MOTHERDUCK_ERROR_CLASSES[
+                "Invalid Input Error"
+            ]: "MotherDuck rejected the connection details. Check the database name and access token, then resync.",
             "Invalid MotherDuck token": None,
             "UNAUTHENTICATED": "Your MotherDuck token is invalid or expired. Generate a new access token and reconnect.",
         }
