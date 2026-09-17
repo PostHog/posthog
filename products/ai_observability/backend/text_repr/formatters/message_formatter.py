@@ -39,6 +39,7 @@ class FormatterOptions(TypedDict, total=False):
     """Options for formatting text representations."""
 
     truncated: bool  # Use truncation for long content (default: True)
+    preserve_generation_output: bool  # Keep answers intact while truncating input history for judges
     truncate_buffer: int  # Chars to show at start/end (default: 1000)
     include_markers: bool  # Use interactive markers vs plain text (default: True)
     collapsed: bool  # Show full hierarchy vs summary (default: False)
