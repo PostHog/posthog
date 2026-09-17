@@ -225,12 +225,12 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
         # webhook would accept every delivery and drop it, which is the gap this endpoint closes.
         # One-shot setup has no form to ask in, so leave the polling defaults and name the inputs
         # the caller has to send.
-        source_config = source.get_source_config
-        if source_config.webhookFieldsBeforeCreate:
+        declared = source.get_source_config
+        if declared.webhookFieldsBeforeCreate:
             supplied = webhook_inputs or {}
             absent = [
                 field.name
-                for field in (source_config.webhookFields or [])
+                for field in (declared.webhookFields or [])
                 if getattr(field, "required", False) and not supplied.get(field.name)
             ]
             if absent:

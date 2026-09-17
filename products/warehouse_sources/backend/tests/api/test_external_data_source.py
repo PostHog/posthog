@@ -12418,8 +12418,11 @@ class TestExternalDataSourceSetup(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.ensure_person_join")
     @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    # Patched at the vendor call rather than at `StripeSource.create_webhook`, so the source's own
+    # registration method runs and reads the connection config. Mocking the method instead leaves
+    # that config never dereferenced, and setup can pass the wrong object through without failing.
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.create_webhook",
         return_value=WebhookCreationResult(success=True, extra_inputs={"signing_secret": "whsec_123"}),
     )
     @patch(
@@ -12427,7 +12430,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
         return_value=(True, None),
     )
     def test_setup_auto_registers_webhook_and_switches_capable_tables(
-        self, _mock_validate, _mock_create_webhook, _mock_sync_views, _mock_person_join
+        self, _mock_validate, mock_vendor_create_webhook, _mock_sync_views, _mock_person_join
     ):
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
@@ -12455,6 +12458,11 @@ class TestExternalDataSourceSetup(APIBaseTest):
         assert hog_function.enabled is True
         assert hog_function.inputs is not None
         assert hog_function.inputs["source_id"]["value"] == data["id"]
+
+        # The key proves setup handed the source its parsed connection config. Passing anything else
+        # (the source's declared field definitions, say) raises inside the source and registration
+        # is swallowed into the polling fallback, so the webhook silently never exists.
+        assert mock_vendor_create_webhook.call_args.args[0] == "sk_test_123"
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.ensure_person_join")
     @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
