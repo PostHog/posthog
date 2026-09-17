@@ -2,6 +2,7 @@ import importlib
 import threading
 from typing import TYPE_CHECKING
 
+from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.temporal.health_checks.models import BatchDetectFn
 
 if TYPE_CHECKING:
@@ -46,6 +47,9 @@ class HealthCheckKindNotRegistered(Exception):
 def get_detect_fn(kind: str) -> BatchDetectFn:
     fn = _DETECT_FNS.get(kind)
     if fn is None:
+        # At the raise site so every caller counts it, including the single-team celery
+        # path, which only logs a warning.
+        TOMBSTONE_COUNTER.labels(namespace="health_checks", operation="unregistered_kind", component="registry").inc()
         raise HealthCheckKindNotRegistered(
             f"Health check kind '{kind}' has no detect function in this worker's image. Either "
             f"its module is missing from HEALTH_CHECK_MODULES, or its schedule fired ahead of the "
