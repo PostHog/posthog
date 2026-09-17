@@ -19,13 +19,6 @@ class DoraEnvironmentQuerySerializer(serializers.Serializer):
         "are rejected. Real transient environments are allowed. Omit to use the production default.",
     )
 
-    def validate_environment(self, value: list[str]) -> list[str]:
-        names = list(dict.fromkeys(value))
-        choice = serializers.ChoiceField(choices=self.context["get_environment_choices"](names))
-        for name in names:
-            choice.run_validation(name)
-        return names
-
 
 class DeploymentFrequencyBucketSerializer(DataclassSerializer):
     class Meta:

@@ -11,11 +11,10 @@ from rest_framework import status
 
 from posthog.models.team import Team
 
+from products.engineering_analytics.backend.facade.contracts import UnknownDoraEnvironmentError
+from products.engineering_analytics.backend.logic.dora import build_dora_overview
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
-from products.engineering_analytics.backend.logic.queries.dora import (
-    query_dora_environment_choices,
-    query_dora_overview,
-)
+from products.engineering_analytics.backend.logic.queries.dora import query_dora_overview
 from products.engineering_analytics.backend.logic.sources import GitHubTables
 from products.engineering_analytics.backend.logic.views.source_schema import (
     DEPLOYMENT_STATUSES_COLUMNS,
@@ -39,23 +38,17 @@ class TestDoraEnvironmentQuerySerializer(SimpleTestCase):
     @parameterized.expand(
         [
             ("", None),
-            ("environment=%20prod-us%20&environment=prod-eu&environment=prod-us", ["prod-us", "prod-eu"]),
-            ("environment=preview-pr-1", ["preview-pr-1"]),
+            ("environment=%20prod-us%20&environment=prod-eu", ["prod-us", "prod-eu"]),
         ]
     )
     def test_valid_environment_selection(self, query: str, expected: list[str] | None) -> None:
-        serializer = DoraEnvironmentQuerySerializer(
-            data=QueryDict(query),
-            context={"get_environment_choices": lambda names: ["prod-eu", "prod-us", "preview-pr-1"]},
-        )
+        serializer = DoraEnvironmentQuerySerializer(data=QueryDict(query))
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data.get("environment") == expected
 
-    @parameterized.expand([("environment=",), ("environment=%20",), ("environment=prod-us&environment=unknown",)])
+    @parameterized.expand([("environment=",), ("environment=%20",)])
     def test_rejects_invalid_environment_selection(self, query: str) -> None:
-        serializer = DoraEnvironmentQuerySerializer(
-            data=QueryDict(query), context={"get_environment_choices": lambda names: ["prod-us"]}
-        )
+        serializer = DoraEnvironmentQuerySerializer(data=QueryDict(query))
         assert not serializer.is_valid()
         assert "environment" in serializer.errors
 
@@ -78,23 +71,12 @@ class TestDoraEndpoint(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/dora/", {"environment": " "})
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
+        response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/dora/", {"environment": "prod"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "environment"
+
 
 class TestDoraQuery(ClickhouseTestMixin, BaseTest):
-    def _validated_environments(self, curated: CuratedGitHubSource, names: list[str]) -> list[str]:
-        serializer = DoraEnvironmentQuerySerializer(
-            data={"environment": names},
-            context={
-                "get_environment_choices": lambda environments: query_dora_environment_choices(
-                    curated=curated,
-                    environments=environments,
-                    date_from=datetime(2026, 1, 10, tzinfo=UTC),
-                    date_to=datetime(2026, 1, 20, tzinfo=UTC),
-                )
-            },
-        )
-        serializer.is_valid(raise_exception=True)
-        return serializer.validated_data["environment"]
-
     def _curated(
         self,
         team: Team,
@@ -143,9 +125,9 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         # d5 succeeded in the previous window, d6 never reached an outcome (no status rows).
         # Each successful deploy's sha is a merged PR's merge_commit_sha (its head): PR 1 heads
         # d1, PR 2 heads d3, PR 5 heads d5. Attribution follows head merge order, not success
-        # time: PR 6 (carol) merges Jan 12 09:00, AFTER d1's head merge (08:00), so d1 — despite
-        # succeeding later that day — does not contain it and it waits for d3.
-        # staging: d4 succeeds Jan 12 09:00 — before d1 — so a production-scope leak would
+        # time: PR 6 (carol) merges Jan 12 09:00, AFTER d1's head merge (08:00), so d1 (despite
+        # succeeding later that day) does not contain it and it waits for d3.
+        # staging: d4 succeeds Jan 12 09:00, before d1, so a production-scope leak would
         # change PR 1's lead time from 2h to 1h.
         return self._curated(
             self.team,
@@ -258,7 +240,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
 
         assert result.deployed_pr_count == 3  # PRs 1, 2, 6; bot and undeployed merges excluded
         assert result.deployed_pr_count_prev == 1  # PR 5 via d5
-        # PR 1: 7200 via d1. PR 2: 9000 via d3. PR 6: 97200 via d3 — the containment rule at
+        # PR 1: 7200 via d1. PR 2: 9000 via d3. PR 6: 97200 via d3. The containment rule at
         # work: d1 succeeded after PR 6's merge but its head merged before it, so d1 doesn't count.
         assert result.median_merge_to_deploy_seconds == 9000.0
         assert result.median_merge_to_deploy_seconds_prev == 7200.0
@@ -613,11 +595,8 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                 ),
             ],
         )
-        result = query_dora_overview(
-            curated=curated,
-            date_from=datetime(2026, 1, 10, tzinfo=UTC),
-            date_to=datetime(2026, 1, 20, tzinfo=UTC),
-            validated_environments=self._validated_environments(curated, ["staging"]),
+        result = build_dora_overview(
+            curated=curated, date_from="2026-01-10", date_to="2026-01-20", environments=["staging"]
         )
 
         assert result.environment_scope == "staging"
@@ -626,11 +605,11 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         # PR 1 (merged Jan 12 08:00) reaches staging's 09:00 success: a 1h lead time.
         assert result.median_merge_to_deploy_seconds == 3600.0
 
-        both = query_dora_overview(
+        both = build_dora_overview(
             curated=curated,
-            date_from=datetime(2026, 1, 10, tzinfo=UTC),
-            date_to=datetime(2026, 1, 20, tzinfo=UTC),
-            validated_environments=self._validated_environments(curated, [" staging ", "prod", "staging"]),
+            date_from="2026-01-10",
+            date_to="2026-01-20",
+            environments=[" staging ", "prod", "staging"],
             granularity="week",
         )
 
@@ -638,6 +617,15 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert both.selected_environments == ["staging", "prod"]
         assert both.deployment_count == 2  # the multi-environment scope admits d1 and d4
         assert both.series_granularity == "week"  # the caller's override beats the window fit
+
+        with self.assertRaises(UnknownDoraEnvironmentError) as raised:
+            build_dora_overview(
+                curated=curated,
+                date_from="2026-01-10",
+                date_to="2026-01-20",
+                environments=["missing", "staging", "gone"],
+            )
+        assert raised.exception.environments == ["missing", "gone"]
 
     def test_exact_environment_scope_can_select_a_transient_environment(self) -> None:
         curated = self._curated(
@@ -659,48 +647,12 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
             ],
             pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
         )
-        result = query_dora_overview(
-            curated=curated,
-            date_from=datetime(2026, 1, 10, tzinfo=UTC),
-            date_to=datetime(2026, 1, 20, tzinfo=UTC),
-            validated_environments=self._validated_environments(curated, ["preview-pr-2"]),
+        result = build_dora_overview(
+            curated=curated, date_from="2026-01-10", date_to="2026-01-20", environments=["preview-pr-2"]
         )
 
         assert result.environments == ["prod"]
         assert result.selected_environments == ["preview-pr-2"]
-        assert result.deployment_count == 1
-
-    def test_exact_environment_lookup_is_not_limited_by_picker_options(self) -> None:
-        deployment_rows = [
-            _deployment_row(
-                index,
-                f"sha-{index}",
-                f"environment-{index:03}",
-                "2026-01-12 09:30:00",
-                production=False,
-            )
-            for index in range(1, 102)
-        ]
-        status_rows = [
-            _status_row(index + 1000, index, "success", f"environment-{index:03}", "2026-01-12 10:00:00")
-            for index in range(1, 102)
-        ]
-        curated = self._curated(
-            self.team,
-            deployment_rows=deployment_rows,
-            status_rows=status_rows,
-            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
-        )
-        result = query_dora_overview(
-            curated=curated,
-            date_from=datetime(2026, 1, 10, tzinfo=UTC),
-            date_to=datetime(2026, 1, 20, tzinfo=UTC),
-            validated_environments=self._validated_environments(curated, ["environment-101"]),
-        )
-
-        assert len(result.environments) == 100
-        assert "environment-101" not in result.environments
-        assert result.selected_environments == ["environment-101"]
         assert result.deployment_count == 1
 
     def test_environment_discovery_keeps_a_quiet_persistent_option(self) -> None:
@@ -721,7 +673,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert result.deployment_count == 0
         assert result.deployment_count_prev == 0
 
-    @parameterized.expand([(True, True), (False, False), (True, False)])
+    @parameterized.expand([(False, False), (True, False)])
     def test_default_scope_includes_production_regions(self, us_production: bool, eu_production: bool) -> None:
         curated = self._curated(
             self.team,
@@ -747,46 +699,6 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert result.environments == ["prod-us", "prod-eu"]
         assert result.selected_environments == ["prod-eu", "prod-us"]
         assert result.deployment_count == 3
-
-    def test_default_production_scope_is_not_limited_by_picker_options(self) -> None:
-        deployment_rows = [
-            _deployment_row(
-                index * 10 + repetition,
-                f"staging-sha-{index}-{repetition}",
-                f"staging-{index:03}",
-                "2026-01-12 09:00:00",
-                production=False,
-            )
-            for index in range(1, 101)
-            for repetition in range(2)
-        ]
-        deployment_rows.extend(
-            [
-                _deployment_row(2001, "prod-us-sha", "prod-us", "2026-01-12 09:00:00", production=False),
-                _deployment_row(2002, "prod-eu-sha", "prod-eu", "2026-01-12 09:00:00", production=False),
-            ]
-        )
-        curated = self._curated(
-            self.team,
-            deployment_rows=deployment_rows,
-            status_rows=[
-                _status_row(3001, 2001, "success", "prod-us", "2026-01-12 10:00:00"),
-                _status_row(3002, 2002, "success", "prod-eu", "2026-01-12 10:00:00"),
-            ],
-            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
-        )
-
-        result = query_dora_overview(
-            curated=curated,
-            date_from=datetime(2026, 1, 10, tzinfo=UTC),
-            date_to=datetime(2026, 1, 20, tzinfo=UTC),
-        )
-
-        assert len(result.environments) == 100
-        assert "prod-us" not in result.environments
-        assert "prod-eu" not in result.environments
-        assert result.selected_environments == ["prod-eu", "prod-us"]
-        assert result.deployment_count == 2
 
     def test_default_scope_includes_flagged_names_and_excludes_transient_production_names(self) -> None:
         curated = self._curated(
@@ -847,17 +759,16 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         )
 
         assert len(result.environments) == 100
+        assert "prod-101" not in result.environments
         assert len(result.selected_environments) == 101
         assert result.selected_environments == [f"prod-{index:03}" for index in range(1, 102)]
         assert result.deployment_count == 101
 
-        explicitly_selected = query_dora_overview(
+        explicitly_selected = build_dora_overview(
             curated=curated,
-            date_from=datetime(2026, 1, 10, tzinfo=UTC),
-            date_to=datetime(2026, 1, 20, tzinfo=UTC),
-            validated_environments=self._validated_environments(
-                curated, [f"prod-{index:03}" for index in range(1, 102)]
-            ),
+            date_from="2026-01-10",
+            date_to="2026-01-20",
+            environments=[f"prod-{index:03}" for index in range(1, 102)],
         )
         assert explicitly_selected.selected_environments == [f"prod-{index:03}" for index in range(1, 102)]
         assert explicitly_selected.deployment_count == 101
