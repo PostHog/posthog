@@ -183,7 +183,9 @@ function VerifiedDomainsTable(): JSX.Element {
                 </div>
             ),
             render: function AutomaticProvisioning(_, { jit_provisioning_enabled, id }) {
-                if (!isAutomaticProvisioningAvailable) {
+                // The API refuses only turning provisioning on, so a domain that already has it on keeps
+                // the switch. Otherwise an admin who lost the feature cannot stop SSO logins creating accounts.
+                if (!isAutomaticProvisioningAvailable && !jit_provisioning_enabled) {
                     return <UpgradeToEnableLink />
                 }
                 return (
