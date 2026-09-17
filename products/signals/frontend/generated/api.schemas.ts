@@ -432,6 +432,8 @@ export interface SignalReportListApi {
     readonly total_weight: number
     readonly signal_count: number
     readonly signals_at_run: number
+    /** How many scout notes this report received beyond the few its work log keeps as entries. 0 when nothing was dropped. These say the finding still holds, so the count is shown in place of the entries. */
+    readonly collapsed_note_count: number
     readonly created_at: string
     readonly updated_at: string
     readonly artefact_count: number
@@ -616,6 +618,8 @@ export interface SignalReportApi {
     readonly total_weight: number
     readonly signal_count: number
     readonly signals_at_run: number
+    /** How many scout notes this report received beyond the few its work log keeps as entries. 0 when nothing was dropped. These say the finding still holds, so the count is shown in place of the entries. */
+    readonly collapsed_note_count: number
     readonly created_at: string
     readonly updated_at: string
     readonly artefact_count: number
@@ -2110,6 +2114,10 @@ export interface SignalReportStateRequestApi {
  * * `work_release` - Work Release
  * * `pull_request` - Pull Request
  * * `check_result` - Check Result
+ * * `implementation_decision` - Implementation Decision
+ * * `implementation_dispatch` - Implementation Dispatch
+ * * `implementation_replacement` - Implementation Replacement
+ * * `implementation_handover` - Implementation Handover
  */
 export type SignalReportArtefactArtefactTypeEnumApi =
     (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
@@ -2136,6 +2144,10 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     WorkRelease: 'work_release',
     PullRequest: 'pull_request',
     CheckResult: 'check_result',
+    ImplementationDecision: 'implementation_decision',
+    ImplementationDispatch: 'implementation_dispatch',
+    ImplementationReplacement: 'implementation_replacement',
+    ImplementationHandover: 'implementation_handover',
 } as const
 
 export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
@@ -4484,6 +4496,8 @@ export interface EditReportRequestApi {
      * @nullable
      */
     append_note?: string | null
+    /** Set only when append_note confirms the finding with no new information. After four confirmations, store only the count. Other notes remain in the work log. */
+    corroboration_only?: boolean
     /**
      * Optional observations to add to the report's evidence rail, each becoming a bound signal attributed to this scout — adds to the report's evidence rather than replacing it. Use this for a new observation a reader should be able to check, and `append_note` for commentary (the owning team knows, a deploy fixed it). The report's signal count and weight move with the appended rows. Emit plus every append share a cap of 50 signals per report.
      * @maxItems 50
@@ -4519,6 +4533,8 @@ export interface EditReportRequestApi {
      * @items.maxLength 200
      */
     suggested_prompts?: string[] | null
+    /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. */
+    supersedes_implementation?: boolean
 }
 
 export interface EditReportResponseApi {
@@ -4526,7 +4542,7 @@ export interface EditReportResponseApi {
     report_id: string
     /** Which presentation fields changed (e.g. `title`, `summary`); empty if only a note was appended. */
     updated_fields: string[]
-    /** Whether a note artefact was appended. */
+    /** Whether the edit included a note. True for a collapsed corroboration too, where the report's count moves and no work-log entry is written. Read `corroboration_collapsed` to tell the two apart. */
     note_appended: boolean
     /** How many observations this edit added to the report's evidence rail; 0 if none. */
     evidence_appended: number
@@ -4554,6 +4570,14 @@ export interface EditReportResponseApi {
      * @nullable
      */
     suggested_prompts_set: number | null
+    /** Whether this edit actually rewrote the report's title or summary. False for a note, a reviewer change, or a re-send of the text the report already had. */
+    is_content_revision: boolean
+    /** How many times a scout has rewritten this report's title or summary, counting this edit. */
+    content_revision_count: number
+    /** Whether the edit recorded that the report's pull request should be replaced. False when you did not ask for it, when the edit changed no content, or when the report has already been rewritten too many times. */
+    supersedes_implementation: boolean
+    /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
+    corroboration_collapsed: boolean
 }
 
 /**

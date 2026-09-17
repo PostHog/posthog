@@ -14,13 +14,13 @@ export function parseDeepLinkTime(
     timestampParam: string | number | undefined,
     tParam: string | number | undefined
 ): DeepLinkTime | null {
-    if (timestampParam) {
+    if (isPresent(timestampParam)) {
         const absolute = parseAbsoluteMs(timestampParam)
         if (absolute !== null) {
             return { kind: 'timestamp', valueMs: absolute }
         }
     }
-    if (tParam) {
+    if (isPresent(tParam)) {
         const seconds = toFiniteNumber(tParam)
         if (seconds !== null) {
             return { kind: 'offset', valueMs: seconds * 1000 }
@@ -31,6 +31,12 @@ export function parseDeepLinkTime(
         }
     }
     return null
+}
+
+// kea-router parses a numeric query param into a number, so `?t=0` arrives as 0, which is present
+// but falsy. A truthiness check drops it and the recording starts wherever the player chooses.
+function isPresent(value: string | number | undefined): value is string | number {
+    return value != null && value !== ''
 }
 
 function parseAbsoluteMs(value: string | number): number | null {

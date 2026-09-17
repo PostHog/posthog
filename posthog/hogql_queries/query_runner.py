@@ -286,6 +286,10 @@ _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {  # ty: ignore[in
 UNKNOWN_QUERY_METRIC_LABEL = "unknown"
 SURVEYS_PRODUCT_KEY = "surveys"
 
+# Matches WebAnalyticsFilterPreset.short_id's max_length. The value is client-supplied,
+# so it is truncated rather than trusted before it reaches the query log.
+PRESET_ID_MAX_LENGTH = 12
+
 
 def get_survey_query_metric_labels(query: Any) -> dict[str, str] | None:
     tags = getattr(query, "tags", None)
@@ -1583,6 +1587,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "MetricsHistogramQuery":
+        from products.metrics.backend.facade.queries import MetricsHistogramQueryRunner
+
+        return MetricsHistogramQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     # Registered here for server-side CSV export only (ExportedAsset + Celery).
     # Direct queries are blocked by LogsQueryRunner.validate_query_runner_access.
     if kind == "LogsQuery":
@@ -2220,6 +2236,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if tags.scene:
                     posthoganalytics.tag("scene", tags.scene)
                     tag_queries(scene=tags.scene)
+                # Dropped, not truncated: truncating an overlong client value could alias it
+                # onto a real preset's short id and attribute shapes to someone else's preset.
+                if tags.presetId and len(tags.presetId) <= PRESET_ID_MAX_LENGTH:
+                    posthoganalytics.tag("preset_id", tags.presetId)
+                    tag_queries(preset_id=tags.presetId)
 
             tag_queries(execution_mode=execution_mode.value)
             tag_queries(cache_key=cache_key)

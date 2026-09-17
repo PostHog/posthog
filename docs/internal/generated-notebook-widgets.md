@@ -108,6 +108,10 @@ Loading a saved result does not execute a cell or mark dependent cells stale. If
 New notebooks place the typing caret in the title, including when opened through the command menu. Enter continues into the notebook body.
 The notebook's inline **Ask AI** uses LangGraph and receives widget authoring instructions when `notebook-generated-widgets` is enabled for the user.
 The bookmark toggle **Keep question with answer** is on by default, retaining the question and the submitting user's name above the answer. Turning it off saves `keepQuestion={false}` on that prompt.
+**Ask AI** is disabled until the organization approves AI data processing, including submission from saved prompt blocks.
+Inline notebook artifacts update the open notebook without saving a second copy, even when the tool requests a save.
+Full-notebook replacements preserve the retained question when **Keep question with answer** is on.
+Standalone AI notebook saves preserve Markdown separators and live MDX cells, including `<SQLV2 />` and `<Widget />`, while resolving visualization references.
 Its notebook context and `create_notebook` tool share the same instructions for inserting `<Widget title="Interactive visualization" prompt="Describe the visualization" />`.
 When the widget flag is enabled, inline AI insertion also converts plain, `md`, or `markdown` code fences containing only valid `<Widget>` tags into widget blocks. Fences containing other code, malformed tags, or an explicit language such as `text` remain code examples.
 The user clicks **Generate widget** in the inserted block's settings to start generation.

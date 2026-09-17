@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSelect, LemonSwitch, Popover } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonSelect, LemonSwitch, Popover } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -18,6 +18,7 @@ import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { BREAKDOWN_LABELS } from '../../logic/marketingBreakdown'
 import {
     MARKETING_ANALYTICS_RETENTION_COLLECTION_ID,
+    MAX_ACQUISITION_PERIOD_DAYS,
     marketingRetentionLogic,
 } from '../../logic/marketingRetentionLogic'
 
@@ -27,7 +28,7 @@ const RETENTION_DATE_OPTIONS = dateMapping.filter(({ values }) =>
 
 export function RetentionTab(): JSX.Element {
     const {
-        dateFilter,
+        acquisitionPeriodTooLong,
         breakdownBy,
         excludeDirectTraffic,
         excludeUnattributed,
@@ -37,7 +38,6 @@ export function RetentionTab(): JSX.Element {
         query,
     } = useValues(marketingRetentionLogic)
     const {
-        setDates,
         setBreakdownBy,
         setExcludeDirectTraffic,
         setExcludeUnattributed,
@@ -45,6 +45,8 @@ export function RetentionTab(): JSX.Element {
         setOptionsOpen,
         setComparePreviousPeriod,
     } = useActions(marketingRetentionLogic)
+    const { dateFilter } = useValues(marketingAnalyticsLogic)
+    const { setDates } = useActions(marketingAnalyticsLogic)
     const optionsContent = (
         <div className="flex w-80 max-w-[90vw] flex-col gap-4 p-3">
             <div>
@@ -141,7 +143,20 @@ export function RetentionTab(): JSX.Element {
                     }
                 />
                 <div className="mt-4 flex flex-col gap-4 pb-8">
-                    <RetentionResults query={query} attachTo={marketingAnalyticsLogic} />
+                    {acquisitionPeriodTooLong ? (
+                        <LemonBanner
+                            type="warning"
+                            action={{
+                                children: `Use the last ${MAX_ACQUISITION_PERIOD_DAYS} days`,
+                                onClick: () => setDates(`-${MAX_ACQUISITION_PERIOD_DAYS}d`, null),
+                            }}
+                        >
+                            Retention follows people acquired in a period of up to {MAX_ACQUISITION_PERIOD_DAYS} days.
+                            Pick a shorter date range to see the table.
+                        </LemonBanner>
+                    ) : (
+                        <RetentionResults query={query} attachTo={marketingAnalyticsLogic} />
+                    )}
                 </div>
             </div>
         </BindLogic>
