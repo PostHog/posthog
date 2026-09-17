@@ -841,13 +841,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         try:
             person = self.get_object()
-            # Convert query params to request data format expected by bulk_delete
+            # Convert query params to request data format expected by bulk_delete. This path stays
+            # synchronous under the queued-deletion flag: the app deletes one person here and reloads
+            # the list at once, so the person has to be gone when the response returns.
             self._bulk_delete_persons(
                 request=request,
                 ids=[str(person.uuid)],
                 delete_events="delete_events" in request.GET,
                 delete_recordings="delete_recordings" in request.GET,
                 keep_person="keep_person" in request.GET,
+                allow_queued=False,
             )
             return response.Response(status=202)
 
@@ -887,6 +890,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         delete_events: bool = False,
         delete_recordings: bool = False,
         keep_person: bool = False,
+        allow_queued: bool = True,
     ) -> dict[str, Any]:
         if distinct_ids and ids:
             raise ValidationError("You must provide either distinct_ids or ids, not both")
@@ -897,7 +901,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not distinct_ids and not ids:
             raise ValidationError("You need to specify either distinct_ids or ids")
 
-        if settings.PERSON_BULK_DELETE_ASYNC:
+        if allow_queued and settings.PERSON_BULK_DELETE_ASYNC:
             return self._queue_bulk_delete_persons(
                 request,
                 distinct_ids=distinct_ids,

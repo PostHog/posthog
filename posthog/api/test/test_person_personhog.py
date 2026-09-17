@@ -432,6 +432,18 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         assert {(log.user_id, log.organization_id) for log in logs} == {(self.user.pk, self.organization.id)}
 
     @override_settings(PERSON_BULK_DELETE_ASYNC=True)
+    @mock.patch("posthog.api.person.queue_person_deletion")
+    def test_single_person_delete_stays_synchronous_under_the_flag(self, queue_deletion):
+        p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
+
+        resp = self.client.delete(f"/api/person/{p1.uuid}/")
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        queue_deletion.assert_not_called()
+        self._assert_personhog_called("delete_persons")
+        assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is None
+
+    @override_settings(PERSON_BULK_DELETE_ASYNC=True)
     @mock.patch("posthog.models.person.bulk_delete.queue_person_training_deletion")
     @mock.patch("posthog.api.person.queue_person_training_deletion")
     def test_bulk_delete_async_queues_training_deletion_once_per_distinct_id(self, request_side, task_side):
