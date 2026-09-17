@@ -251,7 +251,7 @@ export const recentItemsModel = kea<recentItemsModelType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, selectors }) => ({
         loadCurrentTeamSuccess: ({ currentTeam }) => {
             if (!currentTeam) {
                 return
@@ -259,6 +259,18 @@ export const recentItemsModel = kea<recentItemsModelType>([
 
             actions.loadRecents()
             actions.loadSceneLogViews()
+        },
+        // Clearing the tombstone only lets a later load re-include the row; it cannot put it back.
+        // Refetch so an undone delete shows up in Recents right away, as it already does in the
+        // project tree. Every ordinary save broadcasts this action too, so skip the refetch unless
+        // this restore answers a delete.
+        restoreItem: ({ type, ref }, _, __, previousState) => {
+            const wasRemoved = selectors
+                .removedItems(previousState)
+                .some((item) => item.type === type && item.ref === ref)
+            if (wasRemoved) {
+                actions.loadRecents()
+            }
         },
     })),
 

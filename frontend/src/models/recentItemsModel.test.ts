@@ -5,7 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import api, { ApiConfig } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import type { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -136,6 +136,41 @@ describe('recentItemsModel', () => {
         // A deleted item that stays in Recents is still clickable, and reads as a failed delete.
         deleteFromTree(recentItem.type as string, recentItem.ref as string)
         expect(logic.values.recents).toEqual([])
+    })
+
+    it('reloads Recents for a restore that undoes a delete, but not for an ordinary save', async () => {
+        jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
+        const listRecents = jest.spyOn(api.fileSystem, 'list').mockResolvedValue({
+            count: 1,
+            results: [recentItem],
+            users: [],
+        })
+        jest.spyOn(api.fileSystemLogView, 'list').mockResolvedValue([])
+
+        logic = recentItemsModel()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadRecentsSuccess'])
+            .toMatchValues({ recents: [recentItem] })
+
+        deleteFromTree(recentItem.type as string, recentItem.ref as string)
+        expect(logic.values.recents).toEqual([])
+
+        // Undo puts the item back in the project tree, so Recents must not stay one row short until
+        // the next page load.
+        await expectLogic(logic, () => {
+            refreshTreeItem(recentItem.type as string, recentItem.ref as string)
+        })
+            .toDispatchActions(['loadRecents', 'loadRecentsSuccess'])
+            .toMatchValues({ recents: [recentItem] })
+
+        // Every save broadcasts the same restore, so a reload that ignored the delete would cost a
+        // request per save across the app.
+        const callsSoFar = listRecents.mock.calls.length
+        refreshTreeItem(recentItem.type as string, recentItem.ref as string)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(listRecents.mock.calls).toHaveLength(callsSoFar)
     })
 
     it('keeps a deleted item out of a response the delete raced', async () => {

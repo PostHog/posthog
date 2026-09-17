@@ -247,15 +247,11 @@ describe('projectTreeDataLogic', () => {
         }).toFinishAllListeners()
         expect(recents.values.recents).toEqual([])
 
-        await success.mock.calls[0][1]?.button?.action?.()
-        await expectLogic(logic).toFinishAllListeners()
-
-        // Undo must also clear the tombstone the delete left, or every later load filters the
-        // restored item back out.
+        // Undo must tell Recents as well, or the tree shows the restored item and the list stays a
+        // row short.
         jest.mocked(api.fileSystem.list).mockResolvedValue({ count: 1, results: [recentItem], users: [] })
-        await expectLogic(recents, () => {
-            recents.actions.loadRecents()
-        })
+        await success.mock.calls[0][1]?.button?.action?.()
+        await expectLogic(recents)
             .toDispatchActions(['loadRecents', 'loadRecentsSuccess'])
             .toMatchValues({ recents: [recentItem] })
     })
