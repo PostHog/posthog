@@ -128,12 +128,14 @@ import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtil
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
+import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
 import {
     ProjectSelectOption,
     aggregateCopyResponse,
     errorMessageFrom,
     projectSelectOptions,
 } from './flagSelectionLogic'
+import { PropertySelectError, getConditionSetErrors } from './propertySelectErrorMessages'
 import {
     ScheduleOccurrence,
     expandScheduleOccurrences,
@@ -141,6 +143,22 @@ import {
     isSchedulePaused,
 } from './scheduleOccurrences'
 import { flagToggleKey, updateFlagActiveInProject } from './updateFlagActiveInProject'
+
+// A collapsed condition-set panel renders none of its children, so an inline release-condition
+// error has no element to render into and `scrollToFormError` has nothing to scroll to. Open every
+// set that holds a blocking error before the scroll runs.
+function openConditionSets(flagId: string, conditionSetErrors: { index: number }[]): void {
+    const releaseConditionsLogic = featureFlagReleaseConditionsLogic.findMounted({ id: flagId })
+    if (!releaseConditionsLogic) {
+        return
+    }
+    for (const { index } of conditionSetErrors) {
+        const sortKey = releaseConditionsLogic.values.filters.groups[index]?.sort_key
+        if (sortKey) {
+            releaseConditionsLogic.actions.openCondition(sortKey)
+        }
+    }
+}
 
 const VALID_INTENTS: FlagIntent[] = ['local-eval', 'first-page-load']
 
@@ -3741,13 +3759,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (formErrors?.tags && !values.advancedPanelOpen) {
                 actions.setAdvancedExpanded(true)
             }
+            const conditionSetErrors = getConditionSetErrors(filtersErrors?.groups as PropertySelectError[] | undefined)
+            openConditionSets(String(props.id), conditionSetErrors)
             // Yield so React flushes the expand-actions re-render before scrollToFormError schedules
             // its requestAnimationFrame callback — otherwise on browsers/scheduler combinations where
             // the render lands after RAF, `.Field--error` isn't in the DOM yet and the fallback toast
             // fires instead of scrolling to the error.
             await Promise.resolve()
             scrollToFormError({
-                fallbackErrorMessage: 'This flag has validation errors. Please review the highlighted fields above.',
+                fallbackErrorMessage: conditionSetErrors.length
+                    ? `Condition set ${conditionSetErrors[0].index + 1} needs a fix: ${conditionSetErrors[0].message}`
+                    : 'This flag has validation errors. Please review the highlighted fields above.',
             })
         },
         updateFeatureFlagActiveFailure: ({ errorObject }) => {
