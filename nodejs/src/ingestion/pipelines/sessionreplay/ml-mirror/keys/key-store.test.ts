@@ -50,6 +50,7 @@ class DynamoBoundary {
     public readSizes: number[] = []
     public writes = 0
     public writeRequests = 0
+    public deferWrites = 0
     public conditionalFailures = 0
 
     public async send(command: BatchGetItemCommand | BatchWriteItemCommand | PutItemCommand): Promise<object> {
@@ -57,12 +58,15 @@ class DynamoBoundary {
             const requests = command.input.RequestItems![table]
             this.writeRequests += 1
             await Promise.resolve()
-            for (const request of requests) {
+            // DynamoDB answers a partial throttle by storing some rows and returning the rest as unprocessed.
+            const deferred = Math.min(this.deferWrites, requests.length)
+            this.deferWrites -= deferred
+            for (const request of requests.slice(deferred)) {
                 const row = request.PutRequest!.Item!
                 this.writes += 1
                 this.items.set(JSON.stringify([row.pk.S, row.sk.S]), row)
             }
-            return {}
+            return deferred ? { UnprocessedItems: { [table]: requests.slice(0, deferred) } } : {}
         }
         if (command instanceof BatchGetItemCommand) {
             const keys = command.input.RequestItems![table].Keys!
@@ -153,6 +157,29 @@ describe('ML session key batches', () => {
         expect(Math.max(...boundary.readSizes)).toBeLessThanOrEqual(100)
         expect(boundary.writes).toBe(4)
         expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(1)
+    })
+
+    it.each([
+        ['retries only the rows a batch write left unprocessed', 1, true],
+        ['gives up when a batch write keeps leaving rows unprocessed', 500, false],
+    ])('%s', async (_label, deferred, succeeds) => {
+        boundary.deferWrites = deferred
+        const batch = await store.prepare([session])
+        jest.useFakeTimers()
+        const settled = batch.commit().then(
+            () => 'committed',
+            () => 'failed'
+        )
+        await jest.runAllTimersAsync()
+        expect(await settled).toBe(succeeds ? 'committed' : 'failed')
+        if (succeeds) {
+            const location = sessionKeyId(session.teamId, session.sessionId)
+            expect(boundary.items.has(tableKeyString(monthKeyIndexId({ ...session }, location)))).toBe(true)
+            // Two index rows and two keys. A retry that re-sent the whole batch would store an index row twice.
+            expect(boundary.writes).toBe(4)
+            // One batch write, one retry carrying the single deferred row, and a put for each key.
+            expect(boundary.writeRequests).toBe(4)
+        }
     })
 
     it('writes one request per key instead of two by batching the month index entries', async () => {
