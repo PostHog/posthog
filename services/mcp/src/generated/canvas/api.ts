@@ -1304,6 +1304,10 @@ export const CanvasesStateSetBody = () => zod
  *
  * Source is versioned per publish and built server-side; the canvas app
  * renders the published build's artifact from the isolated artifact origin.
+ *
+ * Access is the intersection of two rules: the space the canvas is filed in
+ * (a personal space is only its owner's) and per-object access control,
+ * which the mixin layers on top and which defaults to editor until rules exist.
  */
 export const CanvasesStateValueRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
