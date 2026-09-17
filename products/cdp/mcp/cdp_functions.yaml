@@ -247,7 +247,7 @@ tools:
             filter expression that gates the function). Filter by type (destination, site_destination,
             internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation) and enabled status
             via query parameters. Pagination caps at 100 per page by default — pass limit=1000 (max 1000) when scanning
-            for an existing function by alert id, and follow the next link if more pages exist.
+            for an existing function by alert id, and send next_offset back as offset while more pages remain.
         response:
             include:
                 - id
