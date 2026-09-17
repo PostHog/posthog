@@ -11,7 +11,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { getCustomIcon } from '~/layout/panel-layout/ProjectTree/customIconRegistry'
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { NavLink } from '../../NavLink'
 import { flatNavLogic } from './flatNavLogic'
@@ -63,13 +63,23 @@ export function FlatNavProducts(): JSX.Element {
                             {group.items.map((item) => {
                                 // Products can register an icon that carries dynamic state, such as the
                                 // support unread counter. Fall back to the static icon when none exists.
+                                // Custom icons still go through ProductIconWrapper, which is what keeps
+                                // this row's icons in their product colors.
                                 const CustomIcon = getCustomIcon(item.type)
                                 return (
                                     <NavLink
                                         key={item.path}
                                         to={item.href}
                                         label={item.label}
-                                        icon={CustomIcon ? <CustomIcon /> : iconForType(item.iconType, item.iconColor)}
+                                        icon={
+                                            CustomIcon ? (
+                                                <ProductIconWrapper type={item.iconType} colorOverride={item.iconColor}>
+                                                    <CustomIcon />
+                                                </ProductIconWrapper>
+                                            ) : (
+                                                iconForType(item.iconType, item.iconColor)
+                                            )
+                                        }
                                         isCollapsed={false}
                                         tag={item.tag}
                                         data-attr={`flat-nav-tool-${slugify(item.path)}`}
