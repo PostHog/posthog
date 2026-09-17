@@ -134,7 +134,7 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         sources.filter(id=first_page[0]).update(name="Edited between pages")
         paged_ids = first_page + page(2)
 
-        assert sorted(paged_ids) == created_ids
+        assert paged_ids == created_ids
 
     def test_list_rejects_unknown_source_type(self, _ff) -> None:
         response = self.client.get(f"{self.url}?source_type=bogus")
