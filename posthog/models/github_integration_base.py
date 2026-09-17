@@ -2674,6 +2674,62 @@ class GitHubIntegrationBase:
 
         return branches, default_branch
 
+    def _refresh_branch_cache_with_fallback(self, repo: str, cached: dict[str, Any] | None) -> dict[str, Any] | None:
+        claim_key = self._get_branch_cache_refresh_claim_key(repo)
+        refresh_claimed = safe_cache_add(claim_key, True, GITHUB_BRANCH_CACHE_REFRESH_CLAIM_TTL_SECONDS)
+        if not refresh_claimed and cached is None:
+            # The claim owner may have completed between our first cache read and the claim.
+            cached = self._get_branch_cache(repo)
+
+        trace.get_current_span().set_attribute(
+            "github.branch_cache.refresh",
+            "owner" if refresh_claimed else "cold_duplicate" if cached is None else "in_progress",
+        )
+
+        # A cold caller still refreshes if another worker holds the claim. Returning an empty list
+        # would make a repository look branchless. Once a snapshot exists, stale data is the safer
+        # and much faster response while the claim owner updates it.
+        if not refresh_claimed and cached is not None:
+            return cached
+
+        try:
+            branches, default_branch = self.sync_branch_cache(repo)
+            return {
+                "branches": branches,
+                "default_branch": default_branch,
+            }
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: failed to refresh branch cache",
+                integration_id=self.integration.id,
+                repo=repo,
+                exc_info=True,
+            )
+            if cached is None:
+                raise
+            return cached
+        finally:
+            if refresh_claimed:
+                safe_cache_delete(claim_key)
+
+    def _filter_and_paginate_branch_cache(
+        self, cached: dict[str, Any], *, search: str, limit: int, offset: int
+    ) -> tuple[list[str], str | None, bool]:
+        branches = cast(list[str], cached["branches"])
+        default_branch = cast(str | None, cached.get("default_branch"))
+
+        normalized_search = search.strip().casefold()
+        filtered_branches = (
+            [branch for branch in branches if normalized_search in branch.casefold()] if normalized_search else branches
+        )
+
+        result = filtered_branches[offset : offset + limit]
+        has_more = offset + limit < len(filtered_branches)
+        span = trace.get_current_span()
+        span.set_attribute("github.branches.returned", len(result))
+        span.set_attribute("github.branches.has_more", has_more)
+        return result, default_branch, has_more
+
     @tracer.start_as_current_span("github.branches.cache")
     def list_cached_branches(
         self, repo: str, *, search: str = "", limit: int = 100, offset: int = 0
@@ -2690,54 +2746,12 @@ class GitHubIntegrationBase:
         span.set_attribute("github.branch_cache.snapshot_present", cached is not None)
 
         if should_refresh:
-            claim_key = self._get_branch_cache_refresh_claim_key(repo)
-            refresh_claimed = safe_cache_add(claim_key, True, GITHUB_BRANCH_CACHE_REFRESH_CLAIM_TTL_SECONDS)
-            if not refresh_claimed and cached is None:
-                # The claim owner may have completed between our first cache read and the claim.
-                cached = self._get_branch_cache(repo)
-            span.set_attribute(
-                "github.branch_cache.refresh",
-                "owner" if refresh_claimed else "cold_duplicate" if cached is None else "in_progress",
-            )
-            # A cold caller still refreshes if another worker holds the claim. Returning an empty list
-            # would make a repository look branchless. Once a snapshot exists, stale data is the safer
-            # and much faster response while the claim owner updates it.
-            if refresh_claimed or cached is None:
-                try:
-                    branches, default_branch = self.sync_branch_cache(repo)
-                    cached = {
-                        "branches": branches,
-                        "default_branch": default_branch,
-                    }
-                except Exception:
-                    logger.warning(
-                        "GitHubIntegration: failed to refresh branch cache",
-                        integration_id=self.integration.id,
-                        repo=repo,
-                        exc_info=True,
-                    )
-                    if cached is None:
-                        raise
-                finally:
-                    if refresh_claimed:
-                        safe_cache_delete(claim_key)
+            cached = self._refresh_branch_cache_with_fallback(repo, cached)
         else:
             span.set_attribute("github.branch_cache.refresh", "not_needed")
 
         assert cached is not None
-        branches = cast(list[str], cached["branches"])
-        default_branch = cast(str | None, cached.get("default_branch"))
-
-        normalized_search = search.strip().casefold()
-        filtered_branches = (
-            [branch for branch in branches if normalized_search in branch.casefold()] if normalized_search else branches
-        )
-
-        result = filtered_branches[offset : offset + limit]
-        has_more = offset + limit < len(filtered_branches)
-        span.set_attribute("github.branches.returned", len(result))
-        span.set_attribute("github.branches.has_more", has_more)
-        return result, default_branch, has_more
+        return self._filter_and_paginate_branch_cache(cached, search=search, limit=limit, offset=offset)
 
     def get_access_token(self) -> str:
         """Return a valid installation access token, refreshing it past the half-life threshold."""
