@@ -131,6 +131,11 @@ jobs:
     changes:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
+        permissions:
+            contents: read
+            actions: read
+            pull-requests: write
+            checks: read # the router reads this commit's earlier hand-off check
         # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
         # every other job needs this one, and the gates treat skipped as success.
         # ready_for_review re-runs everything, so the merge gate is unaffected.
@@ -169,6 +174,8 @@ jobs:
             timing_scripts: ${{ steps.filter.outputs.timing_scripts }}
             # Which engine runs this event's backend tests. Depot CI never decides on its
             # own: it waits for the hand-off job below and runs only when that succeeded.
+            # A commit keeps its first engine across reruns and later events, so a changed
+            # percent or label cannot put the same tests on the other engine.
             # Empty means the router did not answer, and GitHub Actions keeps the tests.
             engine: ${{ steps.route.outputs.engine || 'github' }}
         steps:
@@ -193,6 +200,35 @@ jobs:
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - name: Read the engine an earlier run of this commit chose
+              # The hand-off check is the durable record of the first decision. Reading it
+              # here keeps a rerun, or a ready-for-review event on the same commit, on the
+              # engine whose tests and side effects already ran. GitHub queues a new
+              # hand-off check for every attempt, so only concluded ones count. A read that
+              # keeps failing fails this job, and then neither engine runs anything.
+              id: prior-engine
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ github.event.pull_request.head.sha }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  HANDOFF_CHECK: Hand off backend tests to Depot CI
+                  GITHUB_ACTIONS_APP_ID: '15368'
+              run: |
+                  set -uo pipefail
+                  url="repos/$REPO/commits/$SHA/check-runs?check_name=$(jq -rn --arg n "$HANDOFF_CHECK" '$n | @uri')&app_id=$GITHUB_ACTIONS_APP_ID&filter=all&per_page=100"
+                  for attempt in 1 2 3; do
+                      if body=$(gh api "$url"); then
+                          engine=$(jq -r --argjson pr "$PR_NUMBER" '[.check_runs[] | select(.status == "completed" and any(.pull_requests[]?; .number == $pr))] | max_by(.id) | if . == null then "" elif .conclusion == "success" then "depot" elif .conclusion == "skipped" then "github" else "" end' <<<"$body")
+                          echo "engine=$engine" >> "$GITHUB_OUTPUT"
+                          echo "::notice::Earlier hand-off on this commit: ${engine:-none}"
+                          exit 0
+                      fi
+                      [ "$attempt" -lt 3 ] && sleep 10
+                  done
+                  echo "::error::Cannot read the earlier hand-off for $SHA, so this event is not routed"
+                  exit 1
             - name: Pick the engine that runs the backend tests
               id: route
               env:
@@ -202,6 +238,7 @@ jobs:
                   LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
                   IS_DRAFT: ${{ github.event.pull_request.draft }}
+                  PRIOR_ENGINE: ${{ steps.prior-engine.outputs.engine }}
               run: python3 .github/scripts/ci_backend_route.py
             - uses: ./.github/actions/paths-filter
               # Skipped on master push and on the hourly schedule: every output then

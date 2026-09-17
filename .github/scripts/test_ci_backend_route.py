@@ -53,6 +53,23 @@ def test_missing_pr_number_stays_on_github() -> None:
 
 
 @pytest.mark.parametrize(
+    "prior,labels,percent,expected",
+    [
+        ("depot", ["ci-backend-github"], 0, "depot"),
+        ("github", ["ci-backend-depot"], 100, "github"),
+        ("", ["ci-backend-depot"], 0, "depot"),
+        (None, [], 100, "depot"),
+    ],
+)
+def test_earlier_run_of_the_commit_wins(prior: str | None, labels: list[str], percent: int, expected: str) -> None:
+    assert route.decide("pull_request", percent, 124, labels, False, False, prior).engine == expected
+
+
+def test_earlier_run_never_routes_a_non_pull_request_event() -> None:
+    assert route.decide("push", 100, None, [], False, False, "depot").engine == "github"
+
+
+@pytest.mark.parametrize(
     "raw,expected",
     [(None, 0), ("", 0), ("abc", 0), ("-5", 0), ("42", 42), ("250", 100), (" 7 ", 7), ("²", 0), ("9" * 5000, 0)],
 )
