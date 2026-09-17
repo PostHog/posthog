@@ -80,7 +80,9 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
                 t.session_recording_retention_period,
                 COALESCE(o.is_ai_training_opted_in, false) AS is_ai_training_opted_in
             FROM posthog_team t
-            LEFT JOIN posthog_organization o ON o.id = t.organization_id
+            -- organization_id is NOT NULL, so an inner join drops no row and lets the planner
+            -- choose the join order. COALESCE stays: is_ai_training_opted_in is itself nullable.
+            JOIN posthog_organization o ON o.id = t.organization_id
             WHERE t.session_recording_opt_in = true
         `,
         [],
