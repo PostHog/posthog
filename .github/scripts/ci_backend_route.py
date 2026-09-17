@@ -99,6 +99,8 @@ def fetch_handoff_checks(repo: str, sha: str, token: str) -> list[dict]:
         f"https://api.github.com/repos/{repo}/commits/{sha}/check-runs?{query}",
         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
     )
+    # The scheme and host are literal; only the repo and commit come from the event.
+    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.load(response)["check_runs"]
 
