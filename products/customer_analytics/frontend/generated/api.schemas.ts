@@ -224,6 +224,22 @@ export interface ErrorResponseApi {
     error: string
 }
 
+export interface ExternalAccountListPermissionErrorApi {
+    /** Error category. */
+    type: string
+    /** Machine-readable error code. */
+    code: string
+    /** Error message. */
+    detail: string
+    /**
+     * Request field associated with the error, if any.
+     * @nullable
+     */
+    attr: string | null
+}
+
+export type ExternalAccountListAuthErrorApi = ErrorResponseApi | ExternalAccountListPermissionErrorApi
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data

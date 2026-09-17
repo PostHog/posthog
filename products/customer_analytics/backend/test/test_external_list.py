@@ -134,12 +134,27 @@ class TestExternalAccountListAPI(APIBaseTest):
         response = self._get(params={"project_id": self.team.id}, token=token)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        message = "API key missing required scope 'account:read'"
+        self.assertEqual(
+            response.json(), self.permission_denied_response(message) if key_type == "personal" else {"error": message}
+        )
 
     @parameterized.expand([("missing", None), ("invalid", "abc"), ("negative", -1)])
     def test_personal_key_requires_valid_project_id(self, _name: str, project_id: str | int | None) -> None:
         _, token = self._create_personal_token(scopes=["account:read"])
         response = self._get(params={} if project_id is None else {"project_id": project_id}, token=token)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_personal_key_returns_not_found_for_deleted_project(self) -> None:
+        project = Team.objects.create(organization=self.organization, name="Deleted project")
+        project_id = project.id
+        project.delete()
+        _, token = self._create_personal_token(scopes=["account:read"])
+
+        response = self._get(params={"project_id": project_id}, token=token)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json(), self.not_found_response("Project not found."))
 
     @parameterized.expand([("project_scope",), ("organization_scope",), ("membership",), ("resource_access",)])
     def test_personal_key_enforces_access(self, restriction: str) -> None:

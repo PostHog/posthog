@@ -32,7 +32,7 @@ from django.http import HttpRequest
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, PolymorphicProxySerializer, extend_schema
 from rest_framework import serializers, status
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny
@@ -476,6 +476,20 @@ class ExternalAccountListValidationErrorSerializer(serializers.Serializer):
     )
 
 
+class ExternalAccountListPermissionErrorSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Error category.")
+    code = serializers.CharField(help_text="Machine-readable error code.")
+    detail = serializers.CharField(help_text="Error message.")
+    attr = serializers.CharField(allow_null=True, help_text="Request field associated with the error, if any.")
+
+
+_ExternalAccountListAuthError = PolymorphicProxySerializer(
+    component_name="ExternalAccountListAuthError",
+    serializers=[ErrorResponseSerializer, ExternalAccountListPermissionErrorSerializer],
+    resource_type_field_name=None,
+)
+
+
 class ExternalAccountListView(APIView):
     """
     GET /api/customer_analytics/external/accounts — List accounts with their relationship assignments
@@ -513,10 +527,14 @@ class ExternalAccountListView(APIView):
                 response=ExternalAccountListValidationErrorSerializer,
                 description="Invalid query parameters.",
             ),
-            401: OpenApiResponse(response=ErrorResponseSerializer, description="Authentication failed."),
+            401: OpenApiResponse(response=_ExternalAccountListAuthError, description="Authentication failed."),
             403: OpenApiResponse(
-                response=ErrorResponseSerializer,
-                description="API key does not carry the account:read scope.",
+                response=_ExternalAccountListAuthError,
+                description="API key lacks the required scope or access to the selected project or accounts.",
+            ),
+            404: OpenApiResponse(
+                response=ExternalAccountListPermissionErrorSerializer,
+                description="The project selected with a personal API key does not exist.",
             ),
         },
         summary="List external customer analytics accounts",

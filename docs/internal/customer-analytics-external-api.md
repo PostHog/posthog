@@ -22,6 +22,11 @@ Organization security rules also apply.
 The response includes only accounts the key owner can access.
 Account access filters apply before pagination.
 The endpoint does not use the key owner's currently selected project.
+An unknown project ID returns HTTP 404.
+An existing project that the key cannot access returns HTTP 403.
+Personal-key permission errors use the standard `type`, `code`, `detail`, and `attr` fields.
+Other authentication and scope errors can use the `error` field.
+The API schema describes both formats for HTTP 401 and 403.
 
 ## Project secret API keys
 
