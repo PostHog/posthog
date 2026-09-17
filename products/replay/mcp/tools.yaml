@@ -160,6 +160,9 @@ tools:
     session-recording-playlists-update:
         operation: session_recording_playlists_update
         enabled: false
+    session-recordings-ai-regex-create:
+        operation: session_recordings_ai_regex_create
+        enabled: false
     session-recordings-list:
         operation: session_recordings_list
         enabled: false
