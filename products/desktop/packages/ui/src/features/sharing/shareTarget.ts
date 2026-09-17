@@ -6,7 +6,6 @@ export type ShareTarget =
   | {
       kind: "artifact";
       taskId: string;
-      runId: string;
       artifactId: string;
       name: string;
     };

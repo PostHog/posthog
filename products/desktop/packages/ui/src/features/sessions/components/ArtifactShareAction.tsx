@@ -13,12 +13,10 @@ import { useState } from "react";
 /** The share button in an artifact tab's header; opens the share dialog for the displayed version. */
 export function ArtifactShareAction({
   taskId,
-  runId,
   artifactId,
   name,
 }: {
   taskId: string;
-  runId: string;
   artifactId: string;
   name: string;
 }) {
@@ -57,7 +55,7 @@ export function ArtifactShareAction({
       </Tooltip>
       {open && (
         <ShareModal
-          target={{ kind: "artifact", taskId, runId, artifactId, name }}
+          target={{ kind: "artifact", taskId, artifactId, name }}
           surface="thread_panel"
           onClose={() => setOpen(false)}
         />

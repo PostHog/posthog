@@ -376,7 +376,6 @@ export function ArtifactPreview({
       name={name}
       versionNav={versionNav}
       taskId={taskId}
-      runId={displayedRunId}
       artifactId={displayedArtifactId}
       commentTarget={commentTarget}
       canEdit={editing.canEdit}
