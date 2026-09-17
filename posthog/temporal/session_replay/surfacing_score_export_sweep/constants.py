@@ -1,8 +1,9 @@
 """Static config for the surfacing-score export sweep: daily export of scored
 sessions from `session_replay_events` to the ML-account S3 bucket as
-dt-partitioned Parquet, keyed by the ML mirror's pseudonymous ids."""
+dt-partitioned Parquet, keyed by the real team and session ids the v2 ML
+mirror uses."""
 
-from datetime import date, timedelta
+from datetime import UTC, datetime, timedelta
 
 from posthog.temporal.session_replay.surfacing_scoring_sweep.constants import SCORE_LOOKBACK_DAYS
 
@@ -14,8 +15,11 @@ SCHEDULE_INTERVAL = timedelta(days=1)
 # Offset from midnight UTC so near-boundary sessions are scored before their day is first exported.
 SCHEDULE_OFFSET = timedelta(hours=2)
 
-# First exported day partition — sessions started strictly after July 3rd, 2026 (UTC).
-EXPORT_FLOOR_DAY = date(2026, 7, 4)
+# Mirrors RAW_SESSION_IDENTIFIERS_START_MS in nodejs/.../ml-mirror/session-identifier-format.ts:
+# the mirror holds earlier sessions only under HMAC pseudonyms, so a raw-id row for one joins nothing.
+RAW_SESSION_IDENTIFIERS_START = datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+
+EXPORT_FLOOR_DAY = RAW_SESSION_IDENTIFIERS_START.date()
 
 # Scores land up to SCORE_LOOKBACK_DAYS after session start, so re-export the trailing window each run.
 REEXPORT_WINDOW_DAYS = SCORE_LOOKBACK_DAYS + 1
@@ -27,7 +31,8 @@ DEFAULT_OF_CHUNKS = 8
 MAX_CONCURRENT_EXPORT_PARTITIONS = 4
 
 SCORE_EXPORT_PREFIX_ENV_VAR = "SESSION_RECORDING_ML_SCORE_EXPORT_PREFIX"
-DEFAULT_SCORE_EXPORT_PREFIX = "score"
+# Must stay under `score/`: the ML bucket policy grants the exporter `score/*` only.
+DEFAULT_SCORE_EXPORT_PREFIX = "score/v2"
 
 CH_EXPORT_QUERY_TIMEOUT_S = 120
 CH_EXPORT_QUERY_MAX_MEMORY_BYTES = 10 * 1024 * 1024 * 1024  # 10 GiB

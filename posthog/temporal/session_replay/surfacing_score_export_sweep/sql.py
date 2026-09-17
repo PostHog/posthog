@@ -9,11 +9,12 @@ def fetch_scored_sessions_page_sql(replay_events_table: str = SESSION_REPLAY_EVE
     %(day_start)s ('YYYY-MM-DD 00:00:00', UTC), %(cursor_session_id)s,
     %(cursor_team_id)s, %(page_size)s.
 
-    There is deliberately no opted-in-team filter: exported rows are
-    pseudonymized and only ever joined downstream against session data that
-    exists solely for opted-in teams, so rows from other teams join to
-    nothing. Inlining the opted-in id list here (twice) also blew past
-    ClickHouse's 1 MiB max_query_size once enough teams opted in.
+    There is deliberately no opted-in-team filter in SQL: inlining the
+    opted-in id list here (twice) blew past ClickHouse's 1 MiB max_query_size
+    once enough teams opted in. The consent gate is applied in Python on each
+    fetched page instead (activities.py), against the same organization flag
+    the ML mirror reads, so a row for a team that has not opted in never
+    reaches the Parquet writer.
 
     The cursor predicate and ORDER BY use the same (session_id, team_id) tuple,
     so pages tile the partition exactly; a page shorter than page_size means
