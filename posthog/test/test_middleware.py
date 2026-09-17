@@ -1906,13 +1906,26 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         self.assertIsNone(self.captured["client"])
 
     def test_long_header_value_is_truncated(self):
-        from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH
+        from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH
 
-        long_value = "x" * (ACTIVITY_LOG_CLIENT_MAX_LENGTH * 4)
+        long_value = "x" * (ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH * 4)
         request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT=long_value)
         request.user = self.user
         self.middleware(request)
-        self.assertEqual(self.captured["client"], "x" * ACTIVITY_LOG_CLIENT_MAX_LENGTH)
+        self.assertEqual(self.captured["client"], "x" * ACTIVITY_LOG_CLIENT_HEADER_MAX_LENGTH)
+
+    @parameterized.expand(
+        [
+            ("lowercase prefix", "scout:signals-scout-errors"),
+            ("upper case prefix", "SCOUT:signals-scout-errors"),
+            ("padded prefix", "  scout:signals-scout-errors  "),
+        ]
+    )
+    def test_header_claiming_a_server_derived_prefix_is_dropped(self, _name: str, header_value: str):
+        request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT=header_value)
+        request.user = self.user
+        self.middleware(request)
+        self.assertIsNone(self.captured["client"])
 
     def test_captures_ip_address_from_remote_addr(self):
         request = self.factory.get("/", REMOTE_ADDR="203.0.113.42")
@@ -2061,6 +2074,33 @@ class TestCSPMiddleware(APIBaseTest):
         header = response["Reporting-Endpoints"]
         assert "us.i.posthog.com" not in header
         assert f"distinct_id={self.user.distinct_id}" in header
+
+    @parameterized.expand(
+        [
+            ("staff", True, "1", "0.1"),
+            ("not_staff", False, "0.1", "1"),
+        ]
+    )
+    @override_settings(CSP_REPORT_ENDPOINT="https://posthog.example.com/report/")
+    def test_staff_report_every_violation_while_everyone_else_is_sampled(
+        self, _name, is_staff, expected_rate, other_rate
+    ):
+        # Staff get the policy enforced ahead of everyone else, so a violation of theirs is
+        # something already broken for a colleague rather than one sample of a trend. At 0.1 nine
+        # in ten of those never arrive, which defeats the point of rolling out to staff first.
+        self.user.is_staff = is_staff
+        self.user.save()
+
+        response = self.client.get("/")
+
+        policy = response["Content-Security-Policy-Report-Only"]
+        assert f"report-uri https://posthog.example.com/report/?sample_rate={expected_rate}" in policy
+        assert f"sample_rate={other_rate}" not in policy
+        # The crash-reporting endpoint is built by a second call that takes the rate separately, so
+        # it can drift from the directive above.
+        header = response["Reporting-Endpoints"]
+        assert f"sample_rate={expected_rate}&distinct_id={self.user.distinct_id}" in header
+        assert f"sample_rate={other_rate}" not in header
 
     @parameterized.expand(
         [

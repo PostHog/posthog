@@ -12,6 +12,7 @@ Three comment shapes are accepted, because all three already run against our clu
 | shape | example | where it comes from |
 | --- | --- | --- |
 | SQLCommenter | `/* route='/api/x', controller='PersonViewSet' */` | OpenTelemetry and Datadog instrumentation; values are percent-encoded |
+| SQLCommenter | `/* service='personhog-identity', operation='merge_flip_lock_persons' */` | Rust services: `op = "..."` on `common_sqlx_macros::mirrored_query!` and `personhog_common::query_tag!` for statements built at runtime |
 | colon pairs | `/* team_id:42 query_type:recording_api_list_blocks */` | the shape PostHog uses for ClickHouse, reused by the CDP and replay services |
 | ingestion prefix | `/* nodejs:PERSONS_WRITE:Tx<insertPerson:ingestion/merge> */` | `nodejs/src/common/utils/db/postgres.ts` |
 
@@ -35,12 +36,12 @@ Use these names so different services line up:
 
 | key | meaning | example |
 | --- | --- | --- |
-| `service` | the process type | `web`, `celery`, `temporal`, `nodejs` |
+| `service` | the process type or crate | `web`, `celery`, `temporal`, `nodejs`, `personhog-identity` |
 | `route` | HTTP route pattern | `/api/projects/{id}/persons/` |
 | `controller`, `action` | handler and method | `PersonViewSet`, `list` |
 | `task` | Celery task name | `posthog.tasks.calculate_cohort` |
 | `workflow`, `activity` | Temporal workflow and activity types | `batch-export`, `insert_into_s3` |
-| `operation` | the named query in a repository | `updatePersonsBatch` |
+| `operation` | the named query in a repository or service | `updatePersonsBatch`, `merge_flip_lock_persons` |
 | `caller` | the call site behind an operation | `ingestion/person-update-conflict` |
 | `db_use` | which pool a Node service used | `PERSONS_WRITE` |
 | `tx` | `true` when the statement ran inside an explicit transaction | |
