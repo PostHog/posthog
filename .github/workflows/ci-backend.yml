@@ -3023,6 +3023,8 @@ jobs:
                   git fetch --no-tags --prune --depth=1 origin master
                   changed=$(git diff --quiet HEAD origin/master -- common/hogql_parser/ && echo "false" || echo "true")
                   echo "changed=$changed" >> $GITHUB_OUTPUT
+                  rust_changed=$(git diff --quiet HEAD origin/master -- rust/hogql/parser/ && echo "false" || echo "true")
+                  echo "rust-changed=$rust_changed" >> $GITHUB_OUTPUT
 
             # tests would intermittently fail in GH actions
             # with exit code 134 _after passing_ all tests
@@ -3084,6 +3086,13 @@ jobs:
                   sudo ldconfig
                   cd ..
                   pip install ./common/hogql_parser
+
+            - name: Install the working version of hogql-parser-rs
+              if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.rust-changed == 'true' }}
+              shell: bash
+              # rust-py is the production parser, so its tests must run against this branch's
+              # crate rather than the version pyproject.toml pins.
+              run: pip install ./rust/hogql/parser
 
             - name: Set up needed files
               shell: bash
