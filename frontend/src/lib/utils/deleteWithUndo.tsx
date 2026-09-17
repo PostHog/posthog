@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, isScopeNotFoundError } from 'lib/api-error'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { QueryBasedInsightModel } from '~/types'
@@ -23,7 +23,10 @@ function handleDeleteFailure(
     props: { endpoint: string; object: Record<string, any>; callback?: (undo: boolean, object: any) => void }
 ): boolean {
     const status = error instanceof ApiError ? error.status : undefined
-    const alreadyDeleted = !undo && status === 404
+    // The routing layer answers 404 when the project or organization in the URL no longer resolves.
+    // That 404 describes the scope, not the object, so the delete never ran and the object is still
+    // there. Reporting it as done would prune the object from the tree and Recents and redirect.
+    const alreadyDeleted = !undo && status === 404 && !isScopeNotFoundError(error)
 
     posthog.capture('delete with undo failed', {
         endpoint: props.endpoint,

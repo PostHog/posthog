@@ -37,8 +37,13 @@ describe('deleteInsightWithUndo', () => {
         expect(recentItemsModel.values.recents).toEqual([])
     })
 
-    it('reports a failed delete and keeps the insight in recents', async () => {
-        jest.spyOn(api, 'update').mockRejectedValue(new ApiError('Server error', 500))
+    it.each([
+        ['a server error', new ApiError('Server error', 500)],
+        // A 404 from the routing layer says the project in the URL is gone, not the insight, so the
+        // insight is still on the server and the delete must not read as done.
+        ['a dead project scope', new ApiError('Project not found.', 404, undefined, { detail: 'Project not found.' })],
+    ])('reports %s and keeps the insight in recents', async (_, error) => {
+        jest.spyOn(api, 'update').mockRejectedValue(error)
         const errorToast = jest.spyOn(lemonToast, 'error')
 
         await expect(deleteInsightWithUndo({ endpoint: 'projects/1/insights', object: insight })).resolves.toBe(false)
