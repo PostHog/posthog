@@ -31,7 +31,7 @@ export interface LoadPostHogJSOptions {
     /**
      * Hook posthog-js's `before_send` so the caller can mutate or drop events before they leave
      * the browser. Used to redact the SharingConfiguration access token from URL-shaped properties:
-     * the interview share page in `frontend/src/exporter/index.tsx`, and the canvas fork scene in
+     * the interview share page in `frontend/src/exporter/index.tsx`, and every main-app page in
      * `frontend/src/scenes/bootApp.ts`.
      */
     beforeSend?: BeforeSendFn | BeforeSendFn[]
