@@ -155,6 +155,8 @@ export interface AzureBlobDestinationConfigApi {
      * @nullable
      */
     max_file_size_mb?: number | null
+    /** Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension. */
+    legacy_parquet_extension?: boolean
     type: AzureBlobDestinationConfigApiType
 }
 
@@ -246,6 +248,8 @@ export interface AwsS3DestinationConfigApi {
      * @nullable
      */
     max_file_size_mb?: number | null
+    /** Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension. */
+    legacy_parquet_extension?: boolean
     /**
      * Optional S3 server-side encryption algorithm (e.g. 'AES256' or 'aws:kms').
      * @nullable
@@ -299,6 +303,8 @@ export interface S3CompatibleDestinationConfigApi {
      * @nullable
      */
     max_file_size_mb?: number | null
+    /** Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension. */
+    legacy_parquet_extension?: boolean
     /** Use virtual-hosted-style addressing rather than path-style. */
     use_virtual_style_addressing?: boolean
     type: S3CompatibleDestinationConfigApiType

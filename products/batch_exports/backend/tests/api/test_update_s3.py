@@ -156,3 +156,64 @@ def test_updating_legacy_s3_batch_export_is_rejected(client: HttpClient, tempora
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert "deprecated" in response.json()["detail"]
+
+
+def test_updating_s3_family_batch_export_preserves_legacy_parquet_extension(
+    client: HttpClient, temporal, organization, team, user
+):
+    """A grandfathered export keeps its file names when a patch does not mention the setting.
+
+    The frontend only renders the setting for an export that still has it on, so every other
+    patch omits the key and must not turn it off.
+    """
+    destination_type, kind, integration_config = _S3_FAMILY_INTEGRATIONS[0]
+    _, batch_export = _create_integration_backed_export(client, team, user, destination_type, kind, integration_config)
+    destination = BatchExportDestination.objects.get(batchexport__id=batch_export["id"])
+    destination.config = {**destination.config, "legacy_parquet_extension": True}
+    destination.save()
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {"destination": {"type": destination_type, "config": {"prefix": "new-prefix/"}}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    config = response.json()["destination"]["config"]
+    assert config["prefix"] == "new-prefix/"
+    assert config["legacy_parquet_extension"] is True
+
+
+@pytest.mark.parametrize(
+    "stored_file_format,expected",
+    [("Parquet", True), ("JSONLines", False)],
+)
+def test_updating_s3_family_batch_export_pins_naming_from_the_stored_format(
+    client: HttpClient, temporal, organization, team, user, stored_file_format, expected
+):
+    """An export with no stored value records its naming from the format it was already running.
+
+    An export that has only ever written JSON Lines has no Parquet files to grandfather, so
+    switching it to Parquet must produce '.parquet'. One that already wrote Parquet keeps the
+    names its downstream pipeline matches on.
+    """
+    destination_type, kind, integration_config = _S3_FAMILY_INTEGRATIONS[0]
+    _, batch_export = _create_integration_backed_export(client, team, user, destination_type, kind, integration_config)
+    destination = BatchExportDestination.objects.get(batchexport__id=batch_export["id"])
+    destination.config = {**destination.config, "file_format": stored_file_format}
+    # remove any stored value for legacy_parquet_extension to mimic an existing batch export
+    destination.config.pop("legacy_parquet_extension", None)
+    destination.save()
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {"destination": {"type": destination_type, "config": {"file_format": "Parquet"}}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    config = response.json()["destination"]["config"]
+    assert config["file_format"] == "Parquet"
+    assert config["legacy_parquet_extension"] is expected

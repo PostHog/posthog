@@ -55,6 +55,7 @@ from posthog.utils import relative_date_parse, str_to_bool
 from products.batch_exports.backend.api.destination_tests import get_destination_test
 from products.batch_exports.backend.models.batch_export import (
     BATCH_EXPORT_INTERVALS,
+    OBJECT_STORAGE_DESTINATIONS,
     S3_FAMILY_TYPES,
     TIMEZONES,
     BatchExport,
@@ -377,6 +378,15 @@ class PostgresDestinationConfigSerializer(serializers.Serializer):
     )
 
 
+LEGACY_PARQUET_EXTENSION_HELP_TEXT = (
+    "Whether Parquet files keep the compression codec in their extension, for example "
+    "'.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new "
+    "exports leave it out. An export that already wrote Parquet files before this setting existed "
+    "keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON "
+    "Lines, which always carries the codec in its extension."
+)
+
+
 class AzureBlobDestinationConfigSerializer(serializers.Serializer):
     """Typed configuration for an Azure Blob Storage batch-export destination.
 
@@ -411,6 +421,11 @@ class AzureBlobDestinationConfigSerializer(serializers.Serializer):
         help_text="If set, rolls to a new file once the current file exceeds this size in MB.",
     )
 
+    legacy_parquet_extension = serializers.BooleanField(
+        required=False,
+        help_text=LEGACY_PARQUET_EXTENSION_HELP_TEXT,
+    )
+
 
 class S3FamilyDestinationConfigSerializer(serializers.Serializer):
     """Shared non-credential configuration for S3-family batch-export destinations.
@@ -441,6 +456,11 @@ class S3FamilyDestinationConfigSerializer(serializers.Serializer):
         allow_null=True,
         default=None,
         help_text="If set, rolls to a new file once the current file exceeds this size in MB.",
+    )
+
+    legacy_parquet_extension = serializers.BooleanField(
+        required=False,
+        help_text=LEGACY_PARQUET_EXTENSION_HELP_TEXT,
     )
 
 
@@ -840,6 +860,35 @@ S3_DESTINATION_TO_INTEGRATION_KIND: dict[str, Integration.IntegrationKind] = {
     BatchExportDestination.Destination.AWS_S3: Integration.IntegrationKind.AWS_S3,
     BatchExportDestination.Destination.S3_COMPATIBLE: Integration.IntegrationKind.S3_COMPATIBLE,
 }
+
+
+def set_default_parquet_extension(destination_type: str, config: dict[str, typing.Any]) -> None:
+    """Opt a newly created destination into the standard `.parquet` extension.
+
+    The workflow input dataclasses default this to `True`, so that an export whose Temporal
+    schedule predates the field keeps the same file extension as before in order to maintain
+    compatibility.
+    """
+    if destination_type in OBJECT_STORAGE_DESTINATIONS:
+        config.setdefault("legacy_parquet_extension", False)
+
+
+def pin_existing_parquet_extension(destination_type: str, stored_config: dict[str, typing.Any]) -> None:
+    """Record what an export's file names already look like, before a patch can change its format.
+
+    An export that predates this setting has no value for it, and a missing value reads as the
+    legacy naming. That is correct only while the export keeps writing the format it has always
+    written. An export that has only ever written JSON Lines has no Parquet files to grandfather,
+    so switching it to Parquet has to produce `.parquet`, not `.parquet.zst`.
+
+    Takes the config as stored, before the incoming patch merges into it, so the value reflects the
+    format the export has been running rather than the one it is moving to. An explicit value in
+    the patch still wins, because the merge applies afterwards.
+    """
+    if destination_type not in OBJECT_STORAGE_DESTINATIONS:
+        return
+
+    stored_config.setdefault("legacy_parquet_extension", stored_config.get("file_format") == "Parquet")
 
 
 def _coerce_integration_id(value: typing.Any) -> int | None:
@@ -1631,6 +1680,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
             batch_export_schema = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
             validated_data["schema"] = batch_export_schema
 
+        set_default_parquet_extension(destination_data["type"], destination_data["config"])
+
         destination = BatchExportDestination(**destination_data)
         batch_export = BatchExport(team_id=team_id, destination=destination, **validated_data)
 
@@ -1763,6 +1814,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if destination_data:
                 # Type changes are rejected by `validate_destination` — the incoming `type`
                 # (if any) always equals the existing type by the time we get here.
+                pin_existing_parquet_extension(batch_export.destination.type, batch_export.destination.config)
                 batch_export.destination.config = recursive_dict_merge(
                     batch_export.destination.config,
                     destination_data.get("config", {}),

@@ -1,4 +1,4 @@
-import { LemonCheckbox, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -246,6 +246,66 @@ export function FileFormatField(): JSX.Element {
     )
 }
 
+interface ParquetExtensionFieldProps {
+    isNew: boolean
+    fileFormat: string | undefined
+    savedConfig?: Record<string, any> | null
+}
+
+// Two different formats matter here. `fileFormat` is the one currently selected in the form, which
+// the user may not have saved. `savedConfig.file_format` is the one the export last saved, so it is
+// the format the export has actually been writing. Both must be Parquet.
+//
+// Requiring the saved format keeps the field hidden for an export that has only ever written JSON
+// Lines and is being switched to Parquet in the form. That export has no Parquet files to
+// grandfather, so the switch would state a setting that does not apply to it. Reading the saved
+// setting rather than the form value also stops the field disappearing the moment the user
+// switches it off.
+export function shouldShowParquetExtensionField({
+    isNew,
+    fileFormat,
+    savedConfig,
+}: ParquetExtensionFieldProps): boolean {
+    if (isNew || fileFormat !== 'Parquet') {
+        return false
+    }
+    return savedConfig?.file_format === 'Parquet' && savedConfig.legacy_parquet_extension !== false
+}
+
+export function ParquetExtensionField(props: ParquetExtensionFieldProps): JSX.Element | null {
+    if (!shouldShowParquetExtensionField(props)) {
+        return null
+    }
+
+    return (
+        <LemonField
+            name="legacy_parquet_extension"
+            label="File extension"
+            help="Switching this off cannot be undone here. After you save, the setting no longer appears for this export."
+            info={
+                <>
+                    Parquet records the compression codec inside the file, so the standard extension is{' '}
+                    <code>.parquet</code> regardless of the codec. This export writes names like{' '}
+                    <code>.parquet.zst</code> instead. Turn this off to name new files <code>.parquet</code>. Files
+                    already exported keep their names.
+                </>
+            }
+        >
+            {({ value, onChange }) => (
+                <LemonSwitch
+                    label="Add the compression codec to the file extension"
+                    // An export that predates the setting stores no value, and the workflow inputs
+                    // read a missing value as the legacy naming. Show what the export actually does.
+                    checked={value ?? true}
+                    onChange={onChange}
+                    fullWidth
+                    bordered
+                />
+            )}
+        </LemonField>
+    )
+}
+
 export function MaxFileSizeField(): JSX.Element {
     return (
         <LemonField
@@ -297,6 +357,7 @@ export const S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS: Record<string, DatabaseSchemaFi
 export function S3FamilyFields({
     isNew,
     formValues,
+    savedConfig,
     regionOptions,
     allowCustomRegion = false,
     showEncryption,
@@ -305,6 +366,7 @@ export function S3FamilyFields({
 }: {
     isNew: boolean
     formValues: Record<string, any>
+    savedConfig?: Record<string, any> | null
     regionOptions: { value: string; label: string }[]
     // Let users type a region not in the preset list. True for the S3-compatible catch-all, where we
     // can't enumerate every provider's regions; false for AWS S3, whose regions are a closed set.
@@ -392,6 +454,8 @@ export function S3FamilyFields({
                     </LemonField>
                 )}
             </div>
+
+            <ParquetExtensionField isNew={isNew} fileFormat={formValues.file_format} savedConfig={savedConfig} />
 
             {showVirtualStyleAddressing && (
                 <LemonField
