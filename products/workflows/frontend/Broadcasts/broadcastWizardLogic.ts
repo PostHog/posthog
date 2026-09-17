@@ -78,7 +78,7 @@ export const DEFAULT_BROADCAST_EMAIL: BroadcastEmailValue = {
 export const DEFAULT_BROADCAST_CONVERSION: HogFlowConversionApi = {
     events: [],
     filters: [],
-    window_minutes: 10080,
+    window: '7d',
 }
 
 // pinned: action node ids referenced by saved broadcasts — renaming breaks resume of existing drafts
