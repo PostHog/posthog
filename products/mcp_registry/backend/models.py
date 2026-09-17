@@ -37,6 +37,7 @@ LINK_METHOD_CHOICES = [
     ("url", "Remote URL match"),
     ("exact_name", "Exact name match"),
     ("standalone", "No registry match, standalone row"),
+    ("template_default", "Template-default name, kept project-local"),
 ]
 
 RANKING_RUN_STATUS_CHOICES = [
@@ -160,7 +161,9 @@ class MCPMeasuredStats(UUIDModel):
     # keeps `server.measured_stats.all()` working while `.objects` stays fail-closed.
     all_teams = models.Manager()  # noqa: DJ012
 
-    server = models.ForeignKey(MCPRegistryServer, on_delete=models.CASCADE, related_name="measured_stats")
+    # Null when the advertised name is a template default shared across projects: the row
+    # still records this project's signal, but no shared global server row is created for it.
+    server = models.ForeignKey(MCPRegistryServer, on_delete=models.CASCADE, related_name="measured_stats", null=True)
     team_id = models.IntegerField()
     server_name = models.CharField(max_length=400)
     window_days = models.IntegerField()

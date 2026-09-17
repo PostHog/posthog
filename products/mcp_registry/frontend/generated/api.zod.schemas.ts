@@ -126,6 +126,13 @@ export const MCPDiscoverCandidateApi = zod
         title: zod.string().describe('Human-readable server name.'),
         description: zod.string().describe('What the server does.'),
         score: zod.number().describe('Rank score in [0, 1] under the ranking version used.'),
+        relevance: zod.number().describe("How well this server's text matched the intent, in [0, 1]."),
+        combined_score: zod
+            .number()
+            .nullable()
+            .describe(
+                'relevance^fit x rank_score^authority: the value that ordered this list. Null when the version has no completed run, where ordering is relevance alone.'
+            ),
         why: zod
             .record(zod.string(), zod.unknown())
             .describe(
@@ -177,6 +184,13 @@ export const MCPDiscoverResponseApi = zod
                         title: zod.string().describe('Human-readable server name.'),
                         description: zod.string().describe('What the server does.'),
                         score: zod.number().describe('Rank score in [0, 1] under the ranking version used.'),
+                        relevance: zod.number().describe("How well this server's text matched the intent, in [0, 1]."),
+                        combined_score: zod
+                            .number()
+                            .nullable()
+                            .describe(
+                                'relevance^fit x rank_score^authority: the value that ordered this list. Null when the version has no completed run, where ordering is relevance alone.'
+                            ),
                         why: zod
                             .record(zod.string(), zod.unknown())
                             .describe(

@@ -101,7 +101,8 @@ def aggregate_team(team: Team, window_days: int = MEASURED_WINDOW_DAYS) -> int:
                 "computed_at": computed_at,
             },
         )
-        _upsert_analytics_tools(resolution.server, tool_rows, computed_at)
+        if resolution.server is not None:
+            _upsert_analytics_tools(resolution.server, tool_rows, computed_at)
         processed += 1
 
     logger.info("mcp_registry.aggregate.team_done", team_id=team.id, servers=processed)

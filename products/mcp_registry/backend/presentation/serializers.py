@@ -229,6 +229,12 @@ class MCPDiscoverCandidateSerializer(serializers.Serializer):
     title = serializers.CharField(help_text="Human-readable server name.")
     description = serializers.CharField(help_text="What the server does.")
     score = serializers.FloatField(help_text="Rank score in [0, 1] under the ranking version used.")
+    relevance = serializers.FloatField(help_text="How well this server's text matched the intent, in [0, 1].")
+    combined_score = serializers.FloatField(
+        allow_null=True,
+        help_text="relevance^fit x rank_score^authority: the value that ordered this list. Null when the "
+        "version has no completed run, where ordering is relevance alone.",
+    )
     why = JSONDictField(
         help_text="Score breakdown so an agent can explain its choice: fit, liveness, trust, and whether "
         "real usage signal contributed."
