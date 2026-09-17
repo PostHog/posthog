@@ -71,6 +71,13 @@ export function ScoutWriteScopesPicker({
                     </div>
                 ))}
             </div>
+            {selectedScopes.includes('feature_flag:write') && (
+                <p className="text-[11.5px] text-warning mb-0">
+                    Feature flags are the one grant here that changes what your users see. This scout can enable,
+                    disable, retarget, or delete any flag in the project. Every change it makes shows in that flag's
+                    activity log.
+                </p>
+            )}
             {selectedScopes.length > 0 && (
                 <p className="text-[11.5px] text-warning mb-0">
                     Write access covers the whole project. A scout that can write dashboards can change or delete any
