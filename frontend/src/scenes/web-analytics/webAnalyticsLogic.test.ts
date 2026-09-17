@@ -325,6 +325,49 @@ describe('webAnalyticsLogic precompute payload', () => {
     })
 })
 
+describe('webAnalyticsLogic restricted UI gating', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    const setFlags = (flags: string[]): void => {
+        featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
+    }
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'update').mockResolvedValue({} as any)
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    it('the restricted-ui flag alone restricts, with no team modifier involved', async () => {
+        // Regression guard for the legacy-tables retirement: when the settings
+        // flag and team modifier go away, this flag must keep restricting heavy
+        // teams' UI on its own — a collapse of the OR re-exposes tiles that run
+        // unservable live queries on billion-event teams.
+        setFlags([FEATURE_FLAGS.WEB_ANALYTICS_RESTRICTED_UI])
+        await expectLogic(logic).toMatchValues({ preAggregatedEnabled: true })
+    })
+
+    it('no flags means no restriction', async () => {
+        setFlags([])
+        await expectLogic(logic).toMatchValues({ preAggregatedEnabled: false })
+    })
+
+    it('the legacy settings flag alone does not restrict without the team modifier', async () => {
+        setFlags([FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES])
+        await expectLogic(logic).toMatchValues({ preAggregatedEnabled: false })
+    })
+})
+
 describe('webAnalyticsLogic compare filter', () => {
     let logic: ReturnType<typeof webAnalyticsLogic.build>
 

@@ -1167,9 +1167,18 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
         preAggregatedEnabled: [
             (s) => [s.featureFlags, s.currentTeam],
             (featureFlags: Record<string, boolean>, currentTeam: TeamPublicType | TeamType | null) => {
+                // Two independent levers restrict the UI to the precompute-servable
+                // vocabulary (tile allowlist, filter pruning, property allowlist):
+                // the standalone restricted-UI flag, which implies nothing about the
+                // query engine and exists so heavy teams stay restricted while the
+                // legacy pre-aggregated tables retire, and the legacy pair (settings
+                // flag + team modifier) that also switches the engine.
                 return (
-                    featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
-                    currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
+                    !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_RESTRICTED_UI] ||
+                    !!(
+                        featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
+                        currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
+                    )
                 )
             },
         ],
