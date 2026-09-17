@@ -54,6 +54,10 @@ class DataQualitySubjectSerializer(serializers.Serializer):
     display_name = serializers.CharField(
         allow_blank=True, help_text="Label shown in the data catalog. Blank for tables and views."
     )
+    time_column = serializers.CharField(
+        allow_blank=True,
+        help_text="Column a lookback window bounds, or blank for a subject that has none.",
+    )
     columns = serializers.DictField(
         child=serializers.CharField(),
         help_text="Column name to ClickHouse type. Empty for a metric, and for a view that has not run yet.",

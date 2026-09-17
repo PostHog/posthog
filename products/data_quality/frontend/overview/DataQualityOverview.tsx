@@ -29,7 +29,9 @@ import {
 } from '../checksConstants'
 import { CheckStatusCell } from '../CheckStatusCell'
 import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from '../dataQualityCheckEditorLogic'
+import { DataQualitySchedule } from '../DataQualitySchedule'
 import type { DataQualityOverviewCheckApi } from '../generated/api.schemas'
+import { SubjectTypeEnumApi } from '../generated/api.schemas'
 import { DataQualityEmptyState } from './DataQualityEmptyState'
 import {
     NEW_CHECK_ACTION_ID,
@@ -237,6 +239,8 @@ export function DataQualityOverview(): JSX.Element {
     )
 }
 
+const SCHEDULED_SUBJECT_TYPES: string[] = [SubjectTypeEnumApi.Metric, SubjectTypeEnumApi.PosthogTable]
+
 function SubjectSection({ group }: { group: SubjectGroup }): JSX.Element {
     const { expandedSubjectKeys, startingRun, isRunning, runningSubjectKey, runTarget, runError, pollTimedOut } =
         useValues(dataQualityOverviewLogic)
@@ -335,6 +339,11 @@ function SubjectSection({ group }: { group: SubjectGroup }): JSX.Element {
                 check's controls in the tab order of a panel nobody can see. */}
             {expanded && (
                 <div id={regionId} className="overflow-x-auto">
+                    {SCHEDULED_SUBJECT_TYPES.includes(group.subjectType) && group.subjectUuid ? (
+                        <div className="px-2 pt-2">
+                            <DataQualitySchedule subjectType={group.subjectType} subjectId={group.subjectUuid} />
+                        </div>
+                    ) : null}
                     <SubjectChecks group={group} />
                 </div>
             )}

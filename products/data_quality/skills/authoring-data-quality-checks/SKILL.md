@@ -76,6 +76,29 @@ views and metrics you can read, then pass the `subject_type` and `id` it gives y
 `editable` can carry a check; the others can still be the target of a relationships check. After that a check is
 addressed by its own id: `-update`, `-delete`, `-run` and `-results` take no subject.
 
+## Checks on PostHog tables
+
+`events`, `persons` and `groups` take checks like any other subject: pass
+`subject_type: "posthog_table"` with the id `posthog:data-quality-subjects` gives you. Every check
+type works on them, and `relationships` can point at one as its target too.
+
+These tables are large, so consider `lookback_hours` before you author a check on one. It bounds
+the rows the check reads by the table's own time column: `timestamp` on `events`, and `created_at`
+on `persons` and `groups`, which is when each was first seen rather than when it last changed.
+Without it the check reads the whole table, which is allowed and sometimes what you want -- an
+unbounded `unique` on `distinct_id` says something a windowed one cannot. A check that runs out of
+ClickHouse's execution budget reports `errored` with the message; adding a window is usually the fix.
+
+On a `relationships` check, `lookback_hours` bounds the rows it checks and `to_lookback_hours`
+bounds the rows it looks for a match among. Set the second one carefully: a narrow target window
+makes rows fail for being old rather than for being wrong.
+
+`custom_sql` takes no `lookback_hours`. Put the time filter in the query yourself, or it reads the
+whole table.
+
+Nothing triggers these tables the way a sync triggers a source table, so their checks run on a
+schedule, daily by default. Change it with `posthog:data-quality-check-schedule`.
+
 ## Checks on catalog metrics
 
 Only metrics with a saved `HogQLQuery` definition support checks. Markdown, Trends, Funnels, event
@@ -116,8 +139,9 @@ refresh whose error-severity checks fail is not published), a source table's che
 completed sync, and a plain view's checks run when its DAG runs. Checks on a view outside any DAG
 only run on demand.
 
-**Metric schedules:** The first saved check creates an enabled daily schedule for all checks on the
-metric. The Tests tab lets you change the interval or turn automatic runs off. Manual runs remain
+**Subject schedules:** A metric and a PostHog table have no data-change event to run on, so their
+checks run on a schedule instead. The first saved check creates an enabled daily schedule for all
+checks on that subject. The Tests tab lets you change the interval or turn automatic runs off. Manual runs remain
 available. Scheduled checks use the latest definition author's access, falling back to the creator;
 manual runs use the initiating user's access. Underlying and additional tables must be readable.
 
