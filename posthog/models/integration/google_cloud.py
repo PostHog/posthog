@@ -28,6 +28,13 @@ GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR = (
 )
 
 
+def require_google_token_uri(token_uri: str) -> str:
+    token_uri = token_uri.strip()
+    if token_uri not in GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS:
+        raise ValidationError(GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR)
+    return token_uri
+
+
 def is_unique_service_account_by_organization_id(service_account_email: str, organization_id: str) -> bool:
     """Check if the service account is only in one organization.
 
@@ -77,11 +84,9 @@ class GoogleCloudServiceAccountIntegration:
         sensitive_config = {}
         is_impersonated = True
         if isinstance(private_key, str) and isinstance(private_key_id, str) and isinstance(token_uri, str):
-            if token_uri.strip() not in GOOGLE_SERVICE_ACCOUNT_TOKEN_URIS:
-                raise ValidationError(GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR)
             sensitive_config["private_key"] = private_key
             sensitive_config["private_key_id"] = private_key_id
-            sensitive_config["token_uri"] = token_uri
+            sensitive_config["token_uri"] = require_google_token_uri(token_uri)
 
             is_impersonated = False
 
@@ -129,10 +134,12 @@ class GoogleCloudServiceAccountIntegration:
 
     @property
     def service_account_info(self) -> dict[str, str]:
+        # Rows written before the factory validated the field, or by another write path, still
+        # carry whatever the key file said. Every credential build reads through here.
         return {
             "private_key": self.integration.sensitive_config["private_key"],
             "private_key_id": self.integration.sensitive_config["private_key_id"],
-            "token_uri": self.integration.sensitive_config["token_uri"],
+            "token_uri": require_google_token_uri(self.integration.sensitive_config["token_uri"]),
             "client_email": self.service_account_email,
             "project_id": self.project_id,
         }

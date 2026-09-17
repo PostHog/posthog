@@ -167,16 +167,17 @@ class TestGoogleCloudIntegrationModel(BaseTest):
         assert "access_token" not in integration.config
 
 
+NON_GOOGLE_TOKEN_URIS = [
+    ("relay", "https://relay.example.com/token"),
+    ("plain_http_google", "http://oauth2.googleapis.com/token"),
+    ("lookalike_host", "https://oauth2.googleapis.com.example.com/token"),
+    ("link_local", "http://169.254.169.254/latest/meta-data/"),
+]
+
+
 class TestGoogleCloudServiceAccountIntegration(BaseTest):
-    @parameterized.expand(
-        [
-            ("relay", "https://relay.example.com/token"),
-            ("plain_http_google", "http://oauth2.googleapis.com/token"),
-            ("lookalike_host", "https://oauth2.googleapis.com.example.com/token"),
-            ("link_local", "http://169.254.169.254/latest/meta-data/"),
-        ]
-    )
-    def test_rejects_key_file_token_uri_that_is_not_google(self, _name: str, token_uri: str):
+    @parameterized.expand(NON_GOOGLE_TOKEN_URIS)
+    def test_rejects_key_file_token_uri_that_is_not_google(self, _name: str, token_uri: str) -> None:
         with pytest.raises(ValidationError):
             GoogleCloudServiceAccountIntegration.integration_from_service_account(
                 team_id=self.team.pk,
@@ -189,6 +190,34 @@ class TestGoogleCloudServiceAccountIntegration(BaseTest):
             )
 
         assert not Integration.objects.filter(team_id=self.team.pk, kind="google-cloud-service-account").exists()
+
+    @parameterized.expand(NON_GOOGLE_TOKEN_URIS)
+    def test_stored_key_file_with_non_google_token_uri_never_builds_credentials(
+        self, _name: str, token_uri: str
+    ) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="google-cloud-service-account",
+            integration_id="stored-before-validation",
+            config={"project_id": "test", "service_account_email": "test@test.iam.gserviceaccount.com"},
+            sensitive_config={"private_key": "something", "private_key_id": "something", "token_uri": token_uri},
+        )
+
+        with pytest.raises(ValidationError):
+            _ = GoogleCloudServiceAccountIntegration(integration).service_account_info
+
+    def test_stores_key_file_token_uri_stripped(self) -> None:
+        integration = GoogleCloudServiceAccountIntegration.integration_from_service_account(
+            team_id=self.team.pk,
+            organization_id=str(self.team.organization.id),
+            service_account_email="test@test.iam.gserviceaccount.com",
+            project_id="test",
+            private_key="something",
+            private_key_id="something",
+            token_uri=" https://oauth2.googleapis.com/token ",
+        )
+
+        assert integration.sensitive_config["token_uri"] == "https://oauth2.googleapis.com/token"
 
     def test_raises_on_duplicate_service_account_email(self):
         _ = GoogleCloudServiceAccountIntegration.integration_from_service_account(
