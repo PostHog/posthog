@@ -45,6 +45,10 @@ if TYPE_CHECKING:
 # server-side CSV export worker) is bounded, not just the interactive one.
 MAX_CUSTOM_COLUMNS = 50
 
+# Matches HogQLGlobalSettings' own default. Named here because the query endpoint lowers it per
+# slice, so a reader needs to see where the starting value comes from.
+DEFAULT_MAX_EXECUTION_TIME = 60
+
 
 LIVE_LOGS_CHECKPOINT_QUERY = parse_select(
     """
@@ -655,15 +659,20 @@ class LogsQueryRunnerMixin(QueryRunner):
     # Subclasses can override per-instance to request a different resolution.
     BUCKET_TARGET: int = 50
 
-    @cached_property
+    # A plain property, not cached_property: set_execution_time_budget must still take effect on a
+    # runner whose settings something already read.
+    @property
     def settings(self):
         return HogQLGlobalSettings(
+            max_execution_time=self.max_execution_time,
             max_bytes_to_read=None,
             read_overflow_mode=None,
         )
 
     def __init__(self, query, *args, **kwargs):
         super().__init__(query, *args, **kwargs)
+
+        self.max_execution_time = DEFAULT_MAX_EXECUTION_TIME
 
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
@@ -673,6 +682,11 @@ class LogsQueryRunnerMixin(QueryRunner):
 
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
+
+    def set_execution_time_budget(self, seconds: int) -> None:
+        """Caps this runner at what is left of the request's budget, so a slice ladder cannot
+        spend one full max_execution_time per slice."""
+        self.max_execution_time = seconds
 
     @cached_property
     def _filter_builder(self) -> LogsFilterBuilder:
@@ -888,12 +902,13 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
     def properties(self):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else []
 
-    @cached_property
+    @property
     def settings(self):
         return HogQLGlobalSettings(
             allow_experimental_object_type=False,
             allow_experimental_join_condition=False,
             transform_null_in=False,
+            max_execution_time=self.max_execution_time,
             max_bytes_to_read=None,
             read_overflow_mode=None,
         )

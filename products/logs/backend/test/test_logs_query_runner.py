@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -26,10 +27,11 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Team
 from posthog.test.persons import create_person
 
-from products.logs.backend.logs_query_runner import LogsQueryRunner
+from products.logs.backend.logs_query_runner import DEFAULT_MAX_EXECUTION_TIME, LogsQueryRunner
 from products.logs.backend.models import TeamLogsConfig
 
 
@@ -579,6 +581,31 @@ class TestAttributeFilters(APIBaseTest):
         self.assertNotIn("ilike(body", query_str.lower())
 
 
+class TestLogsQueryExecutionBudget(APIBaseTest):
+    def _runner(self) -> LogsQueryRunner:
+        return LogsQueryRunner(
+            query=LogsQuery(
+                dateRange=DateRange(date_from="-1d"),
+                serviceNames=[],
+                severityLevels=[],
+                filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+                kind="LogsQuery",
+            ),
+            team=self.team,
+        )
+
+    def test_runner_starts_at_the_default_execution_time(self):
+        self.assertEqual(self._runner().settings.max_execution_time, DEFAULT_MAX_EXECUTION_TIME)
+
+    def test_budget_reaches_the_settings_after_they_were_already_read(self):
+        runner = self._runner()
+        self.assertEqual(runner.settings.max_execution_time, DEFAULT_MAX_EXECUTION_TIME)
+
+        runner.set_execution_time_budget(7)
+
+        self.assertEqual(runner.settings.max_execution_time, 7)
+
+
 class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
 
@@ -645,6 +672,33 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = self._make_logs_api_request(query_params)
         self.assertEqual(len(response["results"]), 101)
         self.assertEqual(len(queries), 2)
+
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
+    def test_logs_slicing_reports_more_when_a_later_slice_is_refused(self):
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:32:36.178572Z", "date_to": None},
+            "limit": 101,
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+        }
+        real_run = LogsQueryRunner.run
+        slices_run = 0
+
+        def refuse_after_the_first_slice(self, *args, **kwargs):
+            nonlocal slices_run
+            slices_run += 1
+            if slices_run > 1:
+                raise ClickHouseAtCapacity()
+            return real_run(self, *args, **kwargs)
+
+        with (
+            patch.object(LogsQueryRunner, "run", refuse_after_the_first_slice),
+            patch("posthog.hogql_queries.utils.time_sliced_query.time.sleep"),
+        ):
+            response = self._make_logs_api_request(query_params)
+
+        self.assertGreater(len(response["results"]), 0)
+        self.assertTrue(response["hasMore"])
+        self.assertIsNotNone(response["nextCursor"])
 
     @parameterized.expand(
         [

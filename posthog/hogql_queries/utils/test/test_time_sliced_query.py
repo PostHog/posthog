@@ -4,13 +4,14 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from unittest import TestCase
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.schema import DateRange
 
-from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
+from posthog.hogql_queries.utils.time_sliced_query import CAPACITY_RETRY_ATTEMPTS, TimeSliceBudget, time_sliced_results
 
 
 @dataclass
@@ -40,27 +41,53 @@ class FakeRunner:
     """Minimal runner that satisfies the interface expected by time_sliced_results."""
 
     def __init__(
-        self, date_from: dt.datetime, date_to: dt.datetime, results: list[Any] | None = None, limit: int = 100
+        self,
+        date_from: dt.datetime,
+        date_to: dt.datetime,
+        results: list[Any] | None = None,
+        limit: int = 100,
+        raises: list[Exception] | None = None,
+        budget: TimeSliceBudget | None = None,
+        elapsed: float = 0.0,
     ):
         self.query = FakeQuery(
             dateRange=DateRange(date_from=date_from.isoformat(), date_to=date_to.isoformat()), limit=limit
         )
         self._query_date_range = FakeDateRange(date_from, date_to)
         self._results = results or []
+        self._raises = list(raises or [])
+        self._budget = budget
+        self._elapsed = elapsed
+        self.execution_time_budgets: list[int] = []
 
     @property
     def query_date_range(self) -> Any:
         return self._query_date_range
 
+    def set_execution_time_budget(self, seconds: int) -> None:
+        self.execution_time_budgets.append(seconds)
+
     def run(self, execution_mode: Any, **kwargs: Any) -> FakeResponse:
+        if self._budget is not None and self._elapsed:
+            # Age the budget rather than the clock, so "this slice took N seconds" needs no sleep.
+            self._budget.started_at -= self._elapsed
+        if self._raises:
+            raise self._raises.pop(0)
         return FakeResponse(results=self._results)
 
 
 class TestTimeSlicedResults(TestCase):
-    def _make_runner_factory(self, results_per_call: list[list[Any]]):
+    def _make_runner_factory(
+        self,
+        results_per_call: list[list[Any]],
+        raises_per_call: dict[int, list[Exception]] | None = None,
+        budget: TimeSliceBudget | None = None,
+        elapsed_per_call: dict[int, float] | None = None,
+    ):
         """Returns a make_runner callable that tracks created date ranges and returns canned results."""
         call_index = [0]
         created_ranges: list[DateRange] = []
+        self.created_runners: list[FakeRunner] = []
 
         def make_runner(date_range: DateRange) -> FakeRunner:
             idx = call_index[0]
@@ -68,6 +95,7 @@ class TestTimeSlicedResults(TestCase):
             created_ranges.append(date_range)
             results = results_per_call[idx] if idx < len(results_per_call) else []
             fr = FakeRunner(
+                raises=(raises_per_call or {}).get(idx),
                 date_from=dt.datetime.fromisoformat(date_range.date_from).replace(tzinfo=ZoneInfo("UTC"))
                 if date_range.date_from
                 else dt.datetime.now(tz=ZoneInfo("UTC")),
@@ -75,7 +103,10 @@ class TestTimeSlicedResults(TestCase):
                 if date_range.date_to
                 else dt.datetime.now(tz=ZoneInfo("UTC")),
                 results=results,
+                budget=budget,
+                elapsed=(elapsed_per_call or {}).get(idx, 0.0),
             )
+            self.created_runners.append(fr)
             return fr
 
         return make_runner, created_ranges
@@ -230,3 +261,82 @@ class TestTimeSlicedResults(TestCase):
         run_mock.assert_called_once()
         _, kwargs = run_mock.call_args
         self.assertEqual(kwargs["analytics_props"], props)
+
+    def test_each_slice_is_capped_at_what_is_left_of_the_budget(self):
+        now = dt.datetime(2024, 1, 1, 12, 0, tzinfo=ZoneInfo("UTC"))
+        runner = FakeRunner(date_from=now - dt.timedelta(days=2), date_to=now, results=[])
+        budget = TimeSliceBudget(seconds=40)
+        make_runner, _ = self._make_runner_factory(
+            [["a"], [], ["b"], [], ["c"], ["d"]],
+            budget=budget,
+            elapsed_per_call={0: 10.0, 2: 10.0, 4: 10.0},
+        )
+
+        list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner, budget=budget))
+
+        caps = [cap for r in self.created_runners for cap in r.execution_time_budgets]
+        self.assertEqual(caps, [40, 30, 20, 10])
+        self.assertFalse(budget.truncated)
+
+    def test_spent_budget_stops_the_ladder_and_keeps_the_rows_read_so_far(self):
+        now = dt.datetime(2024, 1, 1, 12, 0, tzinfo=ZoneInfo("UTC"))
+        runner = FakeRunner(date_from=now - dt.timedelta(days=2), date_to=now, results=[])
+        budget = TimeSliceBudget(seconds=40)
+        make_runner, _ = self._make_runner_factory(
+            [["a"], [], ["b"], [], ["c"], ["d"]],
+            budget=budget,
+            elapsed_per_call={0: 10.0, 2: 40.0},
+        )
+
+        results = list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner, budget=budget))
+
+        self.assertEqual(results, ["a", "b"])
+        self.assertTrue(budget.truncated)
+
+    def test_transient_capacity_rejection_is_retried(self):
+        now = dt.datetime(2024, 1, 1, 12, 0, tzinfo=ZoneInfo("UTC"))
+        runner = FakeRunner(date_from=now - dt.timedelta(hours=1), date_to=now, results=[])
+        budget = TimeSliceBudget(seconds=40)
+        make_runner, _ = self._make_runner_factory(
+            [["a"], ["b"]],
+            raises_per_call={0: [ClickHouseAtCapacity()]},
+        )
+
+        with patch("posthog.hogql_queries.utils.time_sliced_query.time.sleep"):
+            results = list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner, budget=budget))
+
+        self.assertEqual(results, ["a", "b"])
+        self.assertFalse(budget.truncated)
+
+    @parameterized.expand(
+        [
+            ("capacity", [ClickHouseAtCapacity() for _ in range(CAPACITY_RETRY_ATTEMPTS)]),
+            ("timeout", [ClickHouseQueryTimeOut()]),
+        ]
+    )
+    def test_failure_with_no_rows_yet_reaches_the_caller(self, _name, errors):
+        now = dt.datetime(2024, 1, 1, 12, 0, tzinfo=ZoneInfo("UTC"))
+        runner = FakeRunner(date_from=now - dt.timedelta(hours=1), date_to=now, results=[])
+        make_runner, _ = self._make_runner_factory([["a"], ["b"]], raises_per_call={0: errors})
+
+        with patch("posthog.hogql_queries.utils.time_sliced_query.time.sleep"):
+            with self.assertRaises(type(errors[0])):
+                list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner))
+
+    @parameterized.expand(
+        [
+            ("capacity", [ClickHouseAtCapacity() for _ in range(CAPACITY_RETRY_ATTEMPTS)]),
+            ("timeout", [ClickHouseQueryTimeOut()]),
+        ]
+    )
+    def test_failure_after_rows_keeps_them_and_marks_the_budget_truncated(self, _name, errors):
+        now = dt.datetime(2024, 1, 1, 12, 0, tzinfo=ZoneInfo("UTC"))
+        runner = FakeRunner(date_from=now - dt.timedelta(hours=1), date_to=now, results=[])
+        budget = TimeSliceBudget(seconds=40)
+        make_runner, _ = self._make_runner_factory([["a"], ["b"]], raises_per_call={1: errors})
+
+        with patch("posthog.hogql_queries.utils.time_sliced_query.time.sleep"):
+            results = list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner, budget=budget))
+
+        self.assertEqual(results, ["a"])
+        self.assertTrue(budget.truncated)

@@ -29,7 +29,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
+from posthog.hogql_queries.utils.time_sliced_query import TimeSliceBudget, time_sliced_results
 from posthog.models import User
 from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -1424,6 +1424,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         def make_runner(date_range: DateRange) -> LogsQueryRunner:
             return LogsQueryRunner(LogsQuery(**{**query.model_dump(), "dateRange": date_range}), self.team)
 
+        budget = TimeSliceBudget()
         # Skip time-slicing for live tailing - we're always only looking at the most recent 1-2 minutes
         # Note: cursor pagination no longer skips time-slicing because we narrow the date range
         # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
@@ -1440,12 +1441,16 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                         order_by_earliest=order_by == LogsOrderBy.EARLIEST,
                         make_runner=make_runner,
                         analytics_props=analytics_props,
+                        budget=budget,
                     )
                 )
         except QueryError as e:
             # A bad custom-column expression is re-raised by the runner as QueryError; keep it a clean 400.
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        has_more = len(results) > requested_limit
+        # A truncated ladder left part of the range unread, so the older logs are still out there.
+        # The cursor below already points at the last row we did read, which is where a page-two
+        # request has to start from either way.
+        has_more = len(results) > requested_limit or budget.truncated
         results = results[:requested_limit]  # Rm the +1 we used to check for another page
 
         # Generate cursor for next page
