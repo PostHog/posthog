@@ -387,9 +387,8 @@ export function FeatureRequestHistory({
                             <div className="min-w-0 flex-1">
                                 <div className="mb-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
                                     <span className="font-medium text-sm text-default">
-                                        {entry.change_source === 'github'
-                                            ? 'GitHub'
-                                            : (entry.actor_name ?? 'Unknown user')}{' '}
+                                        {entry.actor_name ??
+                                            (entry.change_source === 'github' ? 'GitHub' : 'Unknown user')}{' '}
                                         {entry.is_initial ? 'created this request' : 'updated this request'}
                                     </span>
                                     <span className="text-xs text-tertiary">

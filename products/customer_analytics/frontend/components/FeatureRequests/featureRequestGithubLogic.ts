@@ -110,7 +110,10 @@ function apiErrorMessage(error: unknown, fallback: string): string {
     return typeof detail === 'string' ? detail : fallback
 }
 
-function isActiveRequest(activeRequest: FeatureRequestApi | null, requestId: string): boolean {
+function isActiveRequest(
+    activeRequest: FeatureRequestApi | null,
+    requestId: string
+): activeRequest is FeatureRequestApi {
     return activeRequest?.id === requestId
 }
 
@@ -217,7 +220,7 @@ export const featureRequestGithubLogic = kea<featureRequestGithubLogicType>([
                 values.linkDisabledReason ||
                 values.currentTeamId === null ||
                 !values.selectedIntegrationId ||
-                !values.activeRequest
+                !isActiveRequest(values.activeRequest, props.requestId)
             ) {
                 return
             }
@@ -253,7 +256,7 @@ export const featureRequestGithubLogic = kea<featureRequestGithubLogicType>([
                 !values.canUpdate ||
                 values.mutatingGithubLink ||
                 values.currentTeamId === null ||
-                !values.activeRequest
+                !isActiveRequest(values.activeRequest, props.requestId)
             ) {
                 return
             }
@@ -284,7 +287,7 @@ export const featureRequestGithubLogic = kea<featureRequestGithubLogicType>([
                 !values.canUpdate ||
                 values.mutatingGithubLink ||
                 values.currentTeamId === null ||
-                !values.activeRequest
+                !isActiveRequest(values.activeRequest, props.requestId)
             ) {
                 return
             }
@@ -318,7 +321,7 @@ export const featureRequestGithubLogic = kea<featureRequestGithubLogicType>([
                 !values.canUpdate ||
                 values.mutatingGithubLink ||
                 values.currentTeamId === null ||
-                !values.activeRequest
+                !isActiveRequest(values.activeRequest, props.requestId)
             ) {
                 return
             }

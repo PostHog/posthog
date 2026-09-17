@@ -172,10 +172,13 @@ describe('FeatureRequestHistory', () => {
         ).toBeInTheDocument()
     })
 
-    it('identifies GitHub instead of an unknown user for synced history', () => {
+    it.each([
+        ['a recorded actor', { actor_id: 1, actor_name: 'Test user' }, 'Test user updated this request'],
+        ['an actorless GitHub entry', { actor_id: null, actor_name: null }, 'GitHub updated this request'],
+    ])('identifies %s in GitHub history', (_, actor, expectedLabel) => {
         render(
             <FeatureRequestHistory
-                history={history}
+                history={[{ ...githubHistory[0], ...actor }]}
                 loading={false}
                 error={null}
                 showingAll
@@ -185,6 +188,6 @@ describe('FeatureRequestHistory', () => {
             />
         )
 
-        expect(screen.getByText('GitHub updated this request')).toBeInTheDocument()
+        expect(screen.getByText(expectedLabel)).toBeInTheDocument()
     })
 })

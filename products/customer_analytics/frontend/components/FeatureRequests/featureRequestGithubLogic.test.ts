@@ -147,6 +147,38 @@ describe('featureRequestGithubLogic', () => {
         expect(unlinkSpy).not.toHaveBeenCalled()
     })
 
+    it.each([
+        [
+            'link an issue',
+            () => github.actions.linkGithub(),
+            () => jest.spyOn(generatedApi, 'featureRequestsLinkGithubCreate'),
+        ],
+        [
+            'pause GitHub sync',
+            () => github.actions.pauseGithub(),
+            () => jest.spyOn(generatedApi, 'featureRequestsPauseGithubCreate'),
+        ],
+        [
+            'resume GitHub sync',
+            () => github.actions.resumeGithub(),
+            () => jest.spyOn(generatedApi, 'featureRequestsResumeGithubCreate'),
+        ],
+        [
+            'unlink an issue',
+            () => github.actions.unlinkGithub(),
+            () => jest.spyOn(generatedApi, 'featureRequestsUnlinkGithubCreate'),
+        ],
+    ] as const)('does not %s after the active request changes', async (_, mutate, createMutationSpy) => {
+        github.actions.setIssueUrl('https://github.com/posthog/posthog/issues/81886')
+        featureRequests.actions.loadActiveRequestSuccess({ ...request, id: 'request-2', version: 4 })
+        const mutationSpy = createMutationSpy()
+
+        mutate()
+        await expectLogic(github).toFinishAllListeners()
+
+        expect(mutationSpy).not.toHaveBeenCalled()
+    })
+
     it('keeps the entered issue URL when linking fails', async () => {
         jest.spyOn(generatedApi, 'featureRequestsLinkGithubCreate').mockRejectedValueOnce(new ApiError('stale', 409))
         github.actions.setIssueUrl('https://github.com/posthog/posthog/issues/81886')

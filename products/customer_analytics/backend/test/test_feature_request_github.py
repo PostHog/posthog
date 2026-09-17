@@ -2,7 +2,7 @@ import hmac
 import json
 import hashlib
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
@@ -21,6 +21,7 @@ from posthog.models.organization import Organization
 
 from products.access_control.backend.models import AccessControl
 from products.customer_analytics.backend.logic.feature_request_github import (
+    FeatureRequestConflictError,
     FeatureRequestValidationError,
     _parse_issue_url,
     process_github_issue_update,
@@ -37,6 +38,9 @@ from products.customer_analytics.backend.test.factories import (
     create_feature_request_account_link,
 )
 from products.customer_analytics.backend.webhook_consumers import _run_github_issue_delivery
+
+if TYPE_CHECKING:
+    from products.customer_analytics.backend.models import FeatureRequest
 
 
 class TestFeatureRequestGitHubIssueUrl(SimpleTestCase):
@@ -493,6 +497,52 @@ class TestFeatureRequestGitHubAPI(APIBaseTest):
         self.assertEqual(response.status_code, 403)
         self.mock_api_request.assert_not_called()
 
+    @parameterized.expand(("link_github", "resume_github"))
+    def test_denied_integration_access_rejects_link_and_resume_without_fetching(self, action: str) -> None:
+        if action == "resume_github":
+            linked = self._link()
+            paused = self.client.post(
+                f"{self.url}pause_github/", {"expected_version": linked.json()["version"]}, format="json"
+            )
+            expected_version = paused.json()["version"]
+        else:
+            expected_version = self.request.version
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        reader = User.objects.create_and_join(self.organization, "integration-reader@example.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=reader, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team, resource="customer_analytics", access_level="editor", organization_member=membership
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="editor",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="integration", access_level="none", organization_member=membership
+        )
+        self.client.force_login(reader)
+        self.mock_api_request.reset_mock()
+
+        response = self.client.post(
+            f"{self.url}{action}/",
+            {
+                "expected_version": expected_version,
+                "integration_id": self.integration.id,
+                "issue_url": "https://github.com/posthog/posthog/issues/42",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.mock_api_request.assert_not_called()
+
     def test_another_projects_integration_cannot_be_used(self) -> None:
         other_organization = Organization.objects.create(name="Other organization")
         other_team = Team.objects.create(organization=other_organization, name="Other project")
@@ -646,6 +696,55 @@ class TestFeatureRequestGitHubWorker(APIBaseTest):
         self.assertEqual(self.request.status, FeatureRequestStatus.COMPLETED)
         self.assertEqual(second_request.status, FeatureRequestStatus.COMPLETED)
         self.assertEqual(unrelated.status, FeatureRequestStatus.PLANNED)
+
+    def test_conflicted_link_does_not_block_other_links_in_the_delivery(self) -> None:
+        second_user = User.objects.create_and_join(self.organization, "second-github-sync-user@example.com", "testtest")
+        second_request = create_feature_request(team_id=self.team.id, status=FeatureRequestStatus.PLANNED)
+        second_link = FeatureRequestGitHubLink.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            feature_request=second_request,
+            integration=self.integration,
+            sync_enabled_by=second_user,
+            installation_id="installation-1",
+            repository="posthog/posthog",
+            issue_number=42,
+            issue_title="Original title",
+            issue_state="open",
+        )
+        requests_by_distinct_id = {
+            str(self.user.distinct_id): self.request,
+            str(second_user.distinct_id): second_request,
+        }
+        conflicted_request: FeatureRequest | None = None
+
+        def change_first_target_before_locking(_flag: str, distinct_id: str, **_kwargs: object) -> bool:
+            nonlocal conflicted_request
+            if conflicted_request is None:
+                conflicted_request = requests_by_distinct_id[distinct_id]
+                conflicted_request.version += 1
+                conflicted_request.save(update_fields=["version"])
+            return True
+
+        with patch(
+            "products.customer_analytics.backend.logic.feature_request_github.posthog_feature_flag_enabled",
+            side_effect=change_first_target_before_locking,
+        ):
+            with self.assertRaises(FeatureRequestConflictError):
+                self._deliver()
+
+        if conflicted_request is None:
+            self.fail("Expected a target to conflict.")
+        other_request = second_request if conflicted_request.id == self.request.id else self.request
+        conflicted_link = self.link if conflicted_request.id == self.request.id else second_link
+        other_link = second_link if conflicted_request.id == self.request.id else self.link
+        conflicted_request.refresh_from_db()
+        other_request.refresh_from_db()
+        conflicted_link.refresh_from_db()
+        other_link.refresh_from_db()
+        self.assertEqual(conflicted_request.status, FeatureRequestStatus.PLANNED)
+        self.assertEqual(conflicted_link.issue_title, "Original title")
+        self.assertEqual(other_request.status, FeatureRequestStatus.COMPLETED)
+        self.assertEqual(other_link.issue_title, "Updated title")
 
     def test_duplicate_or_old_delivery_creates_no_history_or_version_change(self) -> None:
         timestamp = datetime(2026, 1, 2, tzinfo=UTC)

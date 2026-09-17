@@ -5,7 +5,7 @@ A feature request can link to one GitHub issue through a GitHub integration conn
 ## Behavior
 
 - Linking and resuming sync fetch the current issue through the selected GitHub App integration.
-- The integration must be active, belong to the project, and still reference the saved installation.
+- The integration must be active, belong to the project, still reference the saved installation, and be visible to the person linking or resuming sync.
 - GitHub issue URLs use `https://github.com/<owner>/<repo>/issues/<number>`. Pull request URLs are rejected. Comment fragments do not affect the saved link.
 - Closing an issue with reason `completed` marks the request Completed. Legacy closures without a reason also map to Completed.
 - Closing an issue with reason `not_planned` marks the request Won't fix. Unsupported closure reasons do not change the request.
@@ -27,7 +27,7 @@ When conflicting state changes share a timestamp, it fetches the current issue b
 The worker checks the feature flag for the user who last enabled sync, with the same organization and project context as the API.
 A deleted user, unavailable integration, archived request, paused link, or disabled flag prevents automatic updates.
 
-The worker retries failed processing, but it does not periodically repair missed webhooks.
+The worker processes every matching link before it retries a delivery with a conflicted request. It does not periodically repair missed webhooks.
 Pause sync, then select Resume sync to fetch the latest issue state.
 Scheduled reconciliation and operator alerts are separate work.
 
