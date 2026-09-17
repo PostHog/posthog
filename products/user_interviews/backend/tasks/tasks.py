@@ -20,6 +20,13 @@ from celery import shared_task
     retry_backoff=True,
     retry_jitter=True,
     max_retries=3,
+    # The report is the only copy of the interview, and by the time the task runs Vapi already
+    # holds its receipt. A worker that dies after reserving the message would drop the report with
+    # the default early acknowledgement, so the message is acknowledged after the run instead and
+    # given back to the broker when the worker is lost. The handler is idempotent on the call id,
+    # so the redelivered message creates nothing a second time.
+    acks_late=True,
+    reject_on_worker_lost=True,
 )
 def handle_vapi_webhook(payload: dict[str, Any], event_type: str) -> None:
     from products.user_interviews.backend import (  # noqa: PLC0415 - keeps posthog.schema and the embedding worker off the task module's import path

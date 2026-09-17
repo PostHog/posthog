@@ -16,6 +16,7 @@ from django.template.loader import get_template
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
+import kombu.exceptions
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
@@ -743,9 +744,29 @@ class TestVapiWebhook(APIBaseTest):
         mock_delay.assert_called_once_with(payload=payload, event_type="end-of-call-report")
         self.assertEqual(UserInterview.objects.count(), 0)
 
-    def test_report_task_retries_a_transient_database_error(self):
-        # Bare max_retries without autoretry_for is silently inert; assert the wiring is real.
+    def test_report_task_survives_a_database_error_and_a_lost_worker(self):
+        # Both settings are silently inert when missing: max_retries without autoretry_for never
+        # retries, and the default early acknowledgement drops the report when the worker dies.
         self.assertEqual(handle_vapi_webhook.autoretry_for, (OperationalError, InterfaceError))
+        self.assertTrue(handle_vapi_webhook.acks_late)
+        self.assertTrue(handle_vapi_webhook.reject_on_worker_lost)
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.tasks.tasks.handle_vapi_webhook.delay")
+    def test_webhook_asks_for_a_resend_when_the_report_reaches_no_queue(self, mock_delay):
+        share = self._create_share()
+        self.client.logout()
+        payload = self._end_of_call_payload(share.access_token)
+
+        mock_delay.side_effect = kombu.exceptions.OperationalError("broker unreachable")
+        refused = self._signed_post("topsecret", payload)
+        self.assertEqual(refused.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR, refused.content)
+        self.assertEqual(UserInterview.objects.count(), 0)
+
+        mock_delay.side_effect = lambda **kwargs: handle_vapi_webhook(**kwargs)
+        resent = self._signed_post("topsecret", payload)
+        self.assertEqual(resent.status_code, status.HTTP_202_ACCEPTED, resent.content)
+        self.assertEqual(UserInterview.objects.count(), 1)
 
     @override_settings(VAPI_WEBHOOK_SECRET="")
     def test_webhook_fails_closed_when_secret_unset(self):
