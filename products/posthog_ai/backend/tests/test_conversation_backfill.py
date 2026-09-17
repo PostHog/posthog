@@ -70,8 +70,6 @@ class TestListCandidates(APIBaseTest):
 
 @dataclass(frozen=False)
 class FakeCopies:
-    """Serves candidate pages and records copies, standing in for the two real activities."""
-
     pages: list[list[str]]
     # conversation id -> "copied" | a skipped reason | "error"
     outcomes: dict[str, str] = field(default_factory=dict)

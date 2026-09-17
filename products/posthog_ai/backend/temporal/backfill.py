@@ -28,7 +28,6 @@ from products.posthog_ai.backend.temporal.activities import (
 BACKFILL_WORKFLOW_NAME = "backfill-conversation-tasks"
 
 LIST_ACTIVITY_TIMEOUT = timedelta(seconds=60)
-# Matches the live mirror, which copies one turn; the backfill copies whole conversations.
 COPY_ACTIVITY_TIMEOUT = timedelta(minutes=5)
 ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 # One page of ids crosses the activity boundary as a Temporal payload, and each copy adds a
@@ -180,7 +179,6 @@ class ConversationBackfillWorkflow(PostHogWorkflow):
     async def _copy_page(
         self, candidates: list[BackfillCandidate], concurrency: int
     ) -> list[MirrorActivityResult | BaseException]:
-        """Copy a page with at most `concurrency` copies in flight; a finished copy frees its slot at once."""
         slots = asyncio.Semaphore(concurrency)
 
         async def copy(candidate: BackfillCandidate) -> MirrorActivityResult:

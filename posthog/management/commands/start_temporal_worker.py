@@ -20,14 +20,7 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand, CommandError
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.temporal.ai import (
-    AI_ACTIVITIES,
-    AI_WORKFLOWS,
-    CONVERSATION_BACKFILL_ACTIVITIES,
-    CONVERSATION_BACKFILL_WORKFLOWS,
-    POSTHOG_CODE_SLACK_ACTIVITIES,
-    POSTHOG_CODE_SLACK_WORKFLOWS,
-)
+from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, POSTHOG_CODE_SLACK_ACTIVITIES, POSTHOG_CODE_SLACK_WORKFLOWS
 from posthog.temporal.ai_observability import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
@@ -245,6 +238,10 @@ from products.managed_warehouse.backend.facade.temporal import (
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
     WORKFLOWS as NOTEBOOKS_WORKFLOWS,
+)
+from products.posthog_ai.backend.temporal.backfill import (
+    ACTIVITIES as CONVERSATION_BACKFILL_ACTIVITIES,
+    WORKFLOWS as CONVERSATION_BACKFILL_WORKFLOWS,
 )
 from products.product_analytics.backend.facade.temporal import (
     ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
