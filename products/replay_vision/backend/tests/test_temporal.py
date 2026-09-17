@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 from django.db import IntegrityError, OperationalError, connections, transaction
+from django.test import override_settings
 from django.utils import timezone
 
 import httpx
@@ -129,6 +130,7 @@ from products.replay_vision.backend.temporal.types import (
     EnsureSessionAssetOutput,
     EventTable,
     FetchSessionEventsInputs,
+    FetchSessionNetworkInputs,
     MarkObservationFailedInputs,
     MarkObservationIneligibleInputs,
     MarkObservationRunningInputs,
@@ -2312,6 +2314,19 @@ class TestFetchSessionEventsActivity:
                 )
             assert exc_info.value.non_retryable is True
             assert "3" in str(exc_info.value)
+
+
+class TestFetchSessionNetworkActivity:
+    @pytest.mark.asyncio
+    async def test_unconfigured_recording_api_fails_without_retry(self) -> None:
+        with override_settings(RECORDING_API_URL=""):
+            with pytest.raises(ApplicationError) as exc_info:
+                await fetch_session_network_activity(
+                    FetchSessionNetworkInputs(observation_id=uuid.uuid4(), team_id=1, session_id="sess-1")
+                )
+
+        assert exc_info.value.non_retryable is True
+        assert "RECORDING_API_URL" in str(exc_info.value)
 
 
 @pytest.mark.django_db(transaction=True)
