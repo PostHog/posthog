@@ -7,6 +7,7 @@ import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { matchesRefType } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import type { TeamPublicType } from '../types'
@@ -76,6 +77,13 @@ export interface recentItemsModelActions {
         ref: string
         type: string
     }
+    removeItem: (
+        type: string,
+        ref: string
+    ) => {
+        ref: string
+        type: string
+    }
 }
 
 export type recentItemsModelType = MakeLogicType<recentItemsModelValues, recentItemsModelActions>
@@ -89,6 +97,7 @@ export const recentItemsModel = kea<recentItemsModelType>([
 
     actions({
         recordView: (type: string, ref: string) => ({ type, ref }),
+        removeItem: (type: string, ref: string) => ({ type, ref }),
     }),
 
     loaders({
@@ -170,6 +179,10 @@ export const recentItemsModel = kea<recentItemsModelType>([
                 // visible and clickable until the reload lands, and their relative hrefs (e.g.
                 // /surveys/{pk}) resolve under the new project and 404.
                 loadCurrentTeamSuccess: (state, { currentTeam }) => (currentTeam ? [] : state),
+                // Recents must prune on the same broadcast the project tree prunes on, or a deleted
+                // item stays in the list and the user reads that as a failed delete.
+                removeItem: (state, { type, ref }) =>
+                    state.filter((entry) => !matchesRefType(entry.type, type) || entry.ref !== ref),
                 recordView: (state, { type, ref }) => {
                     const idx = state.findIndex((e) => e.type === type && e.ref === ref)
                     if (idx < 0) {

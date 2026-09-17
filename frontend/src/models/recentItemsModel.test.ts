@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import api, { ApiConfig } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import type { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -112,6 +113,29 @@ describe('recentItemsModel', () => {
         expect(logic.values.sceneLogViewsByRef).toEqual({})
         expect(logic.values.recentsHasLoaded).toBe(false)
         expect(logic.values.sceneLogViewsHasLoaded).toBe(false)
+    })
+
+    it('drops an item the project tree reports as deleted', async () => {
+        jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
+        jest.spyOn(api.fileSystem, 'list').mockResolvedValue({
+            count: 1,
+            results: [recentItem],
+            users: [],
+        })
+        jest.spyOn(api.fileSystemLogView, 'list').mockResolvedValue([])
+
+        logic = recentItemsModel()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadRecentsSuccess'])
+            .toMatchValues({
+                recents: [recentItem],
+            })
+
+        // A deleted item that stays in Recents is still clickable, and reads as a failed delete.
+        deleteFromTree(recentItem.type as string, recentItem.ref as string)
+        expect(logic.values.recents).toEqual([])
     })
 
     it('degrades to empty fallbacks when the loaders hit a fetch failure', async () => {
