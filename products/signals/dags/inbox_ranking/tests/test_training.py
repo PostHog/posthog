@@ -1704,16 +1704,33 @@ def test_a_rendering_is_read_only_when_a_set_asks_for_it():
     assert _extras_for(objects, ()) == {}
 
 
+def _retained_vector_bytes(vectors: pd.DataFrame) -> int:
+    """The bytes the frame's vectors keep alive, counting each shared buffer once.
+
+    `to_pandas` gives every row a view on the Arrow child buffer the whole column was decoded
+    into, so a frame of one row can hold the whole snapshot. `.base` is that buffer.
+    """
+    buffers = {id(value.base): value.base.nbytes for value in vectors[EMBEDDING_COLUMN] if value.base is not None}
+    return sum(buffers.values())
+
+
 def test_a_snapshot_is_narrowed_to_the_rows_the_caller_scores():
     # A snapshot holds a vector per live report while the scored population is one day's newborns,
     # so the scorer passes the pool's index rather than holding a table per rendering at full size.
-    objects = _snapshot_objects(title_embeddings=_vector_frame({"newborn": _embedding(), "old": _embedding()}))
+    # Narrowing the frame is not enough: filtered in pandas, the one kept row still holds every
+    # decoded vector alive, and the two renderings then sit in the pod together at full size.
+    vectors = {f"old_{index}": _embedding() for index in range(64)}
+    objects = _snapshot_objects(title_embeddings=_vector_frame({"newborn": _embedding(), **vectors}))
     keys = TITLE_EMBEDDINGS_FEATURE_SET.extras_keys
 
     narrowed = _extras_for(objects, keys, report_ids=pd.Index(["newborn", "never_embedded"]))
+    whole = _extras_for(objects, keys)
 
     assert narrowed[TITLE_EMBEDDINGS_EXTRA].index.tolist() == ["newborn"]
-    assert _extras_for(objects, keys)[TITLE_EMBEDDINGS_EXTRA].index.tolist() == ["newborn", "old"]
+    assert whole[TITLE_EMBEDDINGS_EXTRA].index.tolist() == ["newborn", *vectors]
+    assert _retained_vector_bytes(narrowed[TITLE_EMBEDDINGS_EXTRA]) * 8 < _retained_vector_bytes(
+        whole[TITLE_EMBEDDINGS_EXTRA]
+    )
 
 
 def test_only_the_set_whose_snapshot_is_missing_is_skipped(monkeypatch):

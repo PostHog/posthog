@@ -43,6 +43,7 @@ from typing import Any
 import pandas as pd
 import dagster
 import pyarrow as pa
+import pyarrow.compute as pc
 from botocore.exceptions import ClientError
 
 from posthog import settings
@@ -295,7 +296,9 @@ def embeddings_extras(
 
     `report_ids` narrows each frame to the rows the caller will ask for. Every snapshot holds a
     vector per live report, so a caller that only scores one day's newborns passes the pool's index
-    rather than holding a fleet-wide vector table per rendering at once.
+    rather than holding a fleet-wide vector table per rendering at once. The narrowing happens in
+    Arrow, before the frame exists: `to_pandas` gives each row a view on the snapshot's whole
+    vector buffer, so a pandas filter would leave a thin frame holding the fleet-wide table alive.
     """
     extras: dict[str, pd.DataFrame] = {}
     for extras_key in extras_keys:
@@ -311,11 +314,12 @@ def embeddings_extras(
                 f"no {table_name} snapshot for dt={partition_key}; the {extras_key} side input is unavailable"
             )
             continue
+        if report_ids is not None:
+            wanted = pa.array(report_ids.to_numpy(), type=table.schema.field("report_id").type)
+            table = table.filter(pc.is_in(table.column("report_id"), value_set=wanted))
         vectors = table.to_pandas().set_index("report_id")
         # `reindex` refuses a duplicated index, and one report is one document per rendering.
         vectors = vectors[~vectors.index.duplicated()]
-        if report_ids is not None:
-            vectors = vectors.loc[vectors.index.intersection(report_ids)]
         extras[extras_key] = vectors
     return extras
 
@@ -371,26 +375,41 @@ def inbox_ranking_training_examples(context: dagster.AssetExecutionContext) -> N
         "reports_missing_birth_snapshot": dagster.MetadataValue.int(unreachable_reports),
     }
     for feature_set in FEATURE_SETS.values():
-        # One set's side inputs at a time, released before the next set's are read. Each embeddings
-        # snapshot carries a vector per live report, so holding every set's at once would scale
-        # this asset's peak with the number of families, on top of the lookback window it already
-        # holds in pandas.
-        extras = embeddings_extras(context, client, bucket, prefix, partition_key, feature_set.extras_keys)
-        missing = feature_set.missing_extras(extras)
-        # Rebuilding a set from a missing side input would write an empty examples object, which
-        # makes the next candidate run train nothing, write metadata with no heads, and delete the
-        # boosters this partition already holds. A champion pointer can name that version, so the
-        # partition keeps what it has instead.
-        if missing:
-            context.log.warning(
-                f"{feature_set.name} examples not rebuilt for dt={partition_key}: no {', '.join(missing)}"
-            )
-            metadata[f"{feature_set.name}_skipped"] = dagster.MetadataValue.bool(True)
-            continue
-        metadata |= _write_examples(
-            context, client, bucket, prefix, partition_key, feature_set, snapshots, backfilled_rows, extras
+        metadata |= _examples_for_set(
+            context, client, bucket, prefix, partition_key, feature_set, snapshots, backfilled_rows
         )
     context.add_output_metadata(metadata)
+
+
+def _examples_for_set(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    prefix: str,
+    partition_key: str,
+    feature_set: FeatureSet,
+    snapshots: Mapping[datetime.date, Snapshot],
+    backfilled_rows: int,
+) -> dict[str, dagster.MetadataValue]:
+    """One feature set's examples for the partition, side inputs included, and its asset metadata.
+
+    The side inputs are read and released inside this call, so the next set's snapshot is read
+    after this set's is gone. Each embeddings snapshot carries a vector per live report, and a
+    name still bound in the caller's loop would hold the previous rendering through the next read,
+    which is what makes the peak scale with the number of families.
+    """
+    extras = embeddings_extras(context, client, bucket, prefix, partition_key, feature_set.extras_keys)
+    missing = feature_set.missing_extras(extras)
+    # Rebuilding a set from a missing side input would write an empty examples object, which makes
+    # the next candidate run train nothing, write metadata with no heads, and delete the boosters
+    # this partition already holds. A champion pointer can name that version, so the partition
+    # keeps what it has instead.
+    if missing:
+        context.log.warning(f"{feature_set.name} examples not rebuilt for dt={partition_key}: no {', '.join(missing)}")
+        return {f"{feature_set.name}_skipped": dagster.MetadataValue.bool(True)}
+    return _write_examples(
+        context, client, bucket, prefix, partition_key, feature_set, snapshots, backfilled_rows, extras
+    )
 
 
 def _write_examples(
