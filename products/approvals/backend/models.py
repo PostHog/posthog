@@ -40,9 +40,9 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     resource_id = models.CharField(max_length=128, null=True, blank=True)
 
     # `intent` carries an endpoint serializer's `validated_data` verbatim, and DRF deserializes a
-    # typed field into its native Python object — a `DateTimeField` arrives as a `datetime`, which
+    # typed field into its native Python object, so a `DateTimeField` arrives as a `datetime` that
     # psycopg refuses to dump. The encoder renders those as the ISO strings the serializer parses
-    # again on the apply path, so every writer gets it for free instead of remembering to.
+    # again on the apply path, which protects every writer without a render at the call site.
     intent = models.JSONField(encoder=DjangoJSONEncoder)
     intent_display = models.JSONField(encoder=DjangoJSONEncoder)
 

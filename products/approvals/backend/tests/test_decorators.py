@@ -195,3 +195,16 @@ class TestChangeRequestIntentIsJsonSafe(APIBaseTest):
         stored = change_request.intent["full_request_data"]["last_called_at"]
         assert isinstance(stored, str), "the datetime must be rendered, not handed to psycopg as-is"
         assert abs(datetime.fromisoformat(stored) - called_at) < timedelta(milliseconds=1)
+
+    def test_returned_instance_matches_what_was_stored(self):
+        change_request = self._create_change_request(
+            {"full_request_data": {"key": "test-flag", "last_called_at": timezone.now()}}
+        )
+
+        returned = change_request.intent["full_request_data"]["last_called_at"]
+
+        change_request.refresh_from_db()
+        assert returned == change_request.intent["full_request_data"]["last_called_at"], (
+            "the 409 body serializes the returned instance, so it must not carry a "
+            "representation that differs from every later read of the row"
+        )
