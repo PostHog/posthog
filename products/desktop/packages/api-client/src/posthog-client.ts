@@ -3231,6 +3231,25 @@ export class PostHogAPIClient {
     return normalizeTaskResponse(data, { teamId });
   }
 
+  async createSignalReportTask(options: {
+    reportId: string;
+    relationship: "implementation" | "discussion";
+    description: string;
+    title?: string;
+    question?: string;
+  }): Promise<Task> {
+    return this.createTask({
+      description: options.description,
+      title: options.title,
+      origin_product: "signal_report",
+      signal_report: options.reportId,
+      signal_report_task_relationship: options.relationship,
+      ...(options.relationship === "discussion"
+        ? { signal_report_discussion_question: options.question?.trim() ?? "" }
+        : {}),
+    });
+  }
+
   async updateTask(
     taskId: string,
     updates: Schemas.PatchedTaskWrite,

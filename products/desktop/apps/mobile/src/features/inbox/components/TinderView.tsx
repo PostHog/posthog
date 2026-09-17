@@ -1,4 +1,5 @@
 import { Text } from "@components/text";
+import { buildCreatePrReportPrompt } from "@posthog/core/inbox/reportActions";
 import {
   formatSignalReportSummaryMarkdown,
   humanizeReportTitle,
@@ -30,10 +31,6 @@ import { MarkdownText } from "@/features/chat/components/MarkdownText";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { getModelConfigOption } from "@/features/tasks/composer/options";
 import { useCloudTaskConfigOptions } from "@/features/tasks/hooks/useCloudTaskConfigOptions";
-import type {
-  CreateTaskOptions,
-  RepositoryOption,
-} from "@/features/tasks/types";
 import {
   ANALYTICS_EVENTS,
   computeReportAgeHours,
@@ -132,15 +129,10 @@ function EmptyState() {
 
 interface TinderViewProps {
   reports: SignalReport[];
-  repositoryOptions: RepositoryOption[];
   isLoading?: boolean;
 }
 
-export function TinderView({
-  reports,
-  repositoryOptions,
-  isLoading,
-}: TinderViewProps) {
+export function TinderView({ reports, isLoading }: TinderViewProps) {
   const themeColors = useThemeColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -184,6 +176,7 @@ export function TinderView({
     null,
   );
   const [creating, setCreating] = useState(false);
+  const creatingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{
     taskId: string | null;
@@ -223,6 +216,8 @@ export function TinderView({
 
   const handleAccept = useCallback(
     async (report: SignalReport) => {
+      if (creatingRef.current || !isConfigReady) return;
+      creatingRef.current = true;
       setCreating(true);
       setError(null);
       showToastPending(report.title ?? "Untitled report");
@@ -234,30 +229,15 @@ export function TinderView({
       try {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-        // 1. Get the repo from the report artefacts
-        const repo = await getReportRepository(report.id);
-
-        // 2. Find matching repository option to get integrationId
-        const match = repo
-          ? repositoryOptions.find(
-              (o) => o.repository.toLowerCase() === repo.toLowerCase(),
-            )
-          : null;
-
-        // 3. Create the task
-        const prompt = `Act on this signal report. Investigate the root cause, implement the fix, and open a PR if appropriate.\n\n${report.summary ?? ""}`;
+        const prompt = buildCreatePrReportPrompt({ reportId: report.id });
         const client = getPostHogApiClient();
-        const task = await client.createTask({
+        const task = await client.createSignalReportTask({
           description: prompt,
           title: prompt.slice(0, 255),
-          repository: match?.repository ?? repo ?? undefined,
-          github_integration: match?.integrationId ?? undefined,
-          origin_product: "signal_report",
-          signal_report: report.id,
-          signal_report_task_relationship: "implementation",
-        } as CreateTaskOptions);
+          reportId: report.id,
+          relationship: "implementation",
+        });
 
-        // 4. Run it
         await client.runTaskInCloud(task.id, undefined, {
           pendingUserMessage: prompt,
           adapter: "claude",
@@ -278,12 +258,13 @@ export function TinderView({
         setError(message);
         setToast(null);
       } finally {
+        creatingRef.current = false;
         setCreating(false);
       }
     },
     [
-      repositoryOptions,
       model,
+      isConfigReady,
       showToastPending,
       showToastDone,
       acceptReport,
