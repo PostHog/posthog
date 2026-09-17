@@ -158,7 +158,8 @@ describe('ML session key batches', () => {
     it('deduplicates repeated sessions and stores only keys and month indexes', async () => {
         const identities = Array.from({ length: 120 }, () => ({ ...session }))
         const batch = await store.prepare(identities)
-        expect(generated).toBe(2)
+        // Only the team month key. A session key is made locally and sealed under it.
+        expect(generated).toBe(1)
         await batch.commit()
         expect(boundary.items.size).toBe(4)
         expect(Math.max(...boundary.readSizes)).toBeLessThanOrEqual(100)
@@ -184,8 +185,8 @@ describe('ML session key batches', () => {
             expect(boundary.items.has(tableKeyString(monthKeyIndexId({ ...session }, location)))).toBe(true)
             // Two index rows and two keys. A retry that re-sent the whole batch would store an index row twice.
             expect(boundary.writes).toBe(4)
-            // One batch write, one retry carrying the single deferred row, and a put for each key.
-            expect(boundary.writeRequests).toBe(4)
+            // A batch write per phase, one retry carrying the deferred row, and a put for each key.
+            expect(boundary.writeRequests).toBe(5)
         }
     })
 
@@ -202,8 +203,10 @@ describe('ML session key batches', () => {
         // 60 session keys and one team image key. Each is one conditional put, and their 61 index entries pack into
         // three batches of at most 25, so 122 requests become 64.
         expect(boundary.writes).toBe(122)
-        expect(boundary.writeRequests).toBe(64)
-        expect([...boundary.writeBatchSizes].sort((a, b) => b - a)).toEqual([25, 25, 11])
+        // One more request than a single phase, because the team month key commits before the keys it seals.
+        expect(boundary.writeRequests).toBe(65)
+        // The month key's index entry commits in its own phase, ahead of the 60 session index entries.
+        expect([...boundary.writeBatchSizes].sort((a, b) => b - a)).toEqual([25, 25, 10, 1])
     })
 
     it('reads every row a batch needs in one pass', async () => {
@@ -236,6 +239,8 @@ describe('ML session key batches', () => {
         const keys = await reader.read(identities.map((identity) => sessionKeyId(identity.teamId, identity.sessionId)))
         expect(keys.size).toBe(identities.length)
         expect(boundary.conditionalFailures).toBe(0)
+        // 120 distinct sessions across one team month. KMS made the month key; the sessions were sealed under it.
+        expect(generated).toBe(1)
     })
 
     it.each([
@@ -468,12 +473,14 @@ describe('ML session key batches', () => {
         const generates = kmsSend.mock.calls
             .map(([command]) => command)
             .filter((c) => c instanceof GenerateDataKeyCommand)
-        expect(generates).toHaveLength(2)
+        expect(generates).toHaveLength(1)
         for (const command of generates) {
             expect(command.input.EncryptionContext).not.toHaveProperty('organization_id')
         }
         const stored = boundary.items.get(tableKeyString(sessionKeyId(session.teamId, session.sessionId)))!
         expect(stored).not.toHaveProperty('organization_id')
+        expect(stored).toHaveProperty('sealed_key')
+        expect(stored).not.toHaveProperty('wrapped_key')
     })
 
     it('unwraps a key stored under the organization it was wrapped with', async () => {
@@ -529,15 +536,16 @@ describe('ML session key batches', () => {
     })
 
     it.each([
-        ['session', () => sessionKeyId(session.teamId, session.sessionId)],
-        ['monthly image', () => imageKeyId(session.teamId, '2025-09')],
+        // An unusable month key takes its sessions with it, because a session key only opens under that key.
+        ['session', () => sessionKeyId(session.teamId, session.sessionId), 1],
+        ['monthly image', () => imageKeyId(session.teamId, '2025-09'), 2],
     ])(
         'drops the sessions behind a stored %s key that has no wrapped key and no tombstone, reporting it once',
-        async (_kind, keyId) => {
+        async (_kind, keyId, reported) => {
             const first = await store.prepare([session])
             await first.commit()
             const location = tableKeyString(keyId())
-            const { wrapped_key: _wrapped, ...stored } = boundary.items.get(location)!
+            const { wrapped_key: _wrapped, sealed_key: _sealed, ...stored } = boundary.items.get(location)!
             boundary.items.set(location, stored)
             coldCache()
             const unusable = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyIdentityMismatch')
@@ -546,7 +554,7 @@ describe('ML session key batches', () => {
             await next.commit()
             expect(boundary.items.get(location)).toEqual(stored)
             expect(unusable).toHaveBeenCalledTimes(1)
-            expect(unusable).toHaveBeenCalledWith('wrapped_key_missing', 1)
+            expect(unusable).toHaveBeenCalledWith('wrapped_key_missing', reported)
         }
     )
 
@@ -715,7 +723,7 @@ describe('ML session key batches', () => {
         expect(keys.session.plaintext).toEqual(original.session.plaintext)
         expect(keys.image.plaintext).toEqual(original.image.plaintext)
         expect((await reader.read([sessionKeyId(session.teamId, session.sessionId)])).size).toBe(1)
-        expect(generated).toBe(2)
+        expect(generated).toBe(1)
         // Only the team block row, because it decides whether the batch may mint new keys and is never cached.
         expect(keysRead).toBe(1)
     })
@@ -737,7 +745,7 @@ describe('ML session key batches', () => {
         for (let index = 0; index < 20; index++) {
             await controller.defer(input, (value) => {
                 expect(
-                    boundary.items.get(tableKeyString(sessionKeyId(identity.teamId, identity.sessionId)))?.wrapped_key
+                    boundary.items.get(tableKeyString(sessionKeyId(identity.teamId, identity.sessionId)))?.sealed_key
                 ).not.toBeUndefined()
                 started += 1
                 return Promise.resolve(ok(value, [delivery]))

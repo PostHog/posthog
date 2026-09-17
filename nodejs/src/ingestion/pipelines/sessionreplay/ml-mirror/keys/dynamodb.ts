@@ -96,7 +96,7 @@ export class MlKeyDynamoDB {
         const id = tableKeyString(key)
         if (item.deleted?.BOOL === true) {
             this.rows.set(id, detachedRow(item), { ttl: TOMBSTONE_ROW_LIFETIME_MS })
-        } else if (item.wrapped_key?.B) {
+        } else if (item.wrapped_key?.B || item.sealed_key?.B) {
             this.rows.set(id, detachedRow(item), {
                 ttl: storedSessionId(key.sk) ? this.sessionRowLifetimeMs : IMAGE_ROW_MAX_LIFETIME_MS,
             })
