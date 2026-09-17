@@ -3754,8 +3754,7 @@ class HogFlowRevisionRestoreRequestSerializer(serializers.Serializer):
 
 SELF_OPTIMISING_FEATURE_FLAG = "self-optimising-workflows"
 
-# `trigger` and `abort_action` are read-only on the workflow serializer, so publish drops a proposed
-# value for either. A suggestion that cannot ship is worse than one that is refused.
+# `trigger` and `abort_action` are read-only on the workflow serializer, so publish would drop them.
 PROPOSAL_CONTENT_FIELDS = tuple(field for field in DRAFT_CONTENT_FIELDS if field not in ("trigger", "abort_action"))
 
 WORKFLOW_PROPOSAL_CONTENT_SCHEMA = {
@@ -3835,8 +3834,7 @@ class WorkflowProposalSerializer(serializers.ModelSerializer):
     def get_is_stale(self, proposal: WorkflowProposal) -> bool:
         if (proposal.hog_flow.version or 0) <= proposal.base_version:
             return False
-        # One revision read per version behind, shared across the page: proposals on a list all
-        # belong to the same workflow, and stale ones usually share a base version.
+        # One revision read per base version, shared across the page.
         cache = self.context.setdefault("proposal_conflicts", {})
         key = (proposal.hog_flow_id, proposal.base_version, json.dumps(proposal.content, sort_keys=True))
         if key not in cache:
@@ -3889,8 +3887,7 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
     def validate_evidence(self, value: Any) -> dict:
         if not isinstance(value, dict) or not value:
             return value or {}
-        # The panel reads these back by name, so a number under a producer's own key renders as
-        # "no data" beside a "no sample size" warning. Refuse it here, where it can be fixed.
+        # The panel reads these back by name; a producer's own key would render as "no data".
         if not isinstance(value.get("metric"), str) or not value["metric"].strip():
             raise exceptions.ValidationError(
                 "Include `metric`, the name of the metric this suggestion is about, as a string."
@@ -4039,26 +4036,19 @@ class ProposalOutOfDateError(exceptions.APIException):
     default_code = "proposal_out_of_date"
 
     def __init__(self, conflicts: list[str] | None = None) -> None:
-        # Name the steps: with per-step merging a 409 means a specific collision, and the reviewer
-        # cannot see which one from the suggestion alone.
         detail = self.default_detail
         if conflicts:
             detail = f"{detail} It changes: {', '.join(conflicts)}."
         super().__init__(detail)
 
 
-# Fields a proposal replaces wholesale: a stale copy of one of these drops whatever was added
-# since it was written. `actions` is absent because steps carry stable ids, so a proposal names only
-# the steps it changes and the rest of the graph is never in the payload to lose. Edges have no id
-# (they are a from/to pair, and rewiring one changes the shape of the graph around it), and a
-# variable list is short enough that carrying it whole costs nothing.
+# Fields a proposal replaces wholesale. `actions` merges per step instead, since steps carry stable
+# ids; edges have no id, and a variable list is short enough to carry whole.
 PROPOSAL_WHOLE_LIST_FIELDS = ("edges", "variables")
 
-# Content fields a proposal merges into rather than replaces, keyed by the item's stable id.
 PROPOSAL_MERGE_BY_ID_FIELDS = ("actions",)
 
-# A number a producer sends means nothing on its own: 1.0 is either every message or one of them.
-# The producer says which, because it is the only party that knows.
+# 1.0 is either every message or one of them; only the producer knows which.
 EVIDENCE_UNITS = ("rate", "count")
 
 
@@ -4118,13 +4108,11 @@ def conflicting_step_ids(hog_flow: HogFlow, proposal: WorkflowProposal) -> list[
     if hog_flow.version == proposal.base_version:
         return []
     if changes_whole_list:
-        # A whole-list field carries the shape of the graph around the steps it lists, so any
-        # publish since it was read can drop something. Nothing narrower to compare.
+        # A whole-list field replaces the list, so any publish since counts.
         return sorted(touched) or ["edges"]
     base_revision = HogFlowRevision.objects.filter(hog_flow=hog_flow, version=proposal.base_version).first()
     if base_revision is None:
-        # Without the snapshot the proposal read, "changed since" is unanswerable. Refuse rather
-        # than stage a merge over an unknown base.
+        # Without the snapshot the proposal read, "changed since" is unanswerable.
         return sorted(touched)
     base_actions = {_item_id(item): item for item in base_revision.content.get("actions") or []}
     live_actions = {_item_id(item): item for item in snapshot_flow_content(hog_flow).get("actions") or []}
@@ -4137,9 +4125,7 @@ def conflicting_step_ids(hog_flow: HogFlow, proposal: WorkflowProposal) -> list[
     )
 
 
-# Content fields that hold a list of objects. Their items reach the secret-stripping and graph
-# validation helpers, which read each item as a mapping, so anything else has to fail as a bad
-# request here rather than as an AttributeError several frames down.
+# Their items reach helpers that read each item as a mapping, so anything else has to fail here as a 400.
 PROPOSAL_LIST_OF_OBJECT_FIELDS = ("actions", "edges", "variables")
 
 
@@ -4320,8 +4306,7 @@ class HogFlowViewSet(
         # lists above can't distinguish GET (read) from POST (write) on the same action. Without
         # this, these actions declare no scope and reject all personal-API-key (MCP) access.
         if self.action == "proposals":
-            # Listing suggestions is workflow-read; authoring one is a workflow write, since approving
-            # it stages content into the draft.
+            # Reading is workflow-read; authoring stages content into the draft, so it is a workflow write.
             if request.method in ("GET", "HEAD", "OPTIONS"):
                 return ["hog_flow:read"]
             return ["hog_flow:write"]
@@ -4840,8 +4825,7 @@ class HogFlowViewSet(
         instance.draft_encrypted_inputs = draft_encrypted_inputs
         instance.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
-        # An edit over an approved draft may undo what the suggestion proposed, and publish reads
-        # approved as shipped. The suggestion goes back to the queue for the person to decide again.
+        # An edit over an approved draft may undo the suggestion, and publish reads approved as shipped.
         unstage_workflow_proposals(instance)
 
     @extend_schema(request=HogFlowGraphUpdateSerializer, responses={200: HogFlowSerializer})
@@ -5230,10 +5214,7 @@ class HogFlowViewSet(
             locked.draft_updated_at = None
             locked.draft_encrypted_inputs = None
             locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
-            # Approved means "staged in this draft", and every path that replaces the draft unstages
-            # what it replaced, so at most one suggestion is approved here and it is the one that just
-            # went live. One indexed UPDATE, and a no-op for every workflow that has no proposals -
-            # which is why it needs no flag check of its own.
+            # Every path that changes the draft unstages what it dropped, so whatever is approved here just went live.
             WorkflowProposal.objects.filter(hog_flow=locked, status=WorkflowProposal.Status.APPROVED).update(
                 status=WorkflowProposal.Status.APPLIED, applied_version=locked.version
             )
@@ -5360,8 +5341,7 @@ class HogFlowViewSet(
         return Response(self.get_serializer(locked).data)
 
     def _require_self_optimising_enabled(self) -> None:
-        # The whole proposal surface is invisible while the flag is off, rather than 403-ing: an
-        # endpoint that admits it exists is an endpoint people build against.
+        # Invisible while the flag is off, rather than 403: an endpoint that admits it exists gets built against.
         if not posthoganalytics.feature_enabled(
             SELF_OPTIMISING_FEATURE_FLAG,
             str(self.team.uuid),
@@ -5377,13 +5357,10 @@ class HogFlowViewSet(
             raise exceptions.NotFound()
 
     def _proposal_created_via(self, request: Request) -> str:
-        # Derived from the transport, never from the request body: a caller that could label its own
-        # provenance could pass an agent's proposal off as a human's.
+        # Derived from the transport, never the body, so a caller cannot pass an agent's proposal off as a person's.
         source = get_event_source(request)
-        # `self_driving` is the one value that names a PostHog-run agent, so only the signal that
-        # cannot be forged may set it: the Signals OAuth application the run minted under. Every
-        # other agent surface is recognised from a user agent or a client header, which a caller
-        # writes for itself, so those record as `mcp` — an agent of some kind, unattributed.
+        # Only the Signals OAuth application, which cannot be forged, records `self_driving`; user agents and
+        # client headers are self-declared, so those record as `mcp`.
         if source == EventSource.SELF_DRIVING:
             return WorkflowProposal.CreatedVia.SELF_DRIVING
         if source in AGENT_EVENT_SOURCES:
@@ -5418,8 +5395,7 @@ class HogFlowViewSet(
         instance = self.get_object()
 
         if request.method == "GET":
-            # Applied suggestions order by the version that shipped them, since approval order does
-            # not follow creation order. Everything else reads as a queue, newest first.
+            # Applied ones order by the version that shipped them; the rest read as a queue, newest first.
             applied_only = request.query_params.get("status") == WorkflowProposal.Status.APPLIED
             ordering = ("-applied_version", "-created_at") if applied_only else ("-created_at",)
             queryset = WorkflowProposal.objects.filter(hog_flow=instance).order_by(*ordering)
@@ -5438,19 +5414,14 @@ class HogFlowViewSet(
         param_serializer.is_valid(raise_exception=True)
         params = param_serializer.validated_data
 
-        # An agent has no business setting secret function inputs, and proposal content is stored in
-        # plaintext like a revision snapshot, so strip them rather than silently persisting them.
+        # Proposal content is stored in plaintext like a revision snapshot, so secrets are stripped.
         content = strip_content_secrets(dict(params["content"]))
         source_id = params.get("source_id") or None
 
-        # A proposal is a change to a workflow, not a workflow, so the thing to validate is the
-        # workflow it would produce. Do it at authoring time, where the error can name the mistake,
-        # rather than at approval, where a human is waiting on it.
         if "actions" in content or "edges" in content:
             merged = merge_proposal_content(snapshot_flow_content(instance), content)
             try:
-                # Warnings (the return value) are fine to ignore here; only the raised errors mean the
-                # graph could not run.
+                # Warnings are fine to ignore; only raised errors mean the graph could not run.
                 validate_graph(merged.get("actions") or [], merged.get("edges") or [], merged.get("abort_action"))
             except serializers.ValidationError as error:
                 raise exceptions.ValidationError(
@@ -5465,8 +5436,6 @@ class HogFlowViewSet(
                 )
 
         if source_id:
-            # Idempotent by source: an MCP retry or a re-emitted finding resolves to the proposal it
-            # already created instead of stacking duplicates in someone's queue.
             existing = WorkflowProposal.objects.filter(hog_flow=instance, source_id=source_id).first()
             if existing:
                 return Response(WorkflowProposalSerializer(existing).data, status=status.HTTP_200_OK)
@@ -5487,9 +5456,7 @@ class HogFlowViewSet(
             with transaction.atomic():
                 proposal.save()
         except IntegrityError:
-            # A concurrent create with the same source_id committed between the read above and this
-            # save, tripping the partial unique index. Honor the idempotency contract the field
-            # promises and return the row that landed rather than surfacing a 500.
+            # A concurrent create with the same source_id landed between the read and this save.
             existing = (
                 WorkflowProposal.objects.filter(hog_flow=instance, source_id=source_id).first() if source_id else None
             )
@@ -5521,8 +5488,6 @@ class HogFlowViewSet(
         if parsed is None:
             raise exceptions.NotFound("No such suggestion for this workflow.")
         try:
-            # team_id is explicit rather than left to the fail-closed manager's request scope: this is
-            # the lookup every mutation resolves through, so it states the tenant boundary in the query.
             return WorkflowProposal.objects.select_related("created_by", "resolved_by", "hog_flow").get(
                 team_id=self.team_id, hog_flow_id=hog_flow.pk, id=parsed
             )
@@ -5545,9 +5510,7 @@ class HogFlowViewSet(
         filter_backends=[],
     )
     def approve_proposal(self, request: Request, proposal_id: Optional[str] = None, *args, **kwargs):
-        # Approval stages the proposed content into the draft, exactly as restore_revision stages a
-        # historical snapshot: nothing here touches the live config, so the change still goes through
-        # the normal publish preview and confirm before it runs on anyone.
+        # Approval only stages into the draft, like restore_revision; publish still previews and confirms.
         self._require_self_optimising_enabled()
         param_serializer = WorkflowProposalApproveRequestSerializer(data=request.data)
         param_serializer.is_valid(raise_exception=True)
@@ -5557,15 +5520,12 @@ class HogFlowViewSet(
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
             proposal = self._get_proposal_or_404(locked, proposal_id)
-            # The row lock is the double-submission guard: two concurrent approvals serialize here,
-            # and the second sees the status the first wrote.
+            # The row lock serializes concurrent approvals; the second sees what the first wrote.
             locked_proposal = WorkflowProposal.objects.select_for_update().get(pk=proposal.pk)
             if locked_proposal.status != WorkflowProposal.Status.SUGGESTED:
                 raise ProposalAlreadyResolvedError()
             if locked.draft and not param_serializer.validated_data["overwrite"]:
                 raise DraftExistsError()
-            # A suggestion is only out of date when the steps it changes moved under it. An edit
-            # somewhere else in the workflow merges cleanly and is not a reason to refuse.
             conflicts = conflicting_step_ids(locked, locked_proposal)
             if conflicts:
                 raise ProposalOutOfDateError(describe_steps(locked, conflicts))
@@ -5578,17 +5538,14 @@ class HogFlowViewSet(
                 raise StaleWorkflowUpdateError()
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
-            # The draft is always a full content snapshot (live content as the base, the proposal's
-            # changed steps merged in), so publish stays a plain copy with no merge logic.
+            # The draft is a full snapshot (live plus the proposal), so publish stays a plain copy.
             locked.draft = merge_proposal_content(snapshot_flow_content(locked), locked_proposal.content)
             locked.draft_updated_at = timezone.now()
-            # Proposal content carries no secrets (stripped on create), so the staged draft
-            # re-attaches from the live encrypted_inputs on the follow-up publish.
+            # Proposal content carries no secrets, so the draft re-attaches them from live on publish.
             locked.draft_encrypted_inputs = None
             locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
-            # This suggestion's content replaces whatever was staged, so any previously approved one
-            # goes back to the queue rather than sitting approved over content that is no longer there.
+            # The new draft replaces what was staged; an earlier approval stays only if the draft still carries it.
             unstage_workflow_proposals(locked)
 
             locked_proposal.status = WorkflowProposal.Status.APPROVED
@@ -5649,9 +5606,7 @@ class HogFlowViewSet(
     ) -> Optional[dict]:
         if version is None:
             return None
-        # Scoped to the step the suggestion is about, when it names one. Without that, a workflow with
-        # several email steps measures a change to one of them against the sends of all of them, which
-        # dilutes a real move and attributes an unrelated one.
+        # Scoped to the step the suggestion names; several email steps would otherwise share one denominator.
         totals = fetch_app_metric_totals(
             team_id=self.team_id,
             app_source=HOG_FLOW_VERSION_APP_SOURCE,
@@ -5668,8 +5623,7 @@ class HogFlowViewSet(
             ],
         ).totals
         sends = int(totals.get(TARGET_SEND_METRIC, 0))
-        # Untracked sends can never record an open, so the open rate reads against tracked sends. The
-        # guardrail rates apply to every send and keep the raw denominator.
+        # Untracked sends can never record an open, so opens read against tracked sends; guardrails keep every send.
         tracked_sends = max(0, sends - int(totals.get(TARGET_UNTRACKED_METRIC, 0)))
 
         def rate(count: int, label: str, denominator: int) -> dict:
