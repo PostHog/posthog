@@ -1964,74 +1964,83 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                         math_property: `$web_vitals_${name}_value`,
                     })
 
-                    return [
-                        {
-                            kind: 'query',
-                            tileId: TileId.WEB_VITALS,
-                            layout: {
-                                colSpanClassName: 'md:col-span-full',
-                                orderWhenLargeClassName: '2xl:order-0',
-                            },
-                            query: {
-                                kind: NodeKind.WebVitalsQuery,
-                                properties: webAnalyticsFilters,
-                                // Match the path-breakdown tile below so both tiles' precompute
-                                // reads hash to the same bucket job and share warm buckets. The
-                                // timeseries merges across all paths, so cleaning is result-neutral
-                                // here, but the hash is not — a mismatch builds a second bucket set.
-                                doPathCleaning: isPathCleaningEnabled,
-                                source: {
-                                    kind: NodeKind.TrendsQuery,
-                                    dateRange,
-                                    interval,
-                                    series: (['INP', 'LCP', 'CLS', 'FCP'] as WebVitalsMetric[]).map((metric) =>
-                                        createSeries(metric, webVitalsPercentile)
+                    // Tagged like the analytics tab below: web vitals shapes opened under a preset
+                    // must reach the warmer too.
+                    return withPresetTag(
+                        [
+                            {
+                                kind: 'query',
+                                tileId: TileId.WEB_VITALS,
+                                layout: {
+                                    colSpanClassName: 'md:col-span-full',
+                                    orderWhenLargeClassName: '2xl:order-0',
+                                },
+                                query: {
+                                    kind: NodeKind.WebVitalsQuery,
+                                    properties: webAnalyticsFilters,
+                                    // Match the path-breakdown tile below so both tiles' precompute
+                                    // reads hash to the same bucket job and share warm buckets. The
+                                    // timeseries merges across all paths, so cleaning is result-neutral
+                                    // here, but the hash is not — a mismatch builds a second bucket set.
+                                    doPathCleaning: isPathCleaningEnabled,
+                                    source: {
+                                        kind: NodeKind.TrendsQuery,
+                                        dateRange,
+                                        interval,
+                                        series: (['INP', 'LCP', 'CLS', 'FCP'] as WebVitalsMetric[]).map((metric) =>
+                                            createSeries(metric, webVitalsPercentile)
+                                        ),
+                                        trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+                                        filterTestAccounts,
+                                        properties: webAnalyticsFilters,
+                                    },
+                                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                },
+                                insightProps: {
+                                    dashboardItemId: getDashboardItemId(
+                                        TileId.WEB_VITALS,
+                                        'web-vitals-overview',
+                                        false
                                     ),
-                                    trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+                                    loadPriority: loadPriorityMap[TileId.WEB_VITALS],
+                                    dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+                                },
+                                showIntervalSelect: true,
+                            },
+                            {
+                                kind: 'query',
+                                tileId: TileId.WEB_VITALS_PATH_BREAKDOWN,
+                                layout: {
+                                    colSpanClassName: 'md:col-span-full',
+                                    orderWhenLargeClassName: '2xl:order-0',
+                                },
+                                query: {
+                                    kind: NodeKind.WebVitalsPathBreakdownQuery,
+                                    dateRange,
                                     filterTestAccounts,
                                     properties: webAnalyticsFilters,
+                                    percentile: webVitalsPercentile,
+                                    metric: webVitalsTab,
+                                    doPathCleaning: isPathCleaningEnabled,
+                                    thresholds: [
+                                        WEB_VITALS_THRESHOLDS[webVitalsTab].good,
+                                        WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
+                                    ],
+                                    useWebAnalyticsPrecompute,
                                 },
-                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                insightProps: {
+                                    dashboardItemId: getDashboardItemId(
+                                        TileId.WEB_VITALS_PATH_BREAKDOWN,
+                                        'web-vitals-path-breakdown',
+                                        false
+                                    ),
+                                    loadPriority: loadPriorityMap[TileId.WEB_VITALS_PATH_BREAKDOWN],
+                                    dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+                                },
                             },
-                            insightProps: {
-                                dashboardItemId: getDashboardItemId(TileId.WEB_VITALS, 'web-vitals-overview', false),
-                                loadPriority: loadPriorityMap[TileId.WEB_VITALS],
-                                dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                            },
-                            showIntervalSelect: true,
-                        },
-                        {
-                            kind: 'query',
-                            tileId: TileId.WEB_VITALS_PATH_BREAKDOWN,
-                            layout: {
-                                colSpanClassName: 'md:col-span-full',
-                                orderWhenLargeClassName: '2xl:order-0',
-                            },
-                            query: {
-                                kind: NodeKind.WebVitalsPathBreakdownQuery,
-                                dateRange,
-                                filterTestAccounts,
-                                properties: webAnalyticsFilters,
-                                percentile: webVitalsPercentile,
-                                metric: webVitalsTab,
-                                doPathCleaning: isPathCleaningEnabled,
-                                thresholds: [
-                                    WEB_VITALS_THRESHOLDS[webVitalsTab].good,
-                                    WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
-                                ],
-                                useWebAnalyticsPrecompute,
-                            },
-                            insightProps: {
-                                dashboardItemId: getDashboardItemId(
-                                    TileId.WEB_VITALS_PATH_BREAKDOWN,
-                                    'web-vitals-path-breakdown',
-                                    false
-                                ),
-                                loadPriority: loadPriorityMap[TileId.WEB_VITALS_PATH_BREAKDOWN],
-                                dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                            },
-                        },
-                    ]
+                        ],
+                        warmablePresetShortId
+                    )
                 }
 
                 const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'

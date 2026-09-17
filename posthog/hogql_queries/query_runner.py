@@ -2224,10 +2224,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if tags.scene:
                     posthoganalytics.tag("scene", tags.scene)
                     tag_queries(scene=tags.scene)
-                if tags.presetId:
-                    preset_id = tags.presetId[:PRESET_ID_MAX_LENGTH]
-                    posthoganalytics.tag("preset_id", preset_id)
-                    tag_queries(preset_id=preset_id)
+                # Dropped, not truncated: truncating an overlong client value could alias it
+                # onto a real preset's short id and attribute shapes to someone else's preset.
+                if tags.presetId and len(tags.presetId) <= PRESET_ID_MAX_LENGTH:
+                    posthoganalytics.tag("preset_id", tags.presetId)
+                    tag_queries(preset_id=tags.presetId)
 
             tag_queries(execution_mode=execution_mode.value)
             tag_queries(cache_key=cache_key)
