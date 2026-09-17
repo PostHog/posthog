@@ -2015,6 +2015,7 @@ function generateDefinitionsJson(
             const featureFlagVariant = toolConfig.feature_flag_variant ?? category.feature_flag_variant
             // Successors are per-tool: a category gate says what retires a tool, never what replaces it.
             const supersededBy = toolConfig.superseded_by
+            const hiddenWhenFlagOn = toolConfig.hidden_when_flag_on
             const redirectHint = toolConfig.redirect_hint
 
             if (toolConfig.confirmed_action) {
@@ -2044,6 +2045,7 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -2070,6 +2072,7 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -2093,6 +2096,7 @@ function generateDefinitionsJson(
                     ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -2123,6 +2127,9 @@ function generateDefinitionsJson(
                     : {}),
                 ...(wrapperConfig.feature_flag_variant
                     ? { feature_flag_variant: wrapperConfig.feature_flag_variant }
+                    : {}),
+                ...(wrapperConfig.hidden_when_flag_on
+                    ? { hidden_when_flag_on: wrapperConfig.hidden_when_flag_on }
                     : {}),
                 ...(wrapperConfig.superseded_by?.length ? { superseded_by: wrapperConfig.superseded_by } : {}),
                 ...(wrapperConfig.redirect_hint ? { redirect_hint: wrapperConfig.redirect_hint } : {}),
@@ -2301,6 +2308,7 @@ function generateQueryWrapperDefinitionsJson(
             ...(toolConfig.feature_entitlement ? { feature_entitlement: toolConfig.feature_entitlement } : {}),
             ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
             ...(toolConfig.feature_flag_variant ? { feature_flag_variant: toolConfig.feature_flag_variant } : {}),
+            ...(toolConfig.hidden_when_flag_on ? { hidden_when_flag_on: toolConfig.hidden_when_flag_on } : {}),
             ...(toolConfig.superseded_by?.length ? { superseded_by: toolConfig.superseded_by } : {}),
             ...(toolConfig.redirect_hint ? { redirect_hint: toolConfig.redirect_hint } : {}),
             ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
