@@ -517,7 +517,7 @@ class DatabricksBatchExportInputs(BaseBatchExportInputs):
     use_automatic_schema_evolution: bool = True
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class AzureBlobBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Azure Blob Storage export workflow.
 

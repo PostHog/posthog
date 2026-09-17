@@ -103,7 +103,7 @@ def _is_authorization_failure_response_error(err: HttpResponseError) -> bool:
     return getattr(err, "error_code", None) == StorageErrorCode.AUTHORIZATION_FAILURE
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class AzureBlobInsertInputs(BatchExportInsertInputs):
     container_name: str
     integration_id: int
