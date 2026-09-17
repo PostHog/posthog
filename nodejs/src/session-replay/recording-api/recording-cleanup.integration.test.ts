@@ -112,14 +112,23 @@ describe('recording cleanup (integration)', () => {
             [randomUUID(), alertId, targetObservationId, teamId],
             'fixtureMatch'
         )
-        await postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_exportedasset
-                 (team_id, export_format, created_at, export_context, is_system, expires_after)
-             VALUES ($1, 'video/mp4', now(), $2::jsonb, true, now() + interval '30 days')`,
-            [teamId, JSON.stringify({ session_recording_id: 'session-to-delete' })],
-            'fixtureAsset'
-        )
+        // Of the deleted recording: a system render, a person's own gif export, and an event screenshot frame.
+        // Of a kept recording: one export, which must stay.
+        for (const [format, isSystem, sessionId] of [
+            ['video/mp4', true, 'session-to-delete'],
+            ['image/gif', false, 'session-to-delete'],
+            ['image/png', true, 'session-to-delete'],
+            ['video/mp4', false, 'session-to-keep'],
+        ] as const) {
+            await postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_exportedasset
+                     (team_id, export_format, created_at, export_context, is_system, expires_after)
+                 VALUES ($1, $2, now(), $3::jsonb, $4, now() + interval '30 days')`,
+                [teamId, format, JSON.stringify({ session_recording_id: sessionId }), isSystem],
+                'fixtureAsset'
+            )
+        }
     })
 
     afterEach(async () => {
@@ -184,15 +193,16 @@ describe('recording cleanup (integration)', () => {
         expect(await queued(otherObservationId)).toBe(0)
     })
 
-    it('expires the rendered video for the deleted recording', async () => {
+    it('expires every export of the deleted recording and none of a kept one', async () => {
         await service.deleteRecordings(['session-to-delete'], teamId, 'test@example.com')
 
-        expect(
-            await count(
+        const live = async (sessionId: string): Promise<number> =>
+            count(
                 `SELECT count(*) FROM posthog_exportedasset
-                 WHERE team_id = $1 AND expires_after > now()`,
-                [teamId]
+                 WHERE team_id = $1 AND expires_after > now() AND export_context ->> 'session_recording_id' = $2`,
+                [teamId, sessionId]
             )
-        ).toBe(0)
+        expect(await live('session-to-delete')).toBe(0)
+        expect(await live('session-to-keep')).toBe(1)
     })
 })
