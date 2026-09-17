@@ -2157,6 +2157,31 @@
             "enum": ["exact", "is_not"],
             "type": "string"
         },
+        "AssistantBareHogQLQuery": {
+            "additionalProperties": {},
+            "properties": {
+                "kind": {
+                    "const": "HogQLQuery",
+                    "type": "string"
+                },
+                "query": {
+                    "description": "The HogQL query to run.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "query"],
+            "type": "object"
+        },
+        "AssistantBareInsightQuery": {
+            "additionalProperties": {},
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/InsightNodeKind"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "AssistantBaseMultipleBreakdownFilter": {
             "additionalProperties": false,
             "properties": {
@@ -29414,6 +29439,12 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantDataVisualizationNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantBareInsightQuery"
+                },
+                {
+                    "$ref": "#/definitions/AssistantBareHogQLQuery"
                 }
             ]
         },
