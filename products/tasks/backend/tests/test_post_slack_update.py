@@ -32,7 +32,7 @@ class TestPostSlackUpdate(TestCase):
             "products.slack_app.backend.services.slack_messages.load_run_footer",
             return_value=RunFooter(task_url="http://localhost:8000/project/1/tasks/10?runId=run-1"),
         )
-        self._footer_patcher.start()
+        self._mock_load_run_footer = self._footer_patcher.start()
         self.addCleanup(self._footer_patcher.stop)
         # The gate is patched on the class so it answers without a Slack identity lookup;
         # the deny-path test flips it to prove the web url does not hang off this answer.
@@ -116,6 +116,9 @@ class TestPostSlackUpdate(TestCase):
 
         mock_update_reaction.assert_called_once_with("hedgehog")
         mock_post_completion.assert_called_once_with("http://localhost:8000/project/1/tasks/10?runId=run-1")
+        # Without this the reply still posts, so nothing else here fails, and every Slack
+        # answer quietly stops reporting what it cost.
+        assert self._mock_load_run_footer.call_args.kwargs.get("include_spend") is True
 
     @patch.object(SlackThreadHandler, "post_error")
     @patch.object(SlackThreadHandler, "update_reaction")
