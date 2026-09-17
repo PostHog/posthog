@@ -9,7 +9,9 @@ import {
 import {
     type ComponentPanelVisibility,
     getInsertedComponentPanelVisibility,
+    withPersistedComponentPanelProps,
 } from 'lib/components/MarkdownNotebook/componentPanels'
+import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { NotebookComponentShell } from 'lib/components/MarkdownNotebook/NotebookComponentShell'
 import type { NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -45,7 +47,10 @@ jest.mock('./MarkdownNotebookEntityPicker', () => ({
 // Mirrors how MarkdownNotebook composes its menu, so the assertions cover the list a user sees
 // rather than the registry alone: built-in commands are not registry entries, so a node hidden
 // from the registry can still reach the menu through a built-in that inserts the same tag.
-function getInsertCommandsByLabel(featureFlags: FeatureFlagsSet, label: string): { key: string; category: string }[] {
+function getInsertCommandsByLabel(
+    featureFlags: FeatureFlagsSet,
+    label: string
+): { key: string; category: string; badge?: string }[] {
     const noop = (): void => {}
     const commands = omitInsertCommands(
         buildInsertCommands(
@@ -64,20 +69,34 @@ function getInsertCommandsByLabel(featureFlags: FeatureFlagsSet, label: string):
 
     return commands
         .filter((command) => command.label === label)
-        .map((command) => ({ key: command.key, category: command.category }))
+        .map((command) => ({ key: command.key, category: command.category, badge: command.badge }))
 }
 
 describe('markdownNotebookRegistry', () => {
+    it.each([undefined, 'saved-widget'])('pins widget identity when opening filters (explicit ID: %s)', (nodeId) => {
+        const node = parseMarkdownNotebook(`<Widget prompt="Draw a chart"${nodeId ? ` nodeId="${nodeId}"` : ''} />`)
+            .nodes[0] as NotebookComponentBlockNode
+        const updated = withPersistedComponentPanelProps(node, NOTEBOOK_MARKDOWN_REGISTRY.components.Widget, {
+            filters: true,
+            results: true,
+        })
+
+        expect(updated.props.nodeId).toBe(nodeId ?? node.id)
+        expect(updated.props.showFilters).toBe(true)
+    })
+
     describe('getMarkdownRegistryForFeatureFlags', () => {
         it('offers a single SQL and Python cell, gated by the revamped notebooks flag', () => {
             // The unified insert surface: SQLV2 ("SQL") and PythonV2 ("Python") are the only
-            // insertable code cells with the flag on; the legacy SQL/Python cells and the
-            // legacy query node render but must never be insertable in markdown notebooks.
+            // insertable code cells with the flag on. The legacy query node renders but must never
+            // be insertable, and the removed legacy code cells are not registered at all: the
+            // content migration rewrites them to SQLV2/PythonV2 before the registry sees them.
             const flagOn = getMarkdownRegistryForFeatureFlags({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true })
             expect(flagOn.components.SQLV2.insertCommand).toBeTruthy()
             expect(flagOn.components.PythonV2.insertCommand).toBeTruthy()
-            for (const legacyTag of ['Query', 'Python', 'DuckSQL', 'HogQLSQL']) {
-                expect(flagOn.components[legacyTag].insertCommand).toBeUndefined()
+            expect(flagOn.components.Query.insertCommand).toBeUndefined()
+            for (const legacyTag of ['Python', 'DuckSQL', 'HogQLSQL']) {
+                expect(flagOn.components).not.toHaveProperty(legacyTag)
             }
 
             const flagOff = getMarkdownRegistryForFeatureFlags({})
@@ -121,9 +140,15 @@ describe('markdownNotebookRegistry', () => {
             )
 
             commands.find((command) => command.key === commandKey)?.run('target-node')
+            commands.find((command) => command.key === commandKey)?.run('target-node')
 
-            expect(insertedNodes).toHaveLength(1)
+            expect(insertedNodes).toHaveLength(2)
+            expect(insertedNodes[0].props.nodeId).not.toEqual(insertedNodes[1].props.nodeId)
             expect(getInsertedComponentPanelVisibility(insertedNodes[0]).filters).toBe(true)
+            if (_label !== 'Widget') {
+                expect(insertedNodes[0].props.returnVariable).toMatch(/^[A-Za-z_][A-Za-z0-9_]*$/)
+                expect(insertedNodes[0].props.returnVariable).not.toEqual(insertedNodes[1].props.returnVariable)
+            }
         })
     })
 
@@ -189,6 +214,14 @@ describe('markdownNotebookRegistry', () => {
             expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: isFlagOn }, 'SQL')).toEqual(
                 expectedCommands
             )
+        })
+
+        // Both the group and the badge come from the node's insertCommand override, so this also
+        // covers the badge surviving buildInsertCommands.
+        it('puts Python beside SQL in the top group, badged as new', () => {
+            expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true }, 'Python')).toEqual([
+                { key: 'component-PythonV2', category: 'Common', badge: 'New' },
+            ])
         })
     })
 
@@ -435,6 +468,19 @@ describe('markdownNotebookRegistry', () => {
         expect(getSerializableAttributeInputValue(NotebookNodeType.Group, 'groupTypeIndex', ' not-a-number ')).toEqual(
             'not-a-number'
         )
+    })
+
+    it.each(['Query', 'Insight'])('assigns distinct render IDs to identical ID-less %s blocks', (tagName) => {
+        const nodes = parseMarkdownNotebook(`<${tagName} id="example" />\n\n<${tagName} id="example" />`)
+            .nodes as NotebookComponentBlockNode[]
+        const attributes = nodes.map((node) =>
+            getNodeAttributes(node.props, node.id, KNOWN_NODES[NotebookNodeType.Query], NotebookNodeType.Query, false)
+        )
+
+        expect(attributes.map(({ nodeId }) => nodeId)).toEqual(nodes.map(({ id }) => id))
+        expect(attributes[0].nodeId).toBeTruthy()
+        expect(attributes[1].nodeId).toBeTruthy()
+        expect(attributes[0].nodeId).not.toEqual(attributes[1].nodeId)
     })
 
     it('renders a SQL cell whose query arrived as a query prop', () => {

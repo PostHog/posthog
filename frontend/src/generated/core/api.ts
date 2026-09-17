@@ -67,11 +67,13 @@ import type {
     PatchedFileSystemShortcutApi,
     PatchedIdentityProviderConfigApi,
     PatchedOrganizationDomainApi,
+    PatchedProductIntroSeenApi,
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
     PatchedUserApi,
     ProductEnablementApi,
     ProductEnablementResultApi,
+    ProjectApi,
     ProjectBackwardCompatApi,
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
@@ -102,6 +104,7 @@ import type {
     UsersIntegrationsListParams,
     UsersListParams,
     UsersLoginSessionsListParams,
+    UsersProductIntroSeenPartialUpdate200,
     VerifyEmailRequestApi,
 } from './api.schemas'
 
@@ -955,6 +958,24 @@ export const organizationsProjectsAddProductIntentPartialUpdate = async (
     )
 }
 
+export const getOrganizationsProjectsCancelDeletionCreateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/cancel-deletion/`
+}
+
+/**
+ * Cancel a scheduled project deletion and restore access to the project.
+ */
+export const organizationsProjectsCancelDeletionCreate = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectApi> => {
+    return apiMutator<ProjectApi>(getOrganizationsProjectsCancelDeletionCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getOrganizationsProjectsChangeOrganizationCreateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/change_organization/`
 }
@@ -1274,54 +1295,6 @@ export const organizationsProjectsIsGeneratingDemoDataRetrieve = async (
     )
 }
 
-export const getOrganizationsProjectsLogsConfigRetrieveUrl = (organizationId: string, id: number) => {
-    return `/api/organizations/${organizationId}/projects/${id}/logs_config/`
-}
-
-/**
- * Manage logs product configuration for this project's canonical environment.
- * Members can read; writing requires project admin, matching the admin-only
- * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
- * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
- */
-export const organizationsProjectsLogsConfigRetrieve = async (
-    organizationId: string,
-    id: number,
-    options?: RequestInit
-): Promise<ProjectBackwardCompatApi> => {
-    return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsLogsConfigRetrieveUrl(organizationId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getOrganizationsProjectsLogsConfigPartialUpdateUrl = (organizationId: string, id: number) => {
-    return `/api/organizations/${organizationId}/projects/${id}/logs_config/`
-}
-
-/**
- * Manage logs product configuration for this project's canonical environment.
- * Members can read; writing requires project admin, matching the admin-only
- * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
- * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
- */
-export const organizationsProjectsLogsConfigPartialUpdate = async (
-    organizationId: string,
-    id: number,
-    patchedProjectBackwardCompatApi?: NonReadonly<PatchedProjectBackwardCompatApi>,
-    options?: RequestInit
-): Promise<ProjectBackwardCompatApi> => {
-    return apiMutator<ProjectBackwardCompatApi>(
-        getOrganizationsProjectsLogsConfigPartialUpdateUrl(organizationId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedProjectBackwardCompatApi),
-        }
-    )
-}
-
 export const getOrganizationsProjectsResetTokenPartialUpdateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/reset_token/`
 }
@@ -1342,6 +1315,30 @@ export const organizationsProjectsResetTokenPartialUpdate = async (
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(patchedProjectBackwardCompatApi),
+        }
+    )
+}
+
+export const getOrganizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdateUrl = (
+    organizationId: string,
+    id: number
+) => {
+    return `/api/organizations/${organizationId}/projects/${id}/rotate_heatmaps_screenshot_secret/`
+}
+
+/**
+ * Projects for the current organization.
+ */
+export const organizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdate = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PATCH',
         }
     )
 }
@@ -3117,6 +3114,34 @@ export const usersOnboardingSkipCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(onboardingSkipRequestApi),
+    })
+}
+
+export const getUsersProductIntroSeenPartialUpdateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/product_intro_seen/`
+}
+
+/**
+ * Record that this user has seen one product intro.
+ *
+ * Separate from the `has_seen_product_intro_for` field on the main user PATCH, which requires a
+ * recently authenticated session. Dismissing an intro must not depend on that: a re-auth prompt
+ * would cover the intro it interrupts, and the dismissal would never persist. Nothing reachable
+ * here changes an account, an organization, or a profile.
+ *
+ * Merging server-side also keeps two intros dismissed from separate tabs from dropping each
+ * other's key, which a read-modify-write of the whole map cannot avoid.
+ */
+export const usersProductIntroSeenPartialUpdate = async (
+    uuid: string,
+    patchedProductIntroSeenApi?: PatchedProductIntroSeenApi,
+    options?: RequestInit
+): Promise<UsersProductIntroSeenPartialUpdate200> => {
+    return apiMutator<UsersProductIntroSeenPartialUpdate200>(getUsersProductIntroSeenPartialUpdateUrl(uuid), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedProductIntroSeenApi),
     })
 }
 

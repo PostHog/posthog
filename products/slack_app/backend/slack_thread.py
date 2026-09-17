@@ -6,9 +6,10 @@ import structlog
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled, is_slack_app_turn_feedback_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
@@ -21,6 +22,7 @@ from products.slack_app.backend.services.slack_messages import (
     post_slack_thread_reply,
     reply_footer_block,
     slack_message_exists,
+    strip_object_tags,
     turn_feedback_block,
     viewer_has_code_access,
 )
@@ -32,6 +34,7 @@ UPSTREAM_PROVIDER_FAILURE_MESSAGE = (
     "The upstream AI provider failed to process the request. Please retry the task in a few minutes."
 )
 UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = re.compile(r"\bapi error:\s*(?:429|5\d\d)\b", re.IGNORECASE)
+SANDBOX_TASK_SPEND_LIMIT_MARKER = "this agent run reached its spend limit"
 DEFAULT_FAILURE_RECOVERY_HINT = (
     "Reply in this thread with `retry` to try again from the latest checkpoint, "
     "or add the missing details and I'll re-plan before continuing."
@@ -44,6 +47,11 @@ DEFAULT_CANCELLED_RECOVERY_HINT = (
 _TASK_FIELD_LIMIT = 256
 _MARKDOWN_CHUNK_LIMIT = 12000
 _SECTION_TEXT_LIMIT = 3000
+
+# Slack rejects the request outright for these, and repeating the same blocks cannot change the
+# answer, so the reply is posted plainly instead. The same pair is what the scout delivery in
+# signals treats as a block rejection.
+_BLOCK_REJECTION_ERROR_CODES = frozenset({"invalid_blocks", "invalid_blocks_format"})
 
 
 def _split_markdown_text(text: str, limit: int = _MARKDOWN_CHUNK_LIMIT) -> list[str]:
@@ -63,6 +71,16 @@ def _split_markdown_text(text: str, limit: int = _MARKDOWN_CHUNK_LIMIT) -> list[
     if remaining:
         pieces.append(remaining)
     return pieces
+
+
+def _markdown_text_pieces(text: str) -> list[str]:
+    """Prepare agent prose for `markdown_text` stream chunks.
+
+    Object tags go first because Slack renders none of them, then labeled mentions become
+    bare ones so an echoed ping notifies, then the result is split to fit a chunk.
+    """
+    text = normalize_labeled_mentions_to_bare(strip_object_tags(text))
+    return _split_markdown_text(text) if text.strip() else []
 
 
 def _task_update_chunk(
@@ -87,6 +105,9 @@ def _format_task_error(error: str) -> str:
     error = error.strip()
     if not error:
         return "Unknown error"
+
+    if SANDBOX_TASK_SPEND_LIMIT_MARKER in error.lower():
+        return error
 
     if UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN.search(error):
         return UPSTREAM_PROVIDER_FAILURE_MESSAGE
@@ -135,9 +156,13 @@ class SlackThreadHandler:
         context: SlackThreadContext,
         run_footer: RunFooter | None = None,
         actor_slack_user_id: str | None = None,
+        turn_trace_id: str | None = None,
     ) -> None:
         self.context = context
         self.run_footer = run_footer or RunFooter()
+        # Beside the footer rather than in it: a trace id belongs to one turn, and the
+        # next turn in the same thread has its own.
+        self.turn_trace_id = turn_trace_id
         # Who this reply is for. Links are gated on their access, not the task creator's:
         # a thread outlives its opener, and a link only helps the person looking at it.
         self.actor_slack_user_id = actor_slack_user_id or context.mentioning_slack_user_id
@@ -145,7 +170,6 @@ class SlackThreadHandler:
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
-        self._feedback_flag: bool | None = None
         self._code_access: bool | None = None
 
     def _get_integration(self) -> Integration:
@@ -218,18 +242,12 @@ class SlackThreadHandler:
         """The thumbs for this reply, or `None` when there is nothing to rate.
 
         A reply with no run behind it — a note, a card posted before the run existed —
-        has nothing a rating could be attributed to, which is what keeps those replies
-        off the flag lookup here.
+        has nothing a rating could be attributed to.
         """
         run_id = self.run_footer.run_id
         if not run_id:
             return None
-        integration = self._get_integration()
-        if self._feedback_flag is None:
-            self._feedback_flag = is_slack_app_turn_feedback_enabled(integration)
-        if not self._feedback_flag:
-            return None
-        return turn_feedback_block(integration.id, run_id)
+        return turn_feedback_block(self._get_integration().id, run_id, self.turn_trace_id)
 
     def _append_trailing_blocks(self, ts: str) -> None:
         """Add the fork menu and the thumbs to a streamed reply, which has no section to
@@ -334,7 +352,7 @@ class SlackThreadHandler:
         if first_task_id and first_task_title:
             chunks.append(_task_update_chunk(first_task_id, first_task_title, "in_progress", first_task_details))
         if first_markdown_text:
-            for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(first_markdown_text)):
+            for piece in _markdown_text_pieces(first_markdown_text):
                 chunks.append({"type": "markdown_text", "text": piece})
         if not chunks:
             return None
@@ -374,7 +392,7 @@ class SlackThreadHandler:
                 continue
             chunks.append(_task_update_chunk(str(task_id), str(title), str(status), t.get("details")))
         if markdown_text:
-            for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(markdown_text)):
+            for piece in _markdown_text_pieces(markdown_text):
                 chunks.append({"type": "markdown_text", "text": piece})
         if not chunks:
             return
@@ -408,7 +426,7 @@ class SlackThreadHandler:
                 _task_update_chunk(complete_task_id, complete_task_title, "complete", complete_task_details)
             )
         if final_markdown:
-            for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(final_markdown)):
+            for piece in _markdown_text_pieces(final_markdown):
                 final_chunks.append({"type": "markdown_text", "text": piece})
         if self.context.mentioning_slack_user_id:
             # Newlines keep the mention off the tail of the last streamed prose chunk.
@@ -577,46 +595,82 @@ class SlackThreadHandler:
         except Exception as e:
             logger.warning("slack_app_post_footer_failed", error=str(e))
 
-    def post_thread_message(self, text: str, with_footer: bool = False) -> None:
+    def _answer_blocks(
+        self, text: str, footer: dict[str, Any] | None, *, markdown: bool
+    ) -> list[dict[str, Any]] | None:
+        """The blocks carrying one answer, or `None` to post it as plain text instead.
+
+        Under `mrkdwn` a footerless answer needs no blocks, because a plain-text message renders
+        `mrkdwn` on its own, so an ordinary message stays the plain-text post it has always been.
+        A `markdown` block has no such equivalent: without it Slack shows the Markdown source, so
+        the answer always carries one.
+
+        The menu and the thumbs are only asked for once a footer exists, which keeps a reply with
+        nothing to describe off the integration lookup behind their gates.
+        """
+        if markdown:
+            blocks = [slack_markdown_block(text)]
+        elif footer:
+            # `expand` keeps the answer fully visible: a section collapses behind "Show more",
+            # which plain text never did.
+            blocks = [{"type": "section", "expand": True, "text": {"type": "mrkdwn", "text": text}}]
+        else:
+            return None
+        if not footer:
+            return blocks
+        menu = self._fork_menu()
+        if markdown:
+            # A `markdown` block takes no accessory, so the menu follows the answer in an
+            # `actions` block of its own, which is where the streamed replies already put it.
+            blocks.append(footer)
+            if menu:
+                blocks.append(fork_menu_actions_block(menu))
+        else:
+            # The menu hangs off the answer, not the footer: a `context` block rejects
+            # interactive elements, and moving the footer to a `section` to hold one
+            # would cost it the muted styling that makes it read as a footer.
+            if menu:
+                blocks[0]["accessory"] = menu
+            blocks.append(footer)
+        # The thumbs close the message, below the footer, where a reader of any other
+        # AI app already looks for them.
+        feedback = self._feedback_block()
+        if feedback:
+            blocks.append(feedback)
+        return blocks
+
+    def post_thread_message(self, text: str, with_footer: bool = False, *, markdown: bool = False) -> None:
         """Post a plain message in the existing thread.
 
         ``with_footer`` closes the message with the provenance footer, for the last
         chunk of a non-streamed answer — the streamed path appends its own instead.
-        Passing it only adds blocks when there is actually a footer to show, so an
-        ordinary message stays a plain-text post.
+        `_answer_blocks` decides what the answer is carried in.
+
+        ``markdown`` says the text is the agent's Markdown, which the relay passes on as
+        written. It defaults off for a message of our own wording, which is already Slack
+        ``mrkdwn`` and carries no Markdown worth rendering.
         """
-        # A section block caps at 3000 characters; over that, dropping the footer costs a
-        # line of provenance, while keeping it would cost the whole message. The menu and
-        # the thumbs go with it: an answer that long can only be posted as plain text,
-        # which carries no blocks at all.
-        footer = self._footer_block() if with_footer and len(text) <= _SECTION_TEXT_LIMIT else None
-        # No footer means no blocks at all, so an ordinary message stays the plain-text
-        # post it has always been. `expand` keeps the answer fully visible: a section
-        # collapses behind "Show more", which plain text never did.
-        blocks: list[dict[str, Any]] | None = None
-        if footer:
-            answer: dict[str, Any] = {"type": "section", "expand": True, "text": {"type": "mrkdwn", "text": text}}
-            # The menu hangs off the answer, not the footer: a `context` block rejects
-            # interactive elements, and moving the footer to a `section` to hold one
-            # would cost it the muted styling that makes it read as a footer.
-            menu = self._fork_menu()
-            if menu:
-                answer["accessory"] = menu
-            blocks = [answer, footer]
-            # The thumbs close the message, below the footer, where a reader of any other
-            # AI app already looks for them.
-            feedback = self._feedback_block()
-            if feedback:
-                blocks.append(feedback)
+        # Text past the block's character cap can only be posted as plain text, which carries
+        # no blocks at all. Dropping the footer there costs a line of provenance, while keeping
+        # it would cost the whole message. The menu and the thumbs go with it.
+        markdown = markdown and len(text) <= SLACK_MARKDOWN_TEXT_MAX_LEN
+        fits_in_a_block = markdown or len(text) <= _SECTION_TEXT_LIMIT
+        footer = self._footer_block() if with_footer and fits_in_a_block else None
+        blocks = self._answer_blocks(text, footer, markdown=markdown)
         try:
             self._post_in_thread(text=text, blocks=blocks)
         except SlackApiError as e:
             # Slack rejects a request whose blocks are invalid outright — the `text`
             # fallback does not rescue it — so the answer would go down with its footer.
-            # Describing a run must never cost the reader the run's answer.
-            if blocks and e.response.get("error") == "invalid_blocks":
-                logger.warning("slack_app_footer_blocks_rejected", error=str(e))
-                self.post_thread_message(text)
+            # Describing a run must never cost the reader the run's answer. Posting plainly
+            # rather than retrying through this method drops every block at once, so a
+            # rejection Slack repeats cannot loop.
+            if blocks and e.response.get("error") in _BLOCK_REJECTION_ERROR_CODES:
+                logger.warning("slack_app_answer_blocks_rejected", error=str(e))
+                try:
+                    self._post_in_thread(text=text)
+                except Exception as retry_error:
+                    logger.warning("slack_post_thread_message_failed", error=str(retry_error))
                 return
             logger.warning("slack_post_thread_message_failed", error=str(e))
         except Exception as e:

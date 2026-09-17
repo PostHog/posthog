@@ -10,15 +10,18 @@ import {
     listeners,
     path,
     props,
+    propsChanged,
     reducers,
     selectors,
 } from 'kea'
 import posthog from 'posthog-js'
+import { createElement } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
 import { ApiError, isAbortError } from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { Link } from 'lib/lemon-ui/Link'
 import {
     buildNotebookDependencyGraph,
     collectDependencyNodeIds,
@@ -27,11 +30,16 @@ import {
 import { notebookNodeStalenessLogic } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 import { notebookOperationsLogic } from 'scenes/notebooks/Notebook/notebookOperationsLogic'
 import { NotebookNodeType } from 'scenes/notebooks/types'
+import { urls } from 'scenes/urls'
 
 import {
+    notebooksWidgetAttach,
     notebooksWidgetCancel,
     notebooksWidgetFrame,
+    notebooksWidgetFork,
     notebooksWidgetGenerate,
+    notebooksWidgetPin,
+    notebooksWidgetPublish,
     notebooksWidgetRevert,
     notebooksWidgetSource,
     notebooksWidgetStatus,
@@ -76,8 +84,12 @@ export type NotebookNodeGeneratedWidgetLogicProps = {
     prompt: string
     model: WidgetModel
     isEditable: boolean
+    prepareInsightDataframes?: () => Promise<void>
     persistNotebook: () => Promise<void>
     getContent: () => JSONContent | null
+    reusableWidgetId?: string
+    reusableVersionId?: string
+    inputBindings?: Record<string, { source: string; hog?: string }>
 }
 
 export interface notebookNodeGeneratedWidgetLogicValues {
@@ -94,9 +106,19 @@ export interface notebookNodeGeneratedWidgetLogicValues {
     generationError: string | null
     generationModalOperation: WidgetGenerationModalOperation
     generationRequestLoading: boolean
+    forkError: string | null
+    forkInFlight: boolean
     isDataChainRunning: boolean
     isWorking: boolean
     notebookIsBusy: boolean
+    pinError: string | null
+    pinInFlight: boolean
+    publishDescription: string
+    publishError: string | null
+    publishInFlight: boolean
+    publishModalOpen: boolean
+    publishName: string
+    publishTags: string
     restoreInFlight: boolean
     runDataDependenciesDisabledReason: string | null
     runtimeError: string | null
@@ -156,7 +178,9 @@ export interface notebookNodeGeneratedWidgetLogicActions {
     openGenerationModal: (operation: Exclude<WidgetGenerationOperation, 'initial'>) => {
         operation: 'regenerate' | 'improve'
     }
+    openPublishModal: () => { value: true }
     openSourceModal: () => { value: true }
+    pinSelectedVersion: () => { value: true }
     refreshData: () => { value: true }
     runDataDependencies: () => { value: true }
     runWidgetDataChain: (
@@ -169,10 +193,26 @@ export interface notebookNodeGeneratedWidgetLogicActions {
     restoreFailed: (error: string) => { error: string }
     restoreSelectedVersion: () => { value: true }
     restoreStarted: () => { value: true }
+    publishFailed: (error: string) => { error: string }
+    publishFinished: () => { value: true }
+    publishReusableWidget: () => { value: true }
+    publishStarted: () => { value: true }
+    pinFailed: (error: string) => { error: string }
+    pinFinished: () => { value: true }
+    pinStarted: () => { value: true }
+    followLatestVersion: () => { value: true }
+    forkFailed: (error: string) => { error: string }
+    forkFinished: () => { value: true }
+    forkReusableWidget: () => { value: true }
+    forkStarted: () => { value: true }
+    closePublishModal: () => { value: true }
     selectVersion: (versionId: string) => { versionId: string }
     setGenerationDraftModel: (model: WidgetModel) => { model: WidgetModel }
     setGenerationDraftPrompt: (prompt: string) => { prompt: string }
     setRuntimeError: (error: string | null) => { error: string | null }
+    setPublishDescription: (description: string) => { description: string }
+    setPublishName: (name: string) => { name: string }
+    setPublishTags: (tags: string) => { tags: string }
     setSourceChangePrompt: (prompt: string) => { prompt: string }
     sourceFailed: (error: string) => { error: string }
     sourceReceived: (source: string, versionId: string | null) => { source: string; versionId: string | null }
@@ -263,7 +303,7 @@ export function getWidgetDataDependencies(
     frameNames: string[]
 ): { missingFrameNames: string[]; nodeIds: string[] } {
     if (!content || !frameNames.length) {
-        return { missingFrameNames: [], nodeIds: [] }
+        return { missingFrameNames: frameNames, nodeIds: [] }
     }
     const graph = buildNotebookDependencyGraph(content)
     const frameNodes = collectNotebookFrameNodes(content)
@@ -297,6 +337,13 @@ export function getWidgetDataDependencies(
             )
             .map((node) => node.nodeId),
     }
+}
+
+export function getWidgetSourceFrameNames(
+    frameNames: string[],
+    inputBindings: WidgetStatusApi['input_bindings']
+): string[] {
+    return frameNames.map((slot) => inputBindings[slot]?.source || slot)
 }
 
 export function formatWidgetElapsed(elapsedSeconds: number): string {
@@ -410,6 +457,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             cancellationStarted: true,
             clearGenerationError: true,
             closeGenerationModal: true,
+            closePublishModal: true,
             closeSourceModal: true,
             dataRefreshFinished: true,
             dataRefreshStarted: true,
@@ -429,21 +477,38 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             generationRequestFinished: true,
             generationRequestStarted: true,
             improveSource: true,
+            followLatestVersion: true,
+            forkFailed: (error: string) => ({ error }),
+            forkFinished: true,
+            forkReusableWidget: true,
+            forkStarted: true,
             loadMoreVersions: true,
             loadSource: true,
             loadStatus: true,
             loadVersions: (reset: boolean) => ({ reset }),
             openGenerationModal: (operation: Exclude<WidgetGenerationOperation, 'initial'>) => ({ operation }),
+            openPublishModal: true,
             openSourceModal: true,
+            pinSelectedVersion: true,
             refreshData: true,
             runDataDependencies: true,
             restoreFailed: (error: string) => ({ error }),
             restoreSelectedVersion: true,
             restoreStarted: true,
+            publishFailed: (error: string) => ({ error }),
+            publishFinished: true,
+            publishReusableWidget: true,
+            publishStarted: true,
+            pinFailed: (error: string) => ({ error }),
+            pinFinished: true,
+            pinStarted: true,
             selectVersion: (versionId: string) => ({ versionId }),
             setGenerationDraftModel: (model: WidgetModel) => ({ model }),
             setGenerationDraftPrompt: (prompt: string) => ({ prompt }),
             setRuntimeError: (error: string | null) => ({ error }),
+            setPublishDescription: (description: string) => ({ description }),
+            setPublishName: (name: string) => ({ name }),
+            setPublishTags: (tags: string) => ({ tags }),
             setSourceChangePrompt: (prompt: string) => ({ prompt }),
             sourceFailed: (error: string) => ({ error }),
             sourceReceived: (source: string, versionId: string | null) => ({ source, versionId }),
@@ -534,6 +599,32 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     generationRequestFinished: () => false,
                 },
             ],
+            forkError: [
+                null as string | null,
+                { forkStarted: () => null, forkFailed: (_, { error }) => error, statusReceived: () => null },
+            ],
+            forkInFlight: [false, { forkStarted: () => true, forkFailed: () => false, forkFinished: () => false }],
+            publishDescription: ['', { setPublishDescription: (_, { description }) => description }],
+            pinError: [
+                null as string | null,
+                { pinStarted: () => null, pinFailed: (_, { error }) => error, statusReceived: () => null },
+            ],
+            pinInFlight: [false, { pinStarted: () => true, pinFailed: () => false, pinFinished: () => false }],
+            publishError: [
+                null as string | null,
+                {
+                    openPublishModal: () => null,
+                    publishFailed: (_, { error }) => error,
+                    publishStarted: () => null,
+                },
+            ],
+            publishInFlight: [
+                false,
+                { publishStarted: () => true, publishFailed: () => false, publishFinished: () => false },
+            ],
+            publishModalOpen: [false, { openPublishModal: () => true, closePublishModal: () => false }],
+            publishName: [props.prompt.slice(0, 400), { setPublishName: (_, { name }) => name }],
+            publishTags: ['', { setPublishTags: (_, { tags }) => tags }],
             dataRefreshInFlight: [
                 false,
                 {
@@ -800,6 +891,33 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 }
             }
 
+            const setPinnedVersion = async (versionId: string | null): Promise<void> => {
+                if (!props.isEditable || !props.projectId || !isSafeWidgetNodeId(props.nodeId) || values.pinInFlight) {
+                    return
+                }
+                actions.pinStarted()
+                try {
+                    const nextStatus = await requestWithTimeout((signal) =>
+                        notebooksWidgetPin(
+                            String(props.projectId),
+                            props.notebookShortId,
+                            props.nodeId,
+                            { version_id: versionId },
+                            { signal }
+                        )
+                    )
+                    actions.statusReceived(nextStatus)
+                    if (nextStatus.current_version_id && nextStatus.current_version_id !== values.selectedVersionId) {
+                        actions.selectVersion(nextStatus.current_version_id)
+                    }
+                    lemonToast.success(versionId ? 'Widget version pinned' : 'Widget now follows the latest version')
+                } catch (error) {
+                    actions.pinFailed(errorMessage(error))
+                } finally {
+                    actions.pinFinished()
+                }
+            }
+
             const scheduleStatusPoll = (): void => {
                 cache.disposables.dispose('statusPoll')
                 if (document.hidden) {
@@ -827,6 +945,99 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             }
 
             return {
+                forkReusableWidget: async () => {
+                    if (
+                        !props.isEditable ||
+                        !props.projectId ||
+                        !values.status?.is_reusable ||
+                        values.forkInFlight ||
+                        !isSafeWidgetNodeId(props.nodeId)
+                    ) {
+                        return
+                    }
+                    actions.forkStarted()
+                    try {
+                        const nextStatus = await requestWithTimeout((signal) =>
+                            notebooksWidgetFork(
+                                String(props.projectId),
+                                props.notebookShortId,
+                                props.nodeId,
+                                { version_id: values.selectedVersionId },
+                                { signal }
+                            )
+                        )
+                        actions.statusReceived(nextStatus)
+                        if (nextStatus.current_version_id) {
+                            actions.selectVersion(nextStatus.current_version_id)
+                        }
+                        actions.loadVersions(true)
+                        lemonToast.success('Reusable widget forked for this notebook')
+                    } catch (error) {
+                        actions.forkFailed(errorMessage(error))
+                    } finally {
+                        actions.forkFinished()
+                    }
+                },
+                pinSelectedVersion: async () => {
+                    if (!values.selectedVersionId) {
+                        return
+                    }
+                    await setPinnedVersion(values.selectedVersionId)
+                },
+                followLatestVersion: async () => {
+                    await setPinnedVersion(null)
+                },
+                publishReusableWidget: async () => {
+                    const name = values.publishName.trim()
+                    if (
+                        !props.projectId ||
+                        !isSafeWidgetNodeId(props.nodeId) ||
+                        !name ||
+                        values.publishInFlight ||
+                        values.status?.is_reusable
+                    ) {
+                        return
+                    }
+                    actions.publishStarted()
+                    try {
+                        await requestWithTimeout((signal) =>
+                            notebooksWidgetPublish(
+                                String(props.projectId),
+                                props.notebookShortId,
+                                props.nodeId,
+                                {
+                                    name,
+                                    description: values.publishDescription.trim(),
+                                    tags: values.publishTags
+                                        .split(',')
+                                        .map((tag) => tag.trim())
+                                        .filter(Boolean),
+                                },
+                                { signal }
+                            )
+                        )
+                        actions.closePublishModal()
+                        actions.loadStatus()
+                        lemonToast.success(
+                            createElement(
+                                'span',
+                                null,
+                                'Widget added to the ',
+                                createElement(
+                                    Link,
+                                    { to: `${urls.notebooks()}?tab=widgets` },
+                                    'reusable widget catalog'
+                                )
+                            )
+                        )
+                    } catch (error) {
+                        if (!isAbortError(error)) {
+                            actions.publishFailed(errorMessage(error))
+                        }
+                    } finally {
+                        actions.publishFinished()
+                    }
+                },
                 cancelGeneration: async () => {
                     const generationId = values.status?.active_job?.id
                     if (
@@ -912,6 +1123,8 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     const generationId = uuidv4()
                     let aborted = false
                     try {
+                        await props.prepareInsightDataframes?.()
+                        await props.persistNotebook()
                         const requestGeneration = async (): Promise<WidgetStatusApi> =>
                             await requestWithTimeout((signal) =>
                                 notebooksWidgetGenerate(
@@ -1088,16 +1301,44 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     const requestId = nextStatusRequestId()
                     actions.statusRequestStarted()
                     try {
-                        const loadedStatus = await requestWithTimeout((signal) =>
-                            notebooksWidgetStatus(String(props.projectId), props.notebookShortId, props.nodeId, {
-                                signal,
-                            })
-                        )
+                        const requestStatus = async (): Promise<WidgetStatusApi> =>
+                            await requestWithTimeout((signal) =>
+                                notebooksWidgetStatus(String(props.projectId), props.notebookShortId, props.nodeId, {
+                                    signal,
+                                })
+                            )
+                        let loadedStatus: WidgetStatusApi
+                        try {
+                            loadedStatus = await requestStatus()
+                        } catch (error) {
+                            if (!props.isEditable || !isMissingNodeError(error)) {
+                                throw error
+                            }
+                            await props.persistNotebook()
+                            loadedStatus = await requestStatus()
+                        }
+                        if (!loadedStatus.instance_id && props.isEditable && props.reusableWidgetId) {
+                            const widgetId = props.reusableWidgetId
+                            await props.persistNotebook()
+                            loadedStatus = await requestWithTimeout((signal) =>
+                                notebooksWidgetAttach(
+                                    String(props.projectId),
+                                    props.notebookShortId,
+                                    props.nodeId,
+                                    {
+                                        widget_id: widgetId,
+                                        version_id: props.reusableVersionId ?? null,
+                                        input_bindings: props.inputBindings ?? {},
+                                    },
+                                    { signal, headers: { 'X-PostHog-Widget-Auto-Attach': 'true' } }
+                                )
+                            )
+                        }
                         if (isCurrentStatusRequest(requestId)) {
                             actions.statusReceived(loadedStatus)
                         }
                     } catch (error) {
-                        if (isCurrentStatusRequest(requestId)) {
+                        if (!isAbortError(error) && isCurrentStatusRequest(requestId)) {
                             actions.statusFailed(errorMessage(error))
                         }
                     } finally {
@@ -1168,31 +1409,42 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     }
                     actions.loadSource()
                 },
-                runDataDependencies: () => {
+                runDataDependencies: async () => {
                     if (values.dataRefreshInFlight || values.runDataDependenciesDisabledReason) {
                         return
                     }
-                    const content = props.getContent()
-                    const { missingFrameNames, nodeIds } = getWidgetDataDependencies(content, values.activeFrameNames)
-                    if (missingFrameNames.length) {
-                        const message =
-                            'The widget expects notebook data that is no longer available. Restore the missing SQL or Python cell, or update the widget source.'
+                    actions.setRuntimeError(null)
+                    actions.dataRefreshStarted()
+                    try {
+                        await props.prepareInsightDataframes?.()
+                        if (props.prepareInsightDataframes) {
+                            await props.persistNotebook()
+                        }
+                        const content = props.getContent()
+                        const sourceFrameNames = getWidgetSourceFrameNames(
+                            values.activeFrameNames,
+                            values.status?.input_bindings ?? {}
+                        )
+                        const { missingFrameNames, nodeIds } = getWidgetDataDependencies(content, sourceFrameNames)
+                        if (missingFrameNames.length) {
+                            throw new Error(
+                                'The widget expects notebook data that is no longer available. Restore the missing insight, SQL, or Python cell, or update the widget source.'
+                            )
+                        }
+                        if (!nodeIds.length) {
+                            actions.widgetDataChainFinished([])
+                            return
+                        }
+                        actions.runWidgetDataChain(content, nodeIds)
+                    } catch (error) {
+                        cache.widgetDataRefreshRequested = false
+                        actions.dataRefreshFinished()
+                        const message = errorMessage(error)
                         actions.setRuntimeError(message)
                         // The runtimeError banner only renders in the expanded preview, so a toast keeps
                         // the failure visible when the widget is collapsed or still behind the trust gate.
                         lemonToast.error(message)
-                        return
                     }
-                    if (!nodeIds.length) {
-                        const message = 'No matching notebook data cells were found. Check the widget source.'
-                        actions.setRuntimeError(message)
-                        lemonToast.error(message)
-                        return
-                    }
-                    actions.setRuntimeError(null)
-                    cache.widgetDataRefreshRequested = true
-                    actions.dataRefreshStarted()
-                    actions.runWidgetDataChain(content, nodeIds)
                 },
                 restoreSelectedVersion: async () => {
                     const expectedCurrentVersionId = values.status?.current_version_id
@@ -1252,6 +1504,11 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 },
                 statusReceived: ({ status }) => {
                     cache.disposables.dispose('statusPoll')
+                    const inputBindings = JSON.stringify(status.input_bindings)
+                    if (cache.inputBindings !== undefined && cache.inputBindings !== inputBindings) {
+                        actions.artifactRefreshReady()
+                    }
+                    cache.inputBindings = inputBindings
                     // A null -> id move (the first version appearing) must count as a change, so compare
                     // against undefined, which only holds before the first status arrives. Reload even when
                     // the list is empty, or a settings panel opened before generation keeps a stale history.
@@ -1269,7 +1526,9 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         status.artifact_url &&
                         (currentVersionChanged || cache.pendingCurrentVersionId === status.current_version_id)
                     ) {
-                        actions.selectVersion(status.current_version_id)
+                        if (values.selectedVersionId !== status.current_version_id) {
+                            actions.selectVersion(status.current_version_id)
+                        }
                         cache.pendingCurrentVersionId = null
                     }
                     cache.currentVersionId = status.current_version_id
@@ -1334,6 +1593,15 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     actions.dataRefreshFinished()
                     actions.refreshData()
                 },
+            }
+        }),
+        propsChanged(({ actions, values, props }, oldProps) => {
+            if (
+                !values.status?.instance_id &&
+                (oldProps.reusableWidgetId !== props.reusableWidgetId ||
+                    JSON.stringify(oldProps.inputBindings) !== JSON.stringify(props.inputBindings))
+            ) {
+                actions.loadStatus()
             }
         }),
         afterMount(({ actions, cache }) => {

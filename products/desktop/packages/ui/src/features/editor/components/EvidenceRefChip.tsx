@@ -3,10 +3,13 @@ import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import { isPostHogObjectKind } from "@posthog/core/message-editor/content";
 import { Button } from "@posthog/quill";
 import { getCloudUrlFromRegion } from "@posthog/shared";
+import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  createContext,
   type MouseEvent,
   type ReactNode,
+  useContext,
   useEffect,
   useId,
   useRef,
@@ -50,8 +53,8 @@ import { useEvidencePreviewPrefetch } from "../useEvidencePreviewPrefetch";
  *
  * The reference carries only `kind/id`. Hovering or focusing mounts the card,
  * which resolves the object's live name and status through the PostHog API
- * (for `hogql`, runs the query); clicking a linked reference opens the object
- * in PostHog at a URL derived from the reference and the current project.
+ * (for `hogql`, runs the query); report links open the report in the app.
+ * Other links open a task object tab, or PostHog outside a task.
  * Nothing about the object is stored in the message itself.
  *
  * The card is a Base UI popover, not a tooltip: it holds real controls (the
@@ -424,12 +427,40 @@ export function useEvidenceUrl(kind: string, id: string): string | null {
   return `${getCloudUrlFromRegion(cloudRegion)}/project/${projectId}${path}`;
 }
 
-export function EvidenceRefChip({
-  target,
-  children,
-}: {
+interface EvidenceRefChipProps {
   target: EvidenceLinkTarget;
   children: ReactNode;
+}
+
+export const ReportReferenceNavigationContext = createContext<
+  ((reportId: string) => Promise<void>) | null
+>(null);
+
+export function EvidenceRefChip(props: EvidenceRefChipProps) {
+  const openReport = useContext(ReportReferenceNavigationContext);
+  return props.target.kind === "report" && !openReport ? (
+    <InboxReportRefChip {...props} />
+  ) : (
+    <EvidenceRefChipContent
+      {...props}
+      onOpenReport={
+        props.target.kind === "report" ? (openReport ?? undefined) : undefined
+      }
+    />
+  );
+}
+
+function InboxReportRefChip(props: EvidenceRefChipProps) {
+  const openReport = useOpenInboxReport();
+  return <EvidenceRefChipContent {...props} onOpenReport={openReport} />;
+}
+
+function EvidenceRefChipContent({
+  target,
+  children,
+  onOpenReport,
+}: EvidenceRefChipProps & {
+  onOpenReport?: (reportId: string) => Promise<void>;
 }) {
   const meta = getObjectKind(target.kind);
   const KindIcon = meta.icon;
@@ -464,6 +495,11 @@ export function EvidenceRefChip({
 
   const openReference = (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
+    if (onOpenReport) {
+      void onOpenReport(target.id);
+      setOpen(false);
+      return;
+    }
     if (taskId) {
       openPostHogObjectTab(taskId, {
         kind: target.kind,
@@ -501,7 +537,7 @@ export function EvidenceRefChip({
         // to PostHog instead of toggling the popover.
         onFocus={() => setOpen(true)}
         render={
-          url || taskId ? (
+          url || taskId || onOpenReport ? (
             // Keep the truthful role: Enter follows the link (opens the
             // object's page in the app, or in PostHog outside a session), it
             // does not act as a popover button.

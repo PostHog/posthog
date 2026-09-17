@@ -137,18 +137,16 @@ def test_webhook_enabled_deployment_statuses_reconciles_inactive_statuses() -> N
 
 
 @pytest.mark.parametrize(
-    "watermark_offset,expected_parents",
+    "reconcile_since_offset",
     [
-        # No watermark: the recency skip is inert, so the cap is the only bound, and it keeps the
-        # newest parents.
-        (None, ["1", "2"]),
-        # Watermark set: every parent past the skip is known to hold an unseen child, and the run
-        # advances the watermark past it either way, so capping would drop it permanently.
-        (timedelta(days=3), ["1", "2", "3", "4"]),
+        # First sync: no watermark, so the cap is the only bound and keeps the newest parents.
+        None,
+        # Every parent updated since the last sync: the cap still bounds the run.
+        timedelta(days=3),
     ],
 )
 def test_webhook_enabled_deployment_statuses_reconciliation_caps_the_parent_fan_out(
-    watermark_offset: timedelta | None, expected_parents: list[str]
+    reconcile_since_offset: timedelta | None,
 ) -> None:
     now = datetime(2026, 7, 24, 12, 0, 0, tzinfo=UTC)
 
@@ -190,16 +188,15 @@ def test_webhook_enabled_deployment_statuses_reconciliation_caps_the_parent_fan_
             endpoint="deployment_statuses",
             logger=mock.Mock(),
             resumable_source_manager=_no_resume(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None if watermark_offset is None else now - watermark_offset,
             webhook_source_manager=webhook_source_manager,
+            reconcile_since=None if reconcile_since_offset is None else now - reconcile_since_offset,
         )
         result = response.items()
         assert isinstance(result, AsyncIterator)
         asyncio.run(_collect(result))
 
     status_fetches = [url for url in fetch_mock.call_args_list if "/statuses" in url.args[0]]
-    assert [url.args[0].split("/deployments/")[1].split("/")[0] for url in status_fetches] == expected_parents
+    assert [url.args[0].split("/deployments/")[1].split("/")[0] for url in status_fetches] == ["1", "2"]
 
 
 def test_poll_mode_workflow_runs_still_polls() -> None:

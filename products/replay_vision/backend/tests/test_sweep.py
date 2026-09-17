@@ -1370,6 +1370,7 @@ async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = Non
         patch("temporalio.workflow.logger", fake_logger),
         # `workflow.patched` also needs the runtime; new executions take the patched branch.
         patch("temporalio.workflow.patched", return_value=patched),
+        patch("temporalio.workflow.deprecate_patch"),
         patch("temporalio.workflow.unsafe.is_replaying", return_value=False),
     ):
         await SweepScannerWorkflow().run(inputs or _sweep_inputs())

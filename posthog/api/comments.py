@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -485,7 +486,10 @@ class CommentSerializer(serializers.ModelSerializer):
         ):
             mentions = []
 
-        comment = super().create(validated_data)
+        # ATOMIC_REQUESTS is off, so wrap the comment insert with the email-outbox write.
+        persist_ctx = transaction.atomic() if validated_data["scope"] == "conversations_ticket" else nullcontext()
+        with persist_ctx:
+            comment = super().create(validated_data)
 
         if mentions:
             if comment.scope not in DESKTOP_COMMENT_SCOPES:
@@ -562,6 +566,9 @@ class CommentListQueryParamsSerializer(serializers.Serializer):
         ),
     )
     item_id = serializers.CharField(required=False, help_text="Filter by the ID of the resource being commented on.")
+    created_by = serializers.IntegerField(
+        required=False, help_text="Filter by the numeric ID of the user who wrote the comment."
+    )
     task_id = serializers.UUIDField(
         required=False, help_text="Owning task for task, task_artifact, and desktop_canvas comment scopes."
     )
@@ -906,8 +913,10 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         params = self.request.GET.dict()
         queryset = queryset.exclude(scope__in=COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API)
 
-        if params.get("user"):
-            queryset = queryset.filter(user=params.get("user"))
+        if created_by := params.get("created_by"):
+            if not created_by.isdigit():
+                raise exceptions.ValidationError("created_by must be a numeric user ID")
+            queryset = queryset.filter(created_by_id=int(created_by))
 
         if self.action != "partial_update" and params.get("deleted", "false") == "false":
             queryset = queryset.filter(deleted=False)

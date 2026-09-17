@@ -8,7 +8,16 @@ from parameterized import parameterized
 from products.signals.backend.billing import first_billable_pr_run_at
 from products.signals.backend.custom_agent.persistence import create_custom_agent_ready_report
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.models import (
+    SignalActorKind,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportAssignment,
+    SignalReportPullRequest,
+    SignalReportTask,
+)
+from products.signals.backend.report_assignments import sync_task_pull_request_to_assignments
+from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -93,6 +102,7 @@ class TestTaskRunArtefacts(BaseTest):
         )
 
         assert str(artefact.task_id) == str(task.id)
+        assert artefact.actor_kind == SignalActorKind.TASK
         assert artefact.created_by_id is None
 
     async def test_aappend_carries_run_id(self):
@@ -125,6 +135,8 @@ class TestTaskRunArtefacts(BaseTest):
         assert content["run_id"] == "run-789"
         assert content["product"] == "signals"
         assert content["type"] == "implementation"
+        assert str(artefact.task_id) == str(task.id)
+        assert artefact.actor_kind == SignalActorKind.TASK
 
     def test_signals_task_ids_filters_by_product_and_type(self):
         report = self._report()
@@ -159,10 +171,91 @@ class TestTaskRunArtefacts(BaseTest):
             report=report, task=task, relationship=TASK_RUN_TYPE_IMPLEMENTATION
         ).exists()
         assert signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION) == [str(task.id)]
+        assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert assignment is not None
+        assert assignment.actor_kind == SignalActorKind.TASK
+        assert assignment.actor_task_id == task.id
 
         # Idempotent on the gate row for the same task — re-recording doesn't duplicate the link.
         record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
         assert SignalReportTask.objects.filter(report=report, task=task).count() == 1
+
+    @parameterized.expand([(False,), (True,)])
+    def test_task_run_pr_is_linked_to_the_claim(self, attach_after_merge):
+        report = self._report()
+        task = self._task()
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+
+        if attach_after_merge:
+            TaskRun.objects.create(
+                team=self.team,
+                task=task,
+                status=TaskRun.Status.COMPLETED,
+                output={
+                    "pr_url": "https://github.com/PostHog/posthog/pull/42",
+                    "pr_state": "merged",
+                    "pr_merged": True,
+                },
+            )
+            report.refresh_from_db()
+            assert report.status == SignalReport.Status.RESOLVED
+
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.COMPLETED,
+            output={
+                "pr_url": "https://github.com/PostHog/posthog/pull/42",
+                "pr_state": "merged",
+                "pr_merged": True,
+                "pr_urls": ["https://github.com/PostHog/posthog/pull/42", "https://github.com/example/app/pull/43"],
+            },
+        )
+
+        assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert assignment is not None
+        pr = SignalReportPullRequest.objects.for_team(self.team.id).get(repository="posthog/posthog", number=42)
+        assert pr.url == "https://github.com/PostHog/posthog/pull/42"
+        assert pr.repository == "posthog/posthog"
+        assert pr.number == 42
+        assert pr.state == SignalReportAssignment.PrState.MERGED
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+        assert SignalReportPullRequest.objects.for_team(self.team.id).count() == 2
+        assert (
+            SignalReportArtefact.objects.filter(
+                report=report, type="pull_request", claim_id=assignment.claim_id
+            ).count()
+            == 2
+        )
+
+    def test_task_pr_sync_preserves_shared_merged_state(self):
+        merged_report = self._report()
+        new_report = self._report()
+        task = self._task()
+        for report in (merged_report, new_report):
+            record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+
+        pr_url = "https://github.com/PostHog/posthog/pull/42"
+        SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=merged_report,
+            pr_url=pr_url,
+            repository="posthog/posthog",
+            pr_number=42,
+            pr_state=SignalReportAssignment.PrState.MERGED,
+            pr_merged=True,
+        )
+
+        sync_task_pull_request_to_assignments(
+            team_id=self.team.id,
+            task_id=str(task.id),
+            pr_url=pr_url,
+        )
+
+        pr = SignalReportPullRequest.objects.for_team(self.team.id).get(repository="posthog/posthog", number=42)
+        assert pr.state == "merged"
+        assert SignalReportArtefact.objects.filter(pull_request=pr).values("report_id").distinct().count() == 2
 
     def test_record_implementation_task_declared_billing_exemption_marks_report(self):
         # A caller that knows its origin is PostHog-system freezes the exemption in the same
@@ -289,6 +382,18 @@ class TestAssociatedTaskRunsFilter(BaseTest):
         assert not SignalReportArtefact.objects.filter(report=report).exists()
         assert self._matched_task_ids(report) == {str(task.id)}
 
+    def test_matches_task_associated_via_current_assignment(self):
+        report = self._report()
+        task, _run = self._task_with_run()
+        SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=report,
+            actor_kind=SignalActorKind.TASK,
+            actor_task_id=task.id,
+        )
+
+        assert self._matched_task_ids(report) == {str(task.id)}
+
     def test_unions_both_sources_without_duplicate_rows(self):
         report = self._report()
         task, _run = self._task_with_run()
@@ -355,6 +460,18 @@ class TestReportsForTaskFilter(BaseTest):
             team=self.team, report=report, task=task, relationship=TASK_RUN_TYPE_IMPLEMENTATION
         )
         assert not SignalReportArtefact.objects.filter(task=task).exists()
+        assert self._matched_report_ids(task) == {str(report.id)}
+
+    def test_matches_report_associated_via_current_assignment(self):
+        report = self._report()
+        task = self._task()
+        SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=report,
+            actor_kind=SignalActorKind.TASK,
+            actor_task_id=task.id,
+        )
+
         assert self._matched_report_ids(task) == {str(report.id)}
 
     def test_unions_both_sources_without_duplicate_rows(self):

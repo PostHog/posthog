@@ -6,6 +6,7 @@ from django.db import models, transaction
 from django.utils import timezone
 from django.utils.functional import Promise
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDModel
 
 # This model loads at django.setup() in every process; posthog.schema (the pydantic
@@ -104,8 +105,11 @@ class ReplayScannerManager(models.Manager["ReplayScanner"]):
         return super().get_queryset().filter(origin=ScannerOrigin.CONFIGURED)
 
 
-class ReplayScanner(UUIDModel):
+class ReplayScanner(ModelActivityMixin, UUIDModel):
     """A configured probe that gets applied to completed session recordings (see README)."""
+
+    # A scanner sends recordings to an LLM, so its removal stays visible after the row is gone.
+    activity_logging_on_delete = True
 
     objects = ReplayScannerManager()
     all_origins = models.Manager()
@@ -255,6 +259,23 @@ class ReplayScanner(UUIDModel):
         help_text="When an estimate was last attempted, success or failure. Backs off the refresher on scanners whose estimate query keeps failing.",
     )
 
+    search_suggestions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Example searches drawn from recent observations, shown on the Search tab's empty state.",
+    )
+    search_suggestions_watermark = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="created_at of the newest observation the suggestions were drawn from.",
+    )
+    search_suggestions_generated_at = models.DateTimeField(null=True, blank=True)
+    search_last_viewed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the Search tab last asked for this scanner's suggestions. Only viewed scanners refresh.",
+    )
+
     # Not "monthly": this resets with the org's billing period, which is only a calendar month
     # until billing syncs a real one. See quota.current_period_bounds.
     credit_limit = models.PositiveIntegerField(
@@ -374,6 +395,10 @@ class ReplayScanner(UUIDModel):
         "admission_budget_refreshed_at",
         "admission_budget_period_start",
         "admission_credits_since_refresh",
+        "search_suggestions",
+        "search_suggestions_watermark",
+        "search_suggestions_generated_at",
+        "search_last_viewed_at",
     )
 
     def save(self, *args, **kwargs) -> None:

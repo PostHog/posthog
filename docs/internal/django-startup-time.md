@@ -24,7 +24,7 @@ Real submodules (`posthog.api.monitoring`, `.file_system`, …) resolve directly
 This is the laziness Django already intends: the URLconf is the entry point, and non-web processes never resolve it.
 
 Web is the exception and resolves it eagerly: `wsgi.py`/`asgi.py` build the URLconf at import, pre-fork, inside the GC window — because the k8s probes (`/_livez`, `/_readyz`) are served by short-circuiting middleware and never resolve URLs, each worker would otherwise build the router on its **first live request** (measured at multiple seconds per worker, after every deploy).
-Pre-building lands the router in the frozen heap, copy-on-write-shared across workers — exactly the pre-lazy-router behavior for web, while every other process keeps the win.
+Pre-building lands the router in the frozen heap at worker boot — exactly the pre-lazy-router behavior for web, while every other process keeps the win.
 `test_web_entrypoint_prebuilds_the_router` pins this; a prefork smoke (gunicorn `--preload`, 4 workers) verified workers inherit the built router and serve cold requests without it.
 
 ### 2. Model registration
@@ -43,7 +43,7 @@ Wire receivers from the owning app's `AppConfig.ready()` instead, so they connec
 
 Boot allocations are almost all permanent — modules, classes, registries, the generated pydantic schema — so the cyclic GC has nothing useful to reclaim while `django.setup()` runs, yet allocation thresholds trigger ~470 collections during it (~300ms of pauses, single gen2 passes up to ~100ms).
 The entrypoints that own a setup (`manage.py`, `posthog/wsgi.py`, `posthog/asgi.py`) wrap it in `gc.disable()` → boot → `gc.freeze()` → `gc.enable()`.
-The freeze moves the ~600k surviving boot objects to the permanent generation, so they are excluded from every future full collection — which also makes post-boot work (management-command discovery, the first router build) collect almost for free, and maximizes copy-on-write page sharing when a prototype process forks workers.
+The freeze moves the ~600k surviving boot objects to the permanent generation, so they are excluded from every future full collection — which also makes post-boot work (management-command discovery, the first router build) collect almost for free.
 There is deliberately no `gc.collect()` before the freeze: a full pass over the boot heap costs ~210ms and reclaims only ~4% of objects (a few MB), so the garbage is frozen along with everything else.
 The window must always close — GC left disabled in a long-lived process means unbounded cycle growth — hence the `try`/`finally` and the guard test asserting `gc.isenabled()` and a nonzero freeze count after a `manage.py` boot.
 Pytest processes get the same window via a dedicated early-loaded plugin, `pytest_boot_gc.py`, registered with `-p pytest_boot_gc` in `pytest.ini`.

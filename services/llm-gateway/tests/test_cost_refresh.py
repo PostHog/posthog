@@ -8,6 +8,7 @@ import litellm
 import pytest
 
 from llm_gateway.rate_limiting.cost_refresh import (
+    ALIAS_METRIC_LABELS,
     COST_ALIASES,
     CostRefreshService,
     apply_cost_aliases,
@@ -151,6 +152,10 @@ class TestNormalizeMetricLabels:
         provider, model = normalize_metric_labels("openai/@cf/moonshotai/kimi-k2.6", "openai")
         assert provider == "cloudflare"
         assert model == "@cf/moonshotai/kimi-k2.6"
+
+    @pytest.mark.parametrize("alias", sorted(ALIAS_METRIC_LABELS))
+    def test_resolves_alias_with_provider_prefix_stripped(self, alias: str) -> None:
+        assert normalize_metric_labels(alias.removeprefix("openai/"), "openai") == ALIAS_METRIC_LABELS[alias]
 
     def test_passes_through_unaliased_model(self) -> None:
         provider, model = normalize_metric_labels("gpt-4o", "openai")

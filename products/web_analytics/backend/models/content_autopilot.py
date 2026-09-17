@@ -44,6 +44,7 @@ class ContentAutopilotSiteProfile(TeamScopedRootMixin, UUIDModel):
     content_boundaries = models.JSONField(default=list)
     brand_rules = models.JSONField(default=list)
     search_console_enabled = models.BooleanField(default=False)
+    deleted = models.BooleanField(default=False)
     created_by_id = models.BigIntegerField(null=True, blank=True)
     updated_by_id = models.BigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -52,7 +53,11 @@ class ContentAutopilotSiteProfile(TeamScopedRootMixin, UUIDModel):
     class Meta:
         db_table = "posthog_contentautopilotsiteprofile"
         constraints = [
-            models.UniqueConstraint(fields=["team", "domain"], name="content_auto_profile_team_domain"),
+            models.UniqueConstraint(
+                fields=["team", "domain"],
+                condition=models.Q(deleted=False),
+                name="content_auto_profile_team_domain",
+            ),
         ]
 
 

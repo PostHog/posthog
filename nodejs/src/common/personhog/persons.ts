@@ -24,10 +24,13 @@ export function encodeJsonBytes(value: object): Uint8Array {
     return Object.keys(value).length === 0 ? new Uint8Array(0) : textEncoder.encode(JSON.stringify(value))
 }
 
+/** Set by the leader on any write refused because a lifecycle op holds the person. */
+const FENCED_METADATA_KEY = 'x-person-fenced'
+/** Carries the holding operation's id on that refusal. */
+const FENCED_OP_ID_METADATA_KEY = 'x-person-fenced-op-id'
 /**
- * The leader rejected an update at the person-properties size ceiling.
- * Carries what the transport layer knows; callers holding the person's
- * uuid and distinct id re-wrap it into their own error vocabulary.
+ * The leader rejected an update at the person-properties size ceiling;
+ * callers re-wrap it into their own error vocabulary.
  */
 export class PersonhogPropertiesSizeError extends Error {
     constructor(
@@ -37,6 +40,21 @@ export class PersonhogPropertiesSizeError extends Error {
     ) {
         super(message)
         this.name = 'PersonhogPropertiesSizeError'
+    }
+}
+
+/**
+ * The leader refused a write because a lifecycle operation holds the
+ * person; the holder's op id and creator travel for attribution.
+ */
+export class PersonhogFencedError extends Error {
+    constructor(
+        message: string,
+        public readonly personId: string,
+        public readonly fencingOpId: string | undefined
+    ) {
+        super(message)
+        this.name = 'PersonhogFencedError'
     }
 }
 
@@ -55,6 +73,8 @@ export interface FoldedPersonUpdate {
     isIdentified?: boolean
     /** Epoch milliseconds; max-merged server-side. */
     lastSeenAtMs?: number
+    /** The event's force flag; the leader writes filtered-only changes under it. */
+    forceUpdate?: boolean
 }
 
 export function protoPersonToDomain(proto: ProtoPerson): InternalPerson {
@@ -65,6 +85,25 @@ export function protoPersonToDomain(proto: ProtoPerson): InternalPerson {
         properties: parseJsonBytes(proto.properties) ?? {},
         properties_last_updated_at: parseJsonBytes(proto.propertiesLastUpdatedAt) ?? {},
         properties_last_operation: parseJsonBytes(proto.propertiesLastOperation) ?? null,
+        created_at: epochMsToDateTime(proto.createdAt),
+        version: Number(proto.version),
+        is_identified: proto.isIdentified,
+        is_user_id: proto.isUserId != null ? (proto.isUserId ? 1 : 0) : null,
+        last_seen_at: proto.lastSeenAt != null ? epochMsToDateTime(proto.lastSeenAt) : null,
+    }
+}
+
+/** An identity answer: no properties, because the partition leader owns them. */
+export type PersonIdentity = Omit<
+    InternalPerson,
+    'properties' | 'properties_last_updated_at' | 'properties_last_operation'
+>
+
+export function protoPersonToIdentity(proto: ProtoPerson): PersonIdentity {
+    return {
+        id: String(proto.id),
+        uuid: proto.uuid,
+        team_id: Number(proto.teamId),
         created_at: epochMsToDateTime(proto.createdAt),
         version: Number(proto.version),
         is_identified: proto.isIdentified,
@@ -197,6 +236,7 @@ export class PersonHogPersonOperations {
                     unsetProperties: update.unsetProperties,
                     isIdentified: update.isIdentified,
                     lastSeenAt: update.lastSeenAtMs != null ? BigInt(update.lastSeenAtMs) : undefined,
+                    forceUpdate: update.forceUpdate ?? false,
                 }),
                 callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
             )
@@ -216,6 +256,16 @@ export class PersonHogPersonOperations {
                 }
                 if (error.code === Code.InvalidArgument && error.rawMessage.includes('size limit')) {
                     throw new PersonhogPropertiesSizeError(error.rawMessage, update.teamId, update.personId)
+                }
+                // Keyed on the metadata rather than the status code: the
+                // leader answers FAILED_PRECONDITION while the router hands
+                // back its own UNAVAILABLE with these keys carried forward.
+                if (error.metadata.has(FENCED_METADATA_KEY)) {
+                    throw new PersonhogFencedError(
+                        error.rawMessage,
+                        update.personId,
+                        error.metadata.get(FENCED_OP_ID_METADATA_KEY) ?? undefined
+                    )
                 }
             }
             throw error

@@ -1,4 +1,5 @@
 import math
+from datetime import timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 
@@ -36,9 +37,12 @@ from posthog.api.team import (
     EvaluationContextSuggestionResponseSerializer,
     EventIngestionRestrictionSerializer,
     TeamCustomerAnalyticsConfigSerializer,
+    TeamFeatureFlagPolicyConfigSerializer,
+    TeamLogsConfigSerializer,
     TeamMarketingAnalyticsConfigSerializer,
     TeamRevenueAnalyticsConfigSerializer,
     TeamSerializer,
+    TeamTracingConfigSerializer,
     TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _format_serializer_errors,
@@ -46,10 +50,13 @@ from posthog.api.team import (
     handle_conversations_token_on_update,
     handle_experiments_config,
     handle_logs_config,
+    handle_tracing_config,
+    heatmaps_screenshot_secret_for_reader,
     report_conversations_settings_changes,
     team_event_ingestion_restrictions_view,
     validate_secret_token_generation,
     validate_team_attrs,
+    validate_team_workflows_config,
 )
 from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
@@ -70,7 +77,7 @@ from posthog.models.activity_logging.activity_log import (
     load_activity,
     log_activity,
 )
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.group_type_mapping import cached_group_types_for_project
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
@@ -80,7 +87,6 @@ from posthog.models.product_intent.product_intent import (
     enqueue_product_activation_calc_debounced,
 )
 from posthog.models.project import Project
-from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, Team
@@ -199,6 +205,7 @@ def update_team_marketing_analytics_config(team: Team, validated_data: dict[str,
         ),
         "attribution_window_days": team.marketing_analytics_config.attribution_window_days,
         "attribution_mode": team.marketing_analytics_config.attribution_mode,
+        "filter_test_accounts": team.marketing_analytics_config.filter_test_accounts,
     }
 
     marketing_serializer = TeamMarketingAnalyticsConfigSerializer(
@@ -216,6 +223,7 @@ def update_team_marketing_analytics_config(team: Team, validated_data: dict[str,
         "sources_map": validated_data.get("sources_map", {}),
         "attribution_window_days": validated_data.get("attribution_window_days"),
         "attribution_mode": validated_data.get("attribution_mode"),
+        "filter_test_accounts": validated_data.get("filter_test_accounts"),
     }
 
     capture_team_config_diff(team, "marketing_analytics_config", old_config, new_config, context=context)
@@ -267,6 +275,31 @@ def update_team_workflows_config(team: Team, validated_data: dict[str, Any], *, 
 
     new_config = {field: getattr(team.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields}
     capture_team_config_diff(team, "workflows_config", old_config, new_config, context=context)
+
+
+def update_team_feature_flag_policy_config(team: Team, validated_data: dict[str, Any], *, context: dict) -> None:
+    user_access_control = context.get("user_access_control")
+    old_config = {
+        field: getattr(team.feature_flag_policy_config, field)
+        for field in TeamFeatureFlagPolicyConfigSerializer.Meta.fields
+    }
+
+    serializer = TeamFeatureFlagPolicyConfigSerializer(
+        team.feature_flag_policy_config,
+        data=validated_data,
+        partial=True,
+        context={**context, "user_access_control": user_access_control},
+    )
+    if not serializer.is_valid():
+        raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+    serializer.save()
+
+    new_config = {
+        field: getattr(team.feature_flag_policy_config, field)
+        for field in TeamFeatureFlagPolicyConfigSerializer.Meta.fields
+    }
+    capture_team_config_diff(team, "feature_flag_policy_config", old_config, new_config, context=context)
 
 
 def verify_team_session_recording_retention_period(team: Team, new_retention_period: str) -> None:
@@ -524,12 +557,29 @@ def team_evaluation_context_suggestions_view(team: Team, request: request.Reques
     return response.Response({"success": True, "name": context_name, "hidden_from_suggestions": hidden})
 
 
-class ProjectSerializer(serializers.ModelSerializer):
+class ProjectSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+    """The project as the app context serves it, which is where the frontend reads it on page load.
+
+    projectLogic bootstraps `currentProject` from the app context and only calls the API when that
+    is missing, so a field left out here is invisible to the app until something refetches.
+    """
+
+    tags = project_tags.tags_field()
+
     class Meta:
         model = Project
         # Keep this serializer narrow; legacy Team-compatible fields live on ProjectBackwardCompatSerializer.
-        fields = ["id", "organization_id", "name", "product_description", "created_at", "is_pending_deletion"]
-        read_only_fields = ["id", "organization_id", "created_at", "is_pending_deletion"]
+        fields = [
+            "id",
+            "organization_id",
+            "name",
+            "product_description",
+            "created_at",
+            "is_pending_deletion",
+            "deletion_scheduled_at",
+            "tags",
+        ]
+        read_only_fields = ["id", "organization_id", "created_at", "is_pending_deletion", "deletion_scheduled_at"]
 
 
 class ProjectBackwardCompatSerializer(
@@ -552,16 +602,16 @@ class ProjectBackwardCompatSerializer(
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
     available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
     managed_viewsets = serializers.SerializerMethodField()  # Compat with TeamSerializer
-    events_retention_enforced = serializers.SerializerMethodField(
-        help_text=(
-            "Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: "
-            "neither you nor PostHog support can turn enforcement off, and the retention window itself only "
-            "changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031"
-        )
-    )  # Compat with TeamSerializer
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
     person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
+    heatmaps_screenshot_secret = serializers.SerializerMethodField(
+        help_text=(
+            "Value this project's heatmap screenshots send as a cookie scoped to your domain, "
+            "so bot protection can allow them. Only project admins can read it; null for "
+            "everyone else and when none has been generated."
+        ),
+    )  # Compat with TeamSerializer
     # project_id mirrors TeamSerializer.project_id; for a Project it equals its own id (Project ↔ Team is 1:1)
     project_id = serializers.IntegerField(
         source="id", read_only=True, help_text="ID of the project this environment belongs to."
@@ -577,6 +627,7 @@ class ProjectBackwardCompatSerializer(
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     workflows_config = TeamWorkflowsConfigSerializer(required=False)  # Compat with TeamSerializer
+    feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)  # Compat with TeamSerializer
     # No `default` on purpose: a default value would be auto-injected into every create payload, which trips the
     # admin-only-fields-on-creation gate in validate_team_attrs and blocks members allowed to create projects.
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, required=False)  # Compat with TeamSerializer
@@ -668,6 +719,7 @@ class ProjectBackwardCompatSerializer(
             "flags_persistence_default",  # Compat with TeamSerializer
             "secret_api_token",  # Compat with TeamSerializer
             "secret_api_token_backup",  # Compat with TeamSerializer
+            "heatmaps_screenshot_secret",  # Compat with TeamSerializer
             "receive_org_level_activity_logs",  # Compat with TeamSerializer
             "business_model",  # Compat with TeamSerializer
             "conversations_enabled",  # Compat with TeamSerializer
@@ -676,6 +728,7 @@ class ProjectBackwardCompatSerializer(
             "proactive_tasks_enabled",  # Compat with TeamSerializer
             "available_setup_task_ids",  # Compat with TeamSerializer
             "is_pending_deletion",
+            "deletion_scheduled_at",
             "project_id",  # Compat with TeamSerializer
             "user_access_level",  # Compat with TeamSerializer
             "managed_viewsets",  # Compat with TeamSerializer
@@ -683,6 +736,7 @@ class ProjectBackwardCompatSerializer(
             "marketing_analytics_config",  # Compat with TeamSerializer
             "customer_analytics_config",  # Compat with TeamSerializer
             "workflows_config",  # Compat with TeamSerializer
+            "feature_flag_policy_config",  # Compat with TeamSerializer
             "base_currency",  # Compat with TeamSerializer
             "capture_dead_clicks",  # Compat with TeamSerializer
             "cookieless_server_hash_mode",  # Compat with TeamSerializer
@@ -694,14 +748,13 @@ class ProjectBackwardCompatSerializer(
             "default_data_theme",  # Compat with TeamSerializer
             "onboarding_tasks",  # Compat with TeamSerializer
             "web_analytics_pre_aggregated_tables_enabled",  # Compat with TeamSerializer
-            "event_retention_months",  # Compat with TeamSerializer
-            "events_retention_enforced",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
             "uuid",
             "organization",
             "is_pending_deletion",
+            "deletion_scheduled_at",
             "effective_membership_level",
             "has_group_types",
             "group_types",
@@ -715,11 +768,11 @@ class ProjectBackwardCompatSerializer(
             "product_intents",
             "secret_api_token",
             "secret_api_token_backup",
+            "heatmaps_screenshot_secret",
             "available_setup_task_ids",
             "project_id",
             "user_access_level",
             "managed_viewsets",
-            "event_retention_months",
         )
 
         team_passthrough_fields = {
@@ -796,7 +849,7 @@ class ProjectBackwardCompatSerializer(
             "marketing_analytics_config",
             "customer_analytics_config",
             "workflows_config",
-            "event_retention_months",
+            "feature_flag_policy_config",
         }
 
         # help_text entries flow into the generated OpenAPI spec, frontend types, and MCP tool schemas.
@@ -842,15 +895,6 @@ class ProjectBackwardCompatSerializer(
             "session_recording_retention_period": {
                 "help_text": (
                     "How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan)."
-                )
-            },
-            "event_retention_months": {
-                "help_text": (
-                    "The team's events data retention window in months (plan-derived, synced from billing). When "
-                    "retention enforcement is active for the team, queries do not return events older than this many "
-                    "months. Read-only: this value follows your plan's data retention entitlement, so neither you nor "
-                    "PostHog support can change it unless your organization is on the enterprise plan. Background and "
-                    "discussion: https://github.com/PostHog/posthog/issues/17031"
                 )
             },
             "data_attributes": {
@@ -907,10 +951,6 @@ class ProjectBackwardCompatSerializer(
         )
         return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSetKind.choices}
 
-    @extend_schema_field(serializers.BooleanField())
-    def get_events_retention_enforced(self, obj: Project) -> bool:
-        return should_enforce_events_retention(obj.passthrough_team.id)
-
     @staticmethod
     def validate_revenue_analytics_config(value):
         return TeamSerializer.validate_revenue_analytics_config(value)
@@ -923,9 +963,12 @@ class ProjectBackwardCompatSerializer(
     def validate_customer_analytics_config(value):
         return TeamSerializer.validate_customer_analytics_config(value)
 
+    def validate_workflows_config(self, value):
+        return validate_team_workflows_config(self.instance.passthrough_team if self.instance else None, value)
+
     @staticmethod
-    def validate_workflows_config(value):
-        return TeamSerializer.validate_workflows_config(value)
+    def validate_feature_flag_policy_config(value):
+        return TeamSerializer.validate_feature_flag_policy_config(value)
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
         team = project.passthrough_team
@@ -942,6 +985,10 @@ class ProjectBackwardCompatSerializer(
         request = self.context.get("request")
         user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
         return get_or_mint_live_events_token(team, user_id)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_heatmaps_screenshot_secret(self, project: Project) -> Optional[str]:
+        return heatmaps_screenshot_secret_for_reader(project.passthrough_team, self.user_permissions)
 
     @extend_schema_field(
         {
@@ -983,10 +1030,8 @@ class ProjectBackwardCompatSerializer(
         )
         # Trim the stored side too: names created before this validation (or via the ORM) may carry
         # surrounding whitespace and must still count as duplicates of their trimmed form.
-        duplicates = (
-            Project.objects.annotate(trimmed_name=Trim("name"))
-            .filter(organization_id=organization_id, trimmed_name__iexact=value)
-            .exclude(is_pending_deletion=True)
+        duplicates = Project.objects.annotate(trimmed_name=Trim("name")).filter(
+            organization_id=organization_id, trimmed_name__iexact=value
         )
         if self.instance is not None:
             duplicates = duplicates.exclude(pk=self.instance.pk)
@@ -1075,6 +1120,7 @@ class ProjectBackwardCompatSerializer(
             "marketing_analytics_config",
             "customer_analytics_config",
             "workflows_config",
+            "feature_flag_policy_config",
         ):
             validated_data.pop(config_field, None)
 
@@ -1155,6 +1201,9 @@ class ProjectBackwardCompatSerializer(
             update_team_customer_analytics_config(team, config_data, context=config_context)
         if config_data := validated_data.pop("workflows_config", None):
             update_team_workflows_config(team, config_data, context=config_context)
+
+        if config_data := validated_data.pop("feature_flag_policy_config", None):
+            update_team_feature_flag_policy_config(team, config_data, context=config_context)
 
         if "session_recording_retention_period" in validated_data:
             verify_team_session_recording_retention_period(team, validated_data["session_recording_retention_period"])
@@ -1510,10 +1559,9 @@ class ProjectViewSet(
         return project
 
     # :KLUDGE: Exposed for compatibility reasons for permission classes.
-    @property
-    def team(self):
-        project = self.get_object()
-        return project.teams.get(id=project.id)
+    @cached_property
+    def team(self) -> Team:
+        return self.get_object().passthrough_team
 
     def perform_destroy(self, project: Project):
         from ee.billing.billing_manager import BillingManager
@@ -1525,7 +1573,7 @@ class ProjectViewSet(
                 "Project deletion is temporarily disabled during database migration. Please try again later."
             )
 
-        if project.is_pending_deletion:
+        if project.is_deletion_pending():
             raise exceptions.ValidationError("This project is already being deleted.")
 
         # Block deletion of the last project in an org with an active subscription (cloud only).
@@ -1571,20 +1619,37 @@ class ProjectViewSet(
             if warehouse_block_reason:
                 raise exceptions.ValidationError(warehouse_block_reason)
 
-        # Mark as pending deletion so the UI locks this project out until the async task removes it.
+        from posthog.temporal.delete_teams.dispatch import PROJECT_DELETION_DELAY, start_delete_project_data_workflow
+
+        deletion_scheduled_at = timezone.now() + PROJECT_DELETION_DELAY
+        claimed_project = Project.objects.filter(pk=project.pk, is_pending_deletion=False).update(
+            is_pending_deletion=True,
+            deletion_scheduled_at=deletion_scheduled_at,
+        )
+        if not claimed_project:
+            raise exceptions.ValidationError("This project is already being deleted.")
         project.is_pending_deletion = True
-        project.save(update_fields=["is_pending_deletion"])
+        project.deletion_scheduled_at = deletion_scheduled_at
 
         # Hand off all deletion work (bulky postgres, batch exports, project/team records,
         # ClickHouse, email) to the durable Temporal workflow.
-        from posthog.temporal.delete_teams.dispatch import start_delete_project_data_workflow
 
-        start_delete_project_data_workflow(
-            team_ids=team_ids,
-            project_id=project_id,
-            user_id=user.id,
-            project_name=project_name,
-        )
+        try:
+            start_delete_project_data_workflow(
+                team_ids=team_ids,
+                project_id=project_id,
+                user_id=user.id,
+                project_name=project_name,
+                start_delay=max(deletion_scheduled_at - timezone.now(), timedelta()),
+            )
+        except Exception:
+            Project.objects.filter(pk=project.pk, deletion_scheduled_at=deletion_scheduled_at).update(
+                is_pending_deletion=False,
+                deletion_scheduled_at=None,
+            )
+            project.is_pending_deletion = False
+            project.deletion_scheduled_at = None
+            raise
 
         for team in teams:
             log_activity(
@@ -1616,6 +1681,93 @@ class ProjectViewSet(
             request=self.request,
         )
 
+    @extend_schema(
+        description="Cancel a scheduled project deletion and restore access to the project.",
+        request=None,
+        responses={200: ProjectSerializer},
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="cancel-deletion",
+        permission_classes=[TeamMemberLightManagementPermission],
+    )
+    def cancel_deletion(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        project = cast(Project, self.get_object())
+        membership_level = self.user_permissions.team(project.passthrough_team).effective_membership_level
+        if membership_level is None or membership_level < OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("You don't have sufficient permissions in the project.")
+        now = timezone.now()
+        if not project.is_deletion_pending():
+            raise exceptions.ValidationError("This project is not pending deletion.")
+        if not project.can_cancel_deletion(at=now):
+            raise exceptions.ValidationError("This project deletion has already started.")
+
+        deletion_scheduled_at = project.deletion_scheduled_at
+        cancellation_claimed_at = now
+        claimed_cancellation = Project.objects.filter(
+            pk=project.pk,
+            is_pending_deletion=True,
+            deletion_scheduled_at=deletion_scheduled_at,
+            deletion_scheduled_at__gt=now,
+        ).update(deletion_scheduled_at=cancellation_claimed_at)
+        if not claimed_cancellation:
+            raise exceptions.ValidationError(
+                "This project deletion can no longer be canceled. Refresh the page to see its current status."
+            )
+
+        from posthog.temporal.delete_teams.dispatch import cancel_delete_project_data_workflow
+
+        try:
+            cancel_delete_project_data_workflow(project_id=project.pk)
+        except Exception:
+            Project.objects.filter(
+                pk=project.pk,
+                is_pending_deletion=True,
+                deletion_scheduled_at=cancellation_claimed_at,
+            ).update(deletion_scheduled_at=deletion_scheduled_at)
+            logger.exception("Failed to cancel the project deletion workflow", project_id=project.pk)
+            raise exceptions.ValidationError("Project deletion could not be canceled. Please try again.")
+
+        cleared_cancellation = Project.objects.filter(
+            pk=project.pk,
+            is_pending_deletion=True,
+            deletion_scheduled_at=cancellation_claimed_at,
+        ).update(is_pending_deletion=False, deletion_scheduled_at=None)
+        if not cleared_cancellation:
+            raise exceptions.ValidationError(
+                "This project deletion can no longer be canceled. Refresh the page to see its current status."
+            )
+
+        project.is_pending_deletion = False
+        project.deletion_scheduled_at = None
+
+        user = cast(User, request.user)
+        was_impersonated = is_impersonated(request)
+        for team in project.teams.only("id", "name"):
+            log_activity(
+                organization_id=cast(UUIDT, project.organization_id),
+                team_id=team.pk,
+                user=user,
+                was_impersonated=was_impersonated,
+                scope="Team",
+                item_id=team.pk,
+                activity="restored",
+                detail=Detail(name=str(team.name)),
+            )
+        log_activity(
+            organization_id=cast(UUIDT, project.organization_id),
+            team_id=project.pk,
+            user=user,
+            was_impersonated=was_impersonated,
+            scope="Project",
+            item_id=project.pk,
+            activity="restored",
+            detail=Detail(name=str(project.name)),
+        )
+
+        return response.Response(ProjectSerializer(project, context=self.get_serializer_context()).data)
+
     @action(
         methods=["PATCH"],
         detail=True,
@@ -1639,6 +1791,20 @@ class ProjectViewSet(
         project = self.get_object()
         validate_secret_token_generation(project.passthrough_team, cast(User, request.user))
         project.passthrough_team.rotate_secret_token_and_save(
+            user=request.user, is_impersonated_session=is_impersonated(request)
+        )
+        return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
+
+    @extend_schema(request=None, responses=ProjectBackwardCompatSerializer)
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def rotate_heatmaps_screenshot_secret(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        project = self.get_object()
+        project.passthrough_team.rotate_heatmaps_screenshot_secret_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
@@ -1677,6 +1843,18 @@ class ProjectViewSet(
         project = self.get_object()
         return response.Response({"is_generating_demo_data": project.passthrough_team.get_is_generating_demo_data()})
 
+    @extend_schema(
+        methods=["GET"],
+        request=None,
+        responses={200: TeamLogsConfigSerializer},
+        extensions={"x-product": "logs"},
+    )
+    @extend_schema(
+        methods=["PATCH"],
+        request=TeamLogsConfigSerializer,
+        responses={200: TeamLogsConfigSerializer},
+        extensions={"x-product": "logs"},
+    )
     @action(
         methods=["GET", "PATCH"],
         detail=True,
@@ -1691,11 +1869,36 @@ class ProjectViewSet(
         project = self.get_object()
         return handle_logs_config(request, project.passthrough_team)
 
+    @extend_schema(
+        methods=["GET"],
+        request=None,
+        responses={200: TeamTracingConfigSerializer},
+        extensions={"x-product": "tracing"},
+    )
+    @extend_schema(
+        methods=["PATCH"],
+        request=TeamTracingConfigSerializer,
+        responses={200: TeamTracingConfigSerializer},
+        extensions={"x-product": "tracing"},
+    )
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberStrictManagementPermission],
+        url_path="tracing_config",
+    )
+    def tracing_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage tracing product configuration for this project's canonical environment.
+        Members can read; writing requires project admin, matching the admin-only
+        settings UI. Mirrors the env-router action so /api/projects/:id/tracing_config/
+        resolves alongside the legacy /api/environments/:id/tracing_config/ alias."""
+        project = self.get_object()
+        return handle_tracing_config(request, project.passthrough_team)
+
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
         # TODO: This is currently the same as in TeamViewSet - we should rework for the Project scope
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         project = self.get_object()
 
@@ -1703,10 +1906,10 @@ class ProjectViewSet(
             scope="Team",
             team_id=project.pk,
             item_ids=[str(project.pk)],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     # The following actions mirror TeamViewSet, operating on the project's passthrough Team. They delegate to
     # the shared team_*_view helpers so /api/projects/ and /api/environments/ cannot drift apart.
@@ -1878,62 +2081,105 @@ class ProjectViewSet(
         user = cast(User, request.user)
 
         target_organization_id = request.data.get("organization_id")
-        current_organization = project.organization
-
-        try:
-            target_organization = Organization.objects.get(pk=target_organization_id)
-            current_organization_membership = OrganizationMembership.objects.get(
-                user=user, organization=current_organization
-            )
-            target_organization_membership = OrganizationMembership.objects.get(
-                user=user, organization=target_organization
-            )
-
-            if (
-                current_organization_membership.level < OrganizationMembership.Level.ADMIN
-                or target_organization_membership.level < OrganizationMembership.Level.ADMIN
-            ):
-                raise exceptions.ValidationError(
-                    "You must be an admin of both the source and target organizations to move a project."
-                )
-
-        except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
-            raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
-
-        if project.organization_id == target_organization_id:
-            raise exceptions.ValidationError("Project is already in the target organization.")
-
-        teams = list(project.teams.all())
 
         with transaction.atomic():
-            project.organization_id = target_organization_id
+            # Lock the project row so concurrent moves serialize: each request re-reads the
+            # organization and teams only after the previous move has committed, so snapshots
+            # never go stale and no departure is recorded twice.
+            try:
+                project = Project.objects.select_for_update().get(pk=project.pk)
+            except Project.DoesNotExist:
+                raise exceptions.NotFound("Project not found.")
+
+            current_organization = project.organization
+
+            try:
+                target_organization = Organization.objects.get(pk=target_organization_id)
+                current_organization_membership = OrganizationMembership.objects.get(
+                    user=user, organization=current_organization
+                )
+                target_organization_membership = OrganizationMembership.objects.get(
+                    user=user, organization=target_organization
+                )
+
+                if (
+                    current_organization_membership.level < OrganizationMembership.Level.ADMIN
+                    or target_organization_membership.level < OrganizationMembership.Level.ADMIN
+                ):
+                    raise exceptions.ValidationError(
+                        "You must be an admin of both the source and target organizations to move a project."
+                    )
+
+            except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
+                raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
+
+            # Compare resolved UUIDs: target_organization_id comes off the request body as a string, so
+            # comparing it to the UUID organization_id never matches and would let a same-org request through.
+            if project.organization_id == target_organization.id:
+                raise exceptions.ValidationError("Project is already in the target organization.")
+
+            teams = list(project.teams.all())
+            was_impersonated = is_impersonated(request)
+            project_change = Change(
+                type="Project",
+                action="changed",
+                field="organization_id",
+                before=str(current_organization.id),
+                after=str(target_organization.id),
+            )
+
+            project.organization_id = target_organization.id
             project.save()
 
             log_activity(
                 organization_id=cast(UUIDT, target_organization_id),
                 team_id=project.pk,
                 user=user,
-                was_impersonated=is_impersonated(request),
+                was_impersonated=was_impersonated,
                 scope="Project",
                 item_id=project.pk,
                 activity="updated",
-                detail=Detail(
-                    name="moved to another organization",
-                    changes=[
-                        Change(
-                            type="Project",
-                            action="changed",
-                            field="organization_id",
-                            before=str(current_organization.id),
-                            after=str(target_organization.id),
-                        )
-                    ],
-                ),
+                detail=Detail(name="moved to another organization", changes=[project_change]),
+            )
+
+            # Record departure for the losing organization. Its members can no longer reach this
+            # project, so an org-scoped audit entry is their only readable record.
+            log_activity(
+                organization_id=current_organization.id,
+                team_id=None,
+                user=user,
+                was_impersonated=was_impersonated,
+                scope="Project",
+                item_id=project.pk,
+                activity="updated",
+                detail=Detail(name=str(project.name), changes=[project_change]),
             )
 
             for team in teams:
-                team.organization_id = target_organization_id
+                team.organization_id = target_organization.id
                 team.save()
+
+                log_activity(
+                    organization_id=current_organization.id,
+                    team_id=None,
+                    user=user,
+                    was_impersonated=was_impersonated,
+                    scope="Team",
+                    item_id=team.pk,
+                    activity="updated",
+                    detail=Detail(
+                        name=str(team.name),
+                        changes=[
+                            Change(
+                                type="Team",
+                                action="changed",
+                                field="organization_id",
+                                before=str(current_organization.id),
+                                after=str(target_organization.id),
+                            )
+                        ],
+                    ),
+                )
 
             self._reconcile_current_project_of_affected_users(teams, target_organization)
 

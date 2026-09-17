@@ -20,6 +20,7 @@ import {
 import { useHostTRPC } from "@posthog/host-router/react";
 import type { WorkspaceMode } from "@posthog/shared";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import {
   AlertDialog,
@@ -36,7 +37,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSetHeaderContent } from "../../hooks/useSetHeaderContent";
-import { DotsCircleSpinner } from "../../primitives/DotsCircleSpinner";
 import { Tooltip } from "../../primitives/Tooltip";
 import { toast } from "../../primitives/toast";
 import { useTasks } from "../tasks/useTasks";
@@ -323,12 +323,7 @@ export function ArchivedTasksViewPresentation({
         style={{ scrollbarGutter: "stable" }}
       >
         {isLoading ? (
-          <Flex align="center" justify="center" gap="2" py="8">
-            <DotsCircleSpinner size={16} className="text-gray-10" />
-            <Text className="text-[13px] text-gray-10">
-              Loading archived tasks...
-            </Text>
-          </Flex>
+          <LoadingState label="Loading archived tasks..." className="py-8" />
         ) : visibleItems.length === 0 ? (
           <Flex align="center" justify="center" py="8">
             <Text className="text-[13px] text-gray-10">

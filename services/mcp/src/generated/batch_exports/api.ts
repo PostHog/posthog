@@ -313,9 +313,8 @@ export const BatchExportsCreateBody = () => zod
                         type: zod.enum(['Snowflake']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -334,7 +333,7 @@ export const BatchExportsCreateBody = () => zod
                                     .describe('Optional Snowflake role to assume for the session.'),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
@@ -765,9 +764,8 @@ export const BatchExportsPartialUpdateBody = () => zod
                         type: zod.enum(['Snowflake']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of a snowflake-kind Integration providing the account, user and credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -786,7 +784,7 @@ export const BatchExportsPartialUpdateBody = () => zod
                                     .describe('Optional Snowflake role to assume for the session.'),
                             })
                             .describe(
-                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials may live in a linked Integration (when one is\nprovided) or inline in this config (legacy). Mirrors the non-credential fields of\n`SnowflakeBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Snowflake batch-export destination.\n\nAccount, user, authentication type and credentials live in the linked Integration, never here.\nMirrors the non-credential fields of `SnowflakeBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a Snowflake batch-export destination.'),
@@ -938,15 +936,19 @@ export const FileDownloadBatchExportsCreateParams = () => zod.object({
 })
 
 export const fileDownloadBatchExportsCreateBodyOneFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbMin = 0
 
 export const fileDownloadBatchExportsCreateBodyTwoFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbMin = 0
 
 export const fileDownloadBatchExportsCreateBodyThreeFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbMin = 0
 
 export const fileDownloadBatchExportsCreateBodyFourFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbMin = 0
 
 export const FileDownloadBatchExportsCreateBody = () => zod.union([
@@ -976,7 +978,10 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .number()
                         .min(fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbMin)
                         .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                        .default(fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbDefault)
+                        .describe(
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                        ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
             model: zod.enum(['events']),
@@ -1012,7 +1017,10 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .number()
                         .min(fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbMin)
                         .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                        .default(fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbDefault)
+                        .describe(
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                        ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
             model: zod.enum(['persons']),
@@ -1046,7 +1054,10 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .number()
                         .min(fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbMin)
                         .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                        .default(fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbDefault)
+                        .describe(
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                        ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
             model: zod.enum(['sessions']),
@@ -1080,7 +1091,10 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .number()
                         .min(fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbMin)
                         .nullish()
-                        .describe('Split download into multiple files of at most this size in MB'),
+                        .default(fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbDefault)
+                        .describe(
+                            'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                        ),
                 })
                 .describe('Typed configuration for a FileDownload batch-export destination.'),
             model: zod.enum(['hogql']),
@@ -1122,6 +1136,7 @@ export const FileDownloadBatchExportsCancelCreateParams = () => zod.object({
 })
 
 export const fileDownloadBatchExportsCancelCreateBodyFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbDefault = 1024
 export const fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbMin = 0
 
 export const FileDownloadBatchExportsCancelCreateBody = () => zod
@@ -1150,7 +1165,10 @@ export const FileDownloadBatchExportsCancelCreateBody = () => zod
                     .number()
                     .min(fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbMin)
                     .nullish()
-                    .describe('Split download into multiple files of at most this size in MB'),
+                    .default(fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbDefault)
+                    .describe(
+                        'Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.'
+                    ),
             })
             .describe('Typed configuration for a FileDownload batch-export destination.'),
         model: zod

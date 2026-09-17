@@ -4,10 +4,10 @@ import { IconDecisionTree } from '@posthog/icons'
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
 import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { urlForNewWorkflowComposer } from '../Workflows/newWorkflowLogic'
 import { WorkflowsPreview } from './WorkflowsPreview'
 import { workflowsSetupLogic } from './workflowsSetupLogic'
 
@@ -34,7 +34,8 @@ export const workflowsEmptyState: SceneProductEmptyState = {
         },
         primaryAction: {
             label: 'New workflow',
-            to: urls.workflowNew(),
+            // The same "start from nothing" intent as the list page's button, so it reaches the same surface.
+            to: urlForNewWorkflowComposer(),
         },
         docsUrl: 'https://posthog.com/docs/workflows',
         previewLabel: 'Your journeys, once running',

@@ -5,12 +5,12 @@ import { dayjs } from 'lib/dayjs'
 import { isObject, isString } from 'lib/utils/guards'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { escapeHogQLString, hogql } from '~/queries/utils'
 
 import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import {
     EVALUATION_NOT_SKIPPED_HOGQL,
-    EVALUATION_PASSED_HOGQL,
+    EVALUATION_RESULT_TRUE_HOGQL,
     EVALUATION_RUNS_QUERY_LIMIT,
 } from './evaluations/constants'
 import type { EvaluationOutputType, EvaluationRun, EvaluationType } from './evaluations/types'
@@ -1240,12 +1240,13 @@ export async function queryEvaluationRuns(params: {
     evaluationId?: string
     traceId?: string
     sessionId?: string
+    backfillId?: string
     /** Bounds the scan so it can prune partitions. Omitted for the trace and generation surfaces,
      * which read a single unit's runs and have always been unbounded. */
     lookbackDays?: number
     forceRefresh?: boolean
 }): Promise<EvaluationRun[]> {
-    const { evaluationId, traceId, sessionId, lookbackDays, forceRefresh } = params
+    const { evaluationId, traceId, sessionId, backfillId, lookbackDays, forceRefresh } = params
 
     const propertyValue = evaluationId || traceId || sessionId
 
@@ -1279,6 +1280,7 @@ export async function queryEvaluationRuns(params: {
         WHERE
             event = '$ai_evaluation'
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
+            ${backfillId ? hogql.raw(`AND properties.$ai_evaluation_backfill_id = ${escapeHogQLString(backfillId)}`) : hogql.raw('')}
             ${lookbackDays ? hogql.raw(`AND timestamp >= now() - INTERVAL ${Math.floor(lookbackDays)} DAY`) : hogql.raw('')}
         ORDER BY timestamp DESC
         LIMIT ${EVALUATION_RUNS_QUERY_LIMIT}
@@ -1296,7 +1298,7 @@ export async function queryEvaluationRuns(params: {
 export interface EvaluationRunsStats {
     total: number
     applicable: number
-    passed: number
+    trueCount: number
 }
 
 // Counts every matching run server-side. queryEvaluationRuns caps its fetch at
@@ -1306,9 +1308,10 @@ export interface EvaluationRunsStats {
 export async function queryEvaluationRunsStats(params: {
     evaluationId?: string
     traceId?: string
+    backfillId?: string
     forceRefresh?: boolean
 }): Promise<EvaluationRunsStats> {
-    const { evaluationId, traceId, forceRefresh } = params
+    const { evaluationId, traceId, backfillId, forceRefresh } = params
 
     const propertyValue = evaluationId || traceId
 
@@ -1322,11 +1325,12 @@ export async function queryEvaluationRunsStats(params: {
         SELECT
             count() as total,
             countIf(properties.$ai_evaluation_result IS NOT NULL AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as applicable,
-            countIf(${hogql.raw(EVALUATION_PASSED_HOGQL)} AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as passed
+            countIf(${hogql.raw(EVALUATION_RESULT_TRUE_HOGQL)} AND ${hogql.raw(EVALUATION_NOT_SKIPPED_HOGQL)}) as true_count
         FROM events
         WHERE
             event = '$ai_evaluation'
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
+            ${backfillId ? hogql.raw(`AND properties.$ai_evaluation_backfill_id = ${escapeHogQLString(backfillId)}`) : hogql.raw('')}
     `
 
     const response = await api.queryHogQL(
@@ -1338,12 +1342,12 @@ export async function queryEvaluationRunsStats(params: {
     const row = response.results?.[0]
 
     if (!row) {
-        return { total: 0, applicable: 0, passed: 0 }
+        return { total: 0, applicable: 0, trueCount: 0 }
     }
 
     return {
         total: Number(row[0]) || 0,
         applicable: Number(row[1]) || 0,
-        passed: Number(row[2]) || 0,
+        trueCount: Number(row[2]) || 0,
     }
 }

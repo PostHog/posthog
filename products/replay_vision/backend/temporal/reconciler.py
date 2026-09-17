@@ -86,15 +86,9 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
         except Exception:
             workflow.logger.exception("replay_vision.reap_orphaned_observations_failed")
 
-        # The stuck-run reaper is removed with vision actions; pre-patch in-flight executions
-        # recorded its schedule and must replay it, so it stays behind the patch by name.
-        if workflow.patched("reap-stuck-vision-action-runs-2026-07") and not workflow.patched(
-            "drop-stuck-vision-action-run-reaper-2026-09"
-        ):
-            try:
-                await self._run_reaper("reap_stuck_vision_action_runs_activity")
-            except Exception:
-                workflow.logger.exception("replay_vision.reap_stuck_vision_action_runs_failed")
+        # Declared until no history carrying either marker can replay.
+        workflow.deprecate_patch("reap-stuck-vision-action-runs-2026-07")
+        workflow.deprecate_patch("drop-stuck-vision-action-run-reaper-2026-09")
 
         if workflow.patched("reap-childless-inline-scanners-2026-08"):
             try:
@@ -185,7 +179,7 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
 
     async def _run_reaper(
         self,
-        reaper_activity: Callable[[], Any] | str,
+        reaper_activity: Callable[[], Any],
         *,
         heartbeat_timeout: dt.timedelta | None = None,
         start_to_close_timeout: dt.timedelta = REAPER_OP_TIMEOUT,

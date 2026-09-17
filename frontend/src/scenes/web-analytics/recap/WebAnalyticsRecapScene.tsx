@@ -143,11 +143,33 @@ function LeaderboardRow({
     )
 }
 
+function RecapPlaceholder({
+    title,
+    description,
+    action,
+    icon,
+}: {
+    title: string
+    description: string
+    action: React.ReactNode
+    icon?: React.ReactNode
+}): JSX.Element {
+    return (
+        <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
+            {icon}
+            <h2>{title}</h2>
+            <p className="text-secondary max-w-md">{description}</p>
+            {action}
+        </div>
+    )
+}
+
 export function WebAnalyticsRecapScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { recap: loadedRecap, recapLoading } = useValues(webAnalyticsRecapLogic)
+    const { recap: loadedRecap, recapLoading, recapLoadFailed } = useValues(webAnalyticsRecapLogic)
     const recap = loadedRecap as WebAnalyticsRecapResponseApi | null
     const {
+        loadRecap,
         recordReachedEnd,
         recordCtaClicked,
         copyRecapLink,
@@ -200,18 +222,37 @@ export function WebAnalyticsRecapScene(): JSX.Element {
         )
     }
 
+    if (recapLoadFailed && !recap) {
+        return (
+            <RecapPlaceholder
+                title="Couldn't load your recap"
+                description="Something went wrong while building this recap. Try again, and if it keeps happening contact support."
+                action={
+                    <LemonButton
+                        type="primary"
+                        loading={recapLoading}
+                        onClick={() => loadRecap()}
+                        data-attr="web-analytics-recap-retry"
+                    >
+                        Try again
+                    </LemonButton>
+                }
+            />
+        )
+    }
+
     if (!recap) {
         return (
-            <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
-                <span className="text-2xl">🦔</span>
-                <h2>Your recap isn't ready yet</h2>
-                <p className="text-secondary max-w-md">
-                    We couldn't build a recap for this project right now. Once there's some traffic, check back here.
-                </p>
-                <LemonButton type="primary" onClick={() => goToWebAnalytics('go_to_web_analytics')}>
-                    Go to web analytics
-                </LemonButton>
-            </div>
+            <RecapPlaceholder
+                icon={<span className="text-2xl">🦔</span>}
+                title="Your recap isn't ready yet"
+                description="We couldn't build a recap for this project right now. Once there's some traffic, check back here."
+                action={
+                    <LemonButton type="primary" onClick={() => goToWebAnalytics('go_to_web_analytics')}>
+                        Go to web analytics
+                    </LemonButton>
+                }
+            />
         )
     }
 

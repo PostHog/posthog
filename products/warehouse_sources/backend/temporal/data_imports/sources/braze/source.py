@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.braze import (
     BRAZE_FORBIDDEN_MSG,
     BrazeResumeConfig,
@@ -16,7 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braze.braz
     validate_credentials as validate_braze_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.settings import (
-    BRAZE_ENDPOINTS,
+    BRAZE_DATA_SERIES_ENDPOINTS,
+    BRAZE_PROBE_TARGETS,
+    DATA_SERIES_LOOKBACK_SECONDS,
+    DEFAULT_PROBE_TARGET,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -54,7 +55,7 @@ class BrazeSource(ResumableSource[BrazeSourceConfig, BrazeResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BRAZE,
+            name=ExternalDataSourceType.BRAZE,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Braze",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -62,9 +63,19 @@ class BrazeSource(ResumableSource[BrazeSourceConfig, BrazeResumeConfig]):
 
 You can create a REST API key in your Braze dashboard under **Settings → API Keys**. Grant the following endpoint permissions for the data you want to sync:
 - `campaigns.list`
+- `campaigns.data_series`
+- `campaigns.details`
 - `canvas.list`
+- `canvas.data_series`
+- `canvas.details`
 - `segments.list`
+- `segments.data_series`
 - `events.list`
+- `events.data_series`
+- `kpi.dau.data_series`
+- `kpi.mau.data_series`
+- `kpi.new_users.data_series`
+- `kpi.uninstalls.data_series`
 - `templates.email.list`
 - `content_blocks.list`
 
@@ -115,15 +126,21 @@ Your REST endpoint must match your Braze dashboard's region — see [Braze's API
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        schemas = build_endpoint_schemas(
+            ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=tuple(BRAZE_DATA_SERIES_ENDPOINTS)
+        )
+        for schema in schemas:
+            if schema.name in BRAZE_DATA_SERIES_ENDPOINTS:
+                schema.default_incremental_lookback_seconds = DATA_SERIES_LOOKBACK_SECONDS
+        return schemas
 
     def validate_credentials(
         self, config: BrazeSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
-        if schema_name is not None and schema_name not in BRAZE_ENDPOINTS:
+        if schema_name is not None and schema_name not in BRAZE_PROBE_TARGETS:
             return False, f"Unknown Braze schema: {schema_name!r}"
-        path = BRAZE_ENDPOINTS[schema_name].path if schema_name is not None else "/campaigns/list"
-        valid, error = validate_braze_credentials(config.api_key, config.url, path, team_id)
+        probe_target = BRAZE_PROBE_TARGETS[schema_name] if schema_name is not None else DEFAULT_PROBE_TARGET
+        valid, error = validate_braze_credentials(config.api_key, config.url, probe_target, team_id)
 
         # A scoped key may legitimately lack the probe endpoint's permission at
         # source-create time; only enforce per-endpoint scope when validating a

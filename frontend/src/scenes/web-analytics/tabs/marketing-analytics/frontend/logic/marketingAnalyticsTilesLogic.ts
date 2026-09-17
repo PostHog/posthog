@@ -82,8 +82,10 @@ export interface marketingAnalyticsTilesLogicValues {
     } // marketingAnalyticsLogic
     draftConversionGoal: ConversionGoalFilter | null // marketingAnalyticsLogic
     drillDownLevel: MarketingAnalyticsDrillDownLevel // marketingAnalyticsLogic
+    includeConversionGoals: boolean // marketingAnalyticsLogic
     integrationFilter: IntegrationFilter // marketingAnalyticsLogic
     loading: boolean // marketingAnalyticsLogic
+    shouldFilterTestAccounts: boolean // marketingAnalyticsLogic
     tileColumnSelection: validColumnsForTiles // marketingAnalyticsLogic
     defaultColumns: string[] // marketingAnalyticsTableLogic
     query: DataTableNode | null // marketingAnalyticsTableLogic
@@ -105,7 +107,9 @@ export interface marketingAnalyticsTilesLogicMeta {
                 interval: IntervalType
             },
             draftConversionGoal: ConversionGoalFilter | null,
-            integrationFilter: IntegrationFilter
+            integrationFilter: IntegrationFilter,
+            shouldFilterTestAccounts: boolean,
+            includeConversionGoals: boolean
         ) => QueryTile
         marketingChartTile: (
             compareFilter: CompareFilter,
@@ -142,7 +146,9 @@ export interface marketingAnalyticsTilesLogicMeta {
             defaultColumns: string[],
             compareFilter: CompareFilter,
             integrationFilter: IntegrationFilter,
-            drillDownLevel: MarketingAnalyticsDrillDownLevel
+            drillDownLevel: MarketingAnalyticsDrillDownLevel,
+            shouldFilterTestAccounts: boolean,
+            includeConversionGoals: boolean
         ) => DataTableNode | null
     }
 }
@@ -168,8 +174,10 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 'chartDisplayType',
                 'tileColumnSelection',
                 'integrationFilter',
+                'shouldFilterTestAccounts',
                 'drillDownLevel',
                 'baseCurrency',
+                'includeConversionGoals',
             ],
             marketingAnalyticsTableLogic,
             ['query', 'defaultColumns'],
@@ -181,12 +189,21 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
         // One selector per tile so an input change only invalidates the tile that uses
         // it — entries keep identity in `tiles` below, so `dataNodeLogic` doesn't refetch.
         overviewTile: [
-            (s) => [s.compareFilter, s.dateFilter, s.draftConversionGoal, s.integrationFilter],
+            (s) => [
+                s.compareFilter,
+                s.dateFilter,
+                s.draftConversionGoal,
+                s.integrationFilter,
+                s.shouldFilterTestAccounts,
+                s.includeConversionGoals,
+            ],
             (
                 compareFilter: CompareFilter | null,
                 dateFilter: { dateFrom: string | null; dateTo: string | null; interval: IntervalType },
                 draftConversionGoal: ConversionGoalFilter | null,
-                integrationFilter: IntegrationFilter
+                integrationFilter: IntegrationFilter,
+                shouldFilterTestAccounts: boolean,
+                includeConversionGoals: boolean
             ): QueryTile => ({
                 kind: 'query',
                 tileId: TileId.MARKETING_OVERVIEW,
@@ -202,7 +219,9 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     },
                     compareFilter: compareFilter || undefined,
                     properties: [],
-                    draftConversionGoal: draftConversionGoal || undefined,
+                    filterTestAccounts: shouldFilterTestAccounts,
+                    draftConversionGoal: includeConversionGoals ? draftConversionGoal || undefined : undefined,
+                    ...(!includeConversionGoals ? { select: Object.values(MarketingAnalyticsBaseColumns) } : {}),
                     integrationFilter: integrationFilter,
                     tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
                 },
@@ -392,6 +411,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.compareFilter,
                 s.integrationFilter,
                 s.drillDownLevel,
+                s.shouldFilterTestAccounts,
+                s.includeConversionGoals,
             ],
             (
                 loading: boolean,
@@ -401,12 +422,24 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 defaultColumns: string[],
                 compareFilter: CompareFilter,
                 integrationFilter: IntegrationFilter,
-                drillDownLevel: MarketingAnalyticsDrillDownLevel
+                drillDownLevel: MarketingAnalyticsDrillDownLevel,
+                shouldFilterTestAccounts: boolean,
+                includeConversionGoals: boolean
             ): DataTableNode | null => {
                 if (loading) {
                     return null
                 }
-                const marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined
+                let marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined
+                if (!includeConversionGoals) {
+                    const baseColumns = new Set<string>(Object.values(MarketingAnalyticsBaseColumns))
+                    baseColumns.add(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias)
+                    defaultColumns = defaultColumns.filter((column) => baseColumns.has(column))
+                    marketingQuery = {
+                        ...marketingQuery,
+                        select: marketingQuery?.select?.filter((column) => baseColumns.has(column)),
+                    } as MarketingAnalyticsTableQuery
+                    draftConversionGoal = null
+                }
 
                 // Determine the correct grouping column alias for the current drill-down level
                 const drillDownConfig = MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel]
@@ -481,6 +514,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                             date_to: dateFilter.dateTo,
                         },
                         properties: [],
+                        filterTestAccounts: shouldFilterTestAccounts,
                         draftConversionGoal: draftConversionGoal,
                         limit: 200,
                         orderBy,

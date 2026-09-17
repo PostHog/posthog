@@ -19,22 +19,36 @@ from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 
-def query_teams_for_digest() -> QuerySet:
-    return (
-        Team.objects.select_related("organization")
-        .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
-        .only(
+def query_teams_for_digest(*, with_organization: bool = False) -> QuerySet:
+    """Teams eligible for a digest, ordered by id.
+
+    Pass `with_organization` only when the caller reads `Team.organization`.
+    """
+    # Excluding through the organization join makes Postgres read every organization row on
+    # every call, to build a hash it then discards. A subquery hits the partial index on
+    # for_internal_metrics, so the cost follows the team batch instead of the organization count.
+    queryset = (
+        Team.objects.exclude(is_demo=True)
+        .exclude(organization_id__in=Organization.objects.filter(for_internal_metrics=True).values("id"))
+        .order_by("id")
+    )
+
+    if with_organization:
+        # all_users_with_access reads organization.available_product_features, a large JSON
+        # column, so only the callers that ask for the organization pay to load it.
+        return queryset.select_related("organization").only(
             "id",
-            "name",
             "project_id",
             "organization_id",
             "organization__id",
-            "organization__name",
-            "organization__created_at",
             "organization__available_product_features",
         )
-        .order_by("id")
-    )
+
+    return queryset.only("id", "project_id", "organization_id")
+
+
+def query_team_ids_for_digest() -> QuerySet:
+    return query_teams_for_digest().values_list("id", flat=True)
 
 
 def query_orgs_for_digest() -> QuerySet:

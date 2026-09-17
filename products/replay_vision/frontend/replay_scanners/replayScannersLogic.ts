@@ -16,10 +16,12 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual } from 'lib/utils/objects'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import {
     visionScannersCreatorsRetrieve,
@@ -72,6 +74,8 @@ export interface ScannersSorting {
 }
 
 export const SCANNERS_PAGE_SIZE = 50
+// Matches LLM Analytics' dashboard dwell gate, so the shallow-intent bar is the same across products.
+export const REPLAY_VISION_INTENT_DWELL_MS = 15000
 const ALL_ENABLED: EnabledFilter[] = ENABLED_OPTIONS.map((o) => o.value)
 const ALL_SCANNER_TYPES: ScannerType[] = SCANNER_TYPE_OPTIONS.map((o) => o.value)
 const DEFAULT_SORT: ScannersSorting = { columnKey: 'created_at', order: -1 }
@@ -696,6 +700,26 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
 
     urlToAction(({ actions, values, cache }) => ({
         [urls.replayVision()]: (_, searchParams) => {
+            // Shallow product intent: reading the scanner list for a while is interest, and it's the
+            // only signal the people who never create a scanner ever produce. Gated on dwell rather
+            // than on the route firing, because urlToAction runs on mount and a bounce would then
+            // start the team's 30-day activation clock. Registered as a disposable so the clock
+            // pauses while the tab is hidden: a background tab is not dwell.
+            if (!cache.dwellIntentArmed) {
+                cache.dwellIntentArmed = true
+                cache.disposables.add(() => {
+                    const timer = setTimeout(() => {
+                        // Drop the disposable once fired, so a later hide/show cycle does not
+                        // re-arm the timer and register again.
+                        cache.disposables.dispose('replayVisionDwell')
+                        void addProductIntent({
+                            product_type: ProductKey.REPLAY_VISION,
+                            intent_context: ProductIntentContext.REPLAY_VISION_VIEWED,
+                        })
+                    }, REPLAY_VISION_INTENT_DWELL_MS)
+                    return () => clearTimeout(timer)
+                }, 'replayVisionDwell')
+            }
             const pageRaw = Number(searchParams.page ?? 1)
             const parsed: ScannersFilters = {
                 search: typeof searchParams.search === 'string' ? searchParams.search : '',

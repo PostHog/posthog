@@ -36,7 +36,13 @@ from rest_framework.response import Response
 
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, set_tags_on_object
+from posthog.api.tagged_item import (
+    BulkUpdateTagsUUIDRequestSerializer,
+    BulkUpdateTagsUUIDResponseSerializer,
+    TaggedItemSerializerMixin,
+    TaggedItemViewSetMixin,
+    set_tags_on_object,
+)
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -119,6 +125,14 @@ class TicketMessageSerializer(serializers.Serializer):
     rich_content = serializers.JSONField(read_only=True, allow_null=True, help_text="TipTap rich content JSON, if any.")
     author_type = serializers.CharField(read_only=True, help_text="One of: customer, support, AI.")
     author_name = serializers.CharField(read_only=True, help_text="Display name of the author.")
+    author_email = serializers.EmailField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Email of the authoring PostHog user, when the message was written by one "
+            "(support replies and internal notes). Null for customer and AI messages."
+        ),
+    )
     is_private = serializers.BooleanField(
         read_only=True, help_text="True for internal notes not visible to the customer."
     )
@@ -631,6 +645,11 @@ class _TicketUpdateDiff:
         parameters=[TICKET_ID_PARAM], request=TicketUpdateRequestSerializer, responses=TicketSerializer
     ),
     destroy=extend_schema(parameters=[TICKET_ID_PARAM]),
+    # The mixin action's default schema documents integer ids; tickets are keyed by UUID.
+    bulk_update_tags=extend_schema(
+        request=BulkUpdateTagsUUIDRequestSerializer,
+        responses={200: BulkUpdateTagsUUIDResponseSerializer},
+    ),
 )
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
@@ -652,6 +671,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     serializer_class = TicketSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]
     pagination_class = TicketPagination
+    # ``bulk_tag_activity_scope`` stays unset: TaggedItem changes are already mirrored onto the
+    # ticket's activity stream (RELATED_OBJECT_ACTIVITY_LOGGERS), so a bulk entry would double-log.
+    bulk_update_tags_request_serializer_class = BulkUpdateTagsUUIDRequestSerializer
 
     # Which search branch safely_get_queryset applied, for the latency histogram.
     _search_path: str | None = None
@@ -1367,11 +1389,14 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             or item_context.get("slack_author_name")
             or item_context.get("teams_author_name")
             or item_context.get("teams_author_email")
+            or item_context.get("github_login")
             or item_context.get("email_from_name")
         )
 
         if comment.created_by:
-            author_name = comment.created_by.first_name or comment.created_by.email
+            author_name = (
+                f"{comment.created_by.first_name} {comment.created_by.last_name}".strip() or comment.created_by.email
+            )
         elif author_type == "AI":
             author_name = "PostHog Assistant"
         elif context_author_name:
@@ -1388,6 +1413,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             "rich_content": comment.rich_content,
             "author_type": author_type,
             "author_name": author_name,
+            "author_email": comment.created_by.email if comment.created_by else None,
             "is_private": item_context.get("is_private") is True,
             "has_full_email_content": item_context.get("has_full_email_content") is True,
             "version": comment.version,
@@ -1494,15 +1520,17 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         item_context = {"author_type": "support", "is_private": data["is_private"]}
 
         def create_comment() -> Comment:
-            return Comment.objects.create(
-                team=self.team,
-                created_by=request.user,
-                scope="conversations_ticket",
-                item_id=str(ticket.id),
-                content=data["message"],
-                rich_content=data.get("rich_content"),
-                item_context=item_context,
-            )
+            # ATOMIC_REQUESTS is off, so wrap the comment insert with the email-outbox write.
+            with transaction.atomic():
+                return Comment.objects.create(
+                    team=self.team,
+                    created_by=request.user,
+                    scope="conversations_ticket",
+                    item_id=str(ticket.id),
+                    content=data["message"],
+                    rich_content=data.get("rich_content"),
+                    item_context=item_context,
+                )
 
         fingerprint = reply_dedupe.ReplyFingerprint.build(
             team_id=self.team_id,

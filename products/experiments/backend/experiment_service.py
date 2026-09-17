@@ -1,5 +1,6 @@
 """Experiment service — single source of truth for experiment business logic."""
 
+import json
 import time
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
@@ -18,7 +19,6 @@ from django.utils import timezone
 
 import pydantic
 import structlog
-import posthoganalytics
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
@@ -44,7 +44,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
 )
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.activity_logging.utils import get_changed_fields_local
 from posthog.models.filters.filter import Filter
@@ -104,6 +104,7 @@ from products.feature_flags.backend.facade.filters import (
     strip_group_cohort_restriction,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
+from products.feature_flags.backend.ownership import FLAG_OWNER_EXPERIMENT, assert_flag_available_for
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -117,10 +118,6 @@ from products.tasks.backend.facade import api as tasks_facade
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 logger = structlog.get_logger(__name__)
-
-# Feature flag (in PostHog's internal project) gating which teams auto-open flag-cleanup PRs when an
-# experiment ends. Evaluated as a project-group flag — see _cleanup_pr_flag_enabled.
-EXPERIMENT_CLEANUP_PR_FLAG = "experiment-flag-cleanup-pr"
 
 CleanupRepositorySource = Literal["explicit", "team_default", "single_repo", "ambiguous", "no_integration"]
 
@@ -136,13 +133,29 @@ class CleanupRequestSummary(TypedDict):
 
     attempted: bool
     repository_source: CleanupRepositorySource | None
-    skip_reason: Literal["no_conclusion", "flag_disabled", "no_repository", "error"] | None
+    skip_reason: Literal["no_conclusion", "no_repository", "error"] | None
     confident: bool | None
 
 
 DEFAULT_ROLLOUT_PERCENTAGE = 100
 
 ExperimentCreationMode = Literal["new", "duplicate", "copy_to_project"]
+
+
+def _parse_tag_names(value: Any) -> list[str]:
+    """Parse a tags query param that arrives as a list or a JSON-encoded string.
+
+    Anything that doesn't decode to a list is ignored rather than an error: a scalar like
+    ``?tags=5`` or ``?tags="growth"`` decodes fine but isn't a tag list.
+    """
+    try:
+        tags = value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(tags, list):
+        return []
+    return [tag for tag in tags if isinstance(tag, str)]
+
 
 DEFAULT_VARIANTS = [
     {"key": "control", "name": "Control Group", "rollout_percentage": 50},
@@ -647,14 +660,6 @@ class ExperimentService:
         return rendered
 
     @classmethod
-    def strip_unknown_exposure_criteria_keys(cls, exposure_criteria: dict | None) -> dict | None:
-        """Drop unknown top-level keys from stored criteria (writes accepted them before
-        the unknown-key rejection below existed)."""
-        if not isinstance(exposure_criteria, dict):
-            return exposure_criteria
-        return {k: v for k, v in exposure_criteria.items() if k in ExperimentExposureCriteria.model_fields}
-
-    @classmethod
     def validate_experiment_exposure_criteria(cls, exposure_criteria: object) -> None:
         """Validate experiment exposure criteria payloads.
 
@@ -671,8 +676,7 @@ class ExperimentService:
             )
 
         # Reject unknown top-level keys: they used to be silently saved, and the strict
-        # read-side parse then broke every results/exposure query for the experiment
-        # (reads now tolerate them, but new writes should fail fast with a pointer).
+        # read-side parse then broke every results/exposure query for the experiment.
         unknown_keys = set(exposure_criteria) - set(ExperimentExposureCriteria.model_fields)
         if unknown_keys:
             hint = (
@@ -1545,6 +1549,9 @@ class ExperimentService:
         existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=self.team.id).first()
 
         if existing_flag:
+            # Not in _validate_existing_flag: launch calls that too, on a flag this experiment
+            # already owns.
+            assert_flag_available_for(existing_flag, product=FLAG_OWNER_EXPERIMENT)
             self._validate_existing_flag(existing_flag)
             variants = existing_flag.variants or list(DEFAULT_VARIANTS)
             return existing_flag, variants
@@ -2382,6 +2389,9 @@ class ExperimentService:
                 # matches and no change request is raised. We therefore don't special-case ApprovalRequired
                 # here. If approvals ever grow to gate property/cohort changes, revisit this: the snapshot
                 # cohort would then need to outlive a pending change request rather than be cleaned up below.
+                # Mark the write as freeze-driven so the flag's log entry does not read as
+                # a manual targeting edit.
+                locked_flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=True)
                 update_flag(
                     locked_flag,
                     {"filters": new_filters},
@@ -2660,6 +2670,7 @@ class ExperimentService:
         flag = experiment.feature_flag
         new_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {})
 
+        flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=False)
         update_flag(flag, {"filters": new_filters}, team=self.team, user=self.user, request=request)
 
         # Refresh so the experiment's nested flag reflects the restored filters when serialized.
@@ -2739,21 +2750,6 @@ class ExperimentService:
 
         return experiment
 
-    def _cleanup_pr_flag_enabled(self) -> bool:
-        # Our backend's posthoganalytics client points at PostHog's own internal project, so we gate a
-        # customer team by passing it as the "project" group and targeting that group's id on the flag.
-        # Local eval keeps this off the request's hot path (definitions refresh on a short poll).
-        return bool(
-            posthoganalytics.feature_enabled(
-                EXPERIMENT_CLEANUP_PR_FLAG,
-                str(self.team.id),
-                groups={"project": str(self.team.id)},
-                group_properties={"project": {"id": str(self.team.id)}},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        )
-
     def _maybe_open_cleanup_pr(
         self,
         experiment: Experiment,
@@ -2761,8 +2757,8 @@ class ExperimentService:
         requested_repository: str | None = None,
         set_repository_as_team_default: bool = False,
     ) -> CleanupRequestSummary:
-        """When opted in (the checkbox) and the team's gate flag is on, open a draft PR that removes the
-        experiment's feature-flag code, via the Tasks engine.
+        """When opted in (the checkbox), open a draft PR that removes the experiment's feature-flag
+        code, via the Tasks engine.
 
         Deferred to after commit (so a rolled-back end never opens a PR) and wrapped so it can never
         break ending an experiment.
@@ -2779,9 +2775,6 @@ class ExperimentService:
                 return summary
             if not conclusion:
                 summary["skip_reason"] = "no_conclusion"
-                return summary
-            if not self._cleanup_pr_flag_enabled():
-                summary["skip_reason"] = "flag_disabled"
                 return summary
 
             flag_key = experiment.get_feature_flag_key()
@@ -3083,6 +3076,16 @@ class ExperimentService:
 
         return experiment
 
+    @staticmethod
+    def _exposure_freeze_trigger(experiment: Experiment, *, frozen: bool) -> Trigger:
+        """Trigger for a freeze-driven flag rewrite. job_type stays in sync with the
+        describer in frontend/src/scenes/feature-flags/activityDescriptions.tsx."""
+        return Trigger(
+            job_type="experiment_exposure_frozen" if frozen else "experiment_exposure_unfrozen",
+            job_id=str(experiment.pk),
+            payload={"experiment_id": experiment.pk},
+        )
+
     def _clear_frozen_exposure(self, experiment: Experiment, *, request: Any | None) -> None:
         """Strip the exposure-freeze narrowing (if any) off the experiment's flag and drop the
         snapshot cohorts.
@@ -3105,6 +3108,8 @@ class ExperimentService:
         if stripped_filters == (flag.filters or {}):
             return
 
+        # The reset strips the freeze narrowing, so tag the write like an unfreeze.
+        flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=False)
         if request is not None:
             update_flag(flag, {"filters": stripped_filters}, team=self.team, user=self.user, request=request)
         else:
@@ -3214,6 +3219,22 @@ class ExperimentService:
             experiment.conclusion_comment = conclusion_comment
             shipped_fields.append("conclusion_comment")
         self._bump_version_and_save(experiment, update_fields=shipped_fields)
+
+        # The flag rewrite logs under the FeatureFlag scope and the experiment save logs only
+        # end_date/conclusion, so without this entry the History tab never names the shipped variant.
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            user=self.user,
+            was_impersonated=is_impersonated_session(request) if request else False,
+            item_id=experiment.pk,
+            scope="Experiment",
+            activity="variant_shipped",
+            detail=Detail(
+                name=experiment.name,
+                changes=[Change(type="Experiment", action="created", field="shipped_variant", after=variant_key)],
+            ),
+        )
 
         self._report_experiment_variant_shipped(
             experiment, variant_key=variant_key, release_to_everyone=release_to_everyone, request=request
@@ -4188,9 +4209,7 @@ class ExperimentService:
             "ensure_experience_continuity": bool(source_experiment.feature_flag.ensure_experience_continuity),
         }
 
-        # Stored criteria can carry unknown top-level keys accepted before writes rejected
-        # them — strip those instead of failing the clone on data the user didn't write.
-        cloned_exposure_criteria = self.strip_unknown_exposure_criteria_keys(source_experiment.exposure_criteria)
+        cloned_exposure_criteria = source_experiment.exposure_criteria
         self.validate_experiment_exposure_criteria(cloned_exposure_criteria)
         self.validate_experiment_metrics(source_experiment.metrics)
         self.validate_experiment_metrics(source_experiment.metrics_secondary)
@@ -4514,6 +4533,24 @@ class ExperimentService:
                 # Event references live deep in the metrics JSON, so filter in Python and
                 # narrow the queryset by primary key to preserve ordering and pagination.
                 queryset = queryset.filter(pk__in=self._experiments_matching_event(queryset, event))
+
+            tags = _parse_tag_names(query_params.get("tags"))
+            if tags:
+                # Filter by ID subquery instead of join + .distinct(): the list queryset joins six
+                # tables (including jsonb columns), so SELECT DISTINCT over it dedupes every column.
+                experiments_with_tags = Experiment.objects.filter(
+                    team__project_id=self.team.project_id, tagged_items__tag__name__in=tags
+                ).values("pk")
+                queryset = queryset.filter(pk__in=experiments_with_tags)
+
+            excluded_tags = _parse_tag_names(query_params.get("excluded_tags"))
+            if excluded_tags:
+                # Exclude by ID subquery so an experiment carrying both an excluded and a
+                # non-excluded tag is still reliably filtered out.
+                experiments_with_excluded_tags = Experiment.objects.filter(
+                    team__project_id=self.team.project_id, tagged_items__tag__name__in=excluded_tags
+                ).values("pk")
+                queryset = queryset.exclude(pk__in=experiments_with_excluded_tags)
 
         search = query_params.get("search")
         if search:

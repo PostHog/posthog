@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { NEW_QUERY_STARTED_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
@@ -20,7 +21,7 @@ import {
     metricsAttributesRetrieve,
     metricsCharacterizeCreate,
     metricsQueryCreate,
-    metricsValuesRetrieve,
+    metricsNamesRetrieve,
 } from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
@@ -28,7 +29,7 @@ import { metricsViewerLogic } from './metricsViewerLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
-    metricsValuesRetrieve: jest.fn(),
+    metricsNamesRetrieve: jest.fn(),
     metricsAttributesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
     metricsCharacterizeCreate: jest.fn(),
@@ -77,7 +78,7 @@ describe('metricsViewerLogic', () => {
     beforeEach(() => {
         setResourceAccess({})
         initKeaTests()
-        jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: PICKER_ITEMS })
+        jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: PICKER_ITEMS })
         jest.mocked(metricsQueryCreate).mockReset().mockResolvedValue({ results: [] })
         jest.mocked(metricsAttributesRetrieve).mockReset()
         jest.mocked(metricsCharacterizeCreate).mockReset()
@@ -374,6 +375,48 @@ describe('metricsViewerLogic', () => {
         expect(insightsApi.create).toHaveBeenCalledTimes(2)
     })
 
+    // A group-by-requiring panel must not stay selected once nothing is grouped anymore:
+    // the bar gauge would otherwise render a single bar for an ungrouped result.
+    it('falls back to the default display when the last group-by is removed', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setDisplayType('bargauge')
+        expect(logic.values.displayType).toBe('bargauge')
+
+        logic.actions.setGroupByKeys([])
+        expect(logic.values.displayType).toBe('line')
+    })
+
+    it('keeps a group-by panel when a group-by is still present', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setDisplayType('bargauge')
+
+        logic.actions.setGroupByKeys(['namespace'])
+        expect(logic.values.displayType).toBe('bargauge')
+    })
+
+    // A group-by-requiring panel must not stay selected once nothing is grouped anymore:
+    // the bar gauge would otherwise render a single bar for an ungrouped result.
+    it('falls back to the default display when the last group-by is removed', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setDisplayType('bargauge')
+        expect(logic.values.displayType).toBe('bargauge')
+
+        logic.actions.setGroupByKeys([])
+        expect(logic.values.displayType).toBe('line')
+    })
+
+    it('keeps a group-by panel when a group-by is still present', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setDisplayType('bargauge')
+
+        logic.actions.setGroupByKeys(['namespace'])
+        expect(logic.values.displayType).toBe('bargauge')
+    })
+
     it('carries the configured chart settings onto the saved node', () => {
         logic.actions.setMetricName('queue_depth')
         logic.actions.setDisplayType('bar')
@@ -413,6 +456,82 @@ describe('metricsViewerLogic', () => {
         logic.actions.saveAsInsight()
         await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
         expect(logic.values.isAddToDashboardModalOpen).toBe(false)
+    })
+
+    // "Create alert" surfaces the shared insight-alert flow for a metric: it saves the query as
+    // an insight (reusing it while unchanged) and routes to that insight's alerts page, rather
+    // than building a parallel metrics-specific alert model.
+    it('create alert saves the insight and routes to its alerts page', async () => {
+        const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(insightsApi.create).toHaveBeenCalledTimes(1)
+        expect(push).toHaveBeenCalledWith('/insights/abc123/alerts')
+        push.mockRestore()
+    })
+
+    it('create alert reuses the saved insight while the query is unchanged', async () => {
+        const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) =>
+                ({ id: 1, short_id: 'abc123', ...insight, query: { ...insight.query, version: 1 } }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(insightsApi.create).toHaveBeenCalledTimes(1)
+
+        push.mockClear()
+        // Unchanged query: route straight to the alerts page without a duplicate save.
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['createAlert'])
+        expect(insightsApi.create).toHaveBeenCalledTimes(1)
+        expect(push).toHaveBeenCalledWith('/insights/abc123/alerts')
+        push.mockRestore()
+    })
+
+    it('create alert saves a fresh insight after the query changes', async () => {
+        const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+
+        logic.actions.setAggregation('rate')
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(insightsApi.create).toHaveBeenCalledTimes(2)
+        push.mockRestore()
+    })
+
+    // The armed createAlert flag must clear after routing: if it stayed set, a later plain
+    // "Save as insight" would be mis-routed to the alerts page (and its toast suppressed).
+    it('a plain save after a create-alert save does not route to the alerts page', async () => {
+        const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+
+        logic.actions.createAlert()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(push).toHaveBeenCalledWith('/insights/abc123/alerts')
+        expect(logic.values.pendingAlert).toBe(false)
+
+        push.mockClear()
+        logic.actions.setAggregation('rate')
+        logic.actions.saveAsInsight()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(push).not.toHaveBeenCalled()
+        push.mockRestore()
     })
 
     // A failed query (bad regex, 500) used to render the same "No data" empty state as a genuinely
@@ -566,30 +685,31 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.queryFilters).toEqual([{ key: 'env', op: 'eq', value: 'prod' }])
     })
 
-    // The group-by picker shipped with `options={[]}` and never fetched, so it offered no
-    // attribute keys. Typing must query the attributes endpoint (scoped by search) and map
-    // `{ name }` rows into `{ key, label }` options.
-    it('group-by search fetches attribute keys and maps them into options', async () => {
+    it('group-by search keeps the series counts and order from the selected metric API response', async () => {
         jest.mocked(metricsAttributesRetrieve).mockResolvedValue({
-            results: [{ name: 'env' }, { name: 'service_name' }],
+            results: [
+                { name: 'service_name', series_count: 20 },
+                { name: 'env', series_count: 2 },
+            ],
             count: 2,
         })
+        logic.actions.setMetricName('requests_total')
         await expectLogic(logic, () => {
             logic.actions.setGroupBySearch('e')
         }).toDispatchActions(['loadAttributeKeyOptions', 'loadAttributeKeyOptionsSuccess'])
         expect(metricsAttributesRetrieve).toHaveBeenCalledWith(
             expect.any(String),
-            expect.objectContaining({ search: 'e' })
+            expect.objectContaining({ search: 'e', metricName: 'requests_total' })
         )
         expect(logic.values.attributeKeyOptions).toEqual([
-            { key: 'env', label: 'env' },
-            { key: 'service_name', label: 'service_name' },
+            { key: 'service_name', label: 'service_name', seriesCount: 20 },
+            { key: 'env', label: 'env', seriesCount: 2 },
         ])
     })
 
     it('does not call metrics APIs without metrics viewer access', async () => {
         setResourceAccess({ [AccessControlResourceType.Metrics]: AccessControlLevel.None })
-        jest.mocked(metricsValuesRetrieve).mockClear()
+        jest.mocked(metricsNamesRetrieve).mockClear()
 
         await expectLogic(metricNamePickerLogic, () => {
             metricNamePickerLogic.actions.loadItems({ debounce: true })
@@ -603,7 +723,7 @@ describe('metricsViewerLogic', () => {
             logic.actions.setGroupBySearch('env')
         }).toDispatchActions(['loadAttributeKeyOptionsSuccess'])
 
-        expect(metricsValuesRetrieve).not.toHaveBeenCalled()
+        expect(metricsNamesRetrieve).not.toHaveBeenCalled()
         expect(metricsQueryCreate).not.toHaveBeenCalled()
         expect(metricsAttributesRetrieve).not.toHaveBeenCalled()
     })

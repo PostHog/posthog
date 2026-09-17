@@ -82,10 +82,13 @@ export interface TaxonomicPopoverMenuProps<ValueType extends TaxonomicFilterValu
     schemaColumns?: DatabaseSchemaField[]
     metadataSource?: AnyDataNode
     excludedProperties?: ExcludedProperties
+    includeHiddenEvents?: boolean
     selectedProperties?: SelectedProperties
     propertyAllowList?: AllowedProperties
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     hideBehavioralCohorts?: boolean
+    /** Mark each cohort row with what feature flags can do with it. See `TaxonomicFilterProps`. */
+    showCohortFlagTargeting?: boolean
     endpointFilters?: Record<string, any>
     hogQLGlobals?: Record<string, any>
     showNumericalPropsOnly?: boolean
@@ -220,10 +223,12 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
     schemaColumns,
     metadataSource,
     excludedProperties,
+    includeHiddenEvents,
     selectedProperties,
     propertyAllowList,
     optionsFromProp,
     hideBehavioralCohorts,
+    showCohortFlagTargeting,
     endpointFilters,
     hogQLGlobals,
     showNumericalPropsOnly,
@@ -271,6 +276,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
             id: value,
             name: String(value),
             ...(isDataWarehouse ? dataWarehouseTablesMap[String(value)] : {}),
+            ...(isDataWarehouse ? filter : {}),
         }
         return {
             item,
@@ -281,7 +287,7 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
             },
             name: String(value),
         } as unknown as MenuFilterEntry
-    }, [value, selectedGroupType, dataWarehouseTablesMap])
+    }, [value, selectedGroupType, dataWarehouseTablesMap, filter])
 
     // A renamed series doesn't reveal the thing it queries — surface the rename on the
     // committed selection's row so the user can connect it to the series they clicked.
@@ -302,10 +308,12 @@ function ArmedTaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Taxo
             schemaColumns={schemaColumns}
             metadataSource={metadataSource}
             excludedProperties={excludedProperties}
+            includeHiddenEvents={includeHiddenEvents}
             selectedProperties={selectedProperties}
             propertyAllowList={propertyAllowList}
             optionsFromProp={optionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
+            showCohortFlagTargeting={showCohortFlagTargeting}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
             showNumericalPropsOnly={showNumericalPropsOnly}

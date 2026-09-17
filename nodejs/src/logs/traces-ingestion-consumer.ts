@@ -1,11 +1,14 @@
 import { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './config'
 import { LogsIngestionConsumer, LogsIngestionConsumerDeps } from './logs-ingestion-consumer'
+import type { MetricRuleSource } from './metrics-rules/compile-metric-rules'
 
 export class TracesIngestionConsumer extends LogsIngestionConsumer {
     protected override name = 'TracesIngestionConsumer'
     // Meter and quota-limit traces against their own billing identity, not logs'.
     protected override quotaResource = 'traces_mb_ingested' as const
     protected override appSource = 'traces'
+    // Traces records are spans, so this consumer tallies the `spans` metric rules.
+    protected override metricRuleSource: MetricRuleSource = 'spans'
 
     constructor(config: LogsIngestionConsumerConfig & TracesIngestionConsumerConfig, deps: LogsIngestionConsumerDeps) {
         // Topics are wired into `deps.outputs` by the server, so the only consumer-level
@@ -27,6 +30,11 @@ export class TracesIngestionConsumer extends LogsIngestionConsumer {
                 LOGS_LIMITER_TTL_SECONDS: config.TRACES_LIMITER_TTL_SECONDS,
                 LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: config.TRACES_LIMITER_TEAM_BUCKET_SIZE_KB,
                 LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: config.TRACES_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND,
+                // Span metric rules gate on traces-specific env config so they roll out
+                // independently of log metric rules.
+                LOGS_METRICS_RULES_ENABLED_TEAMS: config.TRACES_METRICS_RULES_ENABLED_TEAMS,
+                LOGS_METRICS_RULES_KILLSWITCH: config.TRACES_METRICS_RULES_KILLSWITCH,
+                LOGS_METRICS_RULES_EXPORT_URL: config.TRACES_METRICS_RULES_EXPORT_URL,
             },
             // Own Redis key namespace so traces token buckets don't share per-team state with logs.
             'traces-rate-limiter'

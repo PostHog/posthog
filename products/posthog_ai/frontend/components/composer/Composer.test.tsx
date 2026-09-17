@@ -1,7 +1,10 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { createRef, useState } from 'react'
 
+import { QueuedMessageList } from '../QueuedMessageList'
+import { RunEscapeBoundary } from '../RunEscapeBoundary'
 import { Composer } from './Composer'
 
 describe('Composer', () => {
@@ -11,10 +14,12 @@ describe('Composer', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
+        jest.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue({ length: 1 } as DOMRectList)
     })
 
     afterEach(() => {
         cleanup()
+        jest.restoreAllMocks()
     })
 
     const renderComposer = (props: Partial<Parameters<typeof Composer.Root>[0]> = {}): ReturnType<typeof render> =>
@@ -32,6 +37,121 @@ describe('Composer', () => {
 
     const getSend = (container: HTMLElement): HTMLButtonElement =>
         container.querySelector('[data-attr="composer-send"]') as HTMLButtonElement
+
+    it.each(['Escape', 'Steer', 'Escape after closing a menu'])(
+        'steers the saved queue once through %s without submitting the draft',
+        (trigger) => {
+            const steer = jest.fn()
+            function QueuedComposer(): JSX.Element {
+                const [pending, setPending] = useState(false)
+                const textAreaRef = createRef<HTMLTextAreaElement>()
+                const onSteer = (): void => {
+                    setPending(true)
+                    steer()
+                }
+                return (
+                    <RunEscapeBoundary scope="composer" textAreaRef={textAreaRef} onEscape={onSteer} disabled={pending}>
+                        <Composer.Root
+                            value="unsent draft"
+                            onChange={onChange}
+                            onSubmit={onSubmit}
+                            textAreaRef={textAreaRef}
+                        >
+                            <QueuedMessageList
+                                messages={[{ id: 'queued', content: 'saved message' }]}
+                                onUpdate={jest.fn()}
+                                onRemove={jest.fn()}
+                                onSteer={onSteer}
+                                steerPending={pending}
+                            />
+                            <Composer.Textarea data-attr="composer-input" />
+                        </Composer.Root>
+                    </RunEscapeBoundary>
+                )
+            }
+            render(<QueuedComposer />)
+            if (trigger === 'Escape after closing a menu') {
+                render(
+                    <div aria-hidden="true">
+                        <div role="listbox" />
+                    </div>
+                )
+                jest.spyOn(document.querySelector('[role="listbox"]')!, 'getClientRects').mockReturnValue({
+                    length: 1,
+                } as DOMRectList)
+            }
+            const input = screen.getByTestId('composer-input')
+            input.focus()
+            for (let i = 0; i < 2; i++) {
+                if (trigger.startsWith('Escape')) {
+                    fireEvent.keyDown(input, { key: 'Escape' })
+                } else {
+                    fireEvent.click(screen.getByTestId('run-queue-steer'))
+                }
+            }
+            expect(steer).toHaveBeenCalledTimes(1)
+            expect(onSubmit).not.toHaveBeenCalled()
+            expect(input).toHaveValue('unsent draft')
+        }
+    )
+
+    it.each([
+        'empty queue',
+        'repeat',
+        'composing',
+        'menu',
+        'dialog',
+        'listbox',
+        'other input',
+        'queue editor',
+        'hidden',
+        'handled',
+    ])('leaves Escape alone for %s', (reason) => {
+        const textAreaRef = createRef<HTMLTextAreaElement>()
+        const steer = jest.fn()
+        const { container } = render(
+            <div hidden={reason === 'hidden'}>
+                <RunEscapeBoundary
+                    scope="composer"
+                    textAreaRef={textAreaRef}
+                    onEscape={steer}
+                    disabled={reason === 'empty queue'}
+                >
+                    <Composer.Root
+                        value="unsent draft"
+                        onChange={onChange}
+                        onSubmit={onSubmit}
+                        textAreaRef={textAreaRef}
+                    >
+                        <Composer.Textarea data-attr="composer-input" />
+                        {reason === 'queue editor' && <textarea data-attr="run-queue-editor" />}
+                    </Composer.Root>
+                </RunEscapeBoundary>
+                <input data-attr="other-input" />
+                {['menu', 'dialog', 'listbox'].includes(reason) && <div role={reason} />}
+            </div>
+        )
+        const target =
+            reason === 'other input' ? screen.getByTestId('other-input') : screen.getByTestId('composer-input')
+        if (['menu', 'dialog', 'listbox'].includes(reason)) {
+            jest.spyOn(screen.getByRole(reason), 'getClientRects').mockReturnValue({ length: 1 } as DOMRectList)
+        }
+        const event = new KeyboardEvent('keydown', {
+            key: 'Escape',
+            bubbles: true,
+            cancelable: true,
+            repeat: reason === 'repeat',
+            isComposing: reason === 'composing',
+        })
+        if (reason === 'handled') {
+            event.preventDefault()
+        }
+        target.dispatchEvent(event)
+        expect(steer).not.toHaveBeenCalled()
+        expect(event.defaultPrevented).toBe(reason === 'handled')
+        expect(onSubmit).not.toHaveBeenCalled()
+        expect(container.querySelector('textarea')).toHaveValue('unsent draft')
+    })
 
     it('shows the placeholder only while empty', () => {
         const { rerender } = renderComposer()
@@ -102,6 +222,21 @@ describe('Composer', () => {
         fireEvent.click(getSend(container))
         expect(onSubmit).toHaveBeenCalledTimes(1)
         expect(onStop).not.toHaveBeenCalled()
+    })
+
+    it.each(['', 'follow up'])('keeps a pending stop visible and blocks sending with draft %p', (value) => {
+        const { container } = renderComposer({ value, stopLoading: true, onStop })
+        const button = getSend(container)
+        const input = screen.getByTestId('composer-input')
+        expect(button).toHaveAttribute('aria-label', 'Stopping…')
+        expect(button).toHaveAttribute('type', 'button')
+        expect(button).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(button)
+        fireEvent.keyDown(input, { key: 'Enter' })
+        expect(onStop).not.toHaveBeenCalled()
+        expect(onSubmit).not.toHaveBeenCalled()
+        expect(input).toHaveValue(value)
+        expect(input).not.toBeDisabled()
     })
 
     it('throws when a part is rendered outside Composer.Root', () => {

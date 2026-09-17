@@ -68,7 +68,7 @@ class UserPermissions:
     @cached_property
     def teams_visible_for_user(self) -> list[Team]:
         candidate_teams = Team.objects.filter(organization_id__in=self.organizations.keys()).only(
-            "pk", "organization_id"
+            "pk", "organization_id", "project_id"
         )
         return [team for team in candidate_teams if self.team(team).effective_membership_level is not None]
 
@@ -147,9 +147,8 @@ class UserPermissions:
         from products.access_control.backend.models.role import RoleMembership
 
         result: dict[UUID, set[UUID]] = {}
-        for organization_id, role_id in RoleMembership.objects.filter(user=self.user).values_list(
-            "role__organization_id", "role_id"
-        ):
+        role_memberships = RoleMembership.objects.filter(user=self.user).valid_for_authorization()
+        for organization_id, role_id in role_memberships.values_list("role__organization_id", "role_id"):
             result.setdefault(organization_id, set()).add(role_id)
         return result
 

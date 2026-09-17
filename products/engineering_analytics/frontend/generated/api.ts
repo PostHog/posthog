@@ -16,12 +16,14 @@ import type {
     CISignalsConfigApi,
     CISignalsConfigUpdateApi,
     CurrentBranchHealthApi,
+    DeliverySummaryApi,
     DoraOverviewApi,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsBrokenTestsParams,
     EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsCiFailureLogsParams,
     EngineeringAnalyticsCurrentBranchHealthParams,
+    EngineeringAnalyticsDeliverySummaryParams,
     EngineeringAnalyticsDoraParams,
     EngineeringAnalyticsFlakyTestsParams,
     EngineeringAnalyticsJobAggregatesParams,
@@ -29,6 +31,7 @@ import type {
     EngineeringAnalyticsPrCostParams,
     EngineeringAnalyticsPrLifecycleParams,
     EngineeringAnalyticsPrRunsParams,
+    EngineeringAnalyticsPullRequestTimelinesParams,
     EngineeringAnalyticsPullRequestsParams,
     EngineeringAnalyticsQuarantineParams,
     EngineeringAnalyticsRepoOverviewParams,
@@ -51,6 +54,7 @@ import type {
     PRCostSummaryApi,
     PRLifecycleApi,
     PullRequestListApi,
+    PullRequestTimelinesApi,
     QuarantineFileApi,
     QuarantineRequestApi,
     QuarantineRequestResultApi,
@@ -268,6 +272,39 @@ export const engineeringAnalyticsCurrentBranchHealth = async (
     })
 }
 
+export const getEngineeringAnalyticsDeliverySummaryUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsDeliverySummaryParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/delivery_summary/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/delivery_summary/`
+}
+
+/**
+ * Delivery and CI friction for one author or one GitHub team over a window (date_from default -30d), each figure next to the same figure over the whole repository: CI spend per merged PR, ready to merged split at the first approval, pushes after approval, merge-queue attempts, and lead time to deploy. Bots and drafts are excluded. Figures whose optional source isn't synced are null and flagged.
+ */
+export const engineeringAnalyticsDeliverySummary = async (
+    projectId: string,
+    params?: EngineeringAnalyticsDeliverySummaryParams,
+    options?: RequestInit
+): Promise<DeliverySummaryApi> => {
+    return apiMutator<DeliverySummaryApi>(getEngineeringAnalyticsDeliverySummaryUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getEngineeringAnalyticsDoraUrl = (projectId: string, params?: EngineeringAnalyticsDoraParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -360,7 +397,7 @@ export const getEngineeringAnalyticsJobAggregatesUrl = (
 }
 
 /**
- * Per-job aggregates for one workflow over a window (default -30d), one row per de-sharded job name (matrix shards aggregate together), busiest first: queue p50, duration p50/p95, failure rate, retry pressure, run share (below 1.0 = conditional job), and billable cost. Jobs always need their run as context — this is the aggregate view; use workflow_jobs for one run's jobs. Empty when the job-level source isn't synced.
+ * Per-job aggregates for one workflow over a window (default -30d), one row per de-sharded job name (matrix shards aggregate together), busiest first: queue p50, duration p50/p95, failure rate, retry pressure, run share (below 1.0 = conditional job), and billable cost. Optionally scope to a single git branch via `branch` or one run group via `run_scope`. Jobs always need their run as context — this is the aggregate view; use workflow_jobs for one run's jobs. Empty when the job-level source isn't synced.
  */
 export const engineeringAnalyticsJobAggregates = async (
     projectId: string,
@@ -494,6 +531,39 @@ export const engineeringAnalyticsPrRuns = async (
     options?: RequestInit
 ): Promise<WorkflowRunDetailApi[]> => {
     return apiMutator<WorkflowRunDetailApi[]>(getEngineeringAnalyticsPrRunsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsPullRequestTimelinesUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsPullRequestTimelinesParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/pull_request_timelines/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/pull_request_timelines/`
+}
+
+/**
+ * Pull requests as timelines of what each waited on from ready for review to merge or now: review, CI, red checks by what turned them green, and the merge queue. Scope to one author or one GitHub team (open PRs plus PRs merged in the window, date_from default -30d), or to one pull request with pr_number and repo.
+ */
+export const engineeringAnalyticsPullRequestTimelines = async (
+    projectId: string,
+    params?: EngineeringAnalyticsPullRequestTimelinesParams,
+    options?: RequestInit
+): Promise<PullRequestTimelinesApi> => {
+    return apiMutator<PullRequestTimelinesApi>(getEngineeringAnalyticsPullRequestTimelinesUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -889,7 +959,7 @@ export const getEngineeringAnalyticsWorkflowHealthUrl = (
 }
 
 /**
- * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. Success rate covers runs that succeeded or ended in a decisive failure. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, or to attributed pull-request runs via `run_scope=pull_request`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
+ * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. Success rate covers runs that succeeded or ended in a decisive failure. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, to one workflow via `workflow_name`, or to one run group via `run_scope` (default_branch, pull_request, merge_queue). Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
  */
 export const engineeringAnalyticsWorkflowHealth = async (
     projectId: string,
@@ -988,7 +1058,7 @@ export const getEngineeringAnalyticsWorkflowRunActivityUrl = (
 }
 
 /**
- * Compact per-run points for a single workflow over a window (date_from default -30d), newest first, for the run-activity chart: each run's start time, duration, conclusion, branch, and attributed PR. Optionally scope to a single git branch via `branch`, matching workflow_runs. Leaner and higher-capped than workflow_runs so the chart spans the full window even on busy workflows; `truncated` is true when the cap is hit, so the chart covers only the most recent runs.
+ * Compact per-run points for a single workflow over a window (date_from default -30d), newest first, for the run-activity chart: each run's start time, duration, conclusion, branch, and attributed PR. Optionally scope to a single git branch via `branch` or one run group via `run_scope`, matching workflow_runs. Leaner and higher-capped than workflow_runs so the chart spans the full window even on busy workflows; `truncated` is true when the cap is hit, so the chart covers only the most recent runs.
  */
 export const engineeringAnalyticsWorkflowRunActivity = async (
     projectId: string,
@@ -1021,7 +1091,7 @@ export const getEngineeringAnalyticsWorkflowRunnerCostsUrl = (
 }
 
 /**
- * A workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Optionally scope to a single git branch via `branch`. Returns an empty list when the job-level source isn't synced.
+ * A workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Optionally scope to a single git branch via `branch` or one run group via `run_scope`. Returns an empty list when the job-level source isn't synced.
  */
 export const engineeringAnalyticsWorkflowRunnerCosts = async (
     projectId: string,
@@ -1054,7 +1124,7 @@ export const getEngineeringAnalyticsWorkflowRunsUrl = (
 }
 
 /**
- * Runs of a single workflow within a repo over a window (date_from default -30d), newest first. Optionally scope to a single git branch via `branch`. Each row is run-level — per-job and per-step detail are not tracked yet. Use this as the GitHub 'workflow' page between the workflow list and a single run.
+ * Runs of a single workflow within a repo over a window (date_from default -30d), newest first. Optionally scope to a single git branch via `branch` or to one run group via `run_scope`. Each row is run-level — per-job and per-step detail are not tracked yet. Use this as the GitHub 'workflow' page between the workflow list and a single run.
  */
 export const engineeringAnalyticsWorkflowRuns = async (
     projectId: string,
