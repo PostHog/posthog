@@ -26,6 +26,7 @@ import {
   useRepositories,
 } from "@/lib/queries";
 import { useRepo } from "@/lib/repo";
+import { useSessions } from "@/lib/session";
 import { colors, fonts } from "@/lib/theme";
 
 export default function NewChatScreen() {
@@ -52,8 +53,6 @@ export default function NewChatScreen() {
   };
   const invalidateTasks = useInvalidateTasks();
   const [model, setModel] = useState(DEFAULT_MODEL);
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   // Keep the greeting centred in the space the keyboard leaves. The reported
   // height covers the bottom inset too, which the composer already occupied.
   const keyboard = useReanimatedKeyboardAnimation();
@@ -66,24 +65,27 @@ export default function NewChatScreen() {
     ],
   }));
 
+  // Open the chat immediately with the message in it; the task and its run
+  // are created behind that screen, then the chat is re-keyed to the real id.
   const send = async (text: string): Promise<void> => {
-    setSending(true);
-    setError(null);
+    const tempId = `new-${Date.now()}`;
+    const { startPending, adopt, failPending } = useSessions.getState();
+    startPending(tempId, text, `local-${Date.now()}`);
+    router.replace({ pathname: "/(drawer)/task/[id]", params: { id: tempId } });
     try {
       const task = await createAndRunTask({
         prompt: text,
         repository: repository.data ?? null,
         model,
       });
+      adopt(tempId, task);
       invalidateTasks();
       router.replace({
         pathname: "/(drawer)/task/[id]",
         params: { id: task.id },
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSending(false);
+      failPending(tempId, err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -106,7 +108,6 @@ export default function NewChatScreen() {
             </Text>
           </Pressable>
         )}
-        {error ? <Text style={styles.error}>{error}</Text> : null}
       </Animated.View>
       <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
         <View style={[styles.composer, { paddingBottom: insets.bottom + 8 }]}>
@@ -115,7 +116,6 @@ export default function NewChatScreen() {
             model={model}
             onModelChange={setModel}
             onSend={send}
-            sending={sending}
             autoFocus
           />
         </View>
@@ -139,12 +139,5 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   repo: { fontFamily: fonts.mono, fontSize: 12, color: colors.inkMute },
-  error: {
-    color: colors.danger,
-    fontFamily: fonts.sans,
-    fontSize: 13,
-    textAlign: "center",
-    marginTop: 8,
-  },
   composer: { paddingHorizontal: 12 },
 });

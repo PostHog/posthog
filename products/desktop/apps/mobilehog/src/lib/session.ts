@@ -39,10 +39,17 @@ export interface TaskSession {
   localEchoes: Set<string>;
   // Last prompt sent, kept so a dead sandbox can be resumed with it.
   lastPrompt: string | null;
+  // A replacement run is being created for a finished one.
+  resuming: boolean;
 }
 
 interface SessionState {
   sessions: Record<string, TaskSession>;
+  // A chat that exists on screen before its task does. `adopt` moves it under
+  // the real task id once the run is created; `fail` leaves the prompt with an error.
+  startPending: (tempId: string, prompt: string, localId: string) => void;
+  adopt: (tempId: string, task: Task) => void;
+  failPending: (tempId: string, message: string) => void;
   connect: (task: Task) => void;
   disconnect: (taskId: string) => void;
   reconnect: () => void;
@@ -63,6 +70,16 @@ interface SessionState {
 
 const handles = new Map<string, WatchHandle>();
 
+// A finished run answers commands with 409 "workflow has ended"; a dead
+// sandbox with 404. Both mean: start a replacement run carrying the message.
+function runIsGone(error: CloudCommandError): boolean {
+  return (
+    error.isSandboxInactive() ||
+    error.status === 409 ||
+    !!error.backendError?.toLowerCase().includes("workflow has ended")
+  );
+}
+
 function emptySession(taskId: string, runId: string): TaskSession {
   return {
     taskId,
@@ -77,6 +94,7 @@ function emptySession(taskId: string, runId: string): TaskSession {
     permissions: {},
     localEchoes: new Set(),
     lastPrompt: null,
+    resuming: false,
   };
 }
 
@@ -244,6 +262,7 @@ export const useSessions = create<SessionState>((set, get) => {
           blocks: state.sessions[taskId]?.blocks ?? [],
           turnActive: true,
           lastPrompt: prompt,
+          resuming: true,
         },
       },
     }));
@@ -252,6 +271,44 @@ export const useSessions = create<SessionState>((set, get) => {
 
   return {
     sessions: {},
+
+    startPending: (tempId, prompt, localId) => {
+      set((state) => ({
+        sessions: {
+          ...state.sessions,
+          [tempId]: {
+            ...emptySession(tempId, ""),
+            blocks: [{ kind: "user", id: localId, text: prompt }],
+            runStatus: "queued",
+            turnActive: true,
+            localEchoes: new Set([prompt]),
+            lastPrompt: prompt,
+          },
+        },
+      }));
+    },
+
+    adopt: (tempId, task) => {
+      const runId = task.latest_run?.id;
+      const pending = get().sessions[tempId];
+      if (!runId || !pending) return;
+      set((state) => {
+        const sessions = { ...state.sessions };
+        delete sessions[tempId];
+        sessions[task.id] = {
+          ...pending,
+          taskId: task.id,
+          runId,
+          runStatus: task.latest_run?.status ?? "queued",
+        };
+        return { sessions };
+      });
+      watch(task.id, runId);
+    },
+
+    failPending: (tempId, message) => {
+      patch(tempId, () => ({ turnActive: false, error: message }));
+    },
 
     connect: (task) => {
       const runId = task.latest_run?.id;
@@ -308,8 +365,20 @@ export const useSessions = create<SessionState>((set, get) => {
           { content: text },
         );
       } catch (error) {
-        if (error instanceof CloudCommandError && error.isSandboxInactive()) {
-          await resumeRun(taskId, text, model);
+        if (error instanceof CloudCommandError && runIsGone(error)) {
+          patch(taskId, () => ({ resuming: true }));
+          try {
+            await resumeRun(taskId, text, model);
+          } catch (resumeError) {
+            patch(taskId, () => ({
+              resuming: false,
+              turnActive: false,
+              error:
+                resumeError instanceof Error
+                  ? resumeError.message
+                  : String(resumeError),
+            }));
+          }
           return localId;
         }
         echoes.delete(text);

@@ -24,6 +24,7 @@ export interface Session {
   projectName: string;
   userId: number;
   userName: string;
+  email?: string;
 }
 
 interface AuthState {
@@ -130,6 +131,7 @@ async function describeSession(base: {
     projectName,
     userId: me.id,
     userName: me.first_name || me.email,
+    email: me.email,
   };
 }
 
