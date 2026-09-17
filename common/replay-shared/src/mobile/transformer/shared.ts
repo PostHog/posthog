@@ -38,6 +38,9 @@ export function makePlaceholderElement(
                         backgroundRepeat: 'unset',
                         ...context.styleOverride,
                     }),
+                    // a div wireframe ancestor sets nowrap, which suppresses every wrap
+                    // opportunity the rule below would otherwise add
+                    'white-space:normal',
                     // a url has no break opportunities, so it must break anywhere to keep the label
                     // inside the wireframe, where the clip below would otherwise cut its start
                     'overflow-wrap:anywhere',
