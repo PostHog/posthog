@@ -21,6 +21,7 @@ import { TileDropZones } from "./TileDropZones";
 import {
   groupForTab,
   MAX_TILES_PER_GROUP,
+  nodeId,
   type TileNode,
   tabIdsIn,
 } from "./tileLayout";
@@ -39,10 +40,6 @@ interface TileTreeProps {
   onActivate: (tab: BrowserTab) => void;
   onUntile: (tab: BrowserTab) => void;
   children: ReactNode;
-}
-
-function nodeKey(node: TileNode): string {
-  return node.type === "tab" ? node.tabId : node.id;
 }
 
 function TileTree(props: TileTreeProps) {
@@ -73,7 +70,7 @@ function TileTree(props: TileTreeProps) {
       onLayout={(sizes) => setSplitSizes(node.id, sizes)}
     >
       {node.children.map((child, index) => (
-        <Fragment key={nodeKey(child)}>
+        <Fragment key={nodeId(child)}>
           {index > 0 && (
             // The handle sits above the tiles: a positioned element in the
             // next tile that touches the divider would otherwise take the
@@ -86,7 +83,7 @@ function TileTree(props: TileTreeProps) {
             />
           )}
           <Panel
-            id={nodeKey(child)}
+            id={nodeId(child)}
             order={index}
             defaultSize={node.sizes?.[index] ?? equalShare}
             minSize={MIN_TILE_PERCENT}

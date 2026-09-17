@@ -4,7 +4,6 @@ import {
   groupForTab,
   pruneActiveByGroup,
   pruneGroups,
-  separateGroup,
   setSplitSizes,
   type TileEdge,
   type TileGroup,
@@ -63,7 +62,12 @@ export const useTileLayoutStore = create<TileLayoutStore>()(
       untileTab: (tabId) =>
         set((state) => withGroups(state, untileTab(state.groups, tabId))),
       separate: (groupId) =>
-        set((state) => withGroups(state, separateGroup(state.groups, groupId))),
+        set((state) =>
+          withGroups(
+            state,
+            state.groups.filter((g) => g.id !== groupId),
+          ),
+        ),
       noteActive: (tabId) =>
         set((state) => {
           const group = groupForTab(state.groups, tabId);

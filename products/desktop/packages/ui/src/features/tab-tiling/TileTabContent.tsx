@@ -11,11 +11,6 @@ import { pickFreshestTask } from "@posthog/ui/features/tasks/taskFreshness";
 import { TaskDetailSkeleton } from "@posthog/ui/router/routeSkeletons";
 import { useQuery } from "@tanstack/react-query";
 
-/** Whether a tab can render in a tile that is not the active one. */
-export function canRenderInBackgroundTile(tab: BrowserTab): boolean {
-  return tab.taskId !== null || tab.dashboardId !== null;
-}
-
 function TiledTask({ taskId }: { taskId: string }) {
   const cached = getCachedTaskDetail(taskId) ?? getCachedTask(taskId) ?? null;
   const { data: fetched, isError } = useQuery(taskDetailQuery(taskId));

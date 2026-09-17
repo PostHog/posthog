@@ -9,7 +9,6 @@ import {
   type TileEdge,
   type TileGroup,
   type TileNode,
-  tabIdsIn,
   tileTab,
   untileTab,
 } from "./tileLayout";
@@ -113,14 +112,12 @@ describe("tileLayout", () => {
       steps.push([`t${i}`, "a", "right"]);
     }
     const full = build(steps);
-    const after = tileTab(full, "extra", "a", "bottom", ids());
-    expect(tabIdsIn(after[0].root)).toEqual(tabIdsIn(full[0].root));
-    expect(groupForTab(after, "extra")).toBeNull();
+    expect(tileTab(full, "extra", "a", "bottom", ids())).toBe(full);
   });
 
   it("ignores a drop of a tab onto its own tile", () => {
     const groups = build([["b", "a", "right"]]);
-    expect(tileTab(groups, "a", "a", "left", ids())).toEqual(groups);
+    expect(tileTab(groups, "a", "a", "left", ids())).toBe(groups);
   });
 
   it("collapses the parent split when a tile leaves a grid", () => {

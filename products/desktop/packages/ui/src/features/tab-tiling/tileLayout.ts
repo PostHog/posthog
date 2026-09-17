@@ -2,8 +2,8 @@
  * Pure model for tiled browser tabs: a group is a tree whose leaves are tab
  * ids and whose inner nodes split their children along one axis. Two tabs side
  * by side is `split(horizontal, [a, b])`; a 2x2 grid is a horizontal split of
- * two vertical splits. Every transform returns a new array and leaves the input
- * untouched, so the store can compare by reference.
+ * two vertical splits. A transform never mutates its input, and returns the
+ * input itself when nothing changed, so the store can compare by reference.
  */
 export type TileEdge = "left" | "right" | "top" | "bottom";
 export type TileDirection = "horizontal" | "vertical";
@@ -45,7 +45,7 @@ export function groupForTab(
   return groups.find((g) => tabIdsIn(g.root).includes(tabId)) ?? null;
 }
 
-function nodeId(node: TileNode): string {
+export function nodeId(node: TileNode): string {
   return node.type === "tab" ? node.tabId : node.id;
 }
 
@@ -111,12 +111,9 @@ function insertBeside(
 }
 
 /** Drop a group once it holds fewer than two tiles; a lone tile is just a tab. */
-export function untileTab(
-  groups: readonly TileGroup[],
-  tabId: string,
-): TileGroup[] {
+export function untileTab(groups: TileGroup[], tabId: string): TileGroup[] {
   const group = groupForTab(groups, tabId);
-  if (!group) return [...groups];
+  if (!group) return groups;
   const root = removeLeaf(group.root, tabId);
   return groups.flatMap((g) => {
     if (g.id !== group.id) return [g];
@@ -126,24 +123,24 @@ export function untileTab(
 
 /**
  * Tile `tabId` on the given edge of the tile that shows `targetTabId`. The
- * target joins a new group when it is not in one yet. Returns the input array
- * unchanged when the drop is a no-op or the target group is full.
+ * target joins a new group when it is not in one yet. Returns the input when
+ * the drop is a no-op or the target group is full.
  */
 export function tileTab(
-  groups: readonly TileGroup[],
+  groups: TileGroup[],
   tabId: string,
   targetTabId: string,
   edge: TileEdge,
   makeId: () => string,
 ): TileGroup[] {
-  if (tabId === targetTabId) return [...groups];
+  if (tabId === targetTabId) return groups;
   const without = untileTab(groups, tabId);
   const existing = groupForTab(without, targetTabId);
   const targetRoot: TileNode = existing?.root ?? {
     type: "tab",
     tabId: targetTabId,
   };
-  if (tabIdsIn(targetRoot).length >= MAX_TILES_PER_GROUP) return [...groups];
+  if (tabIdsIn(targetRoot).length >= MAX_TILES_PER_GROUP) return groups;
   const leaf: TileLeaf = { type: "tab", tabId };
   const root = insertBeside(targetRoot, targetTabId, leaf, edge, makeId);
   // A new group takes its first split's id, so one drop mints one id.
@@ -151,14 +148,6 @@ export function tileTab(
   return existing
     ? without.map((g) => (g.id === next.id ? next : g))
     : [...without, next];
-}
-
-/** Dissolve a group so every tab gets its own pill again. */
-export function separateGroup(
-  groups: readonly TileGroup[],
-  groupId: string,
-): TileGroup[] {
-  return groups.filter((g) => g.id !== groupId);
 }
 
 /**
