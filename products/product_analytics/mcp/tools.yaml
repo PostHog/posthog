@@ -90,15 +90,22 @@ tools:
             you want to see the computed results.
 
 
-            Put the insight definition in `query.source`:
+            Put the insight definition in `query.source`, under the wrapper node that matches it. Use
+
+            `InsightVizNode` for a product analytics query and `DataVisualizationNode` for a SQL one:
 
 
             ```json
 
-            { "name": "Example", "query": { "kind": "InsightVizNode", "source": { "kind": "HogQLQuery", "query": "SELECT
-            1" } } }
+            { "name": "Example", "query": { "kind": "DataVisualizationNode", "source": { "kind": "HogQLQuery", "query":
+            "SELECT 1" } } }
 
             ```
+
+
+            A bare query is accepted too. `{ "kind": "TrendsQuery", ... }` and `{ "kind": "HogQLQuery", ... }` are each
+
+            wrapped for you, so a query you just ran through one of the `query-*` tools can be passed straight through.
         exclude_params:
             - query
         include_params:

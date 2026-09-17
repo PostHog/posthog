@@ -21,6 +21,7 @@ import {
     EventsNode,
     FunnelExclusionSteps,
     FunnelsFilterLegacy,
+    InsightNodeKind,
     LifecycleFilterLegacy,
     MultipleBreakdownType,
     Node,
@@ -1990,4 +1991,24 @@ export interface AssistantDataVisualizationNode {
     tableSettings?: AssistantDataVisualizationTableSettings
 }
 
-export type InsightQuery = AssistantInsightVizNode | AssistantDataVisualizationNode
+// `MCPInsightSerializer.validate_query` wraps these two shapes server-side before it saves the
+// insight, so a query straight out of a `query-*` tool can be passed through unchanged. Both carry
+// an index signature because zod strips every key the schema does not declare, which would send
+// `{ kind }` alone to the endpoint and save an empty insight.
+export interface AssistantBareInsightQuery {
+    kind: InsightNodeKind
+    [key: string]: unknown
+}
+
+export interface AssistantBareHogQLQuery {
+    kind: NodeKind.HogQLQuery
+    /** The HogQL query to run. */
+    query: string
+    [key: string]: unknown
+}
+
+export type InsightQuery =
+    | AssistantInsightVizNode
+    | AssistantDataVisualizationNode
+    | AssistantBareInsightQuery
+    | AssistantBareHogQLQuery
