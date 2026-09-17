@@ -3,9 +3,11 @@ import os
 import pytest
 from unittest.mock import MagicMock, patch
 
+import duckdb
 import pyarrow as pa
 
 from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.motherduck import (
     MotherduckSourceConfig,
@@ -13,7 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck import (
     DEFAULT_MOTHERDUCK_FETCH_SIZE,
     DUCKDB_LOCAL_CONFIG,
+    MOTHERDUCK_ERROR_CLASSES,
     MOTHERDUCK_SYSTEM_DATABASES,
+    MotherDuckConnectionError,
     MotherDuckImplementation,
     build_motherduck_connection_string,
     connect,
@@ -529,13 +533,26 @@ class TestMotherDuck:
         [
             "Catalog Error: Table with name users does not exist!",
             "Binder Error: Referenced column email not found in FROM clause!",
-            "Invalid Input Error: The following options were not recognized: motherduck_token",
+            # `connect()` never lets the raw "Invalid Input Error: ..." driver text reach here — it
+            # always translates it to this user-facing message first, so that's what must match.
+            MOTHERDUCK_ERROR_CLASSES["Invalid Input Error"],
             "Source column type changed",
         ],
     )
     def test_permanent_failures_are_non_retryable(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable), f"Error should be non-retryable: {error_msg}"
+
+    def test_connection_failure_is_non_retryable_end_to_end(self, source):
+        # Reproduces the real path: `connect()` wraps and translates the driver error before
+        # raising, so the non-retryable match has to run against that translated text, not the
+        # raw DuckDB error class. A key that only matches the raw class (as this dict used to)
+        # would let a bad database name or malformed token retry indefinitely.
+        with patch(_CONNECT_PATH, side_effect=duckdb.Error("Invalid Input Error: bad connection option")):
+            with pytest.raises(MotherDuckConnectionError) as exc_info:
+                connect("md-token", "my_db")
+
+        assert error_message_matches(str(exc_info.value), source.get_non_retryable_errors())
 
     def test_validate_credentials_requires_an_access_token(self, source):
         ok, message = source.validate_credentials(_make_config(access_token=""), team_id=1)

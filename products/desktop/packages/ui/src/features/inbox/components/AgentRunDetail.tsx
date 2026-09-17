@@ -424,7 +424,10 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
                 )}
               </RightColumnSection>
             )}
-            <ReportActivitySection reportId={report.id} />
+            <ReportActivitySection
+              reportId={report.id}
+              collapsedNoteCount={report.collapsed_note_count}
+            />
           </div>
         </div>
       </div>

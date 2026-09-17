@@ -6,6 +6,7 @@ import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSegmentedButton, 
 import { heatmapLogic } from '../scenes/heatmap/heatmapLogic'
 import { HeatmapPageFields } from './HeatmapPageFields'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { HeatmapScreenshotAccessNotice } from './HeatmapScreenshotAccessNotice'
 import { HeatmapsForbiddenURL } from './HeatmapsForbiddenURL'
 
 export function HeatmapHeader(): JSX.Element {
@@ -25,6 +26,8 @@ export function HeatmapHeader(): JSX.Element {
         saveDisabledReason,
         hasUnsavedChanges,
         pageSettingsOpen,
+        screenshotError,
+        displayUrl,
     } = useValues(heatmapLogic)
     const { dataUrl, isBrowserUrlAuthorized } = useValues(heatmapsBrowserLogic)
     const {
@@ -129,6 +132,9 @@ export function HeatmapHeader(): JSX.Element {
                             A screenshot captures the full page. A live page loads the website directly.
                         </p>
                     </div>
+                    {type === 'screenshot' && source !== 'toolbar' && !screenshotError && (
+                        <HeatmapScreenshotAccessNotice url={displayUrl} />
+                    )}
                     <HeatmapPageFields
                         dataUrlPlaceholderFallback="Enter a URL"
                         dataUrlHelp="Defaults to the page URL. Add * to match multiple pages."

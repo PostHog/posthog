@@ -145,6 +145,10 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         auth_type="oauth",
         category="design",
         icon_domain="figma.com",
+        # Figma accepts OAuth clients only from its own MCP catalog allowlist, and PostHog
+        # is not on it. The registration endpoint answers 403, so no install reaches
+        # Figma's consent screen. https://www.figma.com/mcp-catalog/
+        disabled=True,
     ),
     CatalogEntry(
         name="Firetiger",
