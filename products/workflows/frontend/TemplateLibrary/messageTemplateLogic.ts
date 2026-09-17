@@ -388,10 +388,12 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             },
         ],
         // An edit event that arrived while our own save or load was in flight. Replayed once it settles.
+        // The newest stamp wins, so our own echo cannot displace an external edit that arrived before it.
         deferredExternalEdit: [
             null as ResourceEditedEvent | null,
             {
-                setDeferredExternalEdit: (_, { event }) => event,
+                setDeferredExternalEdit: (state, { event }) =>
+                    !event || !state || dayjs(event.updated_at).isAfter(dayjs(state.updated_at)) ? event : state,
             },
         ],
     }),

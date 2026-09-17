@@ -212,16 +212,24 @@ describe('messageTemplateLogic', () => {
         })
 
         // The realtime echo of our own save can beat its HTTP response, while the loaded stamp is still the old one.
-        it('parks an event that arrives during a save and drops the echo once the save lands', async () => {
+        // An external edit that lands in the same window must survive that echo.
+        it.each([
+            { description: 'drops the own echo once the save lands', events: [LATER], name: 'Saved here' },
+            {
+                description: 'keeps a newer external edit that the own echo arrived after',
+                events: ['2026-01-01T00:02:00Z', LATER],
+                name: 'Renamed by the agent',
+            },
+        ])('parks events that arrive during a save and $description', async ({ events, name }) => {
             await expectLogic(logic, () => {
                 logic.actions.saveTemplate({ ...logic.values.template, name: 'Saved here' })
-                resourceEditedLogic.actions.resourceEdited(edited())
+                events.forEach((updated_at) => resourceEditedLogic.actions.resourceEdited(edited({ updated_at })))
             })
                 .toDispatchActions(['setDeferredExternalEdit', 'saveTemplateSuccess', 'replayDeferredExternalEdit'])
                 .toFinishAllListeners()
 
             await expectLogic(logic).toMatchValues({ externallyEdited: false, deferredExternalEdit: null })
-            expect(logic.values.template.name).toBe('Saved here')
+            expect(logic.values.template.name).toBe(name)
         })
 
         // A failed reload leaves the stale copy on the form, so the conflict must stay visible with its retry.
