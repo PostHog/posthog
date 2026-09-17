@@ -97,3 +97,24 @@ class TestGitHubTransport(SimpleTestCase):
         attributes = exporter.get_finished_spans()[0].attributes
         assert attributes is not None
         assert attributes["server.address"] == "raw.githubusercontent.com"
+
+    def test_span_matches_identity_blind_request_without_explicit_endpoint(self) -> None:
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        with (
+            patch("posthog.egress.github.transport.tracer", provider.get_tracer("test")),
+            patch("requests.request", return_value=_response()),
+        ):
+            github_request(
+                "GET",
+                "https://api.github.com/repos/example/repo/branches?page=1",
+                source="test",
+                installation_id="",
+            )
+
+        attributes = exporter.get_finished_spans()[0].attributes
+        assert attributes is not None
+        assert attributes["github.endpoint"] == "/repos/{owner}/{repo}/branches"
+        assert attributes["github.installation_scoped"] is False

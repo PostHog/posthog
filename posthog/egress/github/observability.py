@@ -66,7 +66,7 @@ _SHA_RE = re.compile(r"\A[0-9a-f]{7,40}\Z")
 _REST_IS_FREEFORM = {"contents": "{path}", "compare": "{refs}"}
 
 
-def _normalize_github_endpoint(url: str | None) -> str:
+def normalize_github_endpoint(url: str | None) -> str:
     """Collapse a GitHub URL to a low-cardinality endpoint label. Owner/repo, numeric ids, commit
     SHAs, and free-form tails (file paths, compare refs) are templated out — e.g.
     ``.../repos/posthog/posthog/actions/runs/42/jobs`` becomes ``/repos/{owner}/{repo}/actions/runs/{id}/jobs``
@@ -107,4 +107,4 @@ def _normalize_github_endpoint(url: str | None) -> str:
     return "/" + "/".join(out)
 
 
-github_egress = EgressObservability(_metrics, _parse_github_rate_limit, endpoint_normalizer=_normalize_github_endpoint)
+github_egress = EgressObservability(_metrics, _parse_github_rate_limit, endpoint_normalizer=normalize_github_endpoint)

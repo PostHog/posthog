@@ -19,7 +19,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
 from posthog.egress.github.limiter import classify_github_resource, consume_github_installation_sync
-from posthog.egress.github.observability import github_egress
+from posthog.egress.github.observability import github_egress, normalize_github_endpoint
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
 
@@ -138,11 +138,11 @@ def github_request(
     attributes: dict[str, str | bool] = {
         "http.request.method": method.upper(),
         "server.address": urlparse(url).hostname or "unknown",
-        "github.endpoint": endpoint or "unknown",
+        "github.endpoint": endpoint or normalize_github_endpoint(url),
         "github.resource": classify_github_resource(url).value,
         "github.source": source,
         "github.priority": priority.value,
-        "github.installation_scoped": installation_id is not None,
+        "github.installation_scoped": bool(installation_id),
     }
     with tracer.start_as_current_span("github.http.request", kind=trace.SpanKind.CLIENT, attributes=attributes) as span:
         response = _github_client.request(
