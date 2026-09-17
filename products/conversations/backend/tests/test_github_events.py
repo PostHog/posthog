@@ -120,6 +120,16 @@ class TestConversationsGitHubDeliveries(BaseTest):
             ("a_cancelled_statement", OperationalError("canceling statement due to statement timeout")),
             ("a_connection_that_went_away", OperationalError("server closed the connection unexpectedly")),
             ("a_driver_that_reports_the_connection_gone", InterfaceError("connection already closed")),
+            (
+                "a_socket_reset_while_the_lookup_opened_its_connection",
+                OperationalError(
+                    "connection failed: connection to server at 127.0.0.1 failed: Connection reset by peer"
+                ),
+            ),
+            (
+                "a_tls_drop_reported_at_the_socket",
+                OperationalError("connection failed: SSL SYSCALL error: EOF detected"),
+            ),
         ]
     )
     @patch(f"{GITHUB_EVENTS_MODULE}.Integration.objects.filter")

@@ -62,6 +62,18 @@ class TestIsConnectionFailure(SimpleTestCase):
                 True,
             ),
             ("a_driver_that_reports_the_connection_gone", InterfaceError("connection already closed"), True),
+            (
+                "a_socket_reset_while_the_read_opened_its_connection",
+                OperationalError(
+                    "connection failed: connection to server at 127.0.0.1 failed: Connection reset by peer"
+                ),
+                True,
+            ),
+            (
+                "a_tls_drop_reported_at_the_socket",
+                OperationalError("connection failed: SSL SYSCALL error: EOF detected"),
+                True,
+            ),
             ("the_cap_firing", OperationalError("canceling statement due to statement timeout"), False),
             ("an_unrelated_database_failure", OperationalError("deadlock detected"), False),
             ("an_error_from_somewhere_else", ValueError("not a database error"), False),
@@ -69,7 +81,8 @@ class TestIsConnectionFailure(SimpleTestCase):
     )
     def test_tells_a_lost_connection_from_a_failed_statement(self, _name, error, expected) -> None:
         # The two cannot be one predicate: a cancelled statement ran and a lost connection
-        # did not, so retrying a timeout would spend the delivery's budget twice.
+        # did not, so retrying a timeout would spend the delivery's budget twice. The connect-time
+        # forms carry no SQLSTATE, so the message is all the predicate gets to read.
         self.assertEqual(is_connection_failure(error), expected)
 
     def test_reads_the_connection_exception_class_off_the_cause(self) -> None:

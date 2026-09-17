@@ -22,14 +22,20 @@ _QUERY_CANCELED_SQLSTATE = "57014"
 
 # PostgreSQL's connection exception class. A connection that goes away under a statement
 # usually loses the SQLSTATE on the way up, so the messages are the first check and the
-# class is the fallback.
+# class is the fallback. `postgres_config` sets `CONN_MAX_AGE: 0`, so each read opens its own
+# connection, and libpq reports a drop while it connects with no SQLSTATE at all, which leaves
+# the messages as the only check for that shape.
 _CONNECTION_EXCEPTION_SQLSTATE_CLASS = "08"
 _CONNECTION_FAILURE_MESSAGES = (
     "server closed the connection unexpectedly",
+    "connection reset by peer",
     "connection already closed",
     "connection is closed",
     "consuming input failed",
     "ssl connection has been closed unexpectedly",
+    # The socket-level form of a TLS drop, which arrives without the psycopg wrapper
+    # `consuming input failed` catches. A server without SSL says something else entirely.
+    "ssl syscall error",
     "terminating connection",
 )
 
