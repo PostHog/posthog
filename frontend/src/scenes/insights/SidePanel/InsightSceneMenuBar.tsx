@@ -50,6 +50,7 @@ import {
     SceneMenuBarSeparator,
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
+import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
     isDataTableNode,
@@ -123,6 +124,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { copyImage, downloadImage } = useActions(captureImageLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
+    const { tags: allExistingTags } = useValues(tagsModel)
+
     const { user, hasAvailableFeature } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -431,33 +434,32 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                     dataAttr={`${RESOURCE_TYPE}-menubar-metadata`}
                     contentClassName="w-80 p-2 flex flex-col gap-2"
                 >
-                    <>
-                        <SceneTagsCombobox
-                            onSave={(tags) => setInsightMetadata({ tags })}
-                            tags={insight.tags}
-                            canEdit={canEditInsight}
-                            loading={isSavingTags}
-                            dataAttrKey={RESOURCE_TYPE}
-                        />
-                        <SceneActivityIndicator
-                            at={insight.last_modified_at}
-                            by={insight.last_modified_by}
-                            prefix="Last modified"
-                        />
-                        {showMetalytics && (
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                left
-                                onClick={() => openSidePanel(SidePanelTab.Activity, 'metalytics')}
-                                data-attr={`${RESOURCE_TYPE}-menubar-metalytics`}
-                            >
-                                <IconPulse />
-                                View metalytics
-                            </Button>
-                        )}
-                    </>
+                    <SceneTagsCombobox
+                        onSave={(tags) => setInsightMetadata({ tags })}
+                        tags={insight.tags}
+                        tagsAvailable={allExistingTags}
+                        dataAttrKey={RESOURCE_TYPE}
+                        canEdit={canEditInsight}
+                        loading={isSavingTags}
+                    />
+                    <SceneActivityIndicator
+                        at={insight.last_modified_at}
+                        by={insight.last_modified_by}
+                        prefix="Last modified"
+                    />
+                    {showMetalytics && (
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            left
+                            onClick={() => openSidePanel(SidePanelTab.Activity, 'metalytics')}
+                            data-attr={`${RESOURCE_TYPE}-menubar-metalytics`}
+                        >
+                            <IconPulse />
+                            View metalytics
+                        </Button>
+                    )}
                 </SceneMenuBarPopover>
             )}
             {showStaffMenu && (

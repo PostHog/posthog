@@ -6,6 +6,7 @@ import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivit
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
+import { tagsModel } from '~/models/tagsModel'
 import { InsightLogicProps } from '~/types'
 
 const RESOURCE_TYPE = 'insight'
@@ -14,12 +15,14 @@ export function InsightPanelInfo({ insightLogicProps }: { insightLogicProps: Ins
     const theInsightLogic = insightLogic(insightLogicProps)
     const { canEditInsight, insight, isSavingTags } = useValues(theInsightLogic)
     const { setInsightMetadata } = useActions(theInsightLogic)
+    const { tags: allExistingTags } = useValues(tagsModel)
 
     return (
         <ScenePanelInfoSection>
             <SceneTags
                 onSave={(tags) => setInsightMetadata({ tags })}
                 tags={insight.tags}
+                tagsAvailable={allExistingTags}
                 dataAttrKey={RESOURCE_TYPE}
                 canEdit={canEditInsight}
                 loading={isSavingTags}

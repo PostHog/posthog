@@ -30,6 +30,7 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { notebooksModel } from '~/models/notebooksModel'
+import { tagsModel } from '~/models/tagsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat } from '~/types'
 
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
@@ -38,20 +39,6 @@ import { DashboardTemplateModal } from './dashboards/templates/DashboardTemplate
 import { DashboardSaveAsTemplateSceneActions } from './DashboardSaveAsTemplateSceneActions'
 
 const RESOURCE_TYPE = 'dashboard'
-
-function DashboardScenePanelTags({
-    onSave,
-    tags,
-    canEdit,
-    loading,
-}: {
-    onSave: (tags: string[]) => void
-    tags: string[] | undefined
-    canEdit: boolean
-    loading: boolean
-}): JSX.Element {
-    return <SceneTags onSave={onSave} canEdit={canEdit} tags={tags} dataAttrKey={RESOURCE_TYPE} loading={loading} />
-}
 
 export function DashboardScenePanel(): JSX.Element | null {
     const {
@@ -72,6 +59,7 @@ export function DashboardScenePanel(): JSX.Element | null {
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
     const { user } = useValues(userLogic)
+    const { tags } = useValues(tagsModel)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const hasDashboardColors = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_COLORS')
 
@@ -79,149 +67,146 @@ export function DashboardScenePanel(): JSX.Element | null {
 
     return (
         <ScenePanel>
-            <>
-                <ScenePanelInfoSection>
-                    <DashboardScenePanelTags
-                        onSave={updateDashboardTags}
-                        canEdit={canEditDashboard}
-                        tags={dashboard?.tags}
-                        loading={isSavingTags}
-                    />
-                    <SceneFile dataAttrKey={RESOURCE_TYPE} />
-                    <SceneActivityIndicator at={dashboard?.created_at} by={dashboard?.created_by} prefix="Created" />
-                </ScenePanelInfoSection>
-                <ScenePanelDivider />
+            <ScenePanelInfoSection>
+                <SceneTags
+                    onSave={(tags) => updateDashboardTags(tags)}
+                    canEdit={canEditDashboard}
+                    tags={dashboard?.tags}
+                    tagsAvailable={tags.filter((tag) => !dashboard?.tags?.includes(tag))}
+                    dataAttrKey={RESOURCE_TYPE}
+                    loading={isSavingTags}
+                />
+                <SceneFile dataAttrKey={RESOURCE_TYPE} />
+                <SceneActivityIndicator at={dashboard?.created_at} by={dashboard?.created_by} prefix="Created" />
+            </ScenePanelInfoSection>
+            <ScenePanelDivider />
 
-                <ScenePanelActionsSection>
-                    {dashboard && (
-                        <>
-                            <SceneDuplicate
-                                dataAttrKey={RESOURCE_TYPE}
-                                onClick={() => showDuplicateDashboardModal(dashboard.id, dashboard.name)}
-                            />
-                            {canCopyToProject && (
-                                <ButtonPrimitive
-                                    menuItem
-                                    onClick={() => push(urls.resourceTransfer('Dashboard', dashboard.id))}
-                                    data-attr="dashboard-copy-to-project"
-                                    tooltip="Copy this dashboard to another project"
-                                >
-                                    <IconCopy />
-                                    Copy to another project
-                                </ButtonPrimitive>
-                            )}
-                            <ScenePin dataAttrKey={RESOURCE_TYPE} onClick={togglePinned} isPinned={isPinned} />
-                            <SceneFullscreen
-                                dataAttrKey={RESOURCE_TYPE}
-                                onClick={() => {
-                                    if (dashboardMode === DashboardMode.Fullscreen) {
-                                        setDashboardMode(null, DashboardEventSource.SceneCommonButtons)
-                                    } else {
-                                        setDashboardMode(
-                                            DashboardMode.Fullscreen,
-                                            DashboardEventSource.SceneCommonButtons
-                                        )
-                                    }
-                                }}
-                                isFullscreen={dashboardMode === DashboardMode.Fullscreen}
-                            />
-                        </>
-                    )}
-
-                    {dashboard && canEditDashboard && (
-                        <>
-                            {hasDashboardColors && tiles.length > 0 && (
-                                <ButtonPrimitive
-                                    onClick={() => showInsightColorsModal(dashboard.id)}
-                                    menuItem
-                                    data-attr={`${RESOURCE_TYPE}-customize-colors`}
-                                >
-                                    <IconPalette />
-                                    Customize colors
-                                </ButtonPrimitive>
-                            )}
-                            <ButtonPrimitive
-                                onClick={() => createNotebookFromDashboard(dashboard)}
-                                menuItem
-                                data-attr={`${RESOURCE_TYPE}-create-notebook-from-dashboard`}
-                            >
-                                <IconNotebook />
-                                Create notebook from dashboard
-                            </ButtonPrimitive>
-                            {tiles.length > 0 && (
-                                <SceneSubscribeButton dashboardId={dashboard.id} dataAttrKey={RESOURCE_TYPE} />
-                            )}
-                            <SceneExportDropdownMenu
-                                dropdownMenuItems={[
-                                    {
-                                        format: ExporterFormat.PNG,
-                                        dashboard: dashboard.id,
-                                        context: {
-                                            path: apiUrl(),
-                                            variables_override: currentDashboardVariables,
-                                        },
-                                        dataAttr: `${RESOURCE_TYPE}-export-png`,
-                                    },
-                                    ...(user?.is_staff
-                                        ? [
-                                              {
-                                                  format: ExporterFormat.JSON,
-                                                  context: {
-                                                      localData: JSON.stringify(asDashboardTemplate),
-                                                      filename: `dashboard-${slugify(dashboard?.name || 'nameless dashboard')}.json`,
-                                                      mediaType: ExporterFormat.JSON,
-                                                  },
-                                                  dataAttr: `${RESOURCE_TYPE}-export-json`,
-                                              },
-                                          ]
-                                        : []),
-                                ]}
-                            />
-                        </>
-                    )}
-
-                    {dashboard && (
-                        <ButtonPrimitive
-                            onClick={() => setTerraformModalOpen(true)}
-                            menuItem
-                            data-attr={`${RESOURCE_TYPE}-manage-terraform`}
-                        >
-                            <IconCode2 />
-                            Manage with Terraform
-                        </ButtonPrimitive>
-                    )}
-
-                    <DashboardSaveAsTemplateSceneActions />
-
-                    {dashboard && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
-                </ScenePanelActionsSection>
-                {dashboard && canEditDashboard && (
+            <ScenePanelActionsSection>
+                {dashboard && (
                     <>
-                        <ScenePanelDivider />
-                        <ScenePanelActionsSection>
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Dashboard}
-                                minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={dashboard.user_access_level}
+                        <SceneDuplicate
+                            dataAttrKey={RESOURCE_TYPE}
+                            onClick={() => showDuplicateDashboardModal(dashboard.id, dashboard.name)}
+                        />
+                        {canCopyToProject && (
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => push(urls.resourceTransfer('Dashboard', dashboard.id))}
+                                data-attr="dashboard-copy-to-project"
+                                tooltip="Copy this dashboard to another project"
                             >
-                                {({ disabledReason }) => (
-                                    <ButtonPrimitive
-                                        menuItem
-                                        variant="danger"
-                                        disabled={!!disabledReason}
-                                        {...(disabledReason && { tooltip: disabledReason })}
-                                        onClick={() => showDeleteDashboardModal(dashboard.id)}
-                                    >
-                                        <IconTrash />
-                                        Delete dashboard
-                                    </ButtonPrimitive>
-                                )}
-                            </AccessControlAction>
-                        </ScenePanelActionsSection>
+                                <IconCopy />
+                                Copy to another project
+                            </ButtonPrimitive>
+                        )}
+                        <ScenePin dataAttrKey={RESOURCE_TYPE} onClick={togglePinned} isPinned={isPinned} />
+                        <SceneFullscreen
+                            dataAttrKey={RESOURCE_TYPE}
+                            onClick={() => {
+                                if (dashboardMode === DashboardMode.Fullscreen) {
+                                    setDashboardMode(null, DashboardEventSource.SceneCommonButtons)
+                                } else {
+                                    setDashboardMode(DashboardMode.Fullscreen, DashboardEventSource.SceneCommonButtons)
+                                }
+                            }}
+                            isFullscreen={dashboardMode === DashboardMode.Fullscreen}
+                        />
                     </>
                 )}
-                <DashboardTemplateModal />
-            </>
+
+                {dashboard && canEditDashboard && (
+                    <>
+                        {hasDashboardColors && tiles.length > 0 && (
+                            <ButtonPrimitive
+                                onClick={() => showInsightColorsModal(dashboard.id)}
+                                menuItem
+                                data-attr={`${RESOURCE_TYPE}-customize-colors`}
+                            >
+                                <IconPalette />
+                                Customize colors
+                            </ButtonPrimitive>
+                        )}
+                        <ButtonPrimitive
+                            onClick={() => createNotebookFromDashboard(dashboard)}
+                            menuItem
+                            data-attr={`${RESOURCE_TYPE}-create-notebook-from-dashboard`}
+                        >
+                            <IconNotebook />
+                            Create notebook from dashboard
+                        </ButtonPrimitive>
+                        {tiles.length > 0 && (
+                            <SceneSubscribeButton dashboardId={dashboard.id} dataAttrKey={RESOURCE_TYPE} />
+                        )}
+                        <SceneExportDropdownMenu
+                            dropdownMenuItems={[
+                                {
+                                    format: ExporterFormat.PNG,
+                                    dashboard: dashboard.id,
+                                    context: {
+                                        path: apiUrl(),
+                                        variables_override: currentDashboardVariables,
+                                    },
+                                    dataAttr: `${RESOURCE_TYPE}-export-png`,
+                                },
+                                ...(user?.is_staff
+                                    ? [
+                                          {
+                                              format: ExporterFormat.JSON,
+                                              context: {
+                                                  localData: JSON.stringify(asDashboardTemplate),
+                                                  filename: `dashboard-${slugify(dashboard?.name || 'nameless dashboard')}.json`,
+                                                  mediaType: ExporterFormat.JSON,
+                                              },
+                                              dataAttr: `${RESOURCE_TYPE}-export-json`,
+                                          },
+                                      ]
+                                    : []),
+                            ]}
+                        />
+                    </>
+                )}
+
+                {dashboard && (
+                    <ButtonPrimitive
+                        onClick={() => setTerraformModalOpen(true)}
+                        menuItem
+                        data-attr={`${RESOURCE_TYPE}-manage-terraform`}
+                    >
+                        <IconCode2 />
+                        Manage with Terraform
+                    </ButtonPrimitive>
+                )}
+
+                <DashboardSaveAsTemplateSceneActions />
+
+                {dashboard && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
+            </ScenePanelActionsSection>
+            {dashboard && canEditDashboard && (
+                <>
+                    <ScenePanelDivider />
+                    <ScenePanelActionsSection>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Dashboard}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={dashboard.user_access_level}
+                        >
+                            {({ disabledReason }) => (
+                                <ButtonPrimitive
+                                    menuItem
+                                    variant="danger"
+                                    disabled={!!disabledReason}
+                                    {...(disabledReason && { tooltip: disabledReason })}
+                                    onClick={() => showDeleteDashboardModal(dashboard.id)}
+                                >
+                                    <IconTrash />
+                                    Delete dashboard
+                                </ButtonPrimitive>
+                            )}
+                        </AccessControlAction>
+                    </ScenePanelActionsSection>
+                </>
+            )}
+            <DashboardTemplateModal />
         </ScenePanel>
     )
 }

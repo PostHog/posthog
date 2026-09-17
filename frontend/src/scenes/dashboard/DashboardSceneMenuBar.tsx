@@ -45,6 +45,7 @@ import {
 } from '~/layout/scenes/components/SceneMenuBar'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { notebooksModel } from '~/models/notebooksModel'
+import { tagsModel } from '~/models/tagsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat, SidePanelTab } from '~/types'
 
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
@@ -89,6 +90,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const { instanceId: metalyticsInstanceId } = useValues(metalyticsLogic)
 
     const { user } = useValues(userLogic)
+    const { tags } = useValues(tagsModel)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const hasDashboardColors = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]
@@ -331,31 +333,26 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                     dataAttr={`${RESOURCE_TYPE}-menubar-metadata`}
                     contentClassName="w-80 p-2 flex flex-col gap-2"
                 >
-                    <>
-                        <SceneTagsCombobox
-                            onSave={(t) => updateDashboardTags(t)}
-                            canEdit={canEditDashboard}
-                            tags={dashboard?.tags}
-                            loading={isSavingTags}
-                            dataAttrKey={RESOURCE_TYPE}
-                        />
-                        <SceneActivityIndicator
-                            at={dashboard?.created_at}
-                            by={dashboard?.created_by}
-                            prefix="Created"
-                        />
-                        {showMetalytics && (
-                            <Button
-                                type="button"
-                                left
-                                onClick={() => openSidePanel(SidePanelTab.Activity, 'metalytics')}
-                                data-attr={`${RESOURCE_TYPE}-menubar-metalytics`}
-                            >
-                                <IconPulse />
-                                View metalytics
-                            </Button>
-                        )}
-                    </>
+                    <SceneTagsCombobox
+                        onSave={(t) => updateDashboardTags(t)}
+                        canEdit={canEditDashboard}
+                        tags={dashboard?.tags}
+                        tagsAvailable={tags.filter((t) => !dashboard?.tags?.includes(t))}
+                        dataAttrKey={RESOURCE_TYPE}
+                        loading={isSavingTags}
+                    />
+                    <SceneActivityIndicator at={dashboard?.created_at} by={dashboard?.created_by} prefix="Created" />
+                    {showMetalytics && (
+                        <Button
+                            type="button"
+                            left
+                            onClick={() => openSidePanel(SidePanelTab.Activity, 'metalytics')}
+                            data-attr={`${RESOURCE_TYPE}-menubar-metalytics`}
+                        >
+                            <IconPulse />
+                            View metalytics
+                        </Button>
+                    )}
                 </SceneMenuBarPopover>
             )}
         </SceneMenuBar>
