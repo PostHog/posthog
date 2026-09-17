@@ -33,7 +33,7 @@ from posthog.permissions import get_authenticator_scopes
 from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
-from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
+from products.signals.backend.models import SignalReportCheck, SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
@@ -47,6 +47,7 @@ from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW
 from products.signals.backend.scout_harness.skill_loader import reserved_scout_name_error
 from products.signals.backend.scout_harness.slack_delivery import MAX_SCOUT_SLACK_DM_TARGETS
 from products.signals.backend.scout_harness.tags import slugify_tag
+from products.signals.backend.scout_harness.tools.checks import MAX_CHECK_EXPLANATION_LENGTH
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_FINDING_ID_LENGTH,
     MAX_TAG_LENGTH,
@@ -87,6 +88,7 @@ from products.skills.backend.api.skill_serializers import (
     MAX_SKILL_FILE_COUNT,
     SPEC_DESCRIPTION_MAX_LENGTH,
     LLMSkillFileInputSerializer,
+    validate_new_skill_name_value,
     validate_skill_body_size,
     validate_skill_name_value,
 )
@@ -692,6 +694,45 @@ class LighthouseAuditResponseSerializer(serializers.Serializer):
     audits_remaining = serializers.IntegerField(
         help_text=f"How many audits this run may still spend. Each run gets {MAX_AUDITS_PER_RUN}."
     )
+
+
+class RecordCheckResultRequestSerializer(serializers.Serializer):
+    """Request body for `scout-check-record-result`: the verdict on one dispatched report check."""
+
+    check_id = serializers.UUIDField(help_text="The check this run was dispatched to answer, as given in the run note.")
+    outcome = serializers.ChoiceField(
+        choices=SignalReportCheck.Outcome.choices,
+        help_text=(
+            "`passed` when the expectation still holds, `failed` when it does not, and `errored` when you "
+            "could not establish either. `failed` retires the check, so use it for a conclusion, not a suspicion."
+        ),
+    )
+    explanation = serializers.CharField(
+        max_length=MAX_CHECK_EXPLANATION_LENGTH,
+        help_text=(
+            "One or two sentences on what you looked at and what it showed. This is what a person reads on "
+            "the report, so write it for them, with the numbers or entities you checked."
+        ),
+    )
+    observed_value = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="The number you measured, when the check came down to one. Leave it out otherwise.",
+    )
+
+
+class RecordCheckResultResponseSerializer(serializers.Serializer):
+    """Outcome of an accepted `scout-check-record-result` call."""
+
+    check_id = serializers.UUIDField(help_text="The check that was closed.")
+    outcome = serializers.CharField(help_text="The verdict that was recorded.")
+    check_status = serializers.CharField(
+        help_text=(
+            "The check's status after the verdict. `active` means a recurring check re-armed for its next "
+            "run; anything else is terminal."
+        )
+    )
+    runs_remaining = serializers.IntegerField(help_text="Evaluations the check still owes after this one.")
 
 
 class FleetFindingsSummarySerializer(serializers.Serializer):
@@ -3543,10 +3584,12 @@ class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
     )
 
     def validate_skill_name(self, value: str) -> str:
-        # The generic skill-name contract first, like the sibling create serializer. Nothing
-        # downstream re-checks it: the model column carries no validator, `create_skill` skips the
-        # pattern, and the view's existence check only proves a row exists. It is also what keeps
-        # scout names and the `pipeline:` note audiences disjoint (see `note_targets`).
+        # The generic skill-name contract first, not the stricter contract the sibling create
+        # serializer applies: this field names a skill the project already holds, and the harness
+        # seeds the canonical scouts under names the bundled fleet also uses. Nothing downstream
+        # re-checks it: the model column carries no validator, `create_skill` skips the pattern,
+        # and the view's existence check only proves a row exists. It is also what keeps scout
+        # names and the `pipeline:` note audiences disjoint (see `note_targets`).
         value = validate_skill_name_value(value)
         if error := reserved_scout_name_error(value):
             raise serializers.ValidationError(error)
@@ -3602,7 +3645,7 @@ class SignalScoutCreateSerializer(serializers.Serializer):
     )
 
     def validate_name(self, value: str) -> str:
-        value = validate_skill_name_value(value)
+        value = validate_new_skill_name_value(value)
         if error := reserved_scout_name_error(value):
             raise serializers.ValidationError(error)
         return value

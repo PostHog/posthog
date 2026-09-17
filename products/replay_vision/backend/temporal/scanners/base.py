@@ -41,6 +41,13 @@ MIN_SIGNAL_CONFIDENCE = 0.4
 STEP_CORE = "core"
 STEP_SIGNALS = "signals"
 
+# Ceiling on one step's response, thought tokens included, because Gemini counts thinking against the cap.
+# Every response schema is a few hundred tokens of JSON, so this only bounds the tail: a model that thinks
+# its way to the provider default (65k) turns a 5-credit observation into a loss. Tight enough to stop that,
+# loose enough that dynamic thinking on a long video is not cut off, which would bill the thoughts and force
+# a re-prompt that bills them again.
+STEP_MAX_OUTPUT_TOKENS = 16_384
+
 
 class SignalFinding(BaseModel, frozen=True):
     """Optional side-mission finding: a bug, crash, or design flaw the recording itself reveals. See the side-mission prompt block."""
@@ -119,6 +126,7 @@ class MissionStep:
     response_model: type[BaseModel]
     required: bool = True
     validate: Callable[[BaseModel], str | None] | None = field(default=None)
+    max_output_tokens: int = STEP_MAX_OUTPUT_TOKENS
 
 
 _CONFIDENCE_DESCRIPTION = (
