@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from dataclasses import field
-from time import monotonic, sleep
+from threading import Event
+from time import monotonic
 
 from unittest.mock import patch
 
@@ -180,13 +181,47 @@ class TestGitHubRepoFiles(SimpleTestCase):
     def test_a_slow_repository_gives_up_instead_of_holding_the_worker(self) -> None:
         # A cold board asks for hundreds of files. Without a budget for the whole resolution, a
         # stalled raw host holds a web worker far past the per-request timeout.
-        def never_returns(_method: str, _url: str, **_kwargs: object) -> object:
-            sleep(2)
-            raise AssertionError("unreachable")
+        started, release, finished = Event(), Event(), Event()
+        self.addCleanup(release.set)
 
-        with patch("products.engineering_analytics.backend.logic.ownership.github_request", side_effect=never_returns):
-            files = GitHubRepoFiles("PostHog/posthog")
-            files._deadline = monotonic()
+        def stalls(_method: str, _url: str, **_kwargs: object) -> _response:
+            started.set()
+            release.wait(timeout=10)
+            finished.set()
+            return _response(404)
+
+        files = GitHubRepoFiles("PostHog/posthog")
+
+        def at_the_deadline_once_the_fetch_runs() -> float:
+            assert started.wait(timeout=10)
+            return files._deadline
+
+        with (
+            patch("products.engineering_analytics.backend.logic.ownership.github_request", side_effect=stalls),
+            patch(
+                "products.engineering_analytics.backend.logic.ownership.monotonic",
+                side_effect=at_the_deadline_once_the_fetch_runs,
+            ),
+        ):
+            with self.assertRaises(OwnershipUnavailable):
+                files.read("owners.yaml")
+        assert not finished.is_set()
+
+    def test_a_file_that_arrives_too_slowly_is_refused(self) -> None:
+        # The per-request timeout starts again on each chunk, so the byte limit alone lets one read
+        # run for minutes. Nothing waits for the fetch after the deadline, so nothing else stops it.
+        files = GitHubRepoFiles("PostHog/posthog")
+        response = _response(200)
+
+        def expires_mid_body(chunk_size: int) -> Iterator[bytes]:
+            yield b"x" * chunk_size
+            files._deadline = monotonic() - 1
+            yield b"x" * chunk_size
+
+        with (
+            patch("products.engineering_analytics.backend.logic.ownership.github_request", return_value=response),
+            patch.object(response, "iter_content", expires_mid_body),
+        ):
             with self.assertRaises(OwnershipUnavailable):
                 files.read("owners.yaml")
 
