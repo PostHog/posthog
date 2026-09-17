@@ -67,7 +67,9 @@ describe('SyncMethodForm', () => {
                         sync_type: 'incremental',
                         incremental_available: true,
                         incremental_field: 'updated_at',
-                        incremental_fields: [{ field: 'updated_at', field_type: 'datetime', label: 'updated_at' }],
+                        incremental_fields: [
+                            { field: 'updated_at', field_type: 'datetime', label: 'updated_at', type: 'datetime' },
+                        ],
                         detected_primary_keys: null,
                         available_columns: [{ field: 'order_id', label: 'order_id', type: 'bigint', nullable: false }],
                     }}

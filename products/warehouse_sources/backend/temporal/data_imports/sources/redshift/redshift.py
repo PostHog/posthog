@@ -196,6 +196,7 @@ def _parse_constraint_key(raw: Any) -> list[int]:
     return [int(position) for position in _CONSTRAINT_KEY_POSITION_PATTERN.findall(str(raw or ""))]
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- the pair keys the mapping, so no caller reads it positionally
 def _primary_keys_from_catalog(cursor: psycopg.Cursor, where: sql.Composable) -> dict[tuple[str, str], list[str]]:
     """Declared primary keys of the relations `where` selects, each in declared column order."""
     cursor.execute(_CATALOG_PRIMARY_KEYS_SQL.format(where=where))
