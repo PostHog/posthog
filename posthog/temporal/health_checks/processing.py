@@ -18,13 +18,14 @@ def run_check_for_team(kind: str, team_id: int) -> BatchResult:
     The one entry point for manual single-team paths (the Health page refresh task, agent
     tools), so no caller can forget to forward the registration's `dry_run` again.
 
-    Raises KeyError for an unregistered kind.
+    Raises HealthCheckKindNotRegistered for a kind this process cannot detect.
     """
     ensure_registry_loaded()
+    detect_fn = get_detect_fn(kind)
     return _process_batch_detection(
         team_ids=[team_id],
         kind=kind,
-        detect_fn=get_detect_fn(kind),
+        detect_fn=detect_fn,
         dry_run=HEALTH_CHECKS[kind].dry_run,
     )
 

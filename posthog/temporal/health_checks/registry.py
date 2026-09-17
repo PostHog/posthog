@@ -34,10 +34,23 @@ _registry_loaded = False
 _registry_lock = threading.Lock()
 
 
+class HealthCheckKindNotRegistered(Exception):
+    """The kind has no detect function in the image this worker runs.
+
+    Temporal schedules are created at deploy time, so a schedule for a check that
+    just landed can fire on a worker whose image predates it. A retry on that
+    worker can never succeed, which is why callers mark this non-retryable.
+    """
+
+
 def get_detect_fn(kind: str) -> BatchDetectFn:
     fn = _DETECT_FNS.get(kind)
     if fn is None:
-        raise KeyError(f"No detect function registered for kind '{kind}'")
+        raise HealthCheckKindNotRegistered(
+            f"Health check kind '{kind}' has no detect function in this worker's image. Either "
+            f"its module is missing from HEALTH_CHECK_MODULES, or its schedule fired ahead of the "
+            f"deploy that registers it."
+        )
     return fn
 
 

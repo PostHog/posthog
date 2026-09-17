@@ -79,6 +79,12 @@ HEALTH_CHECK_MODULES = [
 If your class sets a `schedule`, a Temporal schedule is automatically created at deploy time via `init_schedules`. No additional wiring is needed.
 Omit `schedule` if you only want the check to be triggered manually from the admin UI.
 
+A new check's first scheduled run can fire while some workers still run the previous image, which does not list your module in `HEALTH_CHECK_MODULES`.
+Such a worker raises `HealthCheckKindNotRegistered`, and Temporal does not retry it.
+When the batching activity lands on an old worker, the run fails before it fans out.
+When only a later batch does, that batch fails once.
+Either way the next run covers those teams, after every worker has the new image.
+
 ## `HealthCheck` class reference
 
 ```python
