@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import TYPE_CHECKING, Optional
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
@@ -38,17 +39,22 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     resource_type = models.CharField(max_length=64)
     resource_id = models.CharField(max_length=128, null=True, blank=True)
 
-    intent = models.JSONField()
-    intent_display = models.JSONField()
+    # Every JSONField below holds a payload assembled from request or apply data, and the gate
+    # stores the endpoint serializer's validated_data verbatim — DRF deserializes a typed field
+    # into its native Python object, so a `DateTimeField` arrives as a `datetime`. Encoding at the
+    # storage boundary renders those as the ISO strings the serializer parses again on the apply
+    # path, instead of aborting the write inside psycopg.
+    intent = models.JSONField(encoder=DjangoJSONEncoder)
+    intent_display = models.JSONField(encoder=DjangoJSONEncoder)
 
-    policy_snapshot = models.JSONField()
+    policy_snapshot = models.JSONField(encoder=DjangoJSONEncoder)
 
     validation_status = models.CharField(
         max_length=16,
         choices=ValidationStatus,
         default=ValidationStatus.VALID,
     )
-    validation_errors = models.JSONField(null=True, blank=True)
+    validation_errors = models.JSONField(null=True, blank=True, encoder=DjangoJSONEncoder)
     validated_at = models.DateTimeField(null=True, blank=True)
 
     state = models.CharField(
@@ -69,7 +75,7 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     applied_at = models.DateTimeField(null=True, blank=True)
 
     apply_error = models.TextField(blank=True)
-    result_data = models.JSONField(null=True, blank=True)
+    result_data = models.JSONField(null=True, blank=True, encoder=DjangoJSONEncoder)
 
     class Meta:
         db_table = "posthog_changerequest"  # pinned to pre-move physical table name, do not rename

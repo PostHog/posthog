@@ -1,12 +1,11 @@
 from contextlib import suppress
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 
 from posthog.api.utils import ServiceRequest
 
@@ -195,4 +194,4 @@ class TestChangeRequestIntentIsJsonSafe(APIBaseTest):
         change_request.refresh_from_db()
         stored = change_request.intent["full_request_data"]["last_called_at"]
         assert isinstance(stored, str), "the datetime must be rendered, not handed to psycopg as-is"
-        assert abs(parse_datetime(stored) - called_at) < timedelta(milliseconds=1)
+        assert abs(datetime.fromisoformat(stored) - called_at) < timedelta(milliseconds=1)
