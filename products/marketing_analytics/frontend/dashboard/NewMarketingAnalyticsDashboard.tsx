@@ -449,6 +449,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                                     ? 'Mark a conversion goal as a new customer goal in Setup first.'
                                                     : undefined,
                                         }))}
+                                        aria-label="Chart metric"
                                         data-attr="marketing-traffic-chart-metric"
                                     />
                                 </div>
