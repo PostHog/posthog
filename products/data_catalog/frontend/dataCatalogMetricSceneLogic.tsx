@@ -548,7 +548,8 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             actions.setLineageRetried(true)
             await breakpoint(LINEAGE_RETRY_MS)
             // A refresh or a reload can load the graph inside the window, so ask again only while
-            // the tab still waits for the node.
+            // the node is still missing. The retry finishes even off the tab, so the graph is there
+            // when the user returns.
             if (values.lineageProblem !== 'not_ready' || values.lineageLoading) {
                 return
             }
