@@ -435,6 +435,9 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('### Business knowledge, then PostHog docs')
             expect(result).not.toMatch(/every user request|even when the request looks simple/)
             expect(result).toContain('call neither search')
+            // The gate is the topic, never the location: a PostHog SDK question that names a
+            // file in the user's repository still has to reach docs-search.
+            expect(result).toContain('The topic decides, not the location')
         })
     })
 
