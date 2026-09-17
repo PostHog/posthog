@@ -795,6 +795,11 @@ def _other_region_sender_status_url() -> str | None:
     region this is without a second source for it. Only the primary asks, because the secondary
     would otherwise ask itself and find its own channel.
     """
+    if settings.DEBUG:
+        # A development server is both region domains at once, so it would probe itself over a
+        # scheme it does not serve and fail every local outbound capture. There is no second
+        # region to be ambiguous with there.
+        return None
     if urlparse(settings.SITE_URL).netloc != PRIMARY_REGION_DOMAIN:
         return None
     return f"https://{SECONDARY_REGION_DOMAIN}{SENDER_STATUS_PATH}"

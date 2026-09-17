@@ -589,11 +589,21 @@ class TestCustomerEmailIngestion(MailgunWebhookTestMixin, BaseTest):
         mock_sender_status.assert_called_once()
         assert EmailThread.objects.for_team(self.team.id).exists() is expected_ingestion
 
-    def test_the_secondary_region_never_asks_itself_about_the_sender(self) -> None:
-        # A host other than the primary domain makes this deployment the secondary, which would
-        # otherwise ask itself and always find its own channel.
-        with self.settings(SITE_URL="https://us.posthog.com"), patch(SENDER_STATUS_REQUEST) as mock_sender_status:
-            response = self._post_outbound_email(message_id="<secondary-no-probe@example.com>")
+    @parameterized.expand(
+        [
+            # A host other than the primary domain makes this deployment the secondary, which
+            # would otherwise ask itself and always find its own channel.
+            ("this deployment is the secondary region", {"SITE_URL": "https://us.posthog.com"}),
+            # Both region domains point at the one development server, so there is no second
+            # region to be ambiguous with and the probe would only fail the local capture.
+            ("this deployment is a development server", {"DEBUG": True}),
+        ]
+    )
+    def test_the_sender_probe_is_skipped_where_there_is_no_other_region(
+        self, _name: str, settings_override: dict
+    ) -> None:
+        with self.settings(**settings_override), patch(SENDER_STATUS_REQUEST) as mock_sender_status:
+            response = self._post_outbound_email(message_id=f"<no-probe-{_name}@example.com>")
 
         assert response.status_code == 202
         mock_sender_status.assert_not_called()
