@@ -2,19 +2,26 @@ import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import {
+    MarketingDashboardView,
+    marketingAnalyticsLogic,
+} from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 
-import { MarketingBreakdownSelect } from './MarketingBreakdownSelect'
+import { MarketingGoalSelect } from './MarketingGoalSelect'
 import { MarketingPropertyFilters } from './MarketingPropertyFilters'
 import { MarketingSectionSwitcher } from './MarketingSectionSwitcher'
 
+// The goal only changes what Overview and Conversion show, so it stays out of the other three
+// rather than sitting there doing nothing.
+const GOAL_SECTIONS = new Set([MarketingDashboardView.OVERVIEW, MarketingDashboardView.CONVERSION])
+
 export function MarketingDashboardHeader(): JSX.Element {
-    const { dateFilter } = useValues(marketingAnalyticsLogic)
+    const { dateFilter, dashboardView } = useValues(marketingAnalyticsLogic)
     const { setDates } = useActions(marketingAnalyticsLogic)
 
     return (
@@ -30,7 +37,7 @@ export function MarketingDashboardHeader(): JSX.Element {
                             onChange={setDates}
                             allowTimePrecision
                         />
-                        <MarketingBreakdownSelect />
+                        {GOAL_SECTIONS.has(dashboardView) && <MarketingGoalSelect />}
                         <MarketingPropertyFilters />
                         <ReloadAll iconOnly />
                     </div>

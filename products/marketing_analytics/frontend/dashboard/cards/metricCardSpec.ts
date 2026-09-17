@@ -6,6 +6,8 @@ export interface MetricNotice {
     key: string
     title: string
     message: string
+    /** Stands in the value's place for a metric that exists but cannot be computed here. */
+    value?: string
     action?: { label: string; onClick: () => void; dataAttr: string }
 }
 

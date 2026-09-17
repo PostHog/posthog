@@ -18,7 +18,7 @@ export function MarketingMetricCard({ spec, loading, labelFromKey }: MarketingMe
         )
     }
     if (spec.kind === 'notice') {
-        return <MetricNoticeCard title={spec.title} message={spec.message} action={spec.action} />
+        return <MetricNoticeCard title={spec.title} message={spec.message} value={spec.value} action={spec.action} />
     }
     return (
         <OverviewMetricCardGrid

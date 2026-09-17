@@ -3,11 +3,11 @@ import { useValues } from 'kea'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { TrendsQuery, WebOverviewQueryResponse } from '~/queries/schema/schema-general'
+import { TrendsQuery } from '~/queries/schema/schema-general'
 import { TrendResult } from '~/types'
 
 import { marketingDashboardLogic } from '../marketingDashboardLogic'
-import { sumTrendSeries } from '../marketingDashboardMetrics'
+import { seriesTotal } from '../marketingDashboardMetrics'
 import { MarketingMetricCard } from './MarketingMetricCard'
 import { pctChange } from './metricCardSpec'
 import { MetricNoticeCard } from './MetricNoticeCard'
@@ -19,7 +19,8 @@ const LABELS: Record<string, string> = {
 
 const NO_VALUE_MESSAGE = 'No value associated with this conversion.'
 
-/** Both value cards, or a pair of N/A notices when the goal totals no money property. */
+/** The value total and its average, or a pair of N/A notices when the goal totals no money
+ * property. Both come from one query, so they cannot disagree with each other. */
 export function ConversionValueCards(): JSX.Element {
     const { conversionValueQuery } = useValues(marketingDashboardLogic)
 
@@ -36,61 +37,58 @@ export function ConversionValueCards(): JSX.Element {
 }
 
 function ConversionValueLoaded({ query }: { query: TrendsQuery }): JSX.Element {
-    const { conversionOverviewQuery } = useValues(marketingDashboardLogic)
-    const valueLogic = dataNodeLogic({
+    const logic = dataNodeLogic({
         query,
         key: 'marketing-dashboard-conversion-value',
         dataNodeCollectionId: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     })
-    const { response: valueResponse, responseLoading: valueLoading } = useValues(valueLogic)
+    const { response, responseLoading } = useValues(logic)
 
-    // Conversions come from the overview node the section already mounts, so the average is a
-    // division rather than a third request.
-    const conversionsLogic = dataNodeLogic({
-        query: conversionOverviewQuery!,
-        key: 'marketing-dashboard-conversion-overview',
-        dataNodeCollectionId: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    })
-    const { response: conversionsResponse, responseLoading: conversionsLoading } = useValues(conversionsLogic)
+    const results = (response as { results?: TrendResult[] } | undefined)?.results
+    // Series order, not label: the query asks for the sum first and the average second.
+    const total = seriesTotal(results, 0)
+    const average = seriesTotal(results, 1)
 
-    const { value, previous } = sumTrendSeries((valueResponse as { results?: TrendResult[] } | undefined)?.results)
-    const conversions = (conversionsResponse as WebOverviewQueryResponse | undefined)?.results?.find(
-        (item) => item.key === 'total conversions'
-    )
-    const average = conversions?.value ? value / conversions.value : undefined
-    const previousAverage =
-        previous !== undefined && conversions?.previous ? previous / conversions.previous : undefined
+    const card = (key: string, amount: { value?: number; previous?: number }): JSX.Element =>
+        amount.value === undefined ? (
+            <MetricNoticeCard
+                key={key}
+                title={LABELS[key]}
+                message="No conversions with a value in this range."
+                value="N/A"
+            />
+        ) : (
+            <MarketingMetricCard
+                key={key}
+                loading={responseLoading}
+                labelFromKey={(k) => LABELS[k] ?? k}
+                spec={{
+                    kind: 'metric',
+                    item: {
+                        key,
+                        kind: 'currency',
+                        value: amount.value,
+                        previous: amount.previous,
+                        changeFromPreviousPct: pctChange(amount.value, amount.previous),
+                    } as never,
+                }}
+            />
+        )
+
+    if (responseLoading) {
+        return (
+            <>
+                {(['conversion_value', 'avg_conversion_value'] as const).map((key) => (
+                    <MarketingMetricCard key={key} loading labelFromKey={(k) => LABELS[k] ?? k} />
+                ))}
+            </>
+        )
+    }
 
     return (
         <>
-            <MarketingMetricCard
-                loading={valueLoading}
-                labelFromKey={(key) => LABELS[key] ?? key}
-                spec={{
-                    kind: 'metric',
-                    item: {
-                        key: 'conversion_value',
-                        kind: 'currency',
-                        value,
-                        previous,
-                        changeFromPreviousPct: pctChange(value, previous),
-                    } as never,
-                }}
-            />
-            <MarketingMetricCard
-                loading={valueLoading || conversionsLoading}
-                labelFromKey={(key) => LABELS[key] ?? key}
-                spec={{
-                    kind: 'metric',
-                    item: {
-                        key: 'avg_conversion_value',
-                        kind: 'currency',
-                        value: average,
-                        previous: previousAverage,
-                        changeFromPreviousPct: pctChange(average, previousAverage),
-                    } as never,
-                }}
-            />
+            {card('conversion_value', total)}
+            {card('avg_conversion_value', average)}
         </>
     )
 }

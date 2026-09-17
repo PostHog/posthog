@@ -393,31 +393,21 @@ export const marketingDashboardLogic = kea<marketingDashboardLogicType>([
                 if (!goal || goal.math !== PropertyMathType.Sum || !goal.math_property) {
                     return null
                 }
-                const series =
+                // The total and the average ride on one query so they can never disagree, and
+                // neither depends on the session-attributed conversion count.
+                const base =
                     goal.kind === NodeKind.ActionsNode
-                        ? [
-                              {
-                                  kind: NodeKind.ActionsNode as const,
-                                  id: goal.id,
-                                  math: PropertyMathType.Sum,
-                                  math_property: goal.math_property,
-                                  properties: goal.properties,
-                              },
-                          ]
+                        ? { kind: NodeKind.ActionsNode as const, id: goal.id, properties: goal.properties }
                         : goal.kind === NodeKind.EventsNode
-                          ? [
-                                {
-                                    kind: NodeKind.EventsNode as const,
-                                    event: goal.event,
-                                    math: PropertyMathType.Sum,
-                                    math_property: goal.math_property,
-                                    properties: goal.properties,
-                                },
-                            ]
-                          : []
-                if (!series.length) {
+                          ? { kind: NodeKind.EventsNode as const, event: goal.event, properties: goal.properties }
+                          : null
+                if (!base) {
                     return null
                 }
+                const series = [
+                    { ...base, math: PropertyMathType.Sum, math_property: goal.math_property },
+                    { ...base, math: PropertyMathType.Average, math_property: goal.math_property },
+                ]
                 return {
                     kind: NodeKind.TrendsQuery,
                     dateRange,

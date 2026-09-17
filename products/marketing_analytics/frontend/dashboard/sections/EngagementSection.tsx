@@ -26,6 +26,12 @@ const ENGAGEMENT_LABELS: Record<string, string> = {
     sessions_per_visitor: 'Sessions per visitor',
 }
 
+const RATIOS: [string, string, string][] = [
+    ['pages_per_session', 'views', 'sessions'],
+    ['pages_per_visitor', 'views', 'visitors'],
+    ['sessions_per_visitor', 'sessions', 'visitors'],
+]
+
 export function EngagementSection(): JSX.Element {
     const { webOverviewQuery, engagementTableQuery } = useValues(marketingDashboardLogic)
 
@@ -38,11 +44,18 @@ export function EngagementSection(): JSX.Element {
                     numSkeletons={5}
                     select={(results) => [
                         ...pickOverviewItems(results, ['session duration']),
-                        ...[
-                            ratioItem(results, 'pages_per_session', 'views', 'sessions'),
-                            ratioItem(results, 'pages_per_visitor', 'views', 'visitors'),
-                            ratioItem(results, 'sessions_per_visitor', 'sessions', 'visitors'),
-                        ].filter((spec) => spec !== null),
+                        // A ratio with nothing to divide by keeps its place as a notice, so the
+                        // row never silently loses a card.
+                        ...RATIOS.map(
+                            ([key, numerator, denominator]) =>
+                                ratioItem(results, key, numerator, denominator) ?? {
+                                    kind: 'notice' as const,
+                                    key,
+                                    title: ENGAGEMENT_LABELS[key],
+                                    message: 'Not enough traffic in this range to work this out.',
+                                    value: 'N/A',
+                                }
+                        ),
                         ...pickOverviewItems(results, ['bounce rate']),
                     ]}
                     labelFromKey={(key) => ENGAGEMENT_LABELS[key] ?? labelFromKey(key)}

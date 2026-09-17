@@ -99,6 +99,22 @@ export function sumTrendSeries(results: TrendResult[] | undefined): { value: num
     return { value, previous }
 }
 
+/** One series of a multi-series trends response, picked by the order the query asked for it in.
+ * `value` is undefined when that series returned nothing, which the caller shows as N/A rather
+ * than as a zero it cannot stand behind. */
+export function seriesTotal(results: TrendResult[] | undefined, order: number): { value?: number; previous?: number } {
+    const matching = (results ?? []).filter((result) => (result.order ?? result.action?.order ?? 0) === order)
+    if (!matching.length) {
+        return {}
+    }
+    const current = matching.find((result) => result.compare_label !== 'previous')
+    const previous = matching.find((result) => result.compare_label === 'previous')
+    return {
+        value: current?.aggregated_value,
+        previous: previous?.aggregated_value,
+    }
+}
+
 /** One overview scalar divided by another, as a card. Null when the denominator is missing or
  * zero, which the caller shows as a notice rather than as a misleading zero. */
 export function ratioItem(

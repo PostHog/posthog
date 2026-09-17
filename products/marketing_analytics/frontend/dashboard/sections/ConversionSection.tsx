@@ -1,7 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect } from '@posthog/lemon-ui'
-
 import { TileId } from 'scenes/web-analytics/common'
 import {
     MarketingAnalyticsTab,
@@ -27,9 +25,7 @@ const CONVERSION_LABELS: Record<string, string> = {
 }
 
 export function ConversionSection(): JSX.Element {
-    const { webOverviewQuery, conversionOverviewQuery, conversionTableQuery, conversionGoals, selectedConversionGoal } =
-        useValues(marketingDashboardLogic)
-    const { setConversionGoalId } = useActions(marketingDashboardLogic)
+    const { webOverviewQuery, conversionOverviewQuery, conversionTableQuery } = useValues(marketingDashboardLogic)
     const { setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
 
     const reviewGoals = (): void => {
@@ -55,22 +51,6 @@ export function ConversionSection(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-center gap-2">
-                <span className="text-secondary text-sm">Goal</span>
-                <LemonSelect
-                    size="small"
-                    value={selectedConversionGoal?.conversion_goal_id}
-                    onChange={(id) => id && setConversionGoalId(id)}
-                    options={conversionGoals.map((goal) => ({
-                        value: goal.conversion_goal_id,
-                        label: goal.conversion_goal_name,
-                    }))}
-                    aria-label="Conversion goal"
-                    // Inherited from the retired Revenue section's picker: pinned wire string that
-                    // autocapture dashboards and Playwright already select on.
-                    data-attr="marketing-revenue-goal"
-                />
-            </div>
             <MarketingMetricCardGrid>
                 <WebOverviewCards
                     query={webOverviewQuery}
