@@ -18,6 +18,7 @@ from products.approvals.backend.actions.feature_flags import (
 )
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.policies import PolicyEngine
+from products.approvals.backend.services import ChangeRequestService
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -268,7 +269,7 @@ class TestRelatedFieldsInIntent(APIBaseTest):
     which rejects an instance where it expects a primary key, and `intent` is a JSONField that
     cannot hold a model object."""
 
-    def test_gated_update_stores_related_field_as_primary_keys(self, _mock_enabled):
+    def test_gated_update_stores_related_field_as_primary_keys_then_applies(self, _mock_enabled):
         ApprovalPolicy.objects.create(
             organization=self.organization,
             team=self.team,
@@ -300,6 +301,15 @@ class TestRelatedFieldsInIntent(APIBaseTest):
 
         flag.refresh_from_db()
         assert flag.active is False
+
+        # Apply replays the stored intent through the serializer, so the round trip has to land
+        # both the gated change and the related field it carried.
+        result = ChangeRequestService(change_request, self.user).approve()
+        assert result.status == "applied"
+
+        flag.refresh_from_db()
+        assert flag.active is True
+        assert list(flag.analytics_dashboards.all()) == [dashboard]
 
 
 class TestUpdateFeatureFlagActionDisplayData(APIBaseTest):
