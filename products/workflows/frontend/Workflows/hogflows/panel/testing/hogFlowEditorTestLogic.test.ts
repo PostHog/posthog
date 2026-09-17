@@ -8,6 +8,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 import { AvailableFeature, GroupType, GroupTypeIndex, OrganizationType } from '~/types'
 
+import { workflowLogic } from '../../../workflowLogic'
 import { encodeSlackFilters } from '../../registry/triggers/slackTriggerFilters'
 import { createExampleEventForTrigger } from '../../testEventFactory'
 import {
@@ -262,6 +263,41 @@ describe('hogFlowEditorTestLogic', () => {
     beforeEach(() => {
         initKeaTests()
         useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': WORKFLOW_FIXTURE } })
+    })
+
+    describe('sample event follows the trigger filters', () => {
+        it('reloads the sample event when the trigger filters change', async () => {
+            // The panel fetched once on mount, so editing the trigger filters left the tester running
+            // against an event that no longer matched the filters on screen.
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+            const flowLogic = workflowLogic({ id: 'test-workflow' })
+
+            // Consume the load that mounting always does, so the assertion below can only pass on a
+            // second one. Without this the test passes even when nothing reacts to the filters.
+            await expectLogic(logic).toDispatchActions(['loadSampleGlobals'])
+
+            const before = logic.values.matchingFilters
+
+            await expectLogic(logic, () => {
+                flowLogic.actions.setWorkflowValue(
+                    'actions',
+                    WORKFLOW_FIXTURE.actions.map((action) =>
+                        action.id === 'trigger_node'
+                            ? {
+                                  ...action,
+                                  config: {
+                                      type: 'event',
+                                      filters: { events: [{ id: '$pageview', type: 'events', properties: [] }] },
+                                  },
+                              }
+                            : action
+                    )
+                )
+            }).toDispatchActions(['loadSampleGlobals'])
+
+            expect(logic.values.matchingFilters).not.toEqual(before)
+        })
     })
 
     describe('groupTypesForTest gating on group_analytics', () => {

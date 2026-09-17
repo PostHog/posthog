@@ -3,6 +3,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -715,10 +716,14 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         sampleGlobals: [
             null as CyclotronJobInvocationGlobals | null,
             {
-                loadSampleGlobals: async ({ extendedSearch }) => {
+                loadSampleGlobals: async ({ extendedSearch }, breakpoint) => {
                     if (!values.shouldLoadSampleGlobals) {
                         return null
                     }
+                    // Editing a filter changes these on every keystroke. Waiting here collapses a
+                    // burst into one query and drops any earlier load still in flight, so the event
+                    // shown is the one the current filters asked for.
+                    await breakpoint(300)
 
                     try {
                         // Use extended or standard search range
@@ -1049,6 +1054,24 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                 actions.setNoMatchingEvents(false)
                 actions.setCanTryExtendedSearch(false)
             }
+        },
+    })),
+
+    subscriptions(({ actions, values }) => ({
+        matchingFilters: (filters, previousFilters) => {
+            if (previousFilters === undefined || !values.shouldLoadSampleGlobals) {
+                return
+            }
+            // The selector rebuilds on any workflow edit, so compare the filters themselves rather
+            // than the object identity, or an unrelated change to a step would refetch the event.
+            if (JSON.stringify(filters) === JSON.stringify(previousFilters)) {
+                return
+            }
+            // Someone who picked an event by name chose it on purpose; leave it alone.
+            if (values.lastSearchedEventName) {
+                return
+            }
+            actions.loadSampleGlobals()
         },
     })),
 
