@@ -6,6 +6,8 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 import { EnrichedReviewer } from '../../types'
 import { getReviewerDisplayName } from './reviewerDisplay'
 
+const OTHER_SOURCE_LABELS = new Set(['Code history', 'Added by teammate', 'Agent suggestion'])
+
 export function getReviewerSourceLabel(reviewer: EnrichedReviewer): string {
     if (reviewer.source_label) {
         return reviewer.source_label
@@ -17,6 +19,13 @@ export function getReviewerSourceLabel(reviewer: EnrichedReviewer): string {
         return 'Added by teammate'
     }
     return 'Agent suggestion'
+}
+
+export function isScoutReviewer(reviewer: EnrichedReviewer): boolean {
+    if (reviewer.source_skill !== undefined) {
+        return Boolean(reviewer.source_skill && reviewer.relevant_commits.length === 0)
+    }
+    return !OTHER_SOURCE_LABELS.has(getReviewerSourceLabel(reviewer))
 }
 
 export function getReviewerExplanation(reviewer: EnrichedReviewer): string | null {

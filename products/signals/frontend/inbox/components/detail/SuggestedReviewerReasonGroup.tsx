@@ -5,9 +5,7 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 
 import { EnrichedReviewer } from '../../types'
 import { getReviewerDisplayName } from './reviewerDisplay'
-import { getReviewerSourceLabel } from './SuggestedReviewerPerson'
-
-const OTHER_SOURCE_LABELS = new Set(['Code history', 'Added by teammate', 'Agent suggestion'])
+import { getReviewerSourceLabel, isScoutReviewer } from './SuggestedReviewerPerson'
 
 export function SuggestedReviewerReasonGroup({
     reviewers,
@@ -24,11 +22,7 @@ export function SuggestedReviewerReasonGroup({
     const otherSourceLabels = new Set<string>()
     for (const reviewer of reviewers) {
         const sourceLabel = getReviewerSourceLabel(reviewer)
-        const isScout =
-            reviewer.source_skill === undefined
-                ? !OTHER_SOURCE_LABELS.has(sourceLabel)
-                : Boolean(reviewer.source_skill && reviewer.relevant_commits.length === 0)
-        if (isScout) {
+        if (isScoutReviewer(reviewer)) {
             scoutNames.add(sourceLabel)
         } else {
             otherSourceLabels.add(sourceLabel)

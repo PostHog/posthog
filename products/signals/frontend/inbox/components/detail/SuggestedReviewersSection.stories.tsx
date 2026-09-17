@@ -139,6 +139,21 @@ export const NarrowPanelMixedSources: Story = {
     },
 }
 
+export const NarrowPanelMixedProvenance: Story = {
+    parameters: { mockupWidth: 'narrow' },
+    args: {
+        suggestions: [
+            ...sharedReasonSuggestions.slice(0, 2),
+            reviewer('maya', 'Maya Rivera', 'maya@example.com', {
+                relevant_commits: [{ sha: 'abc123f', url: 'https://example.com/c/abc123f', reason: sharedReason }],
+                source_label: 'Code history',
+                explanation: sharedReason,
+                reason: sharedReason,
+            }),
+        ],
+    },
+}
+
 export const NarrowPanelLongReason: Story = {
     parameters: { mockupWidth: 'narrow' },
     args: {
