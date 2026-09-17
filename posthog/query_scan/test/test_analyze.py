@@ -34,18 +34,6 @@ def join_plan(*reads: dict[str, object]) -> QueryPlan:
     return parse_query_plan([{"Plan": {"Node Type": "Join", "Plans": list(reads)}}])
 
 
-def facts(**overrides: object) -> TreeFacts:
-    values: dict[str, object] = {
-        "timestamp_bound": False,
-        "property_filter": False,
-        "all_history": False,
-        "groups_by_event": False,
-        "counts_any_event": False,
-        "view_name": None,
-    }
-    return TreeFacts(**{**values, **overrides})  # type: ignore[arg-type]
-
-
 # A join whose heaviest read pruned on nothing while its lighter read pruned on `event`: an
 # unfiltered helper read beside a read that names events.
 _HELPER_READ_PLAN = join_plan(
@@ -247,19 +235,19 @@ class TestAnalyze(SimpleTestCase):
             (
                 "a bound clickhouse could not use",
                 "plan_no_date_bound",
-                {"tree": facts(timestamp_bound=True)},
+                {"tree": TreeFacts(timestamp_bound=True)},
                 [("no_start_date/bound_not_used", True)],
             ),
             (
                 "a start date the plan never saw",
                 "plan_no_date_bound",
-                {"tree": facts(timestamp_bound=True, start_date_hidden_from_plan=True)},
+                {"tree": TreeFacts(timestamp_bound=True, start_date_hidden_from_plan=True)},
                 [],
             ),
             (
                 "a first-ever computation in sql",
                 "plan_no_date_bound",
-                {"tree": facts(all_history=True, timestamp_bound=True)},
+                {"tree": TreeFacts(all_history=True, timestamp_bound=True)},
                 [("no_start_date/by_design", False)],
             ),
             (
@@ -295,7 +283,7 @@ class TestAnalyze(SimpleTestCase):
             (
                 "a read inside a saved view",
                 "plan_no_date_bound",
-                {"tree": facts(view_name="v_active")},
+                {"tree": TreeFacts(view_name="v_active")},
                 [("no_start_date/view", True)],
             ),
             (
@@ -313,7 +301,7 @@ class TestAnalyze(SimpleTestCase):
             (
                 "a shape that reads every event of all history is not believed",
                 single_read_plan("true"),
-                {"tree": facts(all_history=True, counts_any_event=True)},
+                {"tree": TreeFacts(all_history=True, counts_any_event=True)},
                 [("no_start_date", True), ("no_event_filter", True)],
             ),
             (
@@ -325,31 +313,31 @@ class TestAnalyze(SimpleTestCase):
             (
                 "a property filter standing in for an event name",
                 "plan_no_event_filter",
-                {"range_granules": 1_000_000, "tree": facts(property_filter=True)},
+                {"range_granules": 1_000_000, "tree": TreeFacts(property_filter=True)},
                 [("no_event_filter/property_filter", True)],
             ),
             (
                 "a property filter on an all events insight",
                 "plan_no_event_filter",
-                {"range_granules": 1_000_000, "query_kind": "TrendsQuery", "tree": facts(property_filter=True)},
+                {"range_granules": 1_000_000, "query_kind": "TrendsQuery", "tree": TreeFacts(property_filter=True)},
                 [("no_event_filter/property_filter", True)],
             ),
             (
                 "grouping by event beside a property filter",
                 "plan_no_event_filter",
-                {"range_granules": 1_000_000, "tree": facts(groups_by_event=True, property_filter=True)},
+                {"range_granules": 1_000_000, "tree": TreeFacts(groups_by_event=True, property_filter=True)},
                 [("no_event_filter/by_design", False)],
             ),
             (
                 "counting distinct people over any event",
                 "plan_no_event_filter",
-                {"range_granules": 1_000_000, "tree": facts(counts_any_event=True)},
+                {"range_granules": 1_000_000, "tree": TreeFacts(counts_any_event=True)},
                 [("no_event_filter/by_design", False)],
             ),
             (
                 "counting distinct people with a property filter",
                 "plan_no_event_filter",
-                {"range_granules": 1_000_000, "tree": facts(counts_any_event=True, property_filter=True)},
+                {"range_granules": 1_000_000, "tree": TreeFacts(counts_any_event=True, property_filter=True)},
                 [("no_event_filter/property_filter", True)],
             ),
             (
@@ -361,7 +349,7 @@ class TestAnalyze(SimpleTestCase):
             (
                 "an unfiltered helper read in sql",
                 _HELPER_READ_PLAN,
-                {"range_granules": 10_000, "tree": facts(counts_any_event=True)},
+                {"range_granules": 10_000, "tree": TreeFacts(counts_any_event=True)},
                 [("no_event_filter/helper_read", True)],
             ),
             (
@@ -442,7 +430,7 @@ class TestAnalyze(SimpleTestCase):
             (
                 "the saved view the read sits in",
                 "plan_no_date_bound",
-                {"tree": facts(view_name="v_active")},
+                {"tree": TreeFacts(view_name="v_active")},
                 "The view `v_active` inside this query has no start date",
             ),
             (

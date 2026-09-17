@@ -51,19 +51,19 @@ class TreeFacts:
 
     # Every events read carries a lower bound on `timestamp`, so an unbounded read in the plan is
     # a bound ClickHouse could not use.
-    timestamp_bound: bool
+    timestamp_bound: bool = False
     # Every events read with no event condition narrows itself by a property instead.
-    property_filter: bool
+    property_filter: bool = False
     # Every unbounded events read finds a first event ever, with `min` or `argMin` over `timestamp`
     # or a ranking window ordered by it: the answer needs all history.
-    all_history: bool
+    all_history: bool = False
     # Every events read with no event condition groups by `event`: the answer is the set of events.
-    groups_by_event: bool
+    groups_by_event: bool = False
     # Every events read with no event condition counts distinct actors or sessions, or finds each
     # actor's last event: the answer needs every event.
-    counts_any_event: bool
+    counts_any_event: bool = False
     # The saved view every events read sits inside, when they all sit inside the same one.
-    view_name: str | None
+    view_name: str | None = None
     # Every events read carries a lower bound and one of them compares `timestamp` to a subquery, so a
     # read the plan shows with no start is that bound: the scan takes it out before it asks for the plan.
     start_date_hidden_from_plan: bool = False
