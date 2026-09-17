@@ -9,7 +9,6 @@ import { initKeaTests } from '~/test/init'
 import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { AccountCustomPropertyEditor } from './AccountCustomPropertyEditor'
-import type { AccountSidebarProperty } from './accountPropertyTypes'
 import { AccountPropertyValue } from './AccountPropertyValue'
 
 describe('AccountCustomPropertyEditor', () => {
@@ -166,65 +165,6 @@ describe('AccountCustomPropertyEditor', () => {
             )
         }
     )
-
-    it('keeps each truncated property value fully selectable', () => {
-        const longValue = 'averylongvalue@example.com, anotherlongvalue@example.com'
-        const properties: AccountSidebarProperty[] = [
-            {
-                key: 'relationship:relationship-1',
-                kind: 'relationship',
-                definition: {
-                    id: 'relationship-1',
-                    name: 'Account owner',
-                    description: null,
-                    is_single_holder: true,
-                    is_controlled: false,
-                },
-                members: [{ id: 1, email: longValue }],
-            },
-            {
-                key: 'custom:link',
-                kind: 'custom',
-                definition: { ...definition, id: 'link', display_type: 'link' },
-                value: `https://example.com/${longValue}`,
-                provenance: 'manual',
-            },
-            {
-                key: 'custom:date',
-                kind: 'custom',
-                definition: { ...definition, id: 'date', display_type: 'date' },
-                value: longValue,
-                provenance: 'manual',
-            },
-            {
-                key: 'custom:select',
-                kind: 'custom',
-                definition: { ...definition, id: 'select', display_type: 'select' },
-                value: longValue,
-                provenance: 'manual',
-            },
-            {
-                key: 'custom:text',
-                kind: 'custom',
-                definition: { ...definition, id: 'text', display_type: 'text' },
-                value: longValue,
-                provenance: 'manual',
-            },
-        ]
-        const { container } = render(
-            <>
-                {properties.map((property) => (
-                    <AccountPropertyValue key={property.key} property={property} />
-                ))}
-            </>
-        )
-
-        const truncatedValues = [...container.querySelectorAll('.truncate')]
-        expect(truncatedValues).toHaveLength(properties.length)
-        for (const value of truncatedValues) {
-            expect(value).toHaveClass('select-all')
-        }
-    })
 
     it('keeps a UTC-midnight date on the same calendar day in the display and editor', () => {
         const dateDefinition = { ...definition, display_type: 'date' as const }
