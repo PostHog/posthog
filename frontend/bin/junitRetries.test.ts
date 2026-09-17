@@ -1,3 +1,6 @@
+/** @jest-environment-options {"customExportConditions":["node","node-addons"]} */
+// jsdom resolves uuid to an ESM browser build, while jest-junit runs under Node in CI.
+
 import { mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'

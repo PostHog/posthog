@@ -16,8 +16,7 @@ An upload failure does not turn a failed test command into a pass.
 | Playwright E2E                                  | One in normal CI; zero in the audit workflow | Built-in JUnit reporter with `includeRetries: true`                                                             |
 | Rust nextest                                    | One in the CI profile                        | Built-in JUnit retry children                                                                                   |
 
-Jest 30 retries immediately through `retryImmediately`.
-Jest 29 retries after the other tests in the file.
+Jest retries after the other tests in the file.
 Local Jest commands do not enable the shared CI retry setting.
 Existing suite-specific overrides still apply.
 

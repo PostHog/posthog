@@ -1,3 +1,3 @@
 if (process.env.CI) {
-    jest.retryTimes(1, { logErrorsBeforeRetry: true, retryImmediately: true })
+    jest.retryTimes(1, { logErrorsBeforeRetry: true })
 }

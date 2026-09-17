@@ -119,6 +119,7 @@ jobs:
                           - 'products/**/*.tsx'
                       frontend:
                         - '.github/scripts/jest-retries.cjs'
+                        - 'patches/jest-junit@16.0.0.patch'
                         # Avoid running frontend tests for irrelevant changes
                         # NOTE: we are at risk of missing a dependency here.
                         - 'bin/**'
@@ -165,6 +166,7 @@ jobs:
                       # when only markdown or YAML files change.
                       frontend_code:
                         - '.github/scripts/jest-retries.cjs'
+                        - 'patches/jest-junit@16.0.0.patch'
                         - 'bin/**'
                         - 'frontend/**'
                         - 'ee/frontend/**'
@@ -202,6 +204,7 @@ jobs:
                       # to ESM); its zstd tests need the node:zlib support pinned by .nvmrc.
                       replay_shared:
                         - '.github/scripts/jest-retries.cjs'
+                        - 'patches/jest-junit@16.0.0.patch'
                         - 'common/replay-shared/**'
                         - pnpm-workspace.yaml
                         - pnpm-lock.yaml
@@ -346,7 +349,7 @@ jobs:
                       case "$f" in
                           jest.*.ts|babel.config.js|tsconfig.json|tsconfig.*.json|\
                           package.json|pnpm-lock.yaml|webpack.config.js|\
-                          .github/workflows/ci-frontend.yml|.github/scripts/jest-retries.cjs|.nvmrc)
+                          .github/workflows/ci-frontend.yml|.github/scripts/jest-retries.cjs|patches/jest-junit@16.0.0.patch|.nvmrc)
                               fall_back config_change "$f"
                               exit 0
                               ;;
