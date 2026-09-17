@@ -45,11 +45,6 @@ function LatestTurnSuggestion(logicProps: TurnSuggestionLogicProps): JSX.Element
     if (!visible || !suggestion) {
         return null
     }
-    const cardProps = {
-        streamKey: logicProps.streamKey,
-        turnIndex: logicProps.turnIndex,
-        sessionId: logicProps.sessionId,
-    }
     const { icon, Body } = CARD_BY_KIND[suggestion.kind]
     return (
         <div className="animate-fade-in [animation-duration:600ms] motion-reduce:animate-none">
@@ -59,7 +54,7 @@ function LatestTurnSuggestion(logicProps: TurnSuggestionLogicProps): JSX.Element
                 description={suggestion.description}
                 onDismiss={completed ? undefined : dismiss}
             >
-                <Body {...cardProps} />
+                <Body {...logicProps} />
             </SuggestionCardShell>
         </div>
     )

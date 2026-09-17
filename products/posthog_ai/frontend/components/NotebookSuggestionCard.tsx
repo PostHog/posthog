@@ -1,34 +1,26 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonInput, LemonLabel } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 
-import { notebookSuggestionLogic } from '../logics/notebookSuggestionLogic'
+import { suggestionActionLogic } from '../logics/suggestionActionLogic'
 import type { TurnSuggestionLogicProps } from '../logics/turnSuggestionLogic'
+import { SuggestionActionRow } from './SuggestionActionRow'
 
 export function NotebookSuggestionCard(props: TurnSuggestionLogicProps): JSX.Element | null {
-    const logic = notebookSuggestionLogic(props)
-    const {
-        suggestion,
-        notebookTitle,
-        conversationBlocks,
-        savedNotebook,
-        savedNotebookLoading,
-        saveDisabledReason,
-        saveError,
-        notebookUrl,
-    } = useValues(logic)
-    const { setTitle, saveNotebook } = useActions(logic)
+    const logic = suggestionActionLogic(props)
+    const { suggestion, notebookTitle, conversationBlocks, accepted } = useValues(logic)
+    const { setTitle } = useActions(logic)
 
-    if (!suggestion) {
+    if (suggestion?.kind !== 'notebook') {
         return null
     }
-    if (savedNotebook) {
+    if (accepted) {
         return (
             <LemonBanner
                 type="success"
-                action={notebookUrl ? { to: notebookUrl, children: 'Open notebook' } : undefined}
+                action={accepted.url ? { to: accepted.url, children: 'Open notebook' } : undefined}
             >
                 Saved to notebook.
             </LemonBanner>
@@ -48,7 +40,7 @@ export function NotebookSuggestionCard(props: TurnSuggestionLogicProps): JSX.Ele
                 />
             </div>
             <span className="text-xs text-secondary">
-                {suggestion.notebook.template === 'incident'
+                {suggestion.notebook.incident
                     ? 'Written up as an incident: timeline, cause, evidence and fix. The evidence is the conversation so far: '
                     : 'Saves the conversation so far: '}
                 {pluralize(conversationBlocks.messageCount, 'message')}
@@ -57,19 +49,12 @@ export function NotebookSuggestionCard(props: TurnSuggestionLogicProps): JSX.Ele
                     : ''}
                 .
             </span>
-            {saveError && <LemonBanner type="error">Couldn't save the notebook. Try again.</LemonBanner>}
-            <div className="flex justify-end">
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={saveNotebook}
-                    loading={savedNotebookLoading}
-                    disabledReason={saveDisabledReason ?? undefined}
-                    data-attr="posthog-ai-turn-suggestion-save-notebook"
-                >
-                    Save to notebook
-                </LemonButton>
-            </div>
+            <SuggestionActionRow
+                {...props}
+                label="Save to notebook"
+                dataAttr="posthog-ai-turn-suggestion-save-notebook"
+                failedMessage="Couldn't save the notebook. Try again."
+            />
         </>
     )
 }

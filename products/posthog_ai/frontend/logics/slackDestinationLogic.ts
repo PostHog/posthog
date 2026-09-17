@@ -15,6 +15,7 @@ import {
 import posthog from 'posthog-js'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 
 import { IntegrationType } from '~/types'
 
@@ -29,9 +30,9 @@ export interface slackDestinationLogicValues {
     suggestion: TurnSuggestion | null // turnSuggestionLogic
     hasSlackWorkspace: boolean
     slackChannel: string | null
+    slackChannelLabel: string
     slackDestinationDisabledReason: string | null
     slackIntegrationId: number | null
-    slackWorkspacesLoading: boolean
     waitingForSlack: boolean
 }
 
@@ -73,7 +74,7 @@ export interface slackDestinationLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         hasSlackWorkspace: (slackIntegrations: IntegrationType[] | undefined) => boolean
-        slackWorkspacesLoading: (integrationsLoading: boolean, hasSlackWorkspace: boolean) => boolean
+        slackChannelLabel: (slackChannel: string | null) => string
         slackDestinationDisabledReason: (
             slackIntegrationId: number | null,
             slackChannel: string | null,
@@ -146,10 +147,9 @@ export const slackDestinationLogic: LogicWrapper<slackDestinationLogicType> = ke
             (s) => [s.slackIntegrations],
             (slackIntegrations: IntegrationType[] | undefined): boolean => !!slackIntegrations?.length,
         ],
-        slackWorkspacesLoading: [
-            (s) => [s.integrationsLoading, s.hasSlackWorkspace],
-            (integrationsLoading: boolean, hasSlackWorkspace: boolean): boolean =>
-                integrationsLoading && !hasSlackWorkspace,
+        slackChannelLabel: [
+            (s) => [s.slackChannel],
+            (slackChannel: string | null): string => (slackChannel ? slackChannelDisplayName(slackChannel) : 'Slack'),
         ],
         slackDestinationDisabledReason: [
             (s) => [s.slackIntegrationId, s.slackChannel, s.hasSlackWorkspace],
@@ -170,7 +170,6 @@ export const slackDestinationLogic: LogicWrapper<slackDestinationLogicType> = ke
     }),
     listeners(({ actions, values, props, cache }) => {
         const stopWaitingForSlack = (): void => {
-            cache.disposables.dispose('slackConnectVisibility')
             if (cache.pollingIntegrations) {
                 actions.stopPolling()
                 cache.pollingIntegrations = false
@@ -184,23 +183,10 @@ export const slackDestinationLogic: LogicWrapper<slackDestinationLogicType> = ke
                         turnSuggestionEventProperties(props, values.suggestion)
                     )
                 }
-                // The OAuth flow runs in another tab, so the workspace shows up here only through a
-                // refetch: the integrations poller plus a reload when this tab becomes visible again.
+                // The OAuth flow runs in another tab, so the workspace shows up here only through the
+                // integrations poller, which also refetches when this window regains focus.
                 actions.startPolling()
                 cache.pollingIntegrations = true
-                cache.disposables.add(
-                    () => {
-                        const onVisible = (): void => {
-                            if (document.visibilityState === 'visible') {
-                                actions.loadIntegrations()
-                            }
-                        }
-                        document.addEventListener('visibilitychange', onVisible)
-                        return () => document.removeEventListener('visibilitychange', onVisible)
-                    },
-                    'slackConnectVisibility',
-                    { pauseOnPageHidden: false }
-                )
             },
             loadIntegrationsSuccess: ({ integrations }) => {
                 if (!values.waitingForSlack) {

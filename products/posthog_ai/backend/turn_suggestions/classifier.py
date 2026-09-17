@@ -8,7 +8,7 @@ drafts what that offer needs (a scout prompt, a notebook outline, an alert bound
 
 from datetime import date
 from enum import StrEnum
-from typing import Any
+from typing import Any, ClassVar
 
 import structlog
 from openai.types.shared_params import ResponseFormatJSONSchema
@@ -83,11 +83,23 @@ class AlertDirection(StrEnum):
 
 @frozen
 class ScoutDraft:
+    KIND: ClassVar[OfferKind] = OfferKind.SCOUT
+    WIRE_KEY: ClassVar[str] = "scout"
+
     mode: ScoutMode
     display_name: str
     description: str
     body: str
     cadence: ScoutCadence
+
+    def to_params(self) -> dict:
+        return {
+            "mode": self.mode.value,
+            "displayName": self.display_name,
+            "description": self.description,
+            "body": self.body,
+            "cadence": self.cadence.value,
+        }
 
 
 @frozen
@@ -99,55 +111,78 @@ class IncidentOutline:
 
 @frozen
 class NotebookDraft:
-    template: NotebookTemplate
+    KIND: ClassVar[OfferKind] = OfferKind.NOTEBOOK
+    WIRE_KEY: ClassVar[str] = "notebook"
+
     title: str
     summary: str
     incident: IncidentOutline | None
 
+    def to_params(self) -> dict:
+        incident = self.incident
+        return {
+            "title": self.title,
+            "summary": self.summary,
+            "incident": (
+                {"timeline": incident.timeline, "cause": incident.cause, "fix": incident.fix} if incident else None
+            ),
+        }
+
 
 @frozen
 class AlertDraft:
+    KIND: ClassVar[OfferKind] = OfferKind.ALERT
+    WIRE_KEY: ClassVar[str] = "alert"
+
     insight: SavedInsightRef
     direction: AlertDirection
     change_percent: int
 
+    def to_params(self) -> dict:
+        return {**self.insight.to_params(), "direction": self.direction.value, "changePercent": self.change_percent}
+
 
 @frozen
 class SubscriptionDraft:
+    KIND: ClassVar[OfferKind] = OfferKind.SUBSCRIPTION
+    WIRE_KEY: ClassVar[str] = "subscription"
+
     insight: SavedInsightRef
     cadence: ScoutCadence
+
+    def to_params(self) -> dict:
+        return {**self.insight.to_params(), "cadence": self.cadence.value}
 
 
 @frozen
 class ErrorAlertDraft:
+    KIND: ClassVar[OfferKind] = OfferKind.ERROR_ALERT
+    WIRE_KEY: ClassVar[str] = "errorAlert"
+
     issue: ErrorIssueRef
+
+    def to_params(self) -> dict:
+        return {"issueId": self.issue.issue_id, "issueName": self.issue.name}
+
+
+Draft = ScoutDraft | NotebookDraft | AlertDraft | SubscriptionDraft | ErrorAlertDraft
 
 
 @frozen
 class TurnVerdict:
     intent: TurnIntent
-    offer: OfferKind
     confidence: float
     title: str
     description: str
-    scout: ScoutDraft | None
-    notebook: NotebookDraft | None
-    alert: AlertDraft | None
-    subscription: SubscriptionDraft | None
-    error_alert: ErrorAlertDraft | None
+    draft: Draft | None
+
+    @property
+    def offer(self) -> OfferKind:
+        return self.draft.KIND if self.draft is not None else OfferKind.NONE
 
     @property
     def offers(self) -> bool:
-        if self.offer == OfferKind.NONE or self.confidence < MIN_CONFIDENCE:
-            return False
-        drafts = {
-            OfferKind.SCOUT: self.scout,
-            OfferKind.NOTEBOOK: self.notebook,
-            OfferKind.ALERT: self.alert,
-            OfferKind.SUBSCRIPTION: self.subscription,
-            OfferKind.ERROR_ALERT: self.error_alert,
-        }
-        return drafts[self.offer] is not None
+        return self.draft is not None and self.confidence >= MIN_CONFIDENCE
 
 
 class _VerdictReply(BaseModel):
@@ -208,7 +243,6 @@ The offers, and when each fits. Pick only from the offers listed as available fo
 Always fill title (the card headline, at most 60 characters, sentence case, for example "Get this every week in Slack" or "Tell me when this drops") and description (one sentence, at most 140 characters, why the offer helps here). Fields that do not apply to the chosen offer stay empty strings, 0, or their first enum value. Keep confidence honest: 0.9 or higher only when the tool calls clearly back the choice. Reply with the JSON object only."""
 
 _OFFER_LABELS = {
-    OfferKind.NONE: "none",
     OfferKind.SCOUT: "scout (modes: report, watch, investigate, check_back, digest)",
     OfferKind.NOTEBOOK: "notebook (templates: conversation, incident)",
     OfferKind.ALERT: "alert (on a saved insight listed below)",
@@ -262,79 +296,83 @@ def render_turn_prompt(transcript: TurnTranscript, *, today: date, available: fr
     return "\n\n".join(sections)
 
 
-def _find_insight(transcript: TurnTranscript, short_id: str) -> SavedInsightRef | None:
-    return next((ref for ref in transcript.saved_insights if ref.short_id == short_id.strip()), None)
+def _find_insight(transcript: TurnTranscript, short_id: str, *, alertable: bool = False) -> SavedInsightRef | None:
+    return next(
+        (
+            ref
+            for ref in transcript.saved_insights
+            if ref.short_id == short_id.strip() and (ref.alertable or not alertable)
+        ),
+        None,
+    )
 
 
 def _find_issue(transcript: TurnTranscript, issue_id: str) -> ErrorIssueRef | None:
     return next((ref for ref in transcript.error_issues if ref.issue_id == issue_id.strip()), None)
 
 
+def _incident_from_reply(reply: _VerdictReply) -> IncidentOutline | None:
+    if reply.notebook_template != NotebookTemplate.INCIDENT or not reply.incident_cause.strip():
+        return None
+    return IncidentOutline(
+        timeline=reply.incident_timeline.strip(),
+        cause=reply.incident_cause.strip(),
+        fix=reply.incident_fix.strip(),
+    )
+
+
+def _draft_from_reply(offer: OfferKind, reply: _VerdictReply, transcript: TurnTranscript) -> Draft | None:
+    """The draft the picked offer needs, or ``None`` when the reply lacks what that offer requires."""
+    match offer:
+        case OfferKind.SCOUT:
+            if not reply.scout_prompt.strip() or not reply.scout_display_name.strip():
+                return None
+            return ScoutDraft(
+                mode=reply.scout_mode,
+                display_name=reply.scout_display_name.strip()[:60],
+                description=reply.scout_description.strip()[:200],
+                body=reply.scout_prompt.strip(),
+                cadence=reply.cadence,
+            )
+        case OfferKind.NOTEBOOK:
+            if not reply.notebook_title.strip():
+                return None
+            return NotebookDraft(
+                title=reply.notebook_title.strip()[:80],
+                summary=reply.notebook_summary.strip()[:300],
+                incident=_incident_from_reply(reply),
+            )
+        case OfferKind.ALERT:
+            insight = _find_insight(transcript, reply.alert_insight_short_id, alertable=True)
+            if insight is None:
+                return None
+            return AlertDraft(
+                insight=insight,
+                direction=reply.alert_direction,
+                change_percent=max(1, min(int(round(reply.alert_change_percent)), 500)),
+            )
+        case OfferKind.SUBSCRIPTION:
+            insight = _find_insight(transcript, reply.subscription_insight_short_id)
+            if insight is None:
+                return None
+            return SubscriptionDraft(insight=insight, cadence=reply.subscription_cadence)
+        case OfferKind.ERROR_ALERT:
+            issue = _find_issue(transcript, reply.error_issue_id)
+            return ErrorAlertDraft(issue=issue) if issue is not None else None
+        case _:
+            return None
+
+
 def _verdict_from_reply(
     reply: _VerdictReply, transcript: TurnTranscript, available: frozenset[OfferKind]
 ) -> TurnVerdict:
     offer = reply.offer if reply.offer in available else OfferKind.NONE
-    scout = (
-        ScoutDraft(
-            mode=reply.scout_mode,
-            display_name=reply.scout_display_name.strip()[:60],
-            description=reply.scout_description.strip()[:200],
-            body=reply.scout_prompt.strip(),
-            cadence=reply.cadence,
-        )
-        if offer == OfferKind.SCOUT and reply.scout_prompt.strip() and reply.scout_display_name.strip()
-        else None
-    )
-    incident = (
-        IncidentOutline(
-            timeline=reply.incident_timeline.strip(),
-            cause=reply.incident_cause.strip(),
-            fix=reply.incident_fix.strip(),
-        )
-        if reply.notebook_template == NotebookTemplate.INCIDENT and reply.incident_cause.strip()
-        else None
-    )
-    notebook = (
-        NotebookDraft(
-            template=NotebookTemplate.INCIDENT if incident else NotebookTemplate.CONVERSATION,
-            title=reply.notebook_title.strip()[:80],
-            summary=reply.notebook_summary.strip()[:300],
-            incident=incident,
-        )
-        if offer == OfferKind.NOTEBOOK and reply.notebook_title.strip()
-        else None
-    )
-    alert_insight = _find_insight(transcript, reply.alert_insight_short_id) if offer == OfferKind.ALERT else None
-    alert = (
-        AlertDraft(
-            insight=alert_insight,
-            direction=reply.alert_direction,
-            change_percent=max(1, min(int(round(reply.alert_change_percent)), 500)),
-        )
-        if alert_insight is not None
-        else None
-    )
-    subscription_insight = (
-        _find_insight(transcript, reply.subscription_insight_short_id) if offer == OfferKind.SUBSCRIPTION else None
-    )
-    subscription = (
-        SubscriptionDraft(insight=subscription_insight, cadence=reply.subscription_cadence)
-        if subscription_insight is not None
-        else None
-    )
-    issue = _find_issue(transcript, reply.error_issue_id) if offer == OfferKind.ERROR_ALERT else None
-    error_alert = ErrorAlertDraft(issue=issue) if issue is not None else None
     return TurnVerdict(
         intent=reply.intent,
-        offer=offer,
         confidence=min(max(reply.confidence, 0.0), 1.0),
         title=reply.title.strip()[:60],
         description=reply.description.strip()[:140],
-        scout=scout,
-        notebook=notebook,
-        alert=alert,
-        subscription=subscription,
-        error_alert=error_alert,
+        draft=_draft_from_reply(offer, reply, transcript),
     )
 
 

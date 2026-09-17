@@ -1,51 +1,41 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
-import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
-
-import { subscriptionSuggestionLogic } from '../logics/subscriptionSuggestionLogic'
+import { suggestionActionLogic } from '../logics/suggestionActionLogic'
 import type { TurnSuggestionLogicProps } from '../logics/turnSuggestionLogic'
 import { CADENCE_OPTIONS, cadenceLabel } from '../utils/turnSuggestions'
 import { SlackDestinationSection } from './SlackDestinationSection'
+import { SuggestionActionRow } from './SuggestionActionRow'
+import { SuggestionDraftSummary } from './SuggestionDraftSummary'
 
 export function SubscriptionSuggestionCard(props: TurnSuggestionLogicProps): JSX.Element | null {
-    const logic = subscriptionSuggestionLogic(props)
-    const {
-        suggestion,
-        cadence,
-        slackChannel,
-        createdSubscription,
-        createdSubscriptionLoading,
-        createDisabledReason,
-        createError,
-        subscriptionUrl,
-    } = useValues(logic)
-    const { setCadence, createSubscription } = useActions(logic)
+    const logic = suggestionActionLogic(props)
+    const { suggestion, cadence, accepted, slackChannelLabel } = useValues(logic)
+    const { setCadence } = useActions(logic)
 
-    if (!suggestion) {
+    if (suggestion?.kind !== 'subscription') {
         return null
     }
-    if (createdSubscription) {
+    if (accepted) {
         return (
             <LemonBanner
                 type="success"
-                action={subscriptionUrl ? { to: subscriptionUrl, children: 'View subscription' } : undefined}
+                action={accepted.url ? { to: accepted.url, children: 'View subscription' } : undefined}
             >
-                Subscribed. {suggestion.subscription.insightName} goes to{' '}
-                {slackChannel ? slackChannelDisplayName(slackChannel) : 'Slack'} {cadenceLabel(cadence)} at 9:00.
+                Subscribed. {suggestion.subscription.insightName} goes to {slackChannelLabel} {cadenceLabel(cadence)} at
+                9:00.
             </LemonBanner>
         )
     }
 
     return (
         <>
-            <div className="flex flex-col gap-0.5 rounded bg-surface-secondary px-2 py-1.5">
-                <span className="text-sm font-medium">{suggestion.subscription.insightName}</span>
+            <SuggestionDraftSummary name={suggestion.subscription.insightName}>
                 <span className="text-xs text-secondary">
                     Posts the chart as it looks at 9:00, {cadence === 'weekly' ? 'on Mondays' : 'each day'}.
                 </span>
-            </div>
+            </SuggestionDraftSummary>
 
             <div className="flex flex-col gap-1">
                 <LemonLabel>Sends</LemonLabel>
@@ -59,20 +49,12 @@ export function SubscriptionSuggestionCard(props: TurnSuggestionLogicProps): JSX
 
             <SlackDestinationSection {...props} connectHint="Connect Slack to get the chart posted to a channel." />
 
-            {createError && <LemonBanner type="error">Couldn't create the subscription. Try again.</LemonBanner>}
-
-            <div className="flex justify-end">
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={createSubscription}
-                    loading={createdSubscriptionLoading}
-                    disabledReason={createDisabledReason ?? undefined}
-                    data-attr="posthog-ai-turn-suggestion-create-subscription"
-                >
-                    Subscribe
-                </LemonButton>
-            </div>
+            <SuggestionActionRow
+                {...props}
+                label="Subscribe"
+                dataAttr="posthog-ai-turn-suggestion-create-subscription"
+                failedMessage="Couldn't create the subscription. Try again."
+            />
         </>
     )
 }

@@ -5,13 +5,10 @@ import { useEffect } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import { mockIntegration } from '~/test/mocks'
 
-import { alertSuggestionLogic } from '../logics/alertSuggestionLogic'
-import { errorAlertSuggestionLogic } from '../logics/errorAlertSuggestionLogic'
-import { notebookSuggestionLogic } from '../logics/notebookSuggestionLogic'
 import { runStreamLogic } from '../logics/runStreamLogic'
-import { scoutSuggestionLogic } from '../logics/scoutSuggestionLogic'
 import { slackDestinationLogic } from '../logics/slackDestinationLogic'
-import { subscriptionSuggestionLogic } from '../logics/subscriptionSuggestionLogic'
+import { suggestionActionLogic } from '../logics/suggestionActionLogic'
+import type { AcceptedSuggestion } from '../utils/acceptSuggestion'
 import { ThreadView } from './ThreadView'
 import { TurnFeedbackActions } from './TurnFeedbackActions'
 import { TurnSuggestionCard } from './TurnSuggestionCard'
@@ -172,7 +169,6 @@ const NOTEBOOK_TURN_FRAMES: Record<string, unknown>[] = [
         title: 'Save this investigation to a notebook',
         description: 'Keep the question, the queries and the findings together to share and revisit.',
         notebook: {
-            template: 'conversation',
             title: 'Why signups dropped on Tuesday',
             summary:
                 'A checkout error on the payment step cut Tuesday signups by a third until the 14:10 release was fixed.',
@@ -191,7 +187,6 @@ const INCIDENT_NOTEBOOK_TURN_FRAMES: Record<string, unknown>[] = [
         title: 'Write this up as an incident',
         description: 'A notebook with the timeline, the cause, the evidence and the fix, ready to share.',
         notebook: {
-            template: 'incident',
             title: 'Incident: checkout error cut Tuesday signups',
             summary: 'A checkout error on the payment step cut Tuesday signups by a third for about three hours.',
             incident: {
@@ -234,7 +229,7 @@ const SAVED_INSIGHT_FRAMES: Record<string, unknown>[] = [
     notification('_posthog/turn_complete', { stopReason: 'end_turn' }),
 ]
 
-const INSIGHT_REF = { insightShortId: 'abc123', insightId: 42, insightName: 'Daily signups', queryKind: 'TrendsQuery' }
+const INSIGHT_REF = { insightShortId: 'abc123', insightId: 42, insightName: 'Daily signups' }
 
 const ALERT_TURN_FRAMES: Record<string, unknown>[] = [
     ...SAVED_INSIGHT_FRAMES,
@@ -375,84 +370,36 @@ const CREATED_HOG_FUNCTION = {
 
 type LogicProps = { streamKey: string; turnIndex: number; sessionId: string }
 
-/** Every Slack-bound kind shares the destination state, so one helper drives the picker for all of them. */
-function prepareSlackDestination(logicProps: LogicProps, outcome: Outcome): void {
-    const slack = slackDestinationLogic(logicProps)
-    if (outcome === 'waiting_for_slack') {
-        slack.actions.connectSlackClicked()
-    } else if (outcome !== 'offered') {
-        slack.actions.setSlackIntegrationId(mockIntegration.id)
-        slack.actions.setSlackChannel('C0123456789|#growth')
-    }
+const SLACK_KINDS: Kind[] = ['scout', 'watch_scout', 'alert', 'subscription', 'error_alert']
+
+const ACCEPTED_BY_KIND: Record<Kind, AcceptedSuggestion> = {
+    scout: { url: '/inbox/scouts/weekly-signups', slackConnected: true },
+    watch_scout: { url: '/inbox/scouts/checkout-conversion-watch', slackConnected: true },
+    notebook: { url: '/notebooks/nb12345', slackConnected: true },
+    incident_notebook: { url: '/notebooks/nb12345', slackConnected: true },
+    alert: { url: '/alerts?alert_type=insights&alert_id=alert-1', slackConnected: true },
+    subscription: { url: '/insights/abc123/subscriptions/11', slackConnected: true },
+    error_alert: { url: '/error_tracking/alerts/hog-1', slackConnected: true },
 }
 
-function mountScoutStory(logicProps: LogicProps, outcome: Outcome): () => void {
-    const logic = scoutSuggestionLogic(logicProps)
+function mountStory(kind: Kind, logicProps: LogicProps, outcome: Outcome): () => void {
+    const logic = suggestionActionLogic(logicProps)
     const unmount = logic.mount()
-    prepareSlackDestination(logicProps, outcome)
+    if (SLACK_KINDS.includes(kind)) {
+        const slack = slackDestinationLogic(logicProps)
+        if (outcome === 'waiting_for_slack') {
+            slack.actions.connectSlackClicked()
+        } else if (outcome !== 'offered') {
+            slack.actions.setSlackIntegrationId(mockIntegration.id)
+            slack.actions.setSlackChannel('C0123456789|#growth')
+        }
+    }
     if (outcome === 'created') {
-        logic.actions.createScoutSuccess(CREATED_SCOUT as any)
+        logic.actions.acceptSuccess(ACCEPTED_BY_KIND[kind])
     } else if (outcome === 'failed') {
-        logic.actions.createScoutFailure('Request failed with status 500')
+        logic.actions.acceptFailure('Request failed with status 500')
     }
     return unmount
-}
-
-function mountNotebookStory(logicProps: LogicProps, outcome: Outcome): () => void {
-    const logic = notebookSuggestionLogic(logicProps)
-    const unmount = logic.mount()
-    if (outcome === 'created') {
-        logic.actions.saveNotebookSuccess(SAVED_NOTEBOOK as any)
-    } else if (outcome === 'failed') {
-        logic.actions.saveNotebookFailure('Request failed with status 500')
-    }
-    return unmount
-}
-
-function mountAlertStory(logicProps: LogicProps, outcome: Outcome): () => void {
-    const logic = alertSuggestionLogic(logicProps)
-    const unmount = logic.mount()
-    prepareSlackDestination(logicProps, outcome)
-    if (outcome === 'created') {
-        logic.actions.createAlertSuccess({ alert: CREATED_ALERT as any, slackConnected: true })
-    } else if (outcome === 'failed') {
-        logic.actions.createAlertFailure('Request failed with status 500')
-    }
-    return unmount
-}
-
-function mountSubscriptionStory(logicProps: LogicProps, outcome: Outcome): () => void {
-    const logic = subscriptionSuggestionLogic(logicProps)
-    const unmount = logic.mount()
-    prepareSlackDestination(logicProps, outcome)
-    if (outcome === 'created') {
-        logic.actions.createSubscriptionSuccess(CREATED_SUBSCRIPTION as any)
-    } else if (outcome === 'failed') {
-        logic.actions.createSubscriptionFailure('Request failed with status 500')
-    }
-    return unmount
-}
-
-function mountErrorAlertStory(logicProps: LogicProps, outcome: Outcome): () => void {
-    const logic = errorAlertSuggestionLogic(logicProps)
-    const unmount = logic.mount()
-    prepareSlackDestination(logicProps, outcome)
-    if (outcome === 'created') {
-        logic.actions.createAlertSuccess(CREATED_HOG_FUNCTION as any)
-    } else if (outcome === 'failed') {
-        logic.actions.createAlertFailure('Request failed with status 500')
-    }
-    return unmount
-}
-
-const MOUNT_BY_KIND: Record<Kind, (logicProps: LogicProps, outcome: Outcome) => () => void> = {
-    scout: mountScoutStory,
-    watch_scout: mountScoutStory,
-    notebook: mountNotebookStory,
-    incident_notebook: mountNotebookStory,
-    alert: mountAlertStory,
-    subscription: mountSubscriptionStory,
-    error_alert: mountErrorAlertStory,
 }
 
 function TurnSuggestionStory({ kind, outcome }: { kind: Kind; outcome: Outcome }): JSX.Element {
@@ -463,7 +410,7 @@ function TurnSuggestionStory({ kind, outcome }: { kind: Kind; outcome: Outcome }
             stream.actions.ingestAcpFrame(frame as any, 'replay')
         }
         const logicProps = { streamKey: STREAM_KEY, turnIndex: 0, sessionId: SESSION_ID }
-        const unmountSuggestion = MOUNT_BY_KIND[kind](logicProps, outcome)
+        const unmountSuggestion = mountStory(kind, logicProps, outcome)
         return () => {
             unmountSuggestion()
             unmountStream()

@@ -1,4 +1,8 @@
-import { escapeInlineMarkdownText, escapeMarkdownBlockLines } from 'lib/components/MarkdownNotebook/markdown'
+import {
+    escapeComponentTagLineStart,
+    escapeInlineMarkdownText,
+    escapeMarkdownBlockLines,
+} from 'lib/components/MarkdownNotebook/markdown'
 import { NotebookPropValue } from 'lib/components/MarkdownNotebook/types'
 import { uuid } from 'lib/utils/dom'
 import {
@@ -15,8 +19,16 @@ import type { IncidentOutline, ThreadItem, ToolInvocation } from '../types/strea
 import { toolInvocationToMessage } from './toolCallMessage'
 import { visualizationTypeToQuery } from './visualizationQuery'
 
+/** A component cell before serialization; the node id is minted when the notebook is built. */
+export interface ConversationComponentBlock {
+    component: 'Query' | 'SQLV2'
+    props: Record<string, NotebookPropValue>
+}
+
+export type ConversationBlock = string | ConversationComponentBlock
+
 export interface ConversationBlocks {
-    blocks: string[]
+    blocks: ConversationBlock[]
     messageCount: number
     queryCount: number
 }
@@ -30,7 +42,7 @@ export interface ConversationNotebook {
 const INSIGHT_TOOLS = new Set(['insight-create', 'insight-update', 'insight-get', 'insight-query'])
 
 /** Mirrors the blocks the agent's notebook tools write: a SQLV2 cell for HogQL, a Query embed otherwise. */
-function toolCallToNotebookBlock(invocation: ToolInvocation): string | null {
+function toolCallToNotebookBlock(invocation: ToolInvocation): ConversationComponentBlock | null {
     const message = toolInvocationToMessage(invocation)
     if (!message || message.status !== 'completed' || !message.innerToolName) {
         return null
@@ -38,10 +50,10 @@ function toolCallToNotebookBlock(invocation: ToolInvocation): string | null {
     if (INSIGHT_TOOLS.has(message.innerToolName)) {
         const artifact = extractVisualizationArtifact(message)
         if (artifact?.envelope.source === ArtifactSource.Insight) {
-            return serializeMarkdownNotebookComponent('Query', {
-                nodeId: uuid(),
-                query: { kind: NodeKind.SavedInsightNode, shortId: artifact.envelope.artifact_id },
-            })
+            return {
+                component: 'Query',
+                props: { query: { kind: NodeKind.SavedInsightNode, shortId: artifact.envelope.artifact_id } },
+            }
         }
     }
     const result = extractQueryResult(message)
@@ -51,33 +63,22 @@ function toolCallToNotebookBlock(invocation: ToolInvocation): string | null {
     const query = result.content.query as unknown as NotebookPropValue
     const sqlProps = getSqlV2PropsFromQueryProp({ query })
     if (sqlProps) {
-        return serializeMarkdownNotebookComponent('SQLV2', { nodeId: uuid(), ...sqlProps, returnVariable: 'sql_df' })
+        return { component: 'SQLV2', props: { ...sqlProps, returnVariable: 'sql_df' } }
     }
     const renderable = visualizationTypeToQuery(result.content)
-    return renderable
-        ? serializeMarkdownNotebookComponent('Query', {
-              nodeId: uuid(),
-              query: renderable as unknown as NotebookPropValue,
-          })
-        : null
+    return renderable ? { component: 'Query', props: { query: renderable as unknown as NotebookPropValue } } : null
 }
 
-/**
- * Conversation prose is markdown the author meant to render, so only lines that would parse as a
- * notebook component tag are neutralized; anything else an assistant wrote stays formatted.
- */
 function escapeComponentTagLines(markdown: string): string {
-    return markdown
-        .split('\n')
-        .map((line) => (/^\s*<(?:[A-Z]|!--)/.test(line) ? line.replace('<', '\\<') : line))
-        .join('\n')
+    return markdown.split('\n').map(escapeComponentTagLineStart).join('\n')
 }
 
+/** Recomputed on every stream frame while the card is shown, so nothing here serializes or mints ids. */
 export function collectConversationBlocks(
     threadItems: ThreadItem[],
     toolInvocations: Map<string, ToolInvocation>
 ): ConversationBlocks {
-    const blocks: string[] = []
+    const blocks: ConversationBlock[] = []
     let messageCount = 0
     let queryCount = 0
     for (const item of threadItems) {
@@ -98,6 +99,12 @@ export function collectConversationBlocks(
         }
     }
     return { blocks, messageCount, queryCount }
+}
+
+function serializeBlock(block: ConversationBlock): string {
+    return typeof block === 'string'
+        ? block
+        : serializeMarkdownNotebookComponent(block.component, { nodeId: uuid(), ...block.props })
 }
 
 function section(heading: string, text: string): string[] {
@@ -123,11 +130,12 @@ export function buildConversationNotebook({
 }: {
     title: string
     summary: string
-    blocks: string[]
+    blocks: ConversationBlock[]
     incident?: IncidentOutline | null
 }): ConversationNotebook {
     const lead = summary.trim() ? [escapeComponentTagLines(summary.trim())] : []
-    const body = incident ? incidentSections(incident, blocks) : blocks
+    const serialized = blocks.map(serializeBlock)
+    const body = incident ? incidentSections(incident, serialized) : serialized
     const markdown = [`# ${escapeInlineMarkdownText(title.trim())}`, ...lead, ...body].join('\n\n')
     return { markdown, content: buildMarkdownNotebookContent(markdown) }
 }

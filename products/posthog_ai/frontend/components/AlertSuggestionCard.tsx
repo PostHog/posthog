@@ -1,54 +1,42 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
-import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
-
-import { alertSuggestionLogic } from '../logics/alertSuggestionLogic'
+import { suggestionActionLogic } from '../logics/suggestionActionLogic'
 import type { TurnSuggestionLogicProps } from '../logics/turnSuggestionLogic'
 import { ALERT_DIRECTION_OPTIONS } from '../utils/turnSuggestions'
 import { SlackDestinationSection } from './SlackDestinationSection'
+import { SuggestionActionRow } from './SuggestionActionRow'
+import { SuggestionDraftSummary } from './SuggestionDraftSummary'
 
 export function AlertSuggestionCard(props: TurnSuggestionLogicProps): JSX.Element | null {
-    const logic = alertSuggestionLogic(props)
-    const {
-        suggestion,
-        direction,
-        changePercent,
-        slackChannel,
-        createdAlert,
-        createdAlertLoading,
-        createDisabledReason,
-        createError,
-        alertUrl,
-    } = useValues(logic)
-    const { setDirection, setChangePercent, createAlert } = useActions(logic)
+    const logic = suggestionActionLogic(props)
+    const { suggestion, direction, changePercent, accepted, slackChannelLabel } = useValues(logic)
+    const { setDirection, setChangePercent } = useActions(logic)
 
-    if (!suggestion) {
+    if (suggestion?.kind !== 'alert') {
         return null
     }
-    if (createdAlert) {
-        const channel = slackChannel ? slackChannelDisplayName(slackChannel) : 'Slack'
+    if (accepted) {
         return (
             <LemonBanner
-                type={createdAlert.slackConnected ? 'success' : 'warning'}
-                action={alertUrl ? { to: alertUrl, children: 'View alert' } : undefined}
+                type={accepted.slackConnected ? 'success' : 'warning'}
+                action={accepted.url ? { to: accepted.url, children: 'View alert' } : undefined}
             >
-                {createdAlert.slackConnected
-                    ? `Alert created. It checks ${suggestion.alert.insightName} daily and posts to ${channel}.`
-                    : `Alert created, but ${channel} could not be added. Add the Slack destination from the alert.`}
+                {accepted.slackConnected
+                    ? `Alert created. It checks ${suggestion.alert.insightName} daily and posts to ${slackChannelLabel}.`
+                    : `Alert created, but ${slackChannelLabel} could not be added. Add the Slack destination from the alert.`}
             </LemonBanner>
         )
     }
 
     return (
         <>
-            <div className="flex flex-col gap-0.5 rounded bg-surface-secondary px-2 py-1.5">
-                <span className="text-sm font-medium">{suggestion.alert.insightName}</span>
+            <SuggestionDraftSummary name={suggestion.alert.insightName}>
                 <span className="text-xs text-secondary">
                     Checked daily against the previous day. Posts when the change is larger than the bound below.
                 </span>
-            </div>
+            </SuggestionDraftSummary>
 
             <div className="flex flex-wrap items-end gap-2">
                 <div className="flex flex-col gap-1">
@@ -78,20 +66,12 @@ export function AlertSuggestionCard(props: TurnSuggestionLogicProps): JSX.Elemen
 
             <SlackDestinationSection {...props} connectHint="Connect Slack to get the alert posted to a channel." />
 
-            {createError && <LemonBanner type="error">Couldn't create the alert. Try again.</LemonBanner>}
-
-            <div className="flex justify-end">
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={createAlert}
-                    loading={createdAlertLoading}
-                    disabledReason={createDisabledReason ?? undefined}
-                    data-attr="posthog-ai-turn-suggestion-create-alert"
-                >
-                    Create alert
-                </LemonButton>
-            </div>
+            <SuggestionActionRow
+                {...props}
+                label="Create alert"
+                dataAttr="posthog-ai-turn-suggestion-create-alert"
+                failedMessage="Couldn't create the alert. Try again."
+            />
         </>
     )
 }

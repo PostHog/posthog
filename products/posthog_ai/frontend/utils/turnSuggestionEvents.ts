@@ -35,3 +35,26 @@ export function captureTurnSuggestionDismissed(context: TurnSuggestionEventConte
 export function captureTurnSuggestionSuperseded(context: TurnSuggestionEventContext, suggestion: TurnSuggestion): void {
     posthog.capture('posthog ai turn suggestion superseded', turnSuggestionEventProperties(context, suggestion))
 }
+
+/** The offer was taken; `extra` carries what the kind created (a skill name, a notebook id, an alert bound). */
+export function captureTurnSuggestionAccepted(
+    context: TurnSuggestionEventContext,
+    suggestion: TurnSuggestion,
+    extra: Record<string, unknown> = {}
+): void {
+    posthog.capture('posthog ai turn suggestion accepted', {
+        ...turnSuggestionEventProperties(context, suggestion),
+        ...extra,
+    })
+}
+
+export function captureTurnSuggestionAcceptFailed(
+    context: TurnSuggestionEventContext,
+    suggestion: TurnSuggestion,
+    error: string
+): void {
+    posthog.capture('posthog ai turn suggestion accept failed', {
+        ...turnSuggestionEventProperties(context, suggestion),
+        error,
+    })
+}
