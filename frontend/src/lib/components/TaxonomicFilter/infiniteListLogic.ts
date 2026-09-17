@@ -849,11 +849,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         actions: [
             taxonomicFilterLogic(props),
             ['setSearchQuery', 'setActiveTab', 'selectItem', 'infiniteListResultsReceived', 'setIncludeStaleEvents'],
-            ...(props.listGroupType === TaxonomicFilterGroupType.Dashboards
-                ? [dashboardsModel, ['loadDashboardsIfNeeded']]
-                : []),
         ],
     })),
+    connect((props: InfiniteListLogicProps) =>
+        props.listGroupType === TaxonomicFilterGroupType.Dashboards
+            ? { actions: [dashboardsModel, ['loadDashboardsIfNeeded']] }
+            : {}
+    ),
     actions({
         selectSelected: true,
         moveUp: true,
