@@ -90,6 +90,7 @@ export interface CheckResultContent {
     observed_value?: number | null
     baseline_value?: number | null
     threshold?: string | null
+    run_id?: string | null
 }
 
 export interface TitleChangeContent {

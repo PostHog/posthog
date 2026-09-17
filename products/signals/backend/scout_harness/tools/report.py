@@ -57,6 +57,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_charts import ChartSize, ReportChart, chart_batch_error
+from products.signals.backend.report_content_gates import organization_report_metrics_enabled
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerIdentitySet,
     get_org_member_github_logins_by_user_uuid,
@@ -423,6 +424,23 @@ def _build_edit_metrics(metrics: list[ReportMetricInput] | None) -> list[ReportM
     if metrics is None:
         return None
     return _build_metrics(metrics)
+
+
+def _allowed_metrics(team: Team, metrics: list[ReportMetricInput] | None) -> list[ReportMetricInput] | None:
+    """Drop the authored metrics while the organization is not opted in to report metrics.
+
+    `None` is the answer because it is the shape both write paths already read as "this call names no
+    metrics", so the gate never disturbs the preserve/clear/replace contract. An empty list passes
+    through: it carries no definition to gate, and an organization that lost the flag must still be
+    able to take an old metric down.
+    """
+    if not metrics or organization_report_metrics_enabled(team.organization_id):
+        return metrics
+    logger.info(
+        "signals_scout: dropped report metrics because the organization is not opted in",
+        extra={"team_id": team.id, "count": len(metrics)},
+    )
+    return None
 
 
 def _build_suggested_prompts(suggested_prompts: list[str] | None) -> list[str]:
@@ -1372,7 +1390,9 @@ async def emit_report(
     _assert_team_owns_run(team, run)
     _validate_emit_inputs(title, summary, evidence)
     chart_contents = _build_charts(charts)
-    metric_contents = _build_metrics(metrics)
+    # Off the loop because the gate reads a feature flag, which can block on the flag service.
+    allowed_metrics = await database_sync_to_async(_allowed_metrics, thread_sensitive=False)(team, metrics)
+    metric_contents = _build_metrics(allowed_metrics)
     prompt_contents = _build_suggested_prompts(suggested_prompts)
     # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
     # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
@@ -1523,7 +1543,7 @@ def emit_report_sync(
     _assert_team_owns_run(team, run)
     _validate_emit_inputs(title, summary, evidence)
     chart_contents = _build_charts(charts)
-    metric_contents = _build_metrics(metrics)
+    metric_contents = _build_metrics(_allowed_metrics(team, metrics))
     prompt_contents = _build_suggested_prompts(suggested_prompts)
     # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
     # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
@@ -2094,7 +2114,9 @@ async def edit_report(
     built_evidence = _build_signals(append_evidence) if append_evidence else None
     built_charts = _build_edit_charts(charts)
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
-    built_metrics = _build_edit_metrics(metrics)
+    # Off the loop because the gate reads a feature flag, which can block on the flag service.
+    allowed_metrics = await database_sync_to_async(_allowed_metrics, thread_sensitive=False)(team, metrics)
+    built_metrics = _build_edit_metrics(allowed_metrics)
     # Gates before the judge, mirroring emit: a disabled or dry-run scout must not spend an LLM call.
     await database_sync_to_async(_assert_edit_gates, thread_sensitive=False)(
         team, run, report_id, len(built_evidence or [])
@@ -2142,7 +2164,8 @@ async def edit_report(
         suggested_reviewers=suggested_reviewers,
         repository=normalized_repository,
         charts=charts,
-        metrics=metrics,
+        # The gated set, so the event reports what the edit wrote rather than what the scout asked for.
+        metrics=allowed_metrics,
         suggested_prompts=suggested_prompts,
     )
     await _forward_report_event_async(team, forward)
@@ -2183,7 +2206,8 @@ def edit_report_sync(
     built_evidence = _build_signals(append_evidence) if append_evidence else None
     built_charts = _build_edit_charts(charts)
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
-    built_metrics = _build_edit_metrics(metrics)
+    allowed_metrics = _allowed_metrics(team, metrics)
+    built_metrics = _build_edit_metrics(allowed_metrics)
     # Gates before the judge, mirroring emit: a disabled or dry-run scout must not spend an LLM call.
     _assert_edit_gates(team, run, report_id, len(built_evidence or []))
     # Reviewers resolve before the judge too: resolution is the one step that rejects caller input
@@ -2227,7 +2251,8 @@ def edit_report_sync(
         suggested_reviewers=suggested_reviewers,
         repository=normalized_repository,
         charts=charts,
-        metrics=metrics,
+        # The gated set, so the event reports what the edit wrote rather than what the scout asked for.
+        metrics=allowed_metrics,
         suggested_prompts=suggested_prompts,
     )
     if forward is not None:

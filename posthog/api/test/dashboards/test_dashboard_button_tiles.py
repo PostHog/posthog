@@ -167,7 +167,7 @@ class TestDashboardButtonTiles(APIBaseTest):
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_duplicate_button_tile_via_dashboard_duplication(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
-        self.dashboard_api.create_button_tile(dashboard_id, url="https://example.com", text="Click")
+        _, dashboard_json = self.dashboard_api.create_button_tile(dashboard_id, url="https://example.com", text="Click")
 
         new_dashboard_id, new_dashboard_json = self.dashboard_api.create_dashboard(
             {"name": "duplicated", "use_dashboard": dashboard_id}
@@ -176,4 +176,5 @@ class TestDashboardButtonTiles(APIBaseTest):
         assert len(new_dashboard_json["tiles"]) == 1
         assert new_dashboard_json["tiles"][0]["button_tile"]["url"] == "https://example.com"
         assert new_dashboard_json["tiles"][0]["button_tile"]["text"] == "Click"
-        assert new_dashboard_json["tiles"][0]["id"] != dashboard_id
+        assert new_dashboard_id != dashboard_id
+        assert new_dashboard_json["tiles"][0]["id"] != dashboard_json["tiles"][0]["id"]

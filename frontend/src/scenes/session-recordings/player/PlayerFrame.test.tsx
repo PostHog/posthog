@@ -109,6 +109,48 @@ describe('PlayerFrame', () => {
         }
     })
 
+    it.each([
+        {
+            state: 'no browsing context',
+            // jsdom gives a document made this way no browsing context, the same as a browser does.
+            frameDocument: (): Document => document.implementation.createHTMLDocument(),
+            report: { attempt: 1, frameUrlPath: null },
+        },
+        {
+            state: 'a read that throws',
+            frameDocument: (): Document => {
+                const frameDocument = document.implementation.createHTMLDocument()
+                Object.defineProperty(frameDocument, 'title', {
+                    get: () => {
+                        throw new Error('read failed')
+                    },
+                })
+                return frameDocument
+            },
+            report: { attempt: 1, frameDocumentReadable: true },
+        },
+    ])('retries the frame when the timed-out frame has $state', ({ frameDocument, report }) => {
+        jest.useFakeTimers()
+        try {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const { container, iframe } = renderPlayerFrame()
+            Object.defineProperty(iframe, 'contentDocument', { value: frameDocument(), configurable: true })
+
+            act(() => {
+                jest.advanceTimersByTime(10000)
+            })
+
+            expect(captureSpy).toHaveBeenCalledWith('replay player frame load retried', expect.objectContaining(report))
+            act(() => {
+                jest.advanceTimersByTime(1000)
+            })
+            expect(container.querySelector('iframe')).toBe(iframe)
+            expect(iframe).toHaveAttribute('src', '/replay_player_frame/index.html?retry=1')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     // Firefox fires load for the frame's initial about:blank document, which has no mount node.
     // The shell document is still on its way, so the frame must keep its chance to load.
     it('keeps the frame and reports nothing when the blank first document loads', () => {

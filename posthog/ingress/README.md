@@ -4,7 +4,7 @@ General-purpose controls for the webhooks third parties send _in_ to PostHog.
 A new inbound webhook that needs signature verification or fan-out belongs here as a `<provider>/` incarnation (see [Adding a provider](#adding-a-provider)), never hand-rolled around `hmac` in a view.
 Four lanes:
 
-- **`verify/`** — signature schemes. HMAC-SHA256 in the shapes providers actually send (hex or base64, an optional prefix, an optional `v0:{timestamp}:{body}` input with a replay window), plus the SNS envelope check.
+- **`verify/`** — signature schemes. HMAC-SHA256 in the shapes providers actually send (hex or base64, an optional prefix, an optional `v0:{timestamp}:{body}` input with a replay window), the SNS envelope check, and a bearer JWT checked against the issuer's published signing keys.
 - **`dispatch/`** — the validated consumer registry, per-delivery dedup, the wall-clock budget, consumer isolation, and `bounded_statement_timeout()` for consumers that read the database.
 - **`observability/`** — Prometheus: delivery volume by transport outcome, and one metric set per consumer run.
 - **`views.py`** — the view that composes the other three: one request that is verified _and_ recorded by construction, so no incarnation can skip either.
@@ -40,6 +40,17 @@ A provider whose verification is a local HMAC leaves it at `None`.
 A `Verification` carries the outcome and `facts`, a mapping of what the check proved on the way.
 A scheme that validates a signed token knows who sent the delivery before the body is read, and `facts` is how those claims reach `deliveries`, so an incarnation can cross-check the body against what was actually signed rather than trusting a field of the body that claims the same thing.
 An HMAC over raw bytes proves only the signature, so its `facts` are empty and `deliveries` ignores the argument.
+
+## Schemes
+
+`verify/schemes.py` holds `HmacSha256` and `SnsSignature`; `verify/jwt.py` holds `BearerJwt`, for a provider that authenticates with a signed token instead of a shared secret.
+Each class docstring carries its own reasoning.
+
+Three duties fall on the incarnation rather than on `BearerJwt`, and none is enforced:
+
+- **Key discovery.** The scheme takes a `jwks_uri_getter`, so a provider that publishes its `jwks_uri` inside an OpenID metadata document fetches that document in the getter.
+- **Caching that discovery.** `verify` calls the getter on every delivery. A getter that fetches and does not cache puts an HTTP round trip on every request, which is what the `PyJWKClient` cache inside the scheme exists to avoid.
+- **Validating a discovered URI.** A `jwks_uri` read out of a remote document is not a value an operator set, so the getter passes it through `is_url_allowed` before returning it, the way `posthog/api/id_jag.py` guards its own discovered JWKS URI. The check belongs next to the fetch, not in the scheme, because only the getter knows whether the URI came from configuration or from a third party.
 
 ## Endpoints
 
@@ -81,6 +92,7 @@ A consumer that wants asynchronous work enqueues its own task and answers immedi
 **Ingress does not let a consumer decide the response.**
 The HTTP response is a transport receipt: the verification result, the method, and the payload decide the status, and consumer return values are ignored.
 If a provider's protocol needs the response body to say something, the incarnation answers that handshake before dispatch.
+A verification that could not run is its own answer rather than a verdict: a scheme with a network step returns `UNAVAILABLE` when that step fails on transport, and the view answers 503 with outcome `verify_unavailable`, so a sender that retries a server error sends the delivery again.
 
 What the transport does decide is whether it can vouch that the delivery was taken.
 It cannot when an ownership lookup failed, when the forward to the owning region failed, when a consumer raised, or when the budget skipped a consumer — in each case some of the work never ran, or ingress cannot tell whether it ran in the right region.
@@ -249,7 +261,7 @@ A provider that sends no delivery id skips dedup entirely, and its own README sa
 
 ## Observability
 
-- **`posthog_ingress_deliveries_total{provider,app,outcome}`** — what the transport answered: `accepted`, `method_not_allowed`, `throttled`, `not_configured`, `invalid_signature`, `invalid_payload`, `forward_failed`, `retry_requested`. A consumer failure lands here only on a provider that sets `retry_status`; everywhere else it is counted on the consumer metric alone, because the delivery still gets its receipt.
+- **`posthog_ingress_deliveries_total{provider,app,outcome}`** — what the transport answered: `accepted`, `method_not_allowed`, `throttled`, `not_configured`, `verify_unavailable`, `invalid_signature`, `invalid_payload`, `forward_failed`, `retry_requested`. A consumer failure lands here only on a provider that sets `retry_status`; everywhere else it is counted on the consumer metric alone, because the delivery still gets its receipt.
 - **`posthog_ingress_consumer_runs_total{provider,consumer,outcome}`** — `succeeded`, `failed`, `deduped`, `budget_exceeded`, `in_flight`.
 - **`posthog_ingress_consumer_duration_seconds{provider,consumer}`** — where a delivery's budget actually went.
 - **`posthog_ingress_ownership_total{provider,consumer,outcome}`** — what a consumer answered when asked which region owns the delivery: `local`, `elsewhere`, `undecided`, `failed`.

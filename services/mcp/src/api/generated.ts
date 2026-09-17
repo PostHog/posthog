@@ -3378,7 +3378,7 @@ export namespace Schemas {
       ActivityEventsList: 'activity_events_list',
     } as const;
 
-    export interface _WidgetTileLayoutBoxOpenApi {
+    export interface _TileLayoutBoxOpenApi {
       /** Column position in the dashboard grid (0-indexed). */
       x?: number;
       /** Row position in the dashboard grid (0-indexed). */
@@ -3389,11 +3389,11 @@ export namespace Schemas {
       h?: number;
     }
 
-    export interface _WidgetTileLayoutsOpenApi {
+    export interface _TileLayoutsOpenApi {
       /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-      sm?: _WidgetTileLayoutBoxOpenApi;
-      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-      xs?: _WidgetTileLayoutBoxOpenApi;
+      sm?: _TileLayoutBoxOpenApi;
+      /** Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders. */
+      xs?: _TileLayoutBoxOpenApi;
     }
 
     export type WidgetDateRangeDateFrom = typeof WidgetDateRangeDateFrom[keyof typeof WidgetDateRangeDateFrom] | null;
@@ -3474,7 +3474,7 @@ export namespace Schemas {
       /** Optional markdown description shown when show_description is enabled. */
       description?: string;
       /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _WidgetTileLayoutsOpenApi;
+      layouts?: _TileLayoutsOpenApi;
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
       widget_type: ActivityEventsListWidgetAddRequestOpenApiWidgetType;
@@ -3576,7 +3576,7 @@ export namespace Schemas {
       /** @nullable */
       is_system?: boolean | null;
       /**
-         * @maxLength 32
+         * @maxLength 256
          * @nullable
          */
       client?: string | null;
@@ -3644,7 +3644,7 @@ export namespace Schemas {
       /** Whether the acting user was being impersonated by PostHog staff. */
       readonly was_impersonated: boolean;
       /**
-         * API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.
+         * API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.
          * @nullable
          */
       readonly client: string | null;
@@ -6192,7 +6192,7 @@ export namespace Schemas {
       /** Optional markdown description shown when show_description is enabled. */
       description?: string;
       /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _WidgetTileLayoutsOpenApi;
+      layouts?: _TileLayoutsOpenApi;
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
       widget_type: ErrorTrackingListWidgetAddRequestOpenApiWidgetType;
@@ -6265,7 +6265,7 @@ export namespace Schemas {
       /** Optional markdown description shown when show_description is enabled. */
       description?: string;
       /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _WidgetTileLayoutsOpenApi;
+      layouts?: _TileLayoutsOpenApi;
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
       widget_type: SessionReplayListWidgetAddRequestOpenApiWidgetType;
@@ -6345,7 +6345,7 @@ export namespace Schemas {
       /** Optional markdown description shown when show_description is enabled. */
       description?: string;
       /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _WidgetTileLayoutsOpenApi;
+      layouts?: _TileLayoutsOpenApi;
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
       widget_type: ExperimentsListWidgetAddRequestOpenApiWidgetType;
@@ -6375,7 +6375,7 @@ export namespace Schemas {
       /** Optional markdown description shown when show_description is enabled. */
       description?: string;
       /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _WidgetTileLayoutsOpenApi;
+      layouts?: _TileLayoutsOpenApi;
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
       widget_type: ExperimentResultsWidgetAddRequestOpenApiWidgetType;
@@ -6413,7 +6413,7 @@ export namespace Schemas {
       /** Optional markdown description shown when show_description is enabled. */
       description?: string;
       /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _WidgetTileLayoutsOpenApi;
+      layouts?: _TileLayoutsOpenApi;
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
       widget_type: SurveyResultsWidgetAddRequestOpenApiWidgetType;
@@ -6494,7 +6494,7 @@ export namespace Schemas {
       /** Optional markdown description shown when show_description is enabled. */
       description?: string;
       /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _WidgetTileLayoutsOpenApi;
+      layouts?: _TileLayoutsOpenApi;
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
       widget_type: LogsListWidgetAddRequestOpenApiWidgetType;
@@ -6586,7 +6586,7 @@ export namespace Schemas {
       /** Optional markdown description shown when show_description is enabled. */
       description?: string;
       /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: _WidgetTileLayoutsOpenApi;
+      layouts?: _TileLayoutsOpenApi;
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
       widget_type: ConversationsRecentTicketsWidgetAddRequestOpenApiWidgetType;
@@ -9665,6 +9665,37 @@ export namespace Schemas {
       readonly window_days: number;
     }
 
+    /**
+     * A check a scout run answers: re-probe the report's claim and record one verdict.
+     *
+     * The kind for a claim no single number settles. A resolved error-tracking report is the usual
+     * case: "did the exception stop?" needs the issue looked up, its recent events read, and the
+     * stack compared against what the fix changed, which is a run rather than a comparison.
+     *
+     * Everything here is prompt material a scout reads, so it is untrusted by construction: it renders
+     * in the run block the agent is told to weigh, never in the instructions it is told to follow. The
+     * verdict still comes back through `scout-check-record-result`, so instructions cannot widen what
+     * a check run may write.
+     *
+     * ``skill_name`` names the lane. Most reports are pipeline-authored and have no scout behind them,
+     * so it is optional: a check that names none runs on the fleet's follow-up scout
+     * (see ``report_check_agent.FALLBACK_CHECK_SKILL_NAME``).
+     */
+    export interface AgentCheckConfig {
+      /**
+         * What the run must establish, in the author's own words.
+         * @maxLength 2000
+         */
+      instructions: string;
+      /** Scout skill that runs the check. Omit it to run on the fleet's follow-up scout, which is the right lane for a report no scout authored. */
+      skill_name?: string | null;
+      /**
+         * Concrete places to look, such as an issue id, a service name, or a query to repeat.
+         * @maxItems 5
+         */
+      probe_hints?: string[];
+    }
+
     export type AgentKeyEnum = typeof AgentKeyEnum[keyof typeof AgentKeyEnum];
 
 
@@ -9797,6 +9828,8 @@ export namespace Schemas {
      * * `skipped_unactionable` - skipped_unactionable
      * * `blocked_unsafe` - blocked_unsafe
      * * `blocked_unsafe_reply` - blocked_unsafe_reply
+     * * `clarified` - clarified
+     * * `suggested_clarification` - suggested_clarification
      * * `in_progress` - in_progress
      */
     export type AiTriageResultEnum = typeof AiTriageResultEnum[keyof typeof AiTriageResultEnum];
@@ -9811,6 +9844,8 @@ export namespace Schemas {
       SkippedUnactionable: 'skipped_unactionable',
       BlockedUnsafe: 'blocked_unsafe',
       BlockedUnsafeReply: 'blocked_unsafe_reply',
+      Clarified: 'clarified',
+      SuggestedClarification: 'suggested_clarification',
       InProgress: 'in_progress',
     } as const;
 
@@ -11843,7 +11878,7 @@ export namespace Schemas {
       scopes: StaticFiltersScopesItem[];
       /** Available activity types. */
       activities: StaticFiltersActivitiesItem[];
-      /** API clients that have generated activity (from x-posthog-client header). */
+      /** API clients that have generated activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run). */
       clients: StaticFiltersClientsItem[];
     }
 
@@ -22874,6 +22909,38 @@ export namespace Schemas {
       properties?: unknown;
     }
 
+    export interface _DashboardPatchTileLayoutBoxOpenApi {
+      /**
+         * Column position in the dashboard grid (0-indexed).
+         * @minimum 0
+         * @maximum 11
+         */
+      x: number;
+      /**
+         * Row position in the dashboard grid (0-indexed).
+         * @minimum 0
+         */
+      y: number;
+      /**
+         * Width in grid columns. The desktop grid is 12 columns wide.
+         * @minimum 1
+         * @maximum 12
+         */
+      w: number;
+      /**
+         * Height in grid rows.
+         * @minimum 1
+         */
+      h: number;
+    }
+
+    export interface _DashboardPatchTileLayoutsOpenApi {
+      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. A write replaces the tile's whole layout and the dashboard reads desktop placement from this box, so send it whenever you send layouts. */
+      sm: _DashboardPatchTileLayoutBoxOpenApi;
+      /** Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders. */
+      xs?: _DashboardPatchTileLayoutBoxOpenApi;
+    }
+
     /**
      * * `activity_events_list` - activity_events_list
      * * `conversations_recent_tickets` - conversations_recent_tickets
@@ -22927,6 +22994,8 @@ export namespace Schemas {
     export interface DashboardPatchTileOpenApi {
       /** Dashboard tile ID to update. */
       id?: number;
+      /** Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request. */
+      layouts?: _DashboardPatchTileLayoutsOpenApi;
       /** Nested widget row updates. */
       widget?: DashboardPatchWidgetOpenApi;
     }
@@ -50641,6 +50710,18 @@ export namespace Schemas {
      */
     export type LLMPromptPublicConfig = { [key: string]: unknown } | null;
 
+    export interface LLMPromptResolvedReference {
+      /** Name of the referenced prompt that was spliced in. */
+      name: string;
+      /** Exact version whose content was spliced in. */
+      version: number;
+      /**
+         * Label the reference used, or null when it pinned a version directly.
+         * @nullable
+         */
+      label: string | null;
+    }
+
     export interface LLMPromptPublic {
       id: string;
       name: string;
@@ -50658,6 +50739,8 @@ export namespace Schemas {
       version: number;
       /** The label this prompt was fetched by. Only present when fetching with the label parameter. */
       label?: string;
+      /** The exact prompt versions spliced into the returned content, in order of first appearance. Empty when the prompt has no references. Only present when references were resolved. */
+      resolved_references?: LLMPromptResolvedReference[];
       created_at: string;
       updated_at: string;
       deleted: boolean;
@@ -50838,7 +50921,7 @@ export namespace Schemas {
     export interface LLMSkillCreate {
       readonly id: string;
       /**
-         * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+         * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters. Cannot be the name of a skill PostHog ships.
          * @maxLength 64
          */
       name: string;
@@ -50901,7 +50984,7 @@ export namespace Schemas {
 
     export interface LLMSkillDuplicate {
       /**
-         * Name for the duplicated skill. Must be unique.
+         * Name for the duplicated skill. Must be unique, and cannot be the name of a skill PostHog ships.
          * @maxLength 64
          */
       new_name: string;
@@ -51159,7 +51242,7 @@ export namespace Schemas {
 
     export interface LLMSkillRename {
       /**
-         * New name for the skill. Must be unique in the project, and must not start with 'signals-scout-' or 'review-hog-'.
+         * New name for the skill. Must be unique in the project, cannot be the name of a skill PostHog ships, and must not start with 'signals-scout-' or 'review-hog-'.
          * @maxLength 64
          */
       new_name: string;
@@ -51306,6 +51389,7 @@ export namespace Schemas {
     /**
      * * `preserve` - preserve
      * * `two_column` - two_column
+     * * `three_column` - three_column
      * * `full_width` - full_width
      */
     export type LayoutEnum = typeof LayoutEnum[keyof typeof LayoutEnum];
@@ -51314,6 +51398,7 @@ export namespace Schemas {
     export const LayoutEnum = {
       Preserve: 'preserve',
       TwoColumn: 'two_column',
+      ThreeColumn: 'three_column',
       FullWidth: 'full_width',
     } as const;
 
@@ -60988,12 +61073,14 @@ export namespace Schemas {
 
     /**
      * * `metric_threshold` - Metric Threshold
+     * * `agent` - Agent
      */
     export type SignalReportCheckKindEnum = typeof SignalReportCheckKindEnum[keyof typeof SignalReportCheckKindEnum];
 
 
     export const SignalReportCheckKindEnum = {
       MetricThreshold: 'metric_threshold',
+      Agent: 'agent',
     } as const;
 
     /**
@@ -61016,7 +61103,7 @@ export namespace Schemas {
       Cancelled: 'cancelled',
     } as const;
 
-    export type SignalReportCheckConfig = MetricThresholdConfig;
+    export type SignalReportCheckConfig = MetricThresholdConfig | AgentCheckConfig;
 
     /**
      * * `passed` - Passed
@@ -61040,7 +61127,8 @@ export namespace Schemas {
       readonly rationale: string;
       /** How the check is evaluated.
        *
-       * * `metric_threshold` - Metric Threshold */
+       * * `metric_threshold` - Metric Threshold
+       * * `agent` - Agent */
       readonly kind: SignalReportCheckKindEnum;
       /** `active` while the check still runs; every other value is terminal.
        *
@@ -62829,6 +62917,11 @@ export namespace Schemas {
       error_message: string | null;
       /** @nullable */
       output: TaskRunDetailDTOOutput;
+      /**
+         * Latest summary for this task, including a summary inherited from an earlier run.
+         * @nullable
+         */
+      task_summary: string | null;
       state: TaskRunDetailDTOState;
       readonly artifacts: readonly TaskRunArtifactResponse[];
       /** @nullable */
@@ -63095,6 +63188,11 @@ export namespace Schemas {
        * * `closed` - closed
        * * `unknown` - unknown */
       pr_state: PrStateEnum | null;
+      /**
+         * Latest summary for this task, including a summary inherited from an earlier run.
+         * @nullable
+         */
+      task_summary?: string | null;
     }
 
     /**
@@ -63468,7 +63566,7 @@ export namespace Schemas {
        * * `on-track` - on-track
        * * `all` - all */
       sla?: TicketSlaFilterEnum;
-      /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, in_progress. */
+      /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress. */
       aiTriageResult?: AiTriageResultEnum[];
       /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter. */
       assignee?: TicketViewFiltersAssigneeItem[];
@@ -69681,7 +69779,7 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
-      /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
+      /** Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches. */
       tiles?: DashboardPatchTileOpenApi[];
       /** Template key to create the dashboard from a predefined template. */
       use_template?: string;
@@ -72554,6 +72652,14 @@ export namespace Schemas {
     export interface PatchedTaskRunSetOutputRequest {
       /** Output data from the run. Validated against the task's json_schema if one is set. */
       output?: unknown;
+    }
+
+    export interface PatchedTaskRunSetSummaryRequest {
+      /**
+         * Complete running summary that replaces the prior summary.
+         * @maxLength 1500
+         */
+      summary?: string;
     }
 
     /**
@@ -79527,6 +79633,44 @@ export namespace Schemas {
       ci_rerun_error?: string | null;
     }
 
+    /**
+     * Request body for `scout-check-record-result`: the verdict on one dispatched report check.
+     */
+    export interface RecordCheckResultRequest {
+      /** The check this run was dispatched to answer, as given in the run note. */
+      check_id: string;
+      /** `passed` when the expectation still holds, `failed` when it does not, and `errored` when you could not establish either. `failed` retires the check, so use it for a conclusion, not a suspicion.
+       *
+       * * `passed` - Passed
+       * * `failed` - Failed
+       * * `errored` - Errored */
+      outcome: SignalReportCheckOutcomeEnum;
+      /**
+         * One or two sentences on what you looked at and what it showed. This is what a person reads on the report, so write it for them, with the numbers or entities you checked.
+         * @maxLength 1000
+         */
+      explanation: string;
+      /**
+         * The number you measured, when the check came down to one. Leave it out otherwise.
+         * @nullable
+         */
+      observed_value?: number | null;
+    }
+
+    /**
+     * Outcome of an accepted `scout-check-record-result` call.
+     */
+    export interface RecordCheckResultResponse {
+      /** The check that was closed. */
+      check_id: string;
+      /** The verdict that was recorded. */
+      outcome: string;
+      /** The check's status after the verdict. `active` means a recurring check re-armed for its next run; anything else is terminal. */
+      check_status: string;
+      /** Evaluations the check still owes after this one. */
+      runs_remaining: number;
+    }
+
     export interface RecordInteractionRequest {
       /** Which interaction counter to increment: 'data' (slicing/filtering the dashboard) or 'recording' (opening a session recording).
        *
@@ -79652,10 +79796,11 @@ export namespace Schemas {
          * @minItems 1
          */
       tile_order: number[];
-      /** How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.
+      /** How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. Use the other modes only when every tile should use the same size: 'two_column' makes every tile 6-wide × 5-tall, 'three_column' makes every tile 4-wide × 5-tall, and 'full_width' makes every tile 12-wide × 5-tall.
        *
        * * `preserve` - preserve
        * * `two_column` - two_column
+       * * `three_column` - three_column
        * * `full_width` - full_width */
       layout?: LayoutEnum;
     }
@@ -83480,7 +83625,8 @@ export namespace Schemas {
       rationale?: string;
       /** How the check is evaluated.
        *
-       * * `metric_threshold` - Metric Threshold */
+       * * `metric_threshold` - Metric Threshold
+       * * `agent` - Agent */
       kind: SignalReportCheckKindEnum;
       /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
       config: SignalReportCheckConfig;
@@ -97689,7 +97835,7 @@ export namespace Schemas {
      */
     activities?: string[];
     /**
-     * Filter by API clients that generated the activity (from x-posthog-client header).
+     * Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).
      */
     clients?: string[];
     /**
@@ -98943,7 +99089,7 @@ export namespace Schemas {
      */
     activities?: string[];
     /**
-     * Filter by API clients that generated the activity (from x-posthog-client header).
+     * Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).
      */
     clients?: string[];
     /**
@@ -99812,7 +99958,7 @@ export namespace Schemas {
 
     export type ConversationsTicketsListParams = {
     /**
-     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `in_progress`.
+     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.
      */
     ai_triage_result?: string;
     /**
@@ -105101,6 +105247,10 @@ export namespace Schemas {
      * @maxLength 128
      */
     label?: string;
+    /**
+     * Replace @@@prompt:...@@@ references with the referenced prompts' content before returning. Set to false to get the raw text with the reference tags, e.g. for editing or export. Only applies when content is 'full'.
+     */
+    resolve?: boolean;
     /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1
