@@ -29,7 +29,7 @@ FACADE = "products.tasks.backend.facade.api"
 
 TEAM_TRIPLE = {"runtime_adapter": "claude", "model": "claude-opus-4-8", "reasoning_effort": "high"}
 USER_TRIPLE = {"runtime_adapter": "codex", "model": "gpt-5.5", "reasoning_effort": "medium"}
-PI_PREFS = {
+PI_PREFS_WITH_PI_ONLY_EFFORT = {
     "runtime": "pi",
     "runtime_adapter": None,
     "model": "gpt-5.6-terra",
@@ -80,7 +80,7 @@ class TestResolveAIRunDefaults(APIBaseTest):
         assert resolve_ai_run_defaults(self.team.id, self.user.id).runtime == "acp"
 
     def test_pi_preference_resolves_with_its_thinking_level_and_no_adapter(self):
-        self._set_user(PI_PREFS)
+        self._set_user(PI_PREFS_WITH_PI_ONLY_EFFORT)
         with pi_harness_enabled():
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert resolved.source == "user"
@@ -92,7 +92,7 @@ class TestResolveAIRunDefaults(APIBaseTest):
         )
 
     def test_thinking_level_pi_does_not_offer_is_dropped(self):
-        self._set_user({**PI_PREFS, "reasoning_effort": "ultracode"})
+        self._set_user({**PI_PREFS_WITH_PI_ONLY_EFFORT, "reasoning_effort": "ultracode"})
         with pi_harness_enabled():
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert (resolved.model, resolved.reasoning_effort) == ("gpt-5.6-terra", None)
@@ -106,7 +106,7 @@ class TestResolveAIRunDefaults(APIBaseTest):
 
     def test_a_pi_preference_leaves_an_acp_run_with_no_default(self):
         self._set_team(TEAM_TRIPLE)
-        self._set_user(PI_PREFS)
+        self._set_user(PI_PREFS_WITH_PI_ONLY_EFFORT)
         with pi_harness_enabled():
             for_acp = resolve_ai_run_selection(self.team.id, self.user.id)
             for_pi = resolve_ai_run_selection(self.team.id, self.user.id, runtime="pi")
@@ -274,7 +274,7 @@ class TestModelAccessGating(APIBaseTest):
         )
 
     def test_pi_default_without_the_harness_flag_falls_through_to_team(self):
-        self._set_user(PI_PREFS)
+        self._set_user(PI_PREFS_WITH_PI_ONLY_EFFORT)
         self._set_team(USER_TRIPLE)
         with pi_harness_enabled(enabled=False):
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
@@ -283,13 +283,13 @@ class TestModelAccessGating(APIBaseTest):
 
     def test_pi_gate_identifies_a_user_without_a_distinct_id(self):
         User.objects.filter(id=self.user.id).update(distinct_id=None)
-        self._set_user(PI_PREFS)
+        self._set_user(PI_PREFS_WITH_PI_ONLY_EFFORT)
         with pi_harness_enabled():
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert resolved.source == "user"
 
     def test_pi_team_default_without_the_harness_flag_resolves_to_none(self):
-        self._set_team(PI_PREFS)
+        self._set_team(PI_PREFS_WITH_PI_ONLY_EFFORT)
         with pi_harness_enabled(enabled=False):
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert resolved.source == "none"
@@ -363,7 +363,7 @@ class TestCreateRunAppliesDefaults(APIBaseTest):
         assert "model" not in run.state
 
     def test_acp_task_never_inherits_a_pi_default(self):
-        update_team_ai_run_preferences(self.team.id, **PI_PREFS)
+        update_team_ai_run_preferences(self.team.id, **PI_PREFS_WITH_PI_ONLY_EFFORT)
         with pi_harness_enabled():
             run = self._task().create_run()
         assert "model" not in run.state
@@ -481,7 +481,7 @@ class TestTasksConfigAPI(APIBaseTest):
     def test_pi_preference_round_trip(self):
         stored = {"runtime": "pi", "runtime_adapter": None, "model": "gpt-5.6-terra", "reasoning_effort": "off"}
         with pi_harness_enabled():
-            response = self.client.post(f"/api/projects/{self.team.id}/tasks/@me/config/", PI_PREFS)
+            response = self.client.post(f"/api/projects/{self.team.id}/tasks/@me/config/", PI_PREFS_WITH_PI_ONLY_EFFORT)
             assert response.status_code == 200, response.content
             body = response.json()
             assert body["ai_run_preferences"] == stored
