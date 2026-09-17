@@ -99,6 +99,18 @@ def test_billable_rows_exported_drops_non_billable_runs(team, destination_type, 
     assert api.get_teams_with_billable_rows_exported(WINDOW_BEGIN, WINDOW_END) == []
 
 
+def test_active_batch_exports_excludes_paused_and_deleted_exports(team):
+    _export(team, name="running")
+    _export(team, name="paused", paused=True)
+    # Deletion leaves paused False, so a deleted export only drops out on the deleted filter.
+    deleted = _export(team, name="deleted")
+    testing.update_batch_export(deleted, team_id=team.pk, deleted=True)
+
+    # The query spans every team, so read this team's row rather than the whole list.
+    totals = {row.team_id: row.total for row in api.get_teams_with_active_batch_exports()}
+    assert totals[team.pk] == 1
+
+
 def test_latest_failed_runs_reports_only_exports_whose_most_recent_run_failed(team):
     recovered = _export(team, name="recovered")
     _run(

@@ -232,10 +232,12 @@ def get_teams_with_billable_rows_exported(begin: dt.datetime, end: dt.datetime) 
 def get_teams_with_active_batch_exports() -> list[contracts.TeamTotal]:
     """Count the batch exports each team currently runs on a schedule.
 
-    A deleted export still counts, which is what the usage report has always reported.
-    Adding `deleted=False` here would move the number, so it is a decision of its own.
+    Deleted exports are excluded, which the usage report query this replaces does not do.
+    Deletion never leaves an export paused - `service.delete_batch_export` saves a stale
+    instance over the paused flag - so that query counts every export a team has ever
+    deleted, and the number only ever grows. It drops once the usage report moves here.
     """
-    rows = BatchExport.objects.filter(paused=False).values("team_id").annotate(total=Count("id"))
+    rows = BatchExport.objects.filter(paused=False, deleted=False).values("team_id").annotate(total=Count("id"))
     return [contracts.TeamTotal(team_id=row["team_id"], total=row["total"]) for row in rows]
 
 
