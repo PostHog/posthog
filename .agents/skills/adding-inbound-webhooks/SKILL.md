@@ -65,6 +65,14 @@ Copy `github/` for the full shape, or `vapi/` for a small one.
   - `retry_status` is the status answered instead of the receipt when ingress cannot vouch that the delivery was accepted: the forward to the owning region failed, a consumer raised, or the budget skipped a consumer. Set it when the provider redelivers on a non-2xx, and leave it `None` when it does not, because the non-2xx then only loses the delivery. A retry replays the delivery against every consumer on the endpoint, and dedup is what stops the ones that already accepted it from running twice.
 - A `build_<provider>_provider(...)` function returning it. Secrets and verifiers a product owns are **passed into this builder**, never imported: nothing under `posthog/ingress/` may import a product.
 
+### Picking a scheme
+
+Three exist. Configure one; do not write a fourth without reading [the Schemes section of the package README](../../../posthog/ingress/README.md#schemes).
+
+- `HmacSha256` (`verify/schemes.py`) — a shared secret over the raw body. Covers hex or base64, an optional prefix, and the `v0:{timestamp}:{body}` input with a replay window that Slack and Customer.io sign. GitHub, Slack, PandaDoc, Vapi and Customer.io all use it.
+- `SnsSignature` (`verify/schemes.py`) — the AWS SNS envelope check plus a topic-ARN allowlist. The RSA work stays with a caller-supplied verifier.
+- `BearerJwt` (`verify/jwt.py`) — a `Bearer` token signed as a JWT, checked against the issuer's published JWKS. Its `facts` are the verified claims. The incarnation supplies the JWKS URI, the audience and the issuer allowlist as callables, and caches any discovery it does to find the URI. An endpoint on this scheme sets `throttle_class`, because an unsigned request costs a signing-key lookup.
+
 Then:
 
 1. Add the module path to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, or the registry never sees its specs or core consumers.
