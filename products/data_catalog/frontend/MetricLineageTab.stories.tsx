@@ -85,6 +85,7 @@ export const Graph: Story = { render: () => atWidths(BASE) }
 
 export const Loading: Story = {
     render: () => atWidths({ ...BASE, lineage: null, lineageLoading: true }),
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
 export const NoDefinition: Story = {

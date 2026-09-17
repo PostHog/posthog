@@ -68,6 +68,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadCoreMemory', // The PostHog AI memory setting renders its own load error banner with a retry
     'updateCoreMemory', // maxSettingsLogic's updateCoreMemoryFailure listener shows its own save-failure toast
     'loadSessionEventDeltas', // The experiment watch shelf renders the refusal, or the failure with a retry
+    'loadLineage', // MetricLineagePanel renders every failure class itself, including the not-ready 404
 ]
 
 /*
@@ -85,6 +86,7 @@ purpose, so each caller that degrades has to name itself here, next to the toast
 */
 const NOT_FOUND_SELF_HANDLED = new Set([
     'loadRecordingMeta', // The player renders RecordingNotFound off sessionRecordingMetaLogic's isNotFound
+    'loadLineage', // A metric has no lineage node until the sync task runs; the panel says so and retries
 ])
 
 /*

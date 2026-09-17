@@ -112,6 +112,21 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(lineageRequest()).toHaveBeenCalledTimes(1)
     })
 
+    it('reloads lineage when the metric reloaded while the tab was closed', async () => {
+        lineageRequest().mockResolvedValue({ nodes: [{ id: 'node-1' }], edges: [] })
+        logic.actions.setActiveTab('lineage')
+        await expectLogic(logic).toFinishAllListeners()
+        lineageRequest().mockClear()
+
+        logic.actions.setActiveTab('definition')
+        logic.actions.loadMetric()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setActiveTab('lineage')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lineageRequest()).toHaveBeenCalledTimes(1)
+    })
+
     it('asks for lineage once when the tab opens and the metric reloads together', async () => {
         lineageRequest().mockResolvedValue({ nodes: [], edges: [] })
 
