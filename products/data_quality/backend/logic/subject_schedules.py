@@ -27,7 +27,10 @@ from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY,
 from ..facade.contracts import CHECK_SUITE_WORKFLOW_NAME, RunCheckSuiteInputs
 from ..facade.enums import ScheduleInterval, SubjectType, SuiteRunTrigger
 
-SCHEDULE_TYPES: dict[SubjectType, str] = {SubjectType.METRIC: "data-quality-metric"}
+SCHEDULE_TYPES: dict[SubjectType, str] = {
+    SubjectType.METRIC: "data-quality-metric",
+    SubjectType.POSTHOG_TABLE: "data-quality-posthog-table",
+}
 SCHEDULE_TYPE_SUBJECTS = {schedule_type: kind for kind, schedule_type in SCHEDULE_TYPES.items()}
 
 
@@ -86,6 +89,13 @@ def suite_inputs(key: SubjectScheduleKey) -> RunCheckSuiteInputs:
             metric_ids=[str(key.subject_uuid)],
             schedule_id=key.temporal_id,
         )
+    if key.subject_type is SubjectType.POSTHOG_TABLE:
+        return RunCheckSuiteInputs(
+            team_id=key.team_id,
+            trigger=SuiteRunTrigger.SCHEDULED,
+            posthog_table_ids=[str(key.subject_uuid)],
+            schedule_id=key.temporal_id,
+        )
     raise ValueError(f"A {key.subject_type} has no recurring check schedule")
 
 
@@ -93,6 +103,8 @@ def selected_subject_ids(inputs: RunCheckSuiteInputs, subject_type: SubjectType)
     """The subjects these inputs name, read out of the selector that kind uses."""
     if subject_type is SubjectType.METRIC:
         return inputs.metric_ids
+    if subject_type is SubjectType.POSTHOG_TABLE:
+        return inputs.posthog_table_ids
     raise ValueError(f"A {subject_type} has no recurring check schedule")
 
 

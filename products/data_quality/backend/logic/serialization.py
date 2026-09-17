@@ -52,6 +52,18 @@ def from_config_entry(entry: dict[str, Any]) -> dict[str, Any]:
     return CheckConfigEntry.model_validate(entry).model_dump()
 
 
+def canonical_config(parsed: BaseModel) -> dict[str, Any]:
+    """The config as it is stored and hashed.
+
+    An unset lookback window is dropped rather than written as null, so a check authored before the
+    window existed keeps the fingerprint it already has.
+    """
+    canonical = parsed.model_dump(mode="json")
+    if canonical.get("lookback_hours") is None:
+        canonical.pop("lookback_hours", None)
+    return canonical
+
+
 def compute_fingerprint(
     *,
     subject_type: str,

@@ -32,13 +32,14 @@ import type {
     PatchedDataQualityCheckScheduleUpdateApi,
     PaginatedDataQualityOverviewCheckListApi,
     PaginatedDataQualitySuiteRunListApi,
+    SubjectTypeEnumApi,
 } from './generated/api.schemas'
 
 export function apiErrorDetail(error: unknown): string | null {
     return error instanceof ApiError ? error.detail : null
 }
 
-export type DataQualitySubjectType = 'table' | 'view' | 'metric'
+export type DataQualitySubjectType = SubjectTypeEnumApi
 
 export interface DataQualitySubjectRef {
     subjectType: DataQualitySubjectType

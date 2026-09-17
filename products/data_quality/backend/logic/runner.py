@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from django.db import transaction
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 if TYPE_CHECKING:
@@ -251,15 +252,18 @@ def _execute_compiled(
         # service-level bypass is only used where there is no actor and the query is constrained to
         # the check's declared subject, so it can't reach a warehouse object the definition doesn't
         # already name.
+        modifiers = create_default_modifiers_for_team(team)
         if database is not None:
             response = execute_hogql_query(
                 query=compiled.query,
                 team=team,
                 query_type=QUERY_TYPE,
+                modifiers=modifiers,
                 context=HogQLContext(
                     team_id=team.pk,
                     user=authorization.run_as,
                     database=database,
+                    modifiers=modifiers,
                     bypass_warehouse_access_control=authorization.bypass,
                 ),
             )
@@ -269,6 +273,7 @@ def _execute_compiled(
                 team=team,
                 query_type=QUERY_TYPE,
                 user=authorization.run_as,
+                modifiers=modifiers,
                 bypass_warehouse_access_control=authorization.bypass,
             )
     return _interpret(compiled, check.config, response.results, response.columns or [])

@@ -26,6 +26,7 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade import api
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.logic import checks as checks_logic
+from products.data_quality.backend.logic.posthog_tables import by_name
 from products.data_quality.backend.logic.runner import run_check
 from products.data_quality.backend.logic.subject_schedules import SubjectScheduleKey, SubjectSchedules
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
@@ -2056,6 +2057,55 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert response.json()["attr"] == "subject_type"
+
+    def test_a_posthog_table_takes_checks_a_schedule_and_a_window(self) -> None:
+        events = by_name("events")
+        assert events is not None
+        subject = {"subject_type": SubjectType.POSTHOG_TABLE, "subject_uuid": str(events.id)}
+
+        with self.captureOnCommitCallbacks(execute=True):
+            created = self.client.post(
+                f"{self.url}/",
+                {**subject, "check_type": CheckType.NOT_NULL, "column_name": "distinct_id", "config": {}},
+            )
+
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        assert created.json()["subject_uuid"] == str(events.id)
+        assert created.json()["subject_name"] == "events"
+        check = DataQualityCheck.objects.for_team(self.team.id).get(id=created.json()["id"])
+        assert check.posthog_table == "events"
+
+        windowed = self.client.post(
+            f"{self.url}/",
+            {
+                **subject,
+                "check_type": CheckType.NOT_NULL,
+                "column_name": "distinct_id",
+                "config": {"lookback_hours": 24},
+            },
+        )
+        assert windowed.status_code == status.HTTP_201_CREATED, windowed.json()
+        assert windowed.json()["id"] != created.json()["id"]
+
+        assert [
+            row["subject_uuid"]
+            for row in self.client.get(self._checks_of(events.id, SubjectType.POSTHOG_TABLE)).json()["results"]
+        ] == [
+            str(events.id),
+            str(events.id),
+        ]
+        assert self.client.get(
+            f"{self.url}/schedule/?{self._subject_query(events.id, SubjectType.POSTHOG_TABLE)}"
+        ).status_code in (
+            status.HTTP_200_OK,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    def test_a_window_is_refused_on_a_subject_with_no_time_column(self) -> None:
+        response = self.client.post(f"{self.url}/", self._payload(config={"lookback_hours": 24}))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "lookback_hours" in response.json()["detail"]
 
     def test_the_check_type_catalog_needs_no_access_to_any_subject(self) -> None:
         self._deny_the_view()

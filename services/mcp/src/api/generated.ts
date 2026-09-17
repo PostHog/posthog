@@ -23859,6 +23859,7 @@ export namespace Schemas {
      * * `table` - table
      * * `view` - view
      * * `metric` - metric
+     * * `posthog_table` - posthog_table
      */
     export type SubjectTypeEnum = typeof SubjectTypeEnum[keyof typeof SubjectTypeEnum];
 
@@ -23867,6 +23868,7 @@ export namespace Schemas {
       Table: 'table',
       View: 'view',
       Metric: 'metric',
+      PosthogTable: 'posthog_table',
     } as const;
 
     /**
@@ -23892,14 +23894,15 @@ export namespace Schemas {
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
-      /** Kind of catalog object being checked: 'table', 'view', or 'metric'.
+      /** Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
        *
        * * `table` - table
        * * `view` - view
-       * * `metric` - metric */
+       * * `metric` - metric
+       * * `posthog_table` - posthog_table */
       readonly subject_type: SubjectTypeEnum;
       /**
-         * Id of the table, view, or metric being checked. Null once the subject is deleted.
+         * Id of the table, view, metric, or PostHog table being checked. Null once the subject is deleted.
          * @nullable
          */
       readonly subject_uuid: string | null;
@@ -23997,13 +24000,14 @@ export namespace Schemas {
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
-      /** Kind of catalog object to check: 'table', 'view', or 'metric'.
+      /** Kind of object to check: 'table', 'view', 'metric', or 'posthog_table'.
        *
        * * `table` - table
        * * `view` - view
-       * * `metric` - metric */
+       * * `metric` - metric
+       * * `posthog_table` - posthog_table */
       subject_type: SubjectTypeEnum;
-      /** Id of the table, view, or metric to check. */
+      /** Id of the table, view, metric, or PostHog table to check. */
       subject_uuid: string;
       /** Queryable name of the subject, refreshed on every run. */
       readonly subject_name: string;
@@ -24270,14 +24274,15 @@ export namespace Schemas {
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
-      /** Kind of catalog object being checked: 'table', 'view', or 'metric'.
+      /** Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
        *
        * * `table` - table
        * * `view` - view
-       * * `metric` - metric */
+       * * `metric` - metric
+       * * `posthog_table` - posthog_table */
       readonly subject_type: SubjectTypeEnum;
       /**
-         * Id of the table, view, or metric being checked. Null once the subject is deleted.
+         * Id of the table, view, metric, or PostHog table being checked. Null once the subject is deleted.
          * @nullable
          */
       readonly subject_uuid: string | null;
@@ -24391,7 +24396,8 @@ export namespace Schemas {
        *
        * * `table` - table
        * * `view` - view
-       * * `metric` - metric */
+       * * `metric` - metric
+       * * `posthog_table` - posthog_table */
       subject_type?: SubjectTypeEnum;
       /** Id of the subject to run every enabled check on. Pass subject_type with it. */
       subject_uuid?: string;
@@ -24406,11 +24412,12 @@ export namespace Schemas {
      * One thing a check can be authored on, whatever kind it is.
      */
     export interface DataQualitySubject {
-      /** Kind of object: 'table', 'view', or 'metric'. Pass it back as subject_type when creating a check.
+      /** Kind of object: 'table', 'view', 'metric', or 'posthog_table'. Pass it back as subject_type when creating a check.
        *
        * * `table` - table
        * * `view` - view
-       * * `metric` - metric */
+       * * `metric` - metric
+       * * `posthog_table` - posthog_table */
       subject_type: SubjectTypeEnum;
       /** Id of the subject. Pass it back as subject_uuid when creating a check. */
       id: string;
@@ -24428,9 +24435,9 @@ export namespace Schemas {
      * Per-subject rollup, the same rule the information_schema.data_quality_health table uses.
      */
     export interface DataQualitySubjectHealth {
-      /** 'table', 'view', or 'metric'. */
+      /** 'table', 'view', 'metric', or 'posthog_table'. */
       subject_type: string;
-      /** Id of the table, view, or metric. */
+      /** Id of the table, view, metric, or PostHog table. */
       subject_uuid: string;
       /** failing (an error-severity check failed), erroring (a check could not run), warn (only warn-severity failures), healthy, or unknown (nothing has run yet). */
       health: string;
@@ -24447,7 +24454,7 @@ export namespace Schemas {
       /** running, completed, failed, or empty (nothing matched the trigger). */
       readonly status: string;
       /**
-         * 'table', 'view', or 'metric' when the run targets exactly one subject, including a run of a single check on that subject; null for a run spanning several subjects.
+         * 'table', 'view', 'metric', or 'posthog_table' when the run targets exactly one subject, including a run of a single check on that subject; null for a run spanning several subjects.
          * @nullable
          */
       readonly subject_type: string | null;
@@ -67196,14 +67203,15 @@ export namespace Schemas {
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
-      /** Kind of catalog object being checked: 'table', 'view', or 'metric'.
+      /** Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
        *
        * * `table` - table
        * * `view` - view
-       * * `metric` - metric */
+       * * `metric` - metric
+       * * `posthog_table` - posthog_table */
       readonly subject_type?: SubjectTypeEnum;
       /**
-         * Id of the table, view, or metric being checked. Null once the subject is deleted.
+         * Id of the table, view, metric, or PostHog table being checked. Null once the subject is deleted.
          * @nullable
          */
       readonly subject_uuid?: string | null;
@@ -67291,13 +67299,14 @@ export namespace Schemas {
      * Which subject's schedule to change, and what to change about it.
      */
     export interface PatchedDataQualityCheckScheduleUpdate {
-      /** Kind of catalog object: 'table', 'view', or 'metric'.
+      /** Kind of object: 'table', 'view', 'metric', or 'posthog_table'.
        *
        * * `table` - table
        * * `view` - view
-       * * `metric` - metric */
+       * * `metric` - metric
+       * * `posthog_table` - posthog_table */
       subject_type?: SubjectTypeEnum;
-      /** Id of the table, view, or metric. */
+      /** Id of the table, view, metric, or PostHog table. */
       subject_uuid?: string;
       /** How often all enabled checks on the subject run.
        *
@@ -101865,6 +101874,7 @@ export namespace Schemas {
 
     export const DataQualityChecksListSubjectType = {
       Metric: 'metric',
+      PosthogTable: 'posthog_table',
       Table: 'table',
       View: 'view',
     } as const;
@@ -101881,6 +101891,7 @@ export namespace Schemas {
 
     export const DataQualityChecksCheckTypesListSubjectType = {
       Metric: 'metric',
+      PosthogTable: 'posthog_table',
       Table: 'table',
       View: 'view',
     } as const;
@@ -101901,6 +101912,7 @@ export namespace Schemas {
 
     export const DataQualityChecksHealthListSubjectType = {
       Metric: 'metric',
+      PosthogTable: 'posthog_table',
       Table: 'table',
       View: 'view',
     } as const;
@@ -101921,6 +101933,7 @@ export namespace Schemas {
 
     export const DataQualityChecksOutputSchemaRetrieveSubjectType = {
       Metric: 'metric',
+      PosthogTable: 'posthog_table',
       Table: 'table',
       View: 'view',
     } as const;
@@ -101941,6 +101954,7 @@ export namespace Schemas {
 
     export const DataQualityChecksScheduleRetrieveSubjectType = {
       Metric: 'metric',
+      PosthogTable: 'posthog_table',
       Table: 'table',
       View: 'view',
     } as const;

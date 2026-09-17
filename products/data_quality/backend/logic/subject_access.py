@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.facade import api as warehouse_facade
 
 from ..facade.enums import SubjectType
 from ..models import DataQualityCheck, DataQualityCheckRun
+from . import posthog_tables
 from .checks import latest_run_ids
 from .contracts import SubjectIdentity, SubjectRef
 from .exceptions import SubjectAccessUnverifiable
@@ -52,7 +53,16 @@ _SUBJECT_UUID_KEY = "subject_uuid"
 _SYSTEM_SCHEMA = SystemTables().name
 _RunQS = TypeVar("_RunQS", bound=QuerySet)
 _CHECK_VISIBILITY_BATCH_SIZE = 200
-_CHECK_VISIBILITY_FIELDS = ("id", "subject_type", "table_id", "saved_query_id", "metric_id", "check_type", "config")
+_CHECK_VISIBILITY_FIELDS = (
+    "id",
+    "subject_type",
+    "table_id",
+    "saved_query_id",
+    "metric_id",
+    "posthog_table",
+    "check_type",
+    "config",
+)
 
 
 def can_be_object_denied(user_access_control: Optional["UserAccessControl"]) -> bool:
@@ -83,6 +93,7 @@ class ReadableSubjects:
     table_ids: frozenset[UUID]
     view_ids: frozenset[UUID]
     metric_ids: frozenset[UUID] = frozenset()
+    posthog_table_ids: frozenset[UUID] = frozenset()
 
     def contains(self, subject_type: str, subject_uuid: str | UUID | None) -> bool:
         if subject_uuid is None:
@@ -97,6 +108,8 @@ class ReadableSubjects:
             return identifier in self.view_ids
         if subject_type == SubjectType.METRIC:
             return identifier in self.metric_ids
+        if subject_type == SubjectType.POSTHOG_TABLE:
+            return identifier in self.posthog_table_ids
         return False
 
 
@@ -282,6 +295,7 @@ def readable_subjects(
             for metric in metadata.metrics
             if can_read_catalog and not matcher.matches(metric.referenced_table_names)
         ),
+        posthog_table_ids=frozenset(entry.id for entry in posthog_tables.TABLES if not matcher.matches([entry.name])),
     )
 
 
@@ -661,6 +675,7 @@ def _readable_subject_q(readable: ReadableSubjects) -> Q:
         Q(subject_type=SubjectType.TABLE, subject_uuid__in=readable.table_ids)
         | Q(subject_type=SubjectType.VIEW, subject_uuid__in=readable.view_ids)
         | Q(subject_type=SubjectType.METRIC, subject_uuid__in=readable.metric_ids)
+        | Q(subject_type=SubjectType.POSTHOG_TABLE, subject_uuid__in=readable.posthog_table_ids)
     )
 
 
@@ -671,6 +686,7 @@ def _readable_identities(readable: ReadableSubjects) -> list[dict[str, str]]:
             (SubjectType.TABLE, readable.table_ids),
             (SubjectType.VIEW, readable.view_ids),
             (SubjectType.METRIC, readable.metric_ids),
+            (SubjectType.POSTHOG_TABLE, readable.posthog_table_ids),
         )
         for subject_uuid in ids
     ]
