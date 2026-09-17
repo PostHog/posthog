@@ -1008,11 +1008,15 @@ function ConversionGoalSection(): JSX.Element {
                     </span>
                     <HogFlowDuration
                         value={conversionWindow}
-                        onChange={(window) => {
-                            // The API rejects a conversion that carries both forms, so writing the
-                            // duration string drops the deprecated one this workflow may still hold.
-                            const { window_minutes, ...conversion } = workflow.conversion ?? {}
-                            setWorkflowValue('conversion', { ...conversion, window })
+                        onChange={(next) => {
+                            // Dropping window_minutes keeps the two forms from arriving together, which
+                            // the API rejects. A cleared amount arrives as a bare unit such as "d", so
+                            // omitting window restores the default instead of failing the save.
+                            const { window_minutes, window, ...conversion } = workflow.conversion ?? {}
+                            setWorkflowValue(
+                                'conversion',
+                                /\d/.test(next) ? { ...conversion, window: next } : conversion
+                            )
                         }}
                         maxValueForUnit={MAX_CONVERSION_WINDOW_FOR_DURATION_UNIT}
                     />
