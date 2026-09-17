@@ -23,7 +23,8 @@ graded on the same rows, not a competitor for the tabular family's pointer.
 Both the candidate and the champion asset walk `MODEL_FAMILIES`, so each family trains on the
 examples of the feature set it declares and decides against its own pointer. A family whose
 examples or metadata are missing that day is logged and skipped: its own series has a gap, and
-every other family still trains, promotes and gets graded.
+every other family still trains, promotes and gets graded. The two embedding families read one text
+rendering each, from separate snapshots, so a missing snapshot costs one family and not the pair.
 
 Two further assets grade the day's models on data no example covers. `inbox_ranking_unseen_scores`
 scores every report born on D (`unseen_pool` explains why no example can cover one);
@@ -36,6 +37,7 @@ comparable because both apply the same `Head` cohort, label and horizon.
 import json
 import datetime
 from collections.abc import Mapping, Sequence
+from types import MappingProxyType
 from typing import Any
 
 import pandas as pd
@@ -49,8 +51,8 @@ from products.signals.backend.ranking.features import (
     EMBEDDING_COLUMN,
     EMBEDDING_INSERTED_AT_COLUMN,
     FEATURE_SETS,
-    NO_EXTRAS,
     REPORT_EMBEDDINGS_EXTRA,
+    TITLE_EMBEDDINGS_EXTRA,
     Extras,
     FeatureSet,
 )
@@ -70,7 +72,12 @@ from products.signals.dags.inbox_ranking.common import (
     snapshot_bounds,
     write_parquet,
 )
-from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_TABLE, LABELS_TABLE, STATE_TABLE
+from products.signals.dags.inbox_ranking.dataset.dag import (
+    EMBEDDINGS_TABLE,
+    LABELS_TABLE,
+    STATE_TABLE,
+    TITLE_EMBEDDINGS_TABLE,
+)
 from products.signals.dags.inbox_ranking.training.examples import (
     BASE_STATE_COLUMNS,
     PROVENANCE_LABEL_COLUMNS,
@@ -248,10 +255,28 @@ def load_snapshots(
     return snapshots
 
 
-def report_embeddings_extras(
-    context: dagster.AssetExecutionContext, client, bucket: str, prefix: str, partition_key: str
+# The dt=D snapshot table behind each embedding side input. One table per rendering, read on its
+# own: a rendering's snapshot can be missing while the other's is present, and the families must
+# not share a fate.
+_EXTRA_SNAPSHOT_TABLES: Mapping[str, str] = MappingProxyType(
+    {
+        REPORT_EMBEDDINGS_EXTRA: EMBEDDINGS_TABLE,
+        TITLE_EMBEDDINGS_EXTRA: TITLE_EMBEDDINGS_TABLE,
+    }
+)
+
+
+def embeddings_extras(
+    context: dagster.AssetExecutionContext,
+    client,
+    bucket: str,
+    prefix: str,
+    partition_key: str,
+    extras_keys: Sequence[str],
+    *,
+    report_ids: pd.Index | None = None,
 ) -> Extras:
-    """The dt=D report vectors, indexed by report_id: the side input the report-embeddings set reads.
+    """The dt=D vectors for `extras_keys`, each indexed by report_id and read from its own snapshot.
 
     One snapshot serves every moment of the run, and each vector carries the moment it landed, so a
     moment can only take a vector that already existed for it. A report is re-embedded whenever its
@@ -260,22 +285,38 @@ def report_embeddings_extras(
     would recover the superseded vectors, at the cost of pulling a fleet-wide vector table across
     the network once per day of the window.
 
-    A missing snapshot is not a failure, and not an empty side input either: the caller skips the
-    sets that read it, because rebuilding one of those from nothing would strip the family's
-    partition.
+    A **missing** snapshot is not a failure, and not an empty side input either: the key is left
+    out, so the caller skips only the sets that read it. Rebuilding one of those from nothing would
+    strip the family's partition. A snapshot that **exists** and carries no usable vector is the
+    other case, and keeps its key: no row is then buildable, the family's heads read as unfit, and
+    the ordinary thin-input path applies. The two cannot be folded together, because the first must
+    leave a partition alone and the second is a day the family genuinely has nothing to fit.
+
+    `report_ids` narrows each frame to the rows the caller will ask for. Every snapshot holds a
+    vector per live report, so a caller that only scores one day's newborns passes the pool's index
+    rather than holding a fleet-wide vector table per rendering at once.
     """
-    table = read_parquet_if_exists(
-        client,
-        bucket,
-        partition_object_key(prefix, EMBEDDINGS_TABLE, partition_key),
-        columns=["report_id", EMBEDDING_COLUMN, EMBEDDING_INSERTED_AT_COLUMN],
-    )
-    if table is None:
-        context.log.warning(f"no {EMBEDDINGS_TABLE} snapshot for dt={partition_key}; report vectors are unavailable")
-        return NO_EXTRAS
-    vectors = table.to_pandas().set_index("report_id")
-    # `reindex` refuses a duplicated index, and one report is one document in the source.
-    return {REPORT_EMBEDDINGS_EXTRA: vectors[~vectors.index.duplicated()]}
+    extras: dict[str, pd.DataFrame] = {}
+    for extras_key in extras_keys:
+        table_name = _EXTRA_SNAPSHOT_TABLES[extras_key]
+        table = read_parquet_if_exists(
+            client,
+            bucket,
+            partition_object_key(prefix, table_name, partition_key),
+            columns=["report_id", EMBEDDING_COLUMN, EMBEDDING_INSERTED_AT_COLUMN],
+        )
+        if table is None:
+            context.log.warning(
+                f"no {table_name} snapshot for dt={partition_key}; the {extras_key} side input is unavailable"
+            )
+            continue
+        vectors = table.to_pandas().set_index("report_id")
+        # `reindex` refuses a duplicated index, and one report is one document per rendering.
+        vectors = vectors[~vectors.index.duplicated()]
+        if report_ids is not None:
+            vectors = vectors.loc[vectors.index.intersection(report_ids)]
+        extras[extras_key] = vectors
+    return extras
 
 
 def examples_table(examples: pd.DataFrame, feature_set: FeatureSet) -> pa.Table:
@@ -297,8 +338,10 @@ _LOOKBACK_MAPPING = dagster.TimeWindowPartitionMapping(
     deps=[
         dagster.AssetDep(STATE_TABLE, partition_mapping=_LOOKBACK_MAPPING),
         dagster.AssetDep(LABELS_TABLE, partition_mapping=_LOOKBACK_MAPPING),
-        # Only dt=D: `report_embeddings_extras` explains why one snapshot serves the whole window.
+        # Only dt=D: `embeddings_extras` explains why one snapshot serves the whole window. One
+        # dependency per rendering, so a missing title snapshot costs only the title family.
         EMBEDDINGS_TABLE,
+        TITLE_EMBEDDINGS_TABLE,
     ],
     **COMMON_ASSET_KWARGS,
 )
@@ -321,13 +364,17 @@ def inbox_ranking_training_examples(context: dagster.AssetExecutionContext) -> N
     if unreachable_reports:
         context.log.warning(f"{unreachable_reports} reports born inside the window have no birth-day snapshot")
 
-    extras = report_embeddings_extras(context, client, bucket, prefix, partition_key)
     metadata: dict[str, dagster.MetadataValue] = {
         "snapshots": dagster.MetadataValue.int(len(snapshots)),
         "backfilled_state_rows_excluded": dagster.MetadataValue.int(backfilled_rows),
         "reports_missing_birth_snapshot": dagster.MetadataValue.int(unreachable_reports),
     }
     for feature_set in FEATURE_SETS.values():
+        # One set's side inputs at a time, released before the next set's are read. Each embeddings
+        # snapshot carries a vector per live report, so holding every set's at once would scale
+        # this asset's peak with the number of families, on top of the lookback window it already
+        # holds in pandas.
+        extras = embeddings_extras(context, client, bucket, prefix, partition_key, feature_set.extras_keys)
         missing = feature_set.missing_extras(extras)
         # Rebuilding a set from a missing side input would write an empty examples object, which
         # makes the next candidate run train nothing, write metadata with no heads, and delete the
@@ -823,7 +870,7 @@ def pool_feature_coverage(
 
 @dagster.asset(
     name=UNSEEN_SCORES_TABLE,
-    deps=["inbox_ranking_model_champion", STATE_TABLE, LABELS_TABLE, EMBEDDINGS_TABLE],
+    deps=["inbox_ranking_model_champion", STATE_TABLE, LABELS_TABLE, EMBEDDINGS_TABLE, TITLE_EMBEDDINGS_TABLE],
     **COMMON_ASSET_KWARGS,
 )
 def inbox_ranking_unseen_scores(context: dagster.AssetExecutionContext) -> None:
@@ -851,8 +898,19 @@ def inbox_ranking_unseen_scores(context: dagster.AssetExecutionContext) -> None:
             f"{len(leaked)} reports created on {partition_key} already appear in that day's training examples, "
             f"so the unseen read would grade a model on its own data: {leaked[:10]}"
         )
-    extras = report_embeddings_extras(context, client, bucket, prefix, partition_key)
-    models = models_with_extras(context, load_unseen_models(context, client, bucket, prefix, partition_key), extras)
+    loaded = load_unseen_models(context, client, bucket, prefix, partition_key)
+    # Only the side inputs the day's models read, and only the pool's rows: a snapshot holds a
+    # vector per live report, while the scored population is one day's newborns.
+    extras = embeddings_extras(
+        context,
+        client,
+        bucket,
+        prefix,
+        partition_key,
+        tuple(dict.fromkeys(key for model in loaded for key in model.feature_set.extras_keys)),
+        report_ids=pool.index,
+    )
+    models = models_with_extras(context, loaded, extras)
     scores = score_pool(pool, snapshot.labels, models, snapshot_date=day, extras=extras)
     key = partition_object_key(prefix, UNSEEN_SCORES_TABLE, partition_key)
     if scores.empty:
@@ -986,10 +1044,12 @@ inbox_ranking_training_job = dagster.define_asset_job(
         # rather than the ETL's. Matched to the dataset job's budget.
         "dagster/max_runtime": str(3 * 60 * 60),
         # The examples asset holds every snapshot of the lookback window in pandas at once (state
-        # plus labels per day) before the per-head builders run, plus the day's report vectors as
-        # the side input the embeddings set reads, so the peak grows with the lookback and the
-        # inventory. The limit sits above the dataset job's because that vector table is only one
-        # of the things held here; growth should surface as a slow run, not an OOMKilled pod.
+        # plus labels per day) before the per-head builders run, plus one rendering's vectors as
+        # the side input the embedding set being built reads, so the peak grows with the lookback
+        # and the inventory. It is one rendering at a time rather than one per family, so a further
+        # embedding family costs runtime and not peak. The limit sits above the dataset job's
+        # because that vector table is only one of the things held here; growth should surface as a
+        # slow run, not an OOMKilled pod.
         "dagster-k8s/config": {
             "container_config": {
                 "resources": {
