@@ -91,10 +91,20 @@ class TestCappedAliasRetry(SimpleTestCase):
     @parameterized.expand(
         [
             ("a_dropped_connection_is_opened_again", "server closed the connection unexpectedly", 2),
+            # libpq keeps the OS string's own case, and reports a drop on an encrypted connection
+            # through the TLS layer, so neither of these reaches the plain lowercase wording.
+            ("a_reset_the_os_capitalized_is_too", "could not receive data from server: Connection reset by peer", 2),
+            ("a_tls_drop_is_too", "SSL connection has been closed unexpectedly", 2),
+            ("a_tls_socket_drop_is_too", "consuming input failed: SSL SYSCALL error: EOF detected", 2),
             # No backoff sits behind this retry, so a failure that needs one must not be repeated
-            # into the delivery's wall clock.
+            # into the delivery's wall clock. The pooler quotes the backend failure it cached, so
+            # the cooldown has to outrank a marker that appears inside that quote.
             ("a_saturated_pool_is_not", "query_wait_timeout", 1),
-            ("a_cached_pooler_login_failure_is_not", "server login has been failing, cached error", 1),
+            (
+                "a_cached_pooler_login_failure_is_not",
+                "server login has been failing, cached error: server closed the connection unexpectedly",
+                1,
+            ),
         ]
     )
     def test_only_a_dropped_connection_is_opened_again(self, _name: str, message: str, expected_opens: int) -> None:

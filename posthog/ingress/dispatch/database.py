@@ -33,9 +33,18 @@ _QUERY_CANCELED_SQLSTATE = "57014"
 # must not repeat a saturated pool or a restarting server straight back into the same failure.
 # `posthog/temporal/common/db_errors.py` holds the wider transient set, which suits a caller a
 # Temporal retry policy backs off.
+#
+# The message is matched case-folded, so every marker here has to stay lowercase: libpq builds
+# part of the text from the OS string, which arrives capitalized ("Connection reset by peer").
 _DROPPED_CONNECTION_MARKERS = (
     "server closed the connection unexpectedly",
     "connection reset by peer",
+    # The same two failures as libpq words them through the TLS layer, which a deployment that
+    # sets `POSTHOG_POSTGRES_SSL_MODE` gets instead of the plain text above. A clean EOF reads
+    # "SSL connection has been closed unexpectedly", and a socket-level drop reads "SSL SYSCALL
+    # error: ...", whose tail is often "EOF detected" rather than the OS string.
+    "ssl connection has been closed unexpectedly",
+    "ssl syscall error",
     # pgbouncer's report that the backend connection assigned to a query died before answering,
     # and psycopg's report of the same dead socket found client-side. Both raise as
     # ProtocolViolation (SQLSTATE 08P01), too broad to whitelist by class because a genuine
@@ -74,7 +83,7 @@ def is_statement_timeout(error: Exception) -> bool:
 def _is_dropped_connection(error: BaseException) -> bool:
     if not isinstance(error, OperationalError | InterfaceError):
         return False
-    message = str(error)
+    message = str(error).lower()
     if _POOLER_LOGIN_COOLDOWN_MARKER in message:
         return False
     return any(marker in message for marker in _DROPPED_CONNECTION_MARKERS)
