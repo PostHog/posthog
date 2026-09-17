@@ -1,7 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
@@ -71,8 +70,12 @@ describe('feature flag release conditions and unseen person properties', () => {
             </Provider>
         )
 
-        await userEvent.click(await screen.findByText('Add condition'))
-        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), UNSEEN_PROPERTY)
+        fireEvent.click(await screen.findByText('Add condition'))
+        // One change event rather than a keystroke per character: typing the whole name through
+        // userEvent runs past the default test timeout on CI.
+        fireEvent.change(screen.getByTestId('taxonomic-filter-searchfield'), {
+            target: { value: UNSEEN_PROPERTY },
+        })
 
         await waitFor(() => {
             expect(screen.queryByText('Select property:') !== null).toBe(expected)
