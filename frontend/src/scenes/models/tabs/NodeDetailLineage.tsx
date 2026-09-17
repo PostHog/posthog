@@ -63,7 +63,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
         )
     }
 
-    if (nodes.length <= 1) {
+    if (nodes.length <= 1 && !nodes[0]?.lineage_issue) {
         return (
             <div className="flex min-h-64 flex-col items-center justify-center gap-3 rounded border bg-bg-light p-6 text-center">
                 <div className="max-w-120">

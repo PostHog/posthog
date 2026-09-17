@@ -245,7 +245,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                 onMouseLeave={handleMouseLeave}
                 onClick={callbacks.onClick}
                 onKeyDown={callbacks.onClick ? handleKeyDown : undefined}
-                role={callbacks.onClick ? 'link' : undefined}
+                role={callbacks.onClick ? 'button' : undefined}
                 tabIndex={callbacks.onClick ? 0 : undefined}
                 aria-label={callbacks.onClick ? ariaLabel : undefined}
             >
