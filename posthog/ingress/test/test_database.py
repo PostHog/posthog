@@ -4,10 +4,12 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.db import OperationalError, connections
+from django.db.backends.signals import connection_created
 from django.test import SimpleTestCase, TestCase, TransactionTestCase
 
 from parameterized import parameterized
 
+from posthog.ingress.dispatch import database
 from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout, read_aliases
 from posthog.models import Team, User
 
@@ -85,6 +87,45 @@ class TestBoundedStatementTimeoutReconnects(TransactionTestCase):
 
         with bounded_statement_timeout(500, models=[Team]):
             self.assertEqual(Team.objects.filter(pk=-1).count(), 0)
+
+    def test_a_connection_that_dies_while_the_cap_is_installed_costs_one_dial(self) -> None:
+        # Dying here, rather than on the dial, lets the rolled-back block leave Django holding a
+        # connection it opened itself. Dropping that one too spends a second dial of the
+        # delivery's wall clock, on the path where the pool is already unhealthy.
+        alias = read_aliases([Team])[0]
+        connection = connections[alias]
+        connection.ensure_connection()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_backend_pid()")
+            backend_pid = cursor.fetchone()[0]
+
+        killer = connections.create_connection(alias)
+        killer.ensure_connection()
+        self.addCleanup(killer.close)
+        opened: list[str] = []
+
+        def record_open(sender: object, connection: object, **kwargs: object) -> None:
+            opened.append(connection.alias)  # type: ignore[attr-defined]
+
+        real_apply = database._apply_statement_timeout
+        killed = False
+
+        def apply_timeout(target, value: str) -> None:
+            nonlocal killed
+            if not killed:
+                killed = True
+                with killer.cursor() as cursor:
+                    cursor.execute("SELECT pg_terminate_backend(%s)", [backend_pid])
+            real_apply(target, value)
+
+        connection_created.connect(record_open)
+        self.addCleanup(connection_created.disconnect, record_open)
+
+        with patch.object(database, "_apply_statement_timeout", side_effect=apply_timeout):
+            with bounded_statement_timeout(500, models=[Team]):
+                self.assertEqual(Team.objects.filter(pk=-1).count(), 0)
+
+        self.assertEqual(opened, [alias])
 
 
 class TestCappedAliasRetry(SimpleTestCase):

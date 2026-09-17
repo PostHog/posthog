@@ -56,6 +56,10 @@ _DROPPED_CONNECTION_MARKERS = (
     "the connection is lost",
     "the connection is closed",
     "connection already closed",
+    # The server ending this backend on its own (SQLSTATE 57P01), which is what a client sees
+    # when the pooler or an operator drops one connection rather than the whole server. It names
+    # this connection only, so a fresh one is not refused the same way.
+    "terminating connection due to administrator command",
 )
 
 # pgbouncer's server_login_retry cooldown quotes the backend failure it cached, so a marker above
@@ -161,6 +165,7 @@ def _capped_alias(alias: str, timeout_ms: int) -> ExitStack:
     immediate retry on a fresh connection recovers it.
     """
     connection = connections[alias]
+    dead_driver_connection = connection.connection
     try:
         return _open_capped_alias(alias, timeout_ms)
     except Exception as error:
@@ -168,7 +173,10 @@ def _capped_alias(alias: str, timeout_ms: int) -> ExitStack:
         # it fails anyway: the recovery there belongs to whoever opened that transaction.
         if not _is_dropped_connection(error) or connection.in_atomic_block:
             raise
-        connection.close()
+        # Rolling the failed block back can leave Django holding a connection it opened itself,
+        # and dropping that one would cost the delivery a third dial for nothing.
+        if connection.connection is dead_driver_connection:
+            connection.close()
         try:
             stack = _open_capped_alias(alias, timeout_ms)
         except Exception:
