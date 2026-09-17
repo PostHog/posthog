@@ -1,12 +1,12 @@
 import json
 import base64
 import datetime
-from typing import Any
+from typing import Any, cast
 
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.http.response import HttpResponseBase
+from django.http.response import HttpResponse
 from django.test import Client, SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
@@ -161,8 +161,8 @@ class TestSesTenantEventsEndpoint(TestCase):
         self.sync_mock = sync.start()
         self.addCleanup(sync.stop)
 
-    def _post(self, payload: dict[str, Any]) -> HttpResponseBase:
-        return self.client.post(WEBHOOK_PATH, data=json.dumps(payload), content_type="text/plain")
+    def _post(self, payload: dict[str, Any]) -> HttpResponse:
+        return cast(HttpResponse, self.client.post(WEBHOOK_PATH, data=json.dumps(payload), content_type="text/plain"))
 
     def test_enqueues_a_sync_for_the_tenant_named_in_a_verified_event(self) -> None:
         response = self._post(_signed(_notification(_eventbridge_event())))
