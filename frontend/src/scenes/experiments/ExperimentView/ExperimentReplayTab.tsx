@@ -510,6 +510,10 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                         {...playlistLogicProps}
                         analyticsSource="experiment-recordings-tab"
                         filters={recordingsFilters}
+                        // The tab's own controls own these filters, so the filter bar resets to them
+                        // rather than to replay's defaults, which would list people outside the
+                        // experiment under the variant's label.
+                        resetToCallerFilters
                         onFiltersChange={(filters) => playlistFiltersChanged(filters)}
                         onRecordingsLoaded={(recordings, isFirstPage) => recordingsLoaded(recordings, isFirstPage)}
                         onRecordingSelected={(recordingId) => recordingOpened(recordingId)}
