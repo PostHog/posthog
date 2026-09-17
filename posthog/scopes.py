@@ -218,11 +218,6 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # `is_staff`. Distinct from the public `batch_import` object on purpose: that one is
         # OAuth-advertised, and a customer-grantable scope must never name a staff surface.
         "batch_import_support",
-        # Developer-experience tools for PostHog staff. Their MCP tools are behind feature flags,
-        # but the consent screen lists the union of every tool's scopes, so without this the
-        # scopes show to every customer. Staff reach the tools with a personal API key.
-        "stamphog",
-        "visual_review",
     }
 )
 
