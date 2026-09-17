@@ -85,5 +85,5 @@ export function getChartAlternatives(
             (option): option is ChartDisplayOption =>
                 !!option && option.display !== currentDisplay && !option.disabledReason
         )
-        .slice(0, 4)
+        .slice(0, 3)
 }

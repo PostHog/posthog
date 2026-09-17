@@ -39,7 +39,6 @@ describe('getChartAlternatives', () => {
                 ChartDisplayType.Metric,
                 ChartDisplayType.ActionsUnstackedBar,
                 ChartDisplayType.ActionsAreaGraph,
-                ChartDisplayType.ActionsBarValue,
             ],
         },
         {
@@ -47,12 +46,7 @@ describe('getChartAlternatives', () => {
             query: makeTrendsQuery({
                 breakdownFilter: { breakdowns: [{ property: '$geoip_country_code', type: 'event' }] },
             }),
-            expected: [
-                ChartDisplayType.WorldMap,
-                ChartDisplayType.ActionsAreaGraph,
-                ChartDisplayType.ActionsBarValue,
-                ChartDisplayType.ActionsLineGraphCumulative,
-            ],
+            expected: [ChartDisplayType.WorldMap, ChartDisplayType.ActionsAreaGraph, ChartDisplayType.ActionsBarValue],
         },
         {
             name: 'puts the world map first for a country filter',
@@ -66,12 +60,7 @@ describe('getChartAlternatives', () => {
                     },
                 ],
             }),
-            expected: [
-                ChartDisplayType.WorldMap,
-                ChartDisplayType.Metric,
-                ChartDisplayType.ActionsUnstackedBar,
-                ChartDisplayType.ActionsAreaGraph,
-            ],
+            expected: [ChartDisplayType.WorldMap, ChartDisplayType.Metric, ChartDisplayType.ActionsUnstackedBar],
         },
         {
             name: 'puts the box plot first for a percentile series',
@@ -85,34 +74,19 @@ describe('getChartAlternatives', () => {
                     },
                 ],
             }),
-            expected: [
-                ChartDisplayType.BoxPlot,
-                ChartDisplayType.Metric,
-                ChartDisplayType.ActionsUnstackedBar,
-                ChartDisplayType.ActionsAreaGraph,
-            ],
+            expected: [ChartDisplayType.BoxPlot, ChartDisplayType.Metric, ChartDisplayType.ActionsUnstackedBar],
         },
         {
             name: 'puts the box plot first for a moving average',
             query: makeTrendsQuery({
                 trendsFilter: { display: ChartDisplayType.ActionsLineGraph, smoothingIntervals: 7 },
             }),
-            expected: [
-                ChartDisplayType.BoxPlot,
-                ChartDisplayType.Metric,
-                ChartDisplayType.ActionsUnstackedBar,
-                ChartDisplayType.ActionsAreaGraph,
-            ],
+            expected: [ChartDisplayType.BoxPlot, ChartDisplayType.Metric, ChartDisplayType.ActionsUnstackedBar],
         },
         {
             name: 'prefers other total value charts when viewing a pie chart',
             query: makeTrendsQuery({ trendsFilter: { display: ChartDisplayType.ActionsPie } }),
-            expected: [
-                ChartDisplayType.ActionsDonut,
-                ChartDisplayType.ActionsBarValue,
-                ChartDisplayType.Metric,
-                ChartDisplayType.ActionsUnstackedBar,
-            ],
+            expected: [ChartDisplayType.ActionsDonut, ChartDisplayType.ActionsBarValue, ChartDisplayType.Metric],
         },
     ])('$name', ({ query, expected }) => {
         expect(getChartAlternatives(compatibleOptions, query).map((option) => option.display)).toEqual(expected)
