@@ -71,10 +71,12 @@ export class ElectronSettingsBackupFiles implements ISettingsBackupFiles {
     if (result.canceled || !result.filePath) return false;
     const temporary = `${result.filePath}.${randomUUID()}.tmp`;
     try {
+      // fsync before the rename below replaces the user's previous backup.
       await writeFile(temporary, input.contents, {
         encoding: "utf8",
         mode: 0o600,
         flag: "wx",
+        flush: true,
       });
       await this.replace(temporary, result.filePath);
     } finally {
