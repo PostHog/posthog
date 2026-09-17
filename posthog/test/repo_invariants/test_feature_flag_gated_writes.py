@@ -14,28 +14,22 @@ GATED_FIELDS = {"active", "filters"}
 FLAG_NAME = re.compile(r"(?i)(flag|^ff$|^ff_|_ff$)")
 ORM_WRITE_METHODS = {"create", "bulk_create", "get_or_create", "update_or_create", "update", "bulk_update"}
 
-# The approval gate sits on FeatureFlagSerializer. These files are that gated path, so their
-# serializer writes are exempt. Every other write in them is still scanned.
+# The approval gate itself. Only its serializer writes are exempt.
 GATED_PATH = {
     "products/feature_flags/backend/facade/api.py",
     "products/approvals/backend/actions/feature_flags.py",
     "products/approvals/backend/scheduled_changes.py",
 }
 
-# Why each file in the baseline may still write a flag's gated fields outside the facade.
-# The baseline lists every write. Shrink both, never grow them: move a write to create_flag,
-# update_flag or set_flag_active and regenerate the baseline in the same PR.
+# Shrink-only. Move a write to the facade, then regenerate the baseline and drop its entry here.
 ALLOWED_REASONS: dict[str, str] = {
-    # Drive FeatureFlagSerializer directly instead of the facade. The approval gate still runs.
     "ee/clickhouse/views/experiment_holdouts.py": "holdout edit and delete",
     "products/feature_flags/backend/api/organization_feature_flag.py": "copy a flag to other projects",
     "products/feature_flags/backend/max_tools.py": "PostHog AI flag creation",
     "products/feature_flags/backend/models/feature_flag.py": "scheduled change execution",
     "products/surveys/backend/api/survey.py": "targeting flag writes and the start/stop mirror of active",
-    # Raw writes that skip validation and the approval gate.
     "posthog/api/file_system/registrations.py": "file-system trash and restore flip active",
     "products/early_access_features/backend/api.py": "never-fail cleanup when stored filters fail validation",
-    # Operator tooling, local setup, demo data and eval seeders. No request reaches them.
     "posthog/management/commands/fix_invalid_flag_property_types.py": "data repair command",
     "posthog/management/commands/generate_random_product_tours.py": "local data generator",
     "posthog/management/commands/reencrypt_flag_payloads.py": "payload re-encryption command",
@@ -119,7 +113,6 @@ def _own_nodes(scope: ast.AST):
 
 
 def _bound_names(target: ast.expr) -> set[str]:
-    # Only names the target assigns. `holder.item = ...` binds nothing to `holder`.
     if isinstance(target, ast.Name):
         return {target.id}
     if isinstance(target, (ast.Tuple, ast.List)):
@@ -130,9 +123,6 @@ def _bound_names(target: ast.expr) -> set[str]:
 
 
 def _scope_flag_names(scope: ast.AST, models: set[str]) -> set[str]:
-    # Catches flags and querysets held in variables whose name does not say "flag", such as
-    # `existing = FeatureFlag.objects.filter(...).first()`, `row, _ = FeatureFlag.objects.get_or_create(...)`
-    # or a `feature: FeatureFlag` parameter.
     names: set[str] = set()
     if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
         args = scope.args
@@ -206,8 +196,7 @@ def _write_target(
 
 
 def gated_writes(tree: ast.AST, *, serializer_exempt: bool = False) -> list[str]:
-    # Entries read `<enclosing scope>::<write>`. The scope keeps an entry stable when lines move, so
-    # the baseline changes only when a write is added or removed.
+    # Keying by scope instead of line number keeps the baseline stable when code moves.
     models = _imported_aliases(tree, "FeatureFlag")
     serializers = _imported_aliases(tree, "FeatureFlagSerializer")
     found: list[str] = []
@@ -261,9 +250,7 @@ def write_baseline() -> None:
 
 
 def test_feature_flag_gated_fields_are_written_through_the_facade() -> None:
-    # The approval gate checks writes to a flag's `active` and `filters`. A write that skips
-    # FeatureFlagSerializer skips the gate, so every new write must call create_flag, update_flag
-    # or set_flag_active in products/feature_flags/backend/facade/api.py.
+    # A write that skips FeatureFlagSerializer also skips the approval gate.
     found = _scan()
     baseline = _read_baseline()
 
