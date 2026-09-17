@@ -204,6 +204,12 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             BIGQUERY_INVALID_IDENTIFIER_ERROR: BIGQUERY_INVALID_IDENTIFIER_ERROR,
             "Invalid dataset ID": BIGQUERY_INVALID_IDENTIFIER_ERROR,
             "Invalid project ID": BIGQUERY_INVALID_IDENTIFIER_ERROR,
+            # `bq.dataset(...)`-based REST calls (`list_tables`, used by temp-table cleanup and
+            # credential validation) reject a malformed project/dataset ID with this resource-name
+            # wording instead of "Invalid project ID"/"Invalid dataset ID", which only query jobs
+            # raise for the same misconfiguration. Matched on the stable wording, not the volatile
+            # offending id.
+            "Invalid resource name": BIGQUERY_INVALID_IDENTIFIER_ERROR,
             # Raised as a 400 BadRequest from job creation (POST .../jobs) when the location the
             # client runs in — the custom region from the source form, or the dataset's own location
             # auto-detected in `connect` — isn't a region BigQuery can run query jobs in, e.g.
