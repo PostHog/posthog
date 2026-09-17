@@ -43,12 +43,6 @@ function Notice({
   );
 }
 
-/**
- * Renders a tab's page without the router. Only the active tab owns the route
- * outlet, so every other tile mounts its page directly from the tab's cached
- * identity. Pages that read route params cannot mount this way yet; those
- * tiles offer to make their tab the active one instead.
- */
 export function TileTabContent({
   tab,
   onActivate,

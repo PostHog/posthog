@@ -13,7 +13,6 @@ import {
   untileTab,
 } from "./tileLayout";
 
-/** Deterministic ids so trees can be compared with `toEqual`. */
 function ids(): () => string {
   let n = 0;
   return () => `s${++n}`;
@@ -31,7 +30,6 @@ function split(
   return { type: "split", id, direction, children };
 }
 
-/** Tile `tabId` next to the previously tiled tab, starting from `a`. */
 function build(steps: [string, string, TileEdge][]): TileGroup[] {
   const makeId = ids();
   return steps.reduce<TileGroup[]>(

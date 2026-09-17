@@ -21,10 +21,6 @@ export function isTileDropData(data: unknown): data is TileDropData {
 
 const BAND = "30%";
 
-/**
- * Hit areas per edge. Left/right take the full height, top/bottom only the
- * middle, so the four bands never overlap and a corner reads as one edge.
- */
 const HIT_AREAS: Record<TileEdge, CSSProperties> = {
   left: { top: 0, bottom: 0, left: 0, width: BAND },
   right: { top: 0, bottom: 0, right: 0, width: BAND },
@@ -32,7 +28,6 @@ const HIT_AREAS: Record<TileEdge, CSSProperties> = {
   bottom: { bottom: 0, left: BAND, right: BAND, height: BAND },
 };
 
-/** The half of the tile the dropped tab would take, drawn while hovering. */
 const PREVIEWS: Record<TileEdge, string> = {
   left: "inset-y-0 left-0 w-1/2",
   right: "inset-y-0 right-0 w-1/2",
@@ -75,11 +70,6 @@ function EdgeZone({
   );
 }
 
-/**
- * Edge drop targets over one tile, mounted only while a tab pill is being
- * dragged. The strip's pills are axis-locked, so the default collision detector
- * finds these zones by pointer position, not by the pill's shape.
- */
 export function TileDropZones({
   tabId,
   disabled = false,

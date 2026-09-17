@@ -35,14 +35,10 @@ export interface TabView {
   isChannelHome?: boolean;
   /** Pinned tabs collapse to icon-only, sort first, and survive bulk closes. */
   pinned?: boolean;
-  /** Set when this pill stands for a split. `id` stays the tab whose strip
-   * slot the pill takes; `label` and `icon` follow the tile that was active
-   * last (`activeId`), which is where a click on the pill goes. */
   split?: SplitView;
 }
 
 export interface SplitView {
-  /** The tabs that share the pane, in tile order. */
   members: SplitMember[];
   activeId: string;
 }
@@ -73,7 +69,6 @@ export interface TabStripProps {
   onCloseOthers: (tabId: string) => void;
   onCloseToRight: (tabId: string) => void;
   onCloseToLeft: (tabId: string) => void;
-  /** Dissolve the split a pill stands for; every tab gets its own pill. */
   onSeparate: (tabId: string) => void;
 }
 
@@ -191,8 +186,6 @@ function SortableTabPill({
 >) {
   // Pinned and unpinned pills sort in separate groups so a drag can't preview
   // an insertion across the pin boundary (the drop handler rejects it too).
-  // A drag rides the x-axis until the pointer pulls the pill out of the row;
-  // then the pill follows the pointer, Chrome-style, to reach a tile edge.
   const { ref, isDragSource } = useSortable({
     id: tab.id,
     index,
@@ -209,9 +202,7 @@ function SortableTabPill({
     : `Close ${tab.label}`;
 
   // A pinned pill collapses to icon + padding (browser-style); its label lives
-  // in the tooltip. Unpinned pills keep the fading label and hover close. A
-  // split pill leads with the icons of its tiles, so the strip shows which
-  // pill is a split and how many pages it opens.
+  // in the tooltip. Unpinned pills keep the fading label and hover close.
   const pill = (
     <div
       ref={ref}
@@ -227,7 +218,6 @@ function SortableTabPill({
           : "no-drag group relative flex min-w-0 max-w-[200px] flex-1 basis-[200px] items-center overflow-hidden",
         detached && "rounded-md bg-background shadow-lg ring-1 ring-border",
       )}
-      data-detached={detached || undefined}
     >
       <Button
         variant="default"

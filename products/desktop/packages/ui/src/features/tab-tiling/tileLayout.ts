@@ -1,10 +1,3 @@
-/**
- * Pure model for tiled browser tabs: a group is a tree whose leaves are tab
- * ids and whose inner nodes split their children along one axis. Two tabs side
- * by side is `split(horizontal, [a, b])`; a 2x2 grid is a horizontal split of
- * two vertical splits. A transform never mutates its input, and returns the
- * input itself when nothing changed, so the store can compare by reference.
- */
 export type TileEdge = "left" | "right" | "top" | "bottom";
 export type TileDirection = "horizontal" | "vertical";
 
@@ -18,7 +11,6 @@ export interface TileSplit {
   id: string;
   direction: TileDirection;
   children: TileNode[];
-  /** Percent per child, in child order. Unset = equal shares. */
   sizes?: number[];
 }
 
@@ -29,7 +21,6 @@ export interface TileGroup {
   root: TileNode;
 }
 
-/** A group past this many tiles stops accepting drops; each tile gets too small. */
 export const MAX_TILES_PER_GROUP = 4;
 
 export function tabIdsIn(node: TileNode): string[] {
@@ -53,10 +44,6 @@ function directionForEdge(edge: TileEdge): TileDirection {
   return edge === "left" || edge === "right" ? "horizontal" : "vertical";
 }
 
-/**
- * Remove a leaf from a node. A split left with one child collapses into that
- * child; sizes are dropped because the remaining shares no longer add up.
- */
 function removeLeaf(node: TileNode, tabId: string): TileNode | null {
   if (node.type === "tab") return node.tabId === tabId ? null : node;
   const children = node.children
@@ -71,11 +58,6 @@ function removeLeaf(node: TileNode, tabId: string): TileNode | null {
   return { type: "split", id: node.id, direction: node.direction, children };
 }
 
-/**
- * Place `leaf` beside the target leaf. When the target's parent already splits
- * along the same axis the new leaf becomes a sibling, so three tabs in a row
- * stay one flat split instead of nesting.
- */
 function insertBeside(
   node: TileNode,
   targetTabId: string,
@@ -110,7 +92,6 @@ function insertBeside(
   };
 }
 
-/** Drop a group once it holds fewer than two tiles; a lone tile is just a tab. */
 export function untileTab(groups: TileGroup[], tabId: string): TileGroup[] {
   const group = groupForTab(groups, tabId);
   if (!group) return groups;
@@ -121,11 +102,6 @@ export function untileTab(groups: TileGroup[], tabId: string): TileGroup[] {
   });
 }
 
-/**
- * Tile `tabId` on the given edge of the tile that shows `targetTabId`. The
- * target joins a new group when it is not in one yet. Returns the input when
- * the drop is a no-op or the target group is full.
- */
 export function tileTab(
   groups: TileGroup[],
   tabId: string,
@@ -143,17 +119,12 @@ export function tileTab(
   if (tabIdsIn(targetRoot).length >= MAX_TILES_PER_GROUP) return groups;
   const leaf: TileLeaf = { type: "tab", tabId };
   const root = insertBeside(targetRoot, targetTabId, leaf, edge, makeId);
-  // A new group takes its first split's id, so one drop mints one id.
   const next: TileGroup = { id: existing?.id ?? nodeId(root), root };
   return existing
     ? without.map((g) => (g.id === next.id ? next : g))
     : [...without, next];
 }
 
-/**
- * The tile a split reopens on: the tile that was active last, else the first
- * tile. The strip's split pill names this tab and a click on it goes here.
- */
 export function lastActiveIn(
   group: TileGroup,
   activeByGroup: Readonly<Record<string, string>>,
@@ -163,10 +134,6 @@ export function lastActiveIn(
   return remembered && ids.includes(remembered) ? remembered : ids[0];
 }
 
-/**
- * Drop remembered tiles whose group or tab is gone. Returns the same object
- * when nothing changed so a store can skip the update.
- */
 export function pruneActiveByGroup(
   groups: readonly TileGroup[],
   activeByGroup: Readonly<Record<string, string>>,
@@ -199,10 +166,6 @@ function withSizes(node: TileNode, splitId: string, sizes: number[]): TileNode {
     : { ...node, children };
 }
 
-/**
- * Record a split's shares after a resize. Returns the same array when nothing
- * changed, because the panel group reports its layout on mount too.
- */
 export function setSplitSizes(
   groups: TileGroup[],
   splitId: string,
@@ -215,10 +178,6 @@ export function setSplitSizes(
   return next.every((g, i) => g === groups[i]) ? groups : next;
 }
 
-/**
- * Drop tiles whose tab was closed, and any group that collapses with them.
- * Returns the same array when nothing changed so a store can skip the update.
- */
 export function pruneGroups(
   groups: TileGroup[],
   liveTabIds: readonly string[],

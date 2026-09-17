@@ -230,7 +230,6 @@ function BrowserTabStripImpl() {
   // Transient reorder preview (set while a pill is dragged); overrides the
   // strip's order without touching the domain snapshot mirror.
   const previewOrder = useTabReorderStore((s) => s.previewOrder);
-  // Tabs that share the pane show as one pill; see collapseSplits.
   const tileGroups = useTileLayoutStore((s) => s.groups);
   const activeByGroup = useTileLayoutStore((s) => s.activeByGroup);
   const separateGroup = useTileLayoutStore((s) => s.separate);
@@ -679,8 +678,6 @@ function BrowserTabStripImpl() {
         .map((memberId) => byId.get(memberId))
         .filter((t) => t !== undefined)
         .map(viewFor);
-      // The pill names the tile the split reopens on: the active tab while
-      // the split is on screen, else the tile that was active last.
       const activeId =
         activeTabId && members.some((m) => m.id === activeTabId)
           ? activeTabId
@@ -839,7 +836,6 @@ function BrowserTabStripImpl() {
     [channelReportsEnabled, navigate, router.history],
   );
 
-  // A split pill selects the tile the split reopens on, not the pill's anchor.
   const handleSelect = useCallback(
     (tabId: string) => {
       if (!windowId) return;
@@ -869,8 +865,6 @@ function BrowserTabStripImpl() {
   // Close applies locally and navigates to the survivor in the same tick — the
   // /website index therefore always renders against the post-close snapshot
   // and can't redirect (re-opening a tab) mid-flight.
-  // Closing a split pill closes every tab of the split; the tiles' own X
-  // removes one tab, and Cmd/Ctrl+W closes the active tile only.
   const handleClose = (tabId: string) => {
     const group = groupForTab(tileGroups, tabId);
     if (group) {
@@ -933,7 +927,6 @@ function BrowserTabStripImpl() {
     );
   };
 
-  // A split pill counts as one slot but closes as all of its tabs.
   const tabIdsOf = (view: TabView): string[] =>
     view.split ? view.split.members.map((m) => m.id) : [view.id];
 

@@ -10,9 +10,6 @@ import { useHeaderStore } from "@posthog/ui/shell/headerStore";
  * The title row above the content pane. Subscribes to the header store itself:
  * the layout renders the screen that writes that store, so subscribing up there
  * makes every title write re-render the writer.
- *
- * Hidden during a split: the active tile's header (TabTile) carries the title
- * and the task actions then, and a second row would name only one tile.
  */
 export function SpaceHeaderRow({ task }: { task?: Task }) {
   const content = useHeaderStore((s) => s.content);

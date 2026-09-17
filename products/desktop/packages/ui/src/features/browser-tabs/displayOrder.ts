@@ -5,11 +5,6 @@ import {
   tabIdsIn,
 } from "@posthog/ui/features/tab-tiling/tileLayout";
 
-/**
- * One pill per split: a group keeps the slot of its first member in the
- * display order (its anchor) and its other members leave the strip. Returns
- * the collapsed order and, per anchor, the group it stands for.
- */
 export function collapseSplits(
   displayIds: string[],
   groups: readonly TileGroup[],

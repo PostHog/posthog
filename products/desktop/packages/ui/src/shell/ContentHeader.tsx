@@ -21,9 +21,6 @@ import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 //
 // A loop with no space pushes null, so the row collapses for it too: what a
 // view puts in the header store decides, this only says who may.
-//
-// During a split the row hides: one title above several tiles names the wrong
-// thing, so the active tile's header (TabTile) carries the content instead.
 const BREADCRUMB_VIEWS = new Set(["task-detail", "loops", "inbox", "report"]);
 
 export function ContentHeader() {

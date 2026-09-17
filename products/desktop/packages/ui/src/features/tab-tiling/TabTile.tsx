@@ -63,11 +63,6 @@ function TileName({
   );
 }
 
-/**
- * The active tile stands in for the pane-wide header, which hides during a
- * split: it shows what the page pushes to the header store and, on a task,
- * the task's action row. A page that pushes nothing shows the tab name.
- */
 function ActiveTileHeader({
   tab,
   onActivate,
@@ -123,21 +118,14 @@ function RemoveButton({
 
 interface TabTileProps {
   tab: BrowserTab;
-  /** The active tab's tile renders the route outlet passed as children. */
   isActive: boolean;
   isDragging: boolean;
-  /** True when the group cannot take another tile, so drops are refused. */
   groupFull: boolean;
   onActivate: (tab: BrowserTab) => void;
   onUntile: (tab: BrowserTab) => void;
   children?: ReactNode;
 }
 
-/**
- * One tile of a tiled group: a header naming the tab, then the page. The
- * header is the only place that switches the active tab, so a click inside a
- * background page never moves the route outlet out from under it.
- */
 export function TabTile({
   tab,
   isActive,

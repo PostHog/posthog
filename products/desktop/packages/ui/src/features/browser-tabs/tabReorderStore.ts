@@ -5,9 +5,6 @@ import { create } from "zustand";
  * *stored* order (pin-agnostic ids) so the strip can shift pills aside under
  * the cursor without touching the domain snapshot mirror — the drop is what
  * finally persists. Not persisted; cleared the moment the drag ends or cancels.
- * `draggingTabId` names the pill in flight; `detached` is true once it has
- * left the strip's row, which is when the content pane shows tile drop zones
- * for every tab but that one.
  */
 interface TabReorderStore {
   previewOrder: string[] | null;

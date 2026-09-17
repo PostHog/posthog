@@ -391,7 +391,7 @@ tabs unmarked and scattered in its bar, and that is its most-requested fix.
   none, and a full group disables its zones. A split pill drags as one unit
   and a pinned pill stays icon-only, so neither shows zones, and `dragend`
   refuses a tile drop for them.
-- A detached pill renders lifted (`data-detached`: shadow, ring, rounded) so it
+- A detached pill renders lifted (shadow, ring, rounded) so it
   reads as a card the user carries into the pane, the way Chrome and Arc show
   a tab in flight. The zones are hit by dnd-kit's default collision detection,
   which tests the **pointer** position first.

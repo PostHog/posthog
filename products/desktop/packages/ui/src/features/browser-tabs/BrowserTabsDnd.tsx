@@ -43,7 +43,6 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
   const client = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
   /** Stored order captured at dragstart — used to skip a no-op persist. */
   const initialOrder = useRef<string[] | null>(null);
-  /** Pointer position at dragstart; the detach threshold measures from it. */
   const dragStart = useRef<{ x: number; y: number } | null>(null);
 
   const onDragStart: DragDropEvents["dragstart"] = (event) => {
@@ -59,10 +58,7 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
     useTabReorderStore.getState().setDraggingTabId(data.tabId);
   };
 
-  // dragmove fires before dnd-kit commits the new position, so the pointer
-  // is read from `to`; the snapshot's `position` is a plain copy with no delta.
   const onDragMove: DragDropEvents["dragmove"] = (event) => {
-    if (event.operation.source?.data?.type !== "browser-tab") return;
     const start = dragStart.current;
     if (!start || !event.to) return;
     const store = useTabReorderStore.getState();
@@ -73,7 +69,6 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
   const onDragOver: DragDropEvents["dragover"] = (event) => {
     const src = event.operation.source?.data;
     const tgt = event.operation.target?.data;
-    // A detached pill is out of the row, so it takes no slot there.
     if (
       useTabReorderStore.getState().detached ||
       src?.type !== "browser-tab" ||
@@ -110,8 +105,6 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
       useTabReorderStore.getState().setDraggingTabId(null);
       useTabReorderStore.getState().setDetached(false);
       if (event.canceled || src?.type !== "browser-tab") return;
-      // A drop on a tile edge tiles the tab instead of reordering the strip;
-      // the preview order is discarded because the pill never left its slot.
       if (isTileDropData(tgt)) {
         useTileLayoutStore.getState().tileTab(src.tabId, tgt.tabId, tgt.edge);
         const group = groupForTab(

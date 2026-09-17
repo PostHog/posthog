@@ -13,16 +13,6 @@ import {
 
 const STORAGE_KEY = "browser-tabs-tiling-storage";
 
-/**
- * Which browser tabs share the content pane, and how it is divided between
- * them. View state persisted to localStorage, like pins: tab ids are durable
- * in SQLite, so a split survives relaunch, and the desktop app is single-window
- * so no cross-window sync is needed. Groups are pruned against the live
- * snapshot so a closed tab never leaves an empty tile behind.
- *
- * `activeByGroup` remembers the tile that was active last in each group, so
- * the strip's split pill can name it and reopen the split on it.
- */
 interface TileLayoutStore {
   groups: TileGroup[];
   activeByGroup: Record<string, string>;

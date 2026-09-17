@@ -27,14 +27,12 @@ import {
 } from "./tileLayout";
 import { useTileLayoutStore } from "./tileLayoutStore";
 
-/** Below this share a tile cannot show a usable page. */
 const MIN_TILE_PERCENT = 15;
 
 interface TileTreeProps {
   node: TileNode;
   tabsById: Map<string, BrowserTab>;
   activeTabId: string;
-  /** Tab whose pill is in flight; its own tile shows no drop zones. */
   draggingTabId: string | null;
   groupFull: boolean;
   onActivate: (tab: BrowserTab) => void;
@@ -72,9 +70,6 @@ function TileTree(props: TileTreeProps) {
       {node.children.map((child, index) => (
         <Fragment key={nodeId(child)}>
           {index > 0 && (
-            // The handle sits above the tiles: a positioned element in the
-            // next tile that touches the divider would otherwise take the
-            // pointer, and the drag selects text instead of resizing.
             <PanelResizeHandle
               className={cn(
                 "relative z-10 bg-border transition-colors hover:bg-accent-8 data-[resize-handle-active]:bg-accent-8",
@@ -96,13 +91,6 @@ function TileTree(props: TileTreeProps) {
   );
 }
 
-/**
- * Wraps the route outlet. When the active tab belongs to a tiled group, the
- * outlet renders inside that tab's tile and the other tiles render their tabs
- * without the router. Otherwise the outlet fills the pane as before, and only
- * gains edge drop zones while a detached pill is in flight, so the first split
- * can start.
- */
 export function TileLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const snapshot = useTabsSnapshot();
@@ -111,9 +99,6 @@ export function TileLayout({ children }: { children: ReactNode }) {
   const untile = useTileLayoutStore((s) => s.untileTab);
   const noteActive = useTileLayoutStore((s) => s.noteActive);
   const pinnedTabIds = usePinnedTabsStore((s) => s.pinnedTabIds);
-  // Zones appear once the pill has left the strip's row, so a plain reorder
-  // never flashes them. A split pill drags as one unit and a pinned pill
-  // stays icon-only, so neither can land on a tile edge: no zones for them.
   const rawDraggingTabId = useTabReorderStore((s) =>
     s.detached ? s.draggingTabId : null,
   );
@@ -147,7 +132,6 @@ export function TileLayout({ children }: { children: ReactNode }) {
         ? tabIdsIn(group.root).filter((id) => id !== tab.id)
         : [];
       untile(tab.id);
-      // Removing the active tile keeps the user on the split that stays.
       if (tab.id === activeTabId && remaining.length > 1) {
         const next = tabsById.get(remaining[0]);
         if (next?.href) pushTabHistoryEntry(router.history, next.href, next.id);
@@ -161,7 +145,6 @@ export function TileLayout({ children }: { children: ReactNode }) {
 
   const group = activeTabId ? groupForTab(groups, activeTabId) : null;
 
-  // The split pill reopens on the tile that was active last.
   useEffect(() => {
     if (group && activeTabId) noteActive(activeTabId);
   }, [group, activeTabId, noteActive]);

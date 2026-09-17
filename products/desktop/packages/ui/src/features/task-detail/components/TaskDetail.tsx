@@ -61,8 +61,6 @@ export function TaskDetail({
 
   const openFilePicker = useFileSearchStore((state) => state.openPicker);
 
-  // In a background tile, the active tab's page owns the shortcuts; two
-  // handlers would archive or open a picker for the wrong task.
   const inBackgroundTile = useInBackgroundTile();
 
   const { enableScope, disableScope } = useHotkeysContext();
