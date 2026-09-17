@@ -878,21 +878,8 @@ class TestHogFlowAPI(APIBaseTest):
         }
         return flow
 
-    @parameterized.expand(
-        [
-            ("no_unit", "5"),
-            ("unsupported_unit", "10x"),
-            ("iso_8601", "P30D"),
-            ("numeric", 1800),
-            ("unicode_digits", "\u0665d"),
-            # Falsy in Python, truthy in the worker, which would hand the parser a container.
-            ("empty_object", {}),
-            ("empty_array", []),
-        ]
-    )
-    def test_hog_flow_conditional_branch_validation_rejects_malformed_delay_duration(self, _name, delay_duration):
-        # A branch that matches nothing re-parks on delay_duration through the same parser as a delay
-        # step, so a value only that parser rejects has to be rejected at write time too
+    @parameterized.expand([("duration", "30s"), ("garbage", "10x"), ("numeric", 1800)])
+    def test_hog_flow_conditional_branch_validation_rejects_delay_duration(self, _name, delay_duration):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows",
             self._make_conditional_branch_flow({"delay_duration": delay_duration}),
@@ -902,24 +889,20 @@ class TestHogFlowAPI(APIBaseTest):
             "attr": "actions__1__config",
             "code": "invalid_input",
             "detail": (
-                "delay_duration must be a duration string such as '30s', '30m', '2h', '1.5d'. "
-                "ISO-8601 formats are not supported."
+                "delay_duration is not supported on conditional_branch. "
+                "To wait for a condition to become true, use a wait step."
             ),
             "type": "validation_error",
         }
 
     @parameterized.expand(
         [
-            ("seconds", {"delay_duration": "30s"}),
-            ("fractional_days", {"delay_duration": "1.5d"}),
-            # The re-park is optional, and every branch the editor writes omits it, so a branch with
-            # no delay must keep saving
             ("absent", {}),
             ("null", {"delay_duration": None}),
             ("empty_string", {"delay_duration": ""}),
         ]
     )
-    def test_hog_flow_conditional_branch_validation_accepts_canonical_delay_duration(self, _name, config):
+    def test_hog_flow_conditional_branch_saves_without_a_delay_duration(self, _name, config):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows", self._make_conditional_branch_flow(config)
         )

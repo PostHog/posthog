@@ -1782,14 +1782,18 @@ class HogFlowActionSerializer(serializers.Serializer):
             if strict and max_wait_duration not in (None, "") and not is_duration(max_wait_duration):
                 raise serializers.ValidationError({"config": duration_error("max_wait_duration")})
 
-        if is_conditional_branch:
-            # A branch that matches no condition re-parks on this optional delay, which
-            # conditional_branch.ts hands to the same parser as max_wait_duration above. Absent or
-            # empty means "do not re-park", so only a value that actually reaches the parser needs the
-            # format, and emptiness is the test for the same reason as above.
-            delay_duration = data.get("config", {}).get("delay_duration")
-            if strict and delay_duration not in (None, "") and not is_duration(delay_duration):
-                raise serializers.ValidationError({"config": duration_error("delay_duration")})
+        if is_conditional_branch and strict and data.get("config", {}).get("delay_duration") not in (None, ""):
+            # The worker borrows this name to carry a wait's ceiling once a wait is normalised into a
+            # branch, which is why it used to be accepted here. A branch never parks, so a value set
+            # on one does nothing.
+            raise serializers.ValidationError(
+                {
+                    "config": (
+                        "delay_duration is not supported on conditional_branch. "
+                        "To wait for a condition to become true, use a wait step."
+                    )
+                }
+            )
 
         if data.get("type") == "delay":
             self._validate_delay(data, strict)
