@@ -178,6 +178,17 @@ def mailgun_sender_is_active_here(sender_email: str) -> bool:
     return mailgun_events.mailgun_sender_is_active_here(sender_email)
 
 
+def mailgun_legacy_sender_lookup_status(delivery: WebhookDelivery) -> int:
+    """The answer the outbound route owes a region that still probes it with `sender_lookup=1`.
+
+    Delete this with the view branch that reaches it, once both regions run the ingress version.
+    """
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_legacy_sender_lookup_status(delivery)
+
+
 def sync_google_account_email(integration_id: int, team_id: int) -> None:
     from products.conversations.backend.services.gmail_sync import (  # noqa: PLC0415 -- avoids the Conversations and Customer Analytics facade cycle
         GmailSyncError,

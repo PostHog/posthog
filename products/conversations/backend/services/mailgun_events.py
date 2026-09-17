@@ -105,6 +105,9 @@ _SENDER_STATUS_TIMEOUT_SECONDS = 10
 SENDER_STATUS_ACTIVE = 204
 # It does not.
 SENDER_STATUS_ABSENT = 404
+# A region that does not serve the sender-status route yet answers Django's own 404 to it, so the
+# absent answer needs a body to be told apart from that miss.
+SENDER_STATUS_ABSENT_BODY = {"sender_active": False}
 
 
 class MailgunSenderProbeError(Exception):
@@ -825,9 +828,41 @@ def _sender_is_active_in_other_region(message: "MailgunMessage", sender_email: s
 
     if response.status_code == SENDER_STATUS_ACTIVE:
         return True
-    if response.status_code == SENDER_STATUS_ABSENT:
+    if response.status_code == SENDER_STATUS_ABSENT and _answered_that_the_sender_is_absent(response):
         return False
     raise MailgunSenderProbeError(f"sender status answered {response.status_code}")
+
+
+def _answered_that_the_sender_is_absent(response: requests.Response) -> bool:
+    """Whether a 404 came from the sender-status route, and not from a region that lacks it.
+
+    A region running the previous version has no such route, so Django answers its own 404 page.
+    The status alone cannot tell the two apart, and an unanswered question has to read as unknown
+    rather than as absent.
+    """
+    try:
+        return response.json() == SENDER_STATUS_ABSENT_BODY
+    except ValueError:
+        return False
+
+
+def mailgun_legacy_sender_lookup_status(delivery: WebhookDelivery) -> int:
+    """The status the outbound route answered a `sender_lookup=1` probe with, before ingress.
+
+    A region still running the previous version probes the outbound route rather than the
+    sender-status route, and that probe carries a whole delivery. Handling it as a delivery would
+    ingest the probe as real mail. Delete this, the view branch that reaches it and the query
+    parameter once both regions run the ingress version.
+    """
+    message = MailgunMessage(delivery)
+    if not _is_outbound_capture_recipient(message.recipient):
+        return 400
+    sender_email = message.outbound_sender_email()
+    if not sender_email or not message.outbound_sender_authenticated(sender_email):
+        return 200
+    if _channel_for_outbound_sender(sender_email) is None:
+        return SENDER_STATUS_ABSENT
+    return SENDER_STATUS_ACTIVE
 
 
 def _ownership_of_channel(channel: EmailChannel | None) -> DeliveryOwnership:

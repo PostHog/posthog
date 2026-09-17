@@ -1,7 +1,6 @@
 import json
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 from uuid import uuid4
 
 import time_machine
@@ -23,6 +22,8 @@ from products.conversations.backend.api.tests.mailgun_signing import (
     MailgunWebhookTestMixin,
     mailgun_delivery,
     post_mailgun,
+    sender_status_response,
+    signed_mailgun_fields,
 )
 from products.conversations.backend.models import (
     EMAIL_THREAD_COMMENT_SCOPE,
@@ -563,17 +564,20 @@ class TestCustomerEmailIngestion(MailgunWebhookTestMixin, BaseTest):
         [
             # Channel uniqueness is per region, so a sender active in both would attach one team's
             # private outbound mail to the other team's thread.
-            ("the sender is active in both regions", 204, 202, False),
-            ("only this region holds the sender", 404, 202, True),
+            ("the sender is active in both regions", 204, None, 202, False),
+            ("only this region holds the sender", 404, {"sender_active": False}, 202, True),
             # The question went unanswered, so Mailgun has to ask it again.
-            ("the other region answers nothing useful", 500, 502, False),
+            ("the other region answers nothing useful", 500, None, 502, False),
+            # A region that has not deployed this route yet answers Django's own 404 page. That is
+            # an unanswered question, not an answer of "no channel there".
+            ("the other region has no such route yet", 404, None, 502, False),
         ]
     )
     def test_the_primary_region_asks_the_other_region_before_it_ingests_a_capture(
-        self, _name: str, sender_status: int, expected_status: int, expected_ingestion: bool
+        self, _name: str, sender_status: int, sender_body: dict | None, expected_status: int, expected_ingestion: bool
     ) -> None:
         with patch(SENDER_STATUS_REQUEST) as mock_sender_status:
-            mock_sender_status.return_value = SimpleNamespace(status_code=sender_status)
+            mock_sender_status.return_value = sender_status_response(sender_status, sender_body)
             response = self._post_outbound_email(message_id=f"<ambiguous-{_name}@example.com>")
 
         assert response.status_code == expected_status
@@ -602,6 +606,39 @@ class TestCustomerEmailIngestion(MailgunWebhookTestMixin, BaseTest):
         assert unsigned.status_code == 403
         assert active.status_code == 204
         assert absent.status_code == 404
+
+    @parameterized.expand(
+        [
+            ("the sender is active here", "csm@example.com", 204),
+            ("no channel here sends as the sender", "nobody@example.com", 404),
+        ]
+    )
+    def test_the_outbound_route_answers_a_legacy_sender_probe_without_ingesting(
+        self, _name: str, sender_email: str, expected_status: int
+    ) -> None:
+        response = self.client.post(
+            "/api/conversations/v1/email/outbound?sender_lookup=1",
+            {
+                **signed_mailgun_fields(),
+                "recipient": "sent@mg.posthog.com",
+                "from": f"Customer success <{sender_email}>",
+                "sender": sender_email,
+                "To": "Prospect <prospect@future.example>",
+                "Message-Id": f"<legacy-probe-{_name}@example.com>",
+                "subject": "Account update",
+                "body-plain": "Here is your account update.",
+                "message-headers": json.dumps(
+                    [
+                        ["X-Mailgun-Spf", "Fail"],
+                        ["X-Mailgun-Dkim-Check-Result", "Pass"],
+                        ["DKIM-Signature", "v=1; a=rsa-sha256; d=example.com; s=mail"],
+                    ]
+                ),
+            },
+        )
+
+        assert response.status_code == expected_status
+        assert not EmailThread.objects.for_team(self.team.id).exists()
 
     @parameterized.expand(
         [

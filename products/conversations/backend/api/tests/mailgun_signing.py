@@ -21,12 +21,27 @@ from django.utils import timezone
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.ingress.mailgun.provider import FILES_KEY
 
-from products.conversations.backend.services.mailgun_events import SENDER_STATUS_ABSENT
+from products.conversations.backend.services.mailgun_events import SENDER_STATUS_ABSENT, SENDER_STATUS_ABSENT_BODY
 
 MAILGUN_SIGNING_KEY = "mailgun-signing-key"
 _SIGNING_KEY_SETTING = "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY"
 # The transport behind the cross-region sender lookup, which a test patches to choose the answer.
 SENDER_STATUS_REQUEST = "products.conversations.backend.services.mailgun_events.requests.post"
+
+
+def sender_status_response(status_code: int, payload: Any = SENDER_STATUS_ABSENT_BODY) -> SimpleNamespace:
+    """What `requests` hands back from the other region's sender-status route.
+
+    A payload of `None` is the region that has no such route yet, whose 404 carries an HTML error
+    page rather than an answer.
+    """
+
+    def json() -> Any:
+        if payload is None:
+            raise ValueError("no JSON body")
+        return payload
+
+    return SimpleNamespace(status_code=status_code, json=json)
 
 
 def _instance_setting(name: str) -> str:
@@ -87,7 +102,7 @@ class MailgunWebhookTestMixin:
 
         sender_status = patch(
             SENDER_STATUS_REQUEST,
-            return_value=SimpleNamespace(status_code=SENDER_STATUS_ABSENT),
+            return_value=sender_status_response(SENDER_STATUS_ABSENT),
         )
         sender_status.start()
         self.addCleanup(sender_status.stop)  # type: ignore[attr-defined]
