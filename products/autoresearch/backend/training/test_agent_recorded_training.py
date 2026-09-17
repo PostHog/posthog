@@ -307,6 +307,21 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
         run = AutoresearchTrainingRun.objects.get(pk=run_id, team_id=self.team.pk)
         assert run.summary["recommended_next"] == "try session recency"
 
+    def test_complete_that_loses_the_race_to_failure_is_refused(self):
+        run_id = self._open_run()
+        self._record(run_id, number=0)
+
+        def fail_first(training_run, **kwargs):
+            AutoresearchTrainingRun.objects.filter(pk=training_run.pk).update(
+                status=AutoresearchTrainingRun.Status.FAILED
+            )
+            return {"promoted": False}
+
+        with patch("products.autoresearch.backend.facade.api.complete_training_run", side_effect=fail_first):
+            resp = self.client.post(f"{self.runs_url}/{run_id}/complete/", {}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "failed" in str(resp.json())
+
     def test_complete_with_no_iterations_is_refused(self):
         # Completing an empty run used to mark it COMPLETED with no champion, stranding a
         # BOOTSTRAPPING pipeline with nothing to score and no safety-net retry.

@@ -214,6 +214,17 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         assert run.status == AutoresearchTrainingRun.Status.RUNNING
         assert not AutoresearchModel.objects.filter(pipeline=self.pipeline).exists()
 
+    def test_overridden_nomination_drops_its_explanation(self):
+        run = self._run()
+        self._iteration(run, number=0, holdout=0.9)
+        weaker = self._iteration(run, number=1, holdout=0.7)
+
+        complete_training_run(run, best_iteration_id=weaker.id, model_explanation={"top_features": ["c"]})
+
+        champion = self._champion()
+        assert champion.source_training_run_id == run.id
+        assert champion.model_explanation == {}
+
     def test_null_model_params_promote_with_constructor_defaults(self):
         run = self._run()
         self._iteration(run, number=0, holdout=0.8, model_params=None)

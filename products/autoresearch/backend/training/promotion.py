@@ -395,6 +395,9 @@ def _finalize_under_lock(
         raise PromotionError("Agent recorded no iterations, so there is nothing to complete.")
 
     best = _select_best_iteration(training_run, best_iteration_id)
+    if best_iteration_id is not None and best.id != best_iteration_id:
+        # The explanation describes the nominated recipe, not the one the ranking selected.
+        model_explanation = {}
 
     # If the agent uploaded a runnable bundle, the champion's artifact is that bundle
     # (inference runs train.py/predict.py in a sandbox).

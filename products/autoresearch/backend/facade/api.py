@@ -668,6 +668,10 @@ def complete_run(
     except PromotionError as exc:
         raise AutoresearchConflict(str(exc)) from exc
     training_run.refresh_from_db()
+    if training_run.status != AutoresearchTrainingRun.Status.COMPLETED:
+        # The TaskRun failure handler won the race for the row lock, so promotion answered with
+        # its no-op and the run is failed, not completed.
+        raise AutoresearchConflict("Training run failed before it could be completed.")
     return _training_run_to_contract(training_run)
 
 
