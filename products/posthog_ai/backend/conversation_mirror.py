@@ -363,6 +363,9 @@ async def amirror_conversation(conversation_id: UUID | str, team_id: int, user_i
     conversation = await Conversation.objects.aget(id=conversation_id, team_id=team_id)
     if conversation.deleted:
         return MirrorResult(skipped_reason="deleted", task_id=None, run_id=None, appended_frames=0)
+    if conversation.is_internal:
+        # A support agent made this chat while impersonating the customer, who must never see it; a task would be theirs.
+        return MirrorResult(skipped_reason="internal", task_id=None, run_id=None, appended_frames=0)
     if conversation.type != Conversation.Type.ASSISTANT:
         return MirrorResult(skipped_reason="type", task_id=None, run_id=None, appended_frames=0)
     if conversation.agent_runtime != Conversation.AgentRuntime.LANGGRAPH:

@@ -491,6 +491,7 @@ class TestMirrorConversation(APIBaseTest):
             ("sandbox_runtime", {"agent_runtime": Conversation.AgentRuntime.SANDBOX}, "runtime"),
             ("tool_call_type", {"type": Conversation.Type.TOOL_CALL}, "type"),
             ("deleted", {"deleted": True}, "deleted"),
+            ("support_impersonation", {"is_internal": True}, "internal"),
         ]
     )
     def test_skips_conversations_that_must_not_be_mirrored(
