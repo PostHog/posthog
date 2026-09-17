@@ -1,0 +1,94 @@
+---
+title: Logs configuration
+sidebar: Docs
+showTitle: true
+---
+
+Each project has a logs configuration that tells PostHog how to read your log records. It holds the attribute keys that link logs to people and sessions, and the JSON keys that log patterns are derived from.
+
+Read or change it through the `logs_config` endpoint. You need to be a project admin to change it.
+
+```text
+GET   /api/projects/:project_id/logs_config/
+PATCH /api/projects/:project_id/logs_config/
+```
+
+A `PATCH` is partial. Send only the fields you want to change and the rest keep their values.
+
+## Fields
+
+All three list fields share the same rules:
+
+- Keys are matched literally at the top level. A dot is part of the key name, not a path into nested objects. `log.message` names one key called `log.message`.
+- Order matters. PostHog checks keys in list order, and the first key that holds a value wins.
+- Whitespace around a key is trimmed. Blank keys and duplicate keys are rejected.
+- A list holds at most 10 keys, each up to 200 characters.
+
+### `logs_distinct_id_attribute_keys`
+
+Log attribute keys whose values hold a PostHog distinct ID. Default: `["posthogDistinctId"]`.
+
+Used to link a log to a person, so the log appears on that person's Logs tab and the `query-logs` MCP tool can filter logs to one user. Add keys only if your pipeline emits the person identifier under a different attribute. See [linking logs to session replay](/docs/logs/link-session-replay).
+
+The list can't be empty.
+
+### `logs_session_id_attribute_keys`
+
+Log attribute keys whose values hold a PostHog session ID. Default: `["sessionId"]`.
+
+Used to link a log to a session replay or an error tracking session. Add keys only if your pipeline emits the session ID under a different attribute.
+
+The list can't be empty.
+
+### `logs_pattern_message_keys`
+
+JSON keys whose value is the message text that log patterns are derived from. Default: `["message", "msg", "event"]`.
+
+In **Settings > Project > Logs > Pattern message extraction**, add or remove keys, drag them into priority order, and select **Save**. Project admins can edit this setting. Clear all keys and save to turn message extraction off.
+
+When a log body is a JSON object, PostHog looks up these keys in order and uses the first one whose value is a non-empty string as the text to build the pattern from. A key whose value is a number, an object, or an empty string is skipped, and the search continues down the list.
+
+If no key matches, the pattern is built from the object's set of top-level key names instead, so records with the same shape group together.
+
+An empty list turns message extraction off. Every JSON body then groups by its key set.
+
+This setting changes only how patterns are derived. The stored log body is never changed.
+
+## Propagation
+
+A change reaches log ingestion within a few minutes. Records ingested in that window keep the patterns derived from the previous configuration.
+
+## JSON attribute parsing configuration
+
+In **Settings > Project > Logs > JSON parse log attribute**, enter one attribute key and select **Save**. Clear the key and save to turn it off. This setting is independent of **JSON parse logs**, which parses the log body. The control uses the same project-admin and Logs Editor restrictions as the other Logs settings.
+
+The `logs-json-attribute-parsing` feature flag controls the setting's visibility. Saving or clearing the key uses the existing project API permissions and does not require that flag.
+
+The project API stores the key in `logs_settings.json_parse_logs_attribute_key`, separately from the `logs_config` endpoint above:
+
+- The value must be a string. Leading and trailing whitespace is trimmed, and the trimmed key can be at most 200 characters.
+- The key is matched literally, including dots.
+- The default is off. An empty string disables parsing.
+- The API replaces the entire `logs_settings` object. Include the other current settings when updating it, as the UI does. Sending `logs_settings: null` clears all Logs settings.
+
+Saving a key records your choice. No fields are extracted from the attribute yet.
+
+### Measure-only ingestion probe
+
+Operators can set `LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS` to a comma-separated list of project IDs to enable a JSON-prefix probe. The default is empty (disabled); `*` enables all projects with a nonempty `json_parse_logs_attribute_key`. This probe runs only on logs, never traces.
+
+The Prometheus counter `logs_ingestion_json_attribute_sniff_total` has `team_id` and `outcome` labels. Each inspected record increments one outcome:
+
+- `missing_key`: the configured key is absent from the log attributes.
+- `looks_like_json`: the first 64 characters start with `{` or `[`, allowing leading whitespace and a JSON string's opening quote and escaped whitespace.
+- `other`: the key exists but does not match that prefix.
+
+This is a heuristic, not JSON validation. The probe does not parse JSON, flatten values, extract fields, or change records. Attribute names and values are not included in the metric. Records are inspected after existing PII scrubbing and body enrichment, before drop rules.
+
+Enabling the probe can add Avro decoding for traffic that would otherwise pass through untouched. Probe-only batches retain their original bytes without re-encoding. Use a small project allowlist to limit that cost and metric cardinality.
+
+To break down the observed record rate by project and outcome in Grafana:
+
+```promql
+sum by (team_id, outcome) (rate(logs_ingestion_json_attribute_sniff_total[5m]))
+```

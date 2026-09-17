@@ -1,13 +1,28 @@
+from datetime import datetime, timedelta
+
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.management import call_command
+from django.db import transaction
+from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade import api as facade
+from products.customer_analytics.backend.facade.enums import AccountRelationshipSource
 from products.customer_analytics.backend.logic import relationships
-from products.customer_analytics.backend.models import AccountRelationship, AccountRelationshipDefinition
-from products.customer_analytics.backend.test.factories import create_account
+from products.customer_analytics.backend.models import (
+    Account,
+    AccountRelationship,
+    AccountRelationshipControl,
+    AccountRelationshipDefinition,
+)
+from products.customer_analytics.backend.test.factories import create_account, enroll_account
 
 
 class TestRelationshipLogic(BaseTest):
@@ -26,26 +41,25 @@ class TestRelationshipLogic(BaseTest):
             account=self.account, ended_at__isnull=True, **filters
         )
 
+    def _assign(self, definition: AccountRelationshipDefinition, user: User | None = None) -> AccountRelationship:
+        return relationships.assign(
+            team_id=self.team.id,
+            account=self.account,
+            definition=definition,
+            user=user or self.user,
+            actor=relationships.Actor.human(self.user),
+        )
+
     def test_assign_creates_active_row(self):
         definition = self._create_definition()
-        rel = relationships.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
-        )
+        rel = self._assign(definition)
         assert rel.ended_at is None
         assert rel.user == self.user
 
     def test_reassign_single_holder_closes_previous_and_keeps_history(self):
         definition = self._create_definition()
-        first = relationships.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
-        )
-        second = relationships.assign(
-            team_id=self.team.id,
-            account=self.account,
-            definition=definition,
-            user=self.other_user,
-            created_by=self.user,
-        )
+        first = self._assign(definition)
+        second = self._assign(definition, self.other_user)
         first.refresh_from_db()
         assert first.ended_at is not None
         assert second.ended_at is None
@@ -53,35 +67,24 @@ class TestRelationshipLogic(BaseTest):
 
     def test_assign_same_user_is_noop(self):
         definition = self._create_definition()
-        first = relationships.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
-        )
-        second = relationships.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
-        )
+        first = self._assign(definition)
+        second = self._assign(definition)
         assert first.id == second.id
 
     def test_multi_holder_allows_concurrent_assignees(self):
         definition = self._create_definition(name="FDE", is_single_holder=False)
-        relationships.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
-        )
-        relationships.assign(
-            team_id=self.team.id,
-            account=self.account,
-            definition=definition,
-            user=self.other_user,
-            created_by=self.user,
-        )
+        self._assign(definition)
+        self._assign(definition, self.other_user)
         assert self._get_active_rows_for_account(definition=definition).count() == 2
 
     def test_end_relationship_sets_ended_at(self):
         definition = self._create_definition()
-        rel = relationships.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
-        )
+        rel = self._assign(definition)
         ended = relationships.end_relationship(
-            team_id=self.team.id, account_id=self.account.id, relationship_id=str(rel.id)
+            team_id=self.team.id,
+            account_id=self.account.id,
+            relationship_id=str(rel.id),
+            actor=relationships.Actor.human(),
         )
         assert ended.ended_at is not None
 
@@ -131,7 +134,11 @@ class TestBackfillAccountRelationshipsCommand(BaseTest):
             team_id=self.team.id, name="CSM"
         )
         relationships.assign(
-            team_id=self.team.id, account=self.account, definition=definition, user=other_user, created_by=None
+            team_id=self.team.id,
+            account=self.account,
+            definition=definition,
+            user=other_user,
+            actor=relationships.Actor.human(),
         )
         call_command("backfill_account_relationships")
         rows = self._active_rows()
@@ -139,6 +146,17 @@ class TestBackfillAccountRelationshipsCommand(BaseTest):
         row = rows.first()
         assert row is not None
         assert row.user_id == other_user.id
+        assert "csm" not in self._refreshed_properties()
+
+    def test_backfill_leaves_a_managed_relationship_alone(self):
+        definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="CSM", is_controlled=True
+        )
+        enroll_account(self.account, definition)
+
+        call_command("backfill_account_relationships")
+
+        assert self._active_rows().count() == 0
         assert "csm" not in self._refreshed_properties()
 
     def test_backfill_dry_run_changes_nothing(self):
@@ -211,7 +229,7 @@ class TestRelationshipFacade(BaseTest):
             account=self.account,
             definition=model_definition,
             user=self.user,
-            created_by=self.user,
+            actor=relationships.Actor.human(self.user),
         )
         assert facade.delete_account_relationship_definition(team_id=self.team.id, definition_id=definition.id)
         assert AccountRelationship.objects.for_team(self.team.id).count() == 0
@@ -227,9 +245,14 @@ class TestRelationshipFacade(BaseTest):
             account=self.account,
             definition=model_definition,
             user=self.user,
-            created_by=self.user,
+            actor=relationships.Actor.human(self.user),
         )
-        relationships.end_relationship(team_id=self.team.id, account_id=self.account.id, relationship_id=str(rel.id))
+        relationships.end_relationship(
+            team_id=self.team.id,
+            account_id=self.account.id,
+            relationship_id=str(rel.id),
+            actor=relationships.Actor.human(),
+        )
         assert facade.list_account_relationships(team_id=self.team.id, account_id=self.account.id) == []
         history = facade.list_account_relationships(
             team_id=self.team.id, account_id=self.account.id, include_history=True
@@ -345,3 +368,245 @@ class TestExternalRelationshipAssignments(BaseTest):
         row = rows.first()
         assert row is not None
         assert row.user_id == self.user.id
+
+
+class TestControlledRelationshipPolicy(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = create_account(team_id=self.team.pk, name="Acme")
+        self.other_user = self._create_user("other@posthog.com")
+        self.ae_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="Account executive", is_controlled=True
+        )
+        self.human = relationships.Actor.human(self.user)
+
+    def _manage_ae(self) -> datetime:
+        controlled_at = timezone.now() - timedelta(days=1)
+        enroll_account(self.account, self.ae_definition, controlled_at=controlled_at)
+        return controlled_at
+
+    def _fence(self, definition: AccountRelationshipDefinition | None = None) -> datetime | None:
+        return (
+            AccountRelationshipControl.objects.for_team(self.team.id)
+            .filter(account=self.account, definition=definition or self.ae_definition)
+            .values_list("controlled_at", flat=True)
+            .first()
+        )
+
+    def _assign(self, user: User, actor: relationships.Actor) -> AccountRelationship:
+        return relationships.assign(
+            team_id=self.team.id, account=self.account, definition=self.ae_definition, user=user, actor=actor
+        )
+
+    def _activity_rows(self) -> list[ActivityLog]:
+        return list(ActivityLog.objects.filter(team_id=self.team.id, scope="Account").order_by("created_at"))
+
+    @parameterized.expand(
+        [
+            (source, operation)
+            for source in AccountRelationshipSource
+            if source != AccountRelationshipSource.HUMAN
+            for operation in ("assign", "end_active")
+        ]
+    )
+    def test_autonomous_writer_cannot_change_a_managed_relationship(self, source, operation):
+        self._assign(self.other_user, self.human)
+        fence = self._manage_ae()
+        actor = relationships.Actor(source=source)
+
+        with self.assertRaises(relationships.ManagedRolePolicyError):
+            if operation == "assign":
+                self._assign(self.user, actor)
+            else:
+                relationships.end_active(
+                    team_id=self.team.id, account=self.account, definition=self.ae_definition, actor=actor
+                )
+
+        holder = AccountRelationship.objects.for_team(self.team.id).get(account=self.account, ended_at__isnull=True)
+        assert holder.user_id == self.other_user.id
+        assert self._fence() == fence
+
+    def test_autonomous_writer_may_fill_an_unmanaged_controlled_relationship_without_taking_authority(self):
+        rel = self._assign(
+            self.user, relationships.Actor(source=AccountRelationshipSource.WORKFLOW, workflow_id="wf-1")
+        )
+
+        assert rel.source == AccountRelationshipSource.WORKFLOW
+        assert self._fence() is None
+        (row,) = self._activity_rows()
+        assert row.activity == "relationship_assigned"
+        assert row.is_system is True
+        assert row.detail is not None
+        assert row.detail["context"]["source"] == "workflow"
+        assert row.detail["context"]["workflow_id"] == "wf-1"
+        assert row.detail["context"]["definition_id"] == str(self.ae_definition.id)
+        assert row.detail["context"]["controlled_at"] is None
+
+    @parameterized.expand(["assign", "end_active", "confirm_empty", "end_relationship"])
+    def test_human_decision_on_a_managed_relationship_advances_the_fence(self, operation):
+        if operation != "confirm_empty":
+            rel = self._assign(self.other_user, self.human)
+        fence = self._manage_ae()
+
+        if operation == "assign":
+            self._assign(self.user, self.human)
+        elif operation == "end_active" or operation == "confirm_empty":
+            relationships.end_active(
+                team_id=self.team.id, account=self.account, definition=self.ae_definition, actor=self.human
+            )
+        else:
+            relationships.end_relationship(
+                team_id=self.team.id, account_id=self.account.id, relationship_id=str(rel.id), actor=self.human
+            )
+
+        advanced = self._fence()
+        assert advanced is not None and advanced > fence
+        last = self._activity_rows()[-1]
+        assert last.detail is not None
+        assert last.detail["context"]["controlled_at"] == advanced.isoformat()
+
+    def test_enroll_refuses_a_definition_that_is_not_controlled(self):
+        plain = AccountRelationshipDefinition.objects.for_team(self.team.id).create(team_id=self.team.id, name="Buddy")
+
+        with self.assertRaises(relationships.DefinitionNotControlledError):
+            relationships.enroll(team_id=self.team.id, account=self.account, definition=plain, actor=self.human)
+
+        assert self._fence(plain) is None
+
+    def test_enrolling_twice_keeps_the_first_fence(self):
+        first = relationships.enroll(
+            team_id=self.team.id, account=self.account, definition=self.ae_definition, actor=self.human
+        )
+
+        again = relationships.enroll(
+            team_id=self.team.id, account=self.account, definition=self.ae_definition, actor=self.human
+        )
+
+        assert (again.id, again.controlled_at) == (first.id, first.controlled_at)
+        assert ActivityLog.objects.filter(team_id=self.team.id, activity="role_enrolled").count() == 1
+
+    def test_a_decision_on_one_controlled_relationship_leaves_another_fence_alone(self):
+        csm_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="CSM", is_controlled=True
+        )
+        ae_fence = self._manage_ae()
+        csm_fence = timezone.now() - timedelta(days=2)
+        enroll_account(self.account, csm_definition, controlled_at=csm_fence)
+
+        self._assign(self.user, self.human)
+
+        advanced = self._fence()
+        assert advanced is not None and advanced > ae_fence
+        assert self._fence(csm_definition) == csm_fence
+
+    def test_confirming_an_empty_managed_relationship_is_recorded_as_a_decision(self):
+        self._manage_ae()
+
+        ended = relationships.end_active(
+            team_id=self.team.id, account=self.account, definition=self.ae_definition, actor=self.human
+        )
+
+        assert ended == 0
+        (row,) = self._activity_rows()
+        assert row.activity == "role_confirmed_empty"
+        assert row.user_id == self.user.id
+        assert row.detail is not None
+        assert row.detail["changes"] == [
+            {"type": "Account", "action": "changed", "field": "Account executive", "before": None, "after": None}
+        ]
+
+    def test_reassigning_the_current_holder_is_not_a_new_decision(self):
+        self._assign(self.user, self.human)
+        fence = self._manage_ae()
+
+        self._assign(self.user, self.human)
+
+        assert self._fence() == fence
+        assert len(self._activity_rows()) == 1
+
+    def test_activity_write_failure_rolls_back_the_mutation(self):
+        fence = self._manage_ae()
+
+        with patch.object(ActivityLog.objects, "bulk_create", side_effect=RuntimeError("audit store down")):
+            with self.assertRaises(RuntimeError):
+                self._assign(self.user, self.human)
+
+        assert not AccountRelationship.objects.for_team(self.team.id).filter(account=self.account).exists()
+        assert self._fence() == fence
+
+    def test_rollback_after_the_audit_row_is_written_leaves_no_row_and_publishes_nothing(self):
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            with self.assertRaises(RuntimeError):
+                with transaction.atomic():
+                    self._assign(self.user, self.human)
+                    raise RuntimeError("a later step in the same transaction failed")
+
+        assert not ActivityLog.objects.filter(team_id=self.team.id, scope="Account").exists()
+        assert callbacks == []
+
+    def test_controlled_history_cannot_be_hard_deleted(self):
+        rel = self._assign(self.user, self.human)
+
+        with self.assertRaises(relationships.ProtectedRelationshipHistoryError):
+            relationships.delete_relationship(
+                team_id=self.team.id, account_id=self.account.id, relationship_id=str(rel.id), actor=self.human
+            )
+
+        assert AccountRelationship.objects.for_team(self.team.id).filter(id=rel.id).exists()
+
+    def test_controlled_definition_cannot_be_deleted_or_loosened_through_the_facade(self):
+        with self.assertRaises(facade.AccountRelationshipDefinitionControlledError):
+            facade.delete_account_relationship_definition(team_id=self.team.id, definition_id=self.ae_definition.id)
+        with self.assertRaises(facade.AccountRelationshipDefinitionControlledError):
+            facade.update_account_relationship_definition(
+                team_id=self.team.id, definition_id=self.ae_definition.id, fields={"is_single_holder": False}
+            )
+        with self.assertRaises(ValueError):
+            facade.update_account_relationship_definition(
+                team_id=self.team.id, definition_id=self.ae_definition.id, fields={"is_controlled": False}
+            )
+        self.ae_definition.refresh_from_db()
+        assert (self.ae_definition.is_controlled, self.ae_definition.is_single_holder) == (True, True)
+
+    def test_assign_on_a_managed_relationship_hands_off_even_with_a_stale_definition_copy(self):
+        self._assign(self.other_user, self.human)
+        self._manage_ae()
+        stale = AccountRelationshipDefinition.objects.for_team(self.team.id).get(id=self.ae_definition.id)
+        stale.is_single_holder = False
+        stale.is_controlled = False
+
+        relationships.assign(
+            team_id=self.team.id, account=self.account, definition=stale, user=self.user, actor=self.human
+        )
+
+        holders = AccountRelationship.objects.for_team(self.team.id).filter(account=self.account, ended_at__isnull=True)
+        assert [holder.user_id for holder in holders] == [self.user.id]
+
+    def test_team_deletion_cascades_through_controls(self):
+        self._manage_ae()
+
+        self.team.delete()
+
+        assert not AccountRelationshipControl.objects.unscoped().filter(definition_id=self.ae_definition.id).exists()
+        assert not AccountRelationshipDefinition.objects.unscoped().filter(id=self.ae_definition.id).exists()
+
+    @parameterized.expand(["enrolled", "history_under_a_controlled_definition"])
+    def test_account_with_controlled_authority_or_history_cannot_be_deleted(self, case):
+        if case == "enrolled":
+            self._manage_ae()
+        else:
+            self._assign(self.other_user, self.human)
+
+        with self.assertRaises(facade.AccountOwnershipManagedError):
+            facade.delete_account_for_view(
+                team_id=self.team.id,
+                account_id=str(self.account.id),
+                user_access_control=UserAccessControl(user=self.user, team=self.team),
+                required_level=None,
+                organization_id=self.organization.id,
+                user=self.user,
+                was_impersonated=False,
+            )
+
+        assert Account.objects.for_team(self.team.id).filter(id=self.account.id).exists()
+        assert not any(row.activity == "deleted" for row in self._activity_rows())

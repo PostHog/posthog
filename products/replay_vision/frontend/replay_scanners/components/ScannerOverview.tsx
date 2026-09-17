@@ -61,25 +61,15 @@ function PanelEmpty({ loading, message }: { loading: boolean; message: string })
 // Cap the rows so a panel can't outgrow the one beside it.
 const RANKED_ROWS = 5
 
-/**
- * Two row shapes, because the terms differ in kind:
- * - `tag` renders short vocabulary terms as pills, which is what marks them as tags rather than prose.
- * - `phrase` renders model-written sentences as plain text with the bar behind the row, so they wrap
- *   instead of being truncated into a pill.
- */
-type RankedTermVariant = 'tag' | 'phrase'
-
 function RankedTermList({
     ranked,
     loading,
     emptyMessage,
-    variant,
     renderAction,
 }: {
     ranked: [string, number][]
     loading: boolean
     emptyMessage: string
-    variant: RankedTermVariant
     renderAction?: (term: string) => JSX.Element
 }): JSX.Element {
     if (ranked.length === 0) {
@@ -91,51 +81,25 @@ function RankedTermList({
     const showBars = maxCount > 1
     const percent = (count: number): number => Math.round((count / maxCount) * 100)
 
-    if (variant === 'tag') {
-        return (
-            <div className="space-y-1.5">
-                {top.map(([term, count]) => (
-                    <div key={term} className="flex items-center gap-2">
-                        {/* Fixed-width label column so every bar shares the same left edge and their lengths stay comparable. */}
-                        <div className="w-24 sm:w-40 shrink-0 flex">
-                            <LemonTag type="option" title={term} className="max-w-full truncate">
-                                {term}
-                            </LemonTag>
-                        </div>
-                        {showBars ? (
-                            <LemonProgress percent={percent(count)} className="flex-1" />
-                        ) : (
-                            <div className="flex-1" />
-                        )}
-                        <span className="text-xs text-muted tabular-nums text-right whitespace-nowrap shrink-0 w-12">
-                            {count.toLocaleString()}
-                        </span>
-                        {renderAction?.(term)}
-                    </div>
-                ))}
-            </div>
-        )
-    }
-
     return (
-        <div className="space-y-1">
+        <div className="space-y-1.5">
             {top.map(([term, count]) => (
-                <div key={term} className="relative rounded overflow-hidden">
-                    {showBars && (
-                        <div
-                            className="absolute inset-y-0 left-0 bg-accent-highlight-secondary"
-                            // Width is data-derived, so it can't live in a class.
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ width: `${percent(count)}%` }}
-                        />
-                    )}
-                    <div className="relative flex items-baseline justify-between gap-2 px-2 py-1">
-                        <span className="text-xs">{term}</span>
-                        <div className="flex items-center gap-1 shrink-0">
-                            <span className="text-xs font-medium tabular-nums">{count.toLocaleString()}</span>
-                            {renderAction?.(term)}
-                        </div>
+                <div key={term} className="flex items-center gap-2">
+                    {/* Fixed-width label column so every bar shares the same left edge and their lengths stay comparable. */}
+                    <div className="w-24 sm:w-40 shrink-0 flex">
+                        <LemonTag type="option" title={term} className="max-w-full truncate">
+                            {term}
+                        </LemonTag>
                     </div>
+                    {showBars ? (
+                        <LemonProgress percent={percent(count)} className="flex-1" />
+                    ) : (
+                        <div className="flex-1" />
+                    )}
+                    <span className="text-xs text-muted tabular-nums text-right whitespace-nowrap shrink-0 w-12">
+                        {count.toLocaleString()}
+                    </span>
+                    {renderAction?.(term)}
                 </div>
             ))}
         </div>
@@ -213,7 +177,7 @@ function SelfDrivingOverview({ scannerId }: { scannerId: string }): JSX.Element 
     // Unresolved data renders as loading, never as the off-state nudge or the empty state.
     if (!scanner || (selfDrivingStatsLoading && !selfDrivingStats)) {
         return (
-            <OverviewPanel title="Self-driving">
+            <OverviewPanel title="Self-driving" fill>
                 <PanelEmpty loading message="" />
             </OverviewPanel>
         )
@@ -222,7 +186,7 @@ function SelfDrivingOverview({ scannerId }: { scannerId: string }): JSX.Element 
     // nudge only replaces the funnel when there is nothing to show.
     if (!scanner.emits_signals && (!selfDrivingStats || selfDrivingStats.signals_emitted === 0)) {
         return (
-            <OverviewPanel title="Self-driving" disabled>
+            <OverviewPanel title="Self-driving" disabled fill>
                 <div className="text-muted text-sm">
                     This scanner doesn't emit signals. Turn on self-driving in the{' '}
                     <Link to={urls.replayVisionScannerConfigure(scannerId)}>scanner's configuration</Link> to feed its
@@ -233,7 +197,7 @@ function SelfDrivingOverview({ scannerId }: { scannerId: string }): JSX.Element 
     }
     if (!selfDrivingStats || selfDrivingStats.signals_emitted === 0) {
         return (
-            <OverviewPanel title="Self-driving">
+            <OverviewPanel title="Self-driving" fill>
                 <PanelEmpty
                     loading={selfDrivingStatsLoading}
                     message={
@@ -246,9 +210,12 @@ function SelfDrivingOverview({ scannerId }: { scannerId: string }): JSX.Element 
         )
     }
     return (
-        <OverviewPanel title="Self-driving" subtitle="all time">
-            {/* Capped so the four stages read as one row on wide screens instead of drifting apart. */}
-            <div className="grid grid-cols-4 gap-4 max-w-3xl" data-attr="vision-self-driving-funnel">
+        <OverviewPanel title="Self-driving" subtitle="all time" fill>
+            {/* Two up in a narrow panel, four across once there is room. */}
+            <div
+                className="@container/funnel grid grid-cols-2 @sm/funnel:grid-cols-4 gap-4"
+                data-attr="vision-self-driving-funnel"
+            >
                 <SelfDrivingStage
                     count={selfDrivingStats.signals_emitted}
                     label={pluralize(selfDrivingStats.signals_emitted, 'signal emitted', 'signals emitted', false)}
@@ -367,13 +334,12 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
     )
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-4">
             <OverviewPanel title="Top configured categories" subtitle="from the categories you defined" fill>
                 <RankedTermList
                     ranked={fixedRanked}
                     loading={overviewStatsApiLoading}
                     emptyMessage={fixedEmpty}
-                    variant="tag"
                     renderAction={cohortAction}
                 />
             </OverviewPanel>
@@ -389,7 +355,6 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                         ranked={freeformRanked}
                         loading={overviewStatsApiLoading}
                         emptyMessage={freeformEmpty}
-                        variant="tag"
                         renderAction={cohortAction}
                     />
                 ) : (
@@ -404,35 +369,48 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
     )
 }
 
-function CreditLimitOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
+function CreditLimitOverview({ scannerId }: { scannerId: string }): JSX.Element {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { creditLimitStats } = useValues(scannerOverviewLogic({ scannerId }))
+    // An unloaded scanner is not a scanner without a limit, so it waits rather than claiming one way.
+    if (!scanner) {
+        return (
+            <OverviewPanel title="Spend against limit" fill>
+                <PanelEmpty loading message="" />
+            </OverviewPanel>
+        )
+    }
     if (!creditLimitStats) {
-        return null
+        return (
+            <OverviewPanel title="Spend against limit" disabled fill>
+                <div className="text-muted text-sm">
+                    This scanner has no spending limit. Set one in the{' '}
+                    <Link to={urls.replayVisionScannerConfigure(scannerId)}>scanner's configuration</Link> to cap what
+                    it can spend each billing period.
+                </div>
+            </OverviewPanel>
+        )
     }
     const { used, limit, usedPct, limitReached } = creditLimitStats
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="min-w-0">
-                <OverviewPanel
-                    title="Spend against limit"
-                    subtitle={limitReached ? <LemonTag type="danger">Limit reached</LemonTag> : `${usedPct}%`}
-                    fill
-                >
-                    <LemonProgress percent={usedPct} strokeColor={limitReached ? 'var(--danger)' : undefined} />
-                    <div className="text-sm tabular-nums">
-                        {formatCreditsRange(used, limit)} (≈ {creditsToUsd(limit)} per period)
-                    </div>
-                    {limitReached && (
-                        // The tag can appear below 100%: a scanner stops as soon as what's left can't cover a whole
-                        // scan, so the copy has to explain that rather than claim the budget is fully spent.
-                        <div className="text-xs text-muted">
-                            What's left won't cover another scan, so this scanner has stopped until its limit resets at
-                            the start of the next billing period. Sessions skipped while capped are not scanned later.
-                        </div>
-                    )}
-                </OverviewPanel>
+        <OverviewPanel
+            title="Spend against limit"
+            subtitle={limitReached ? <LemonTag type="danger">Limit reached</LemonTag> : `${usedPct}%`}
+            fill
+        >
+            <LemonProgress percent={usedPct} strokeColor={limitReached ? 'var(--danger)' : undefined} />
+            <div className="text-sm tabular-nums">
+                {formatCreditsRange(used, limit)} (≈ {creditsToUsd(limit)} per period)
             </div>
-        </div>
+            {limitReached && (
+                // The tag can appear below 100%: a scanner stops as soon as what's left can't cover a whole
+                // scan, so the copy has to explain that rather than claim the budget is fully spent.
+                <div className="text-xs text-muted">
+                    What's left won't cover another scan, so this scanner has stopped until its limit resets at the
+                    start of the next billing period. Sessions skipped while capped are not scanned later.
+                </div>
+            )}
+        </OverviewPanel>
     )
 }
 
@@ -473,52 +451,6 @@ function ScorerOverview({ scannerId }: { scannerId: string }): JSX.Element {
                 <span>max {scorerSummary.max.toFixed(1)}</span>
             </div>
         </OverviewPanel>
-    )
-}
-
-function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
-    const { scanner, summarizerFacetStats, hasActiveOverviewFilters, overviewStatsApiLoading } = useValues(
-        scannerOverviewLogic({ scannerId })
-    )
-    if (!scanner || scanner.scanner_type !== 'summarizer') {
-        return null
-    }
-    const { frictionRanked, keywordRanked, totalSucceeded, totalWithFriction } = summarizerFacetStats
-    const frictionEmpty = hasActiveOverviewFilters
-        ? 'No friction points match the current filter.'
-        : 'No friction points reported yet. They appear as summaries accumulate.'
-    const keywordEmpty = hasActiveOverviewFilters
-        ? 'No keywords match the current filter.'
-        : 'No keywords reported yet. They appear as summaries accumulate.'
-
-    const summaries = (count: number): string => `${count.toLocaleString()} summar${count === 1 ? 'y' : 'ies'}`
-    // Both subtitles use the same succeeded-summary denominator so the two panels stay comparable.
-    const frictionSubtitle =
-        totalSucceeded > 0
-            ? `${totalWithFriction.toLocaleString()} of ${summaries(totalSucceeded)} (${Math.round(
-                  (totalWithFriction / totalSucceeded) * 100
-              )}%)`
-            : undefined
-    const keywordSubtitle = totalSucceeded > 0 ? `from ${summaries(totalSucceeded)}` : undefined
-    return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <OverviewPanel title="Top friction points" subtitle={frictionSubtitle} fill>
-                <RankedTermList
-                    ranked={frictionRanked}
-                    loading={overviewStatsApiLoading}
-                    emptyMessage={frictionEmpty}
-                    variant="phrase"
-                />
-            </OverviewPanel>
-            <OverviewPanel title="Common keywords" subtitle={keywordSubtitle} fill>
-                <RankedTermList
-                    ranked={keywordRanked}
-                    loading={overviewStatsApiLoading}
-                    emptyMessage={keywordEmpty}
-                    variant="tag"
-                />
-            </OverviewPanel>
-        </div>
     )
 }
 
@@ -582,15 +514,13 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
             <ClassifierOverview scannerId={scannerId} />
         ) : scannerType === 'scorer' ? (
             <ScorerOverview scannerId={scannerId} />
-        ) : scannerType === 'summarizer' ? (
-            <SummarizerOverview scannerId={scannerId} />
         ) : null
 
     // Scorer puts its line chart and score-distribution histogram side by side to reclaim vertical space.
     let body: JSX.Element
     if (scannerType === 'scorer') {
         body = (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-4">
                 {/* min-w-0 lets the canvas charts shrink inside their grid tracks instead of overflowing */}
                 <div className="min-w-0">
                     <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
@@ -611,7 +541,7 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
         body = (
             <div className="space-y-4">
                 <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-4">
                     {typeOverview && <div className="min-w-0">{typeOverview}</div>}
                     <div className="min-w-0">
                         <ImpactOverview scannerId={scannerId} />
@@ -622,11 +552,13 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
     }
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="@container flex flex-col gap-4">
             <ScannerOverviewFilters scannerId={scannerId} />
             {body}
-            <SelfDrivingOverview scannerId={scannerId} />
-            <CreditLimitOverview scannerId={scannerId} />
+            <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-4">
+                <SelfDrivingOverview scannerId={scannerId} />
+                <CreditLimitOverview scannerId={scannerId} />
+            </div>
         </div>
     )
 }

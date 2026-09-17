@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -15,8 +14,6 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
-
-import { ProductKey } from '~/queries/schema/schema-general'
 
 import { METRIC_BULK_MAX, humanizeDefinitionKind, metricCount } from '../common'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
@@ -75,7 +72,6 @@ export function MetricsTab(): JSX.Element {
         approveMetric,
         refreshMetricFromInsight,
         deleteMetric,
-        openNewMetricModal,
         bulkApproveMetrics,
         bulkDeleteMetrics,
     } = useActions(metricsLogic)
@@ -135,19 +131,6 @@ export function MetricsTab(): JSX.Element {
             },
             secondaryButton: { children: 'Cancel', type: 'tertiary' },
         })
-    }
-
-    if (!allMetricsLoading && allMetrics.length === 0) {
-        return (
-            <ProductIntroduction
-                productName="Data catalog"
-                productKey={ProductKey.DATA_CATALOG}
-                thingName="metric"
-                description="Metrics give your team one canonical definition for a number. Define one from SQL, an insight, or written instructions."
-                isEmpty
-                action={openNewMetricModal}
-            />
-        )
     }
 
     const columns: LemonTableColumns<DataCatalogMetricApi> = [
@@ -277,7 +260,7 @@ export function MetricsTab(): JSX.Element {
                 columns={columns}
                 loading={allMetricsLoading}
                 pagination={{ pageSize: 20 }}
-                emptyState="No metrics match your filters."
+                emptyState={allMetrics.length === 0 ? 'No metrics defined yet.' : 'No metrics match your filters.'}
                 nouns={['metric', 'metrics']}
                 bulkSelection={{
                     // Key on the stable id, not the name: a name is freed for reuse when a metric is

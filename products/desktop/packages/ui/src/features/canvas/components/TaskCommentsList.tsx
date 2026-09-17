@@ -19,7 +19,6 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  Spinner,
 } from "@posthog/quill";
 import type {
   Task,
@@ -67,6 +66,7 @@ import {
   useSetCommentResolved,
 } from "@posthog/ui/features/sessions/components/useComments";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const EMPTY_COMMENTS: ResourceComment[] = [];
@@ -693,9 +693,7 @@ export function TaskCommentsList({
             </EmptyHeader>
           </Empty>
         ) : loading && threads.length === 0 ? (
-          <div className="flex justify-center py-8">
-            <Spinner />
-          </div>
+          <LoadingState className="py-8" />
         ) : visibleThreads.length === 0 ? (
           <Empty className="h-full border-0">
             <EmptyHeader>

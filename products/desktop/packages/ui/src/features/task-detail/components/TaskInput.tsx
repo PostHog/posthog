@@ -22,6 +22,7 @@ import {
   type AgentRuntime,
   ANALYTICS_EVENTS,
   adapterForModelId,
+  PI_HARNESS_FLAG,
 } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
@@ -44,7 +45,6 @@ import {
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
-import { NEW_TASK_COMPOSER_FADE_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToInbox } from "@posthog/ui/router/navigationBridge";
@@ -131,7 +131,6 @@ import { useResolvedWorkspaceMode } from "../hooks/useResolvedWorkspaceMode";
 import { useTaskCreation } from "../hooks/useTaskCreation";
 import { useWarmTask } from "../hooks/useWarmTask";
 import { ChannelContextChip } from "./ChannelContextChip";
-import { CloudGithubMissingNotice } from "./CloudGithubMissingNotice";
 import { NewTaskSuggestions } from "./ContinueCliSessions";
 import { shouldShowChannelContextChip } from "./channelContext";
 import {
@@ -144,13 +143,14 @@ interface TaskInputProps {
   sessionId?: string;
   onTaskCreated?: (task: Task) => void;
   onTaskCreatedEffect?: (task: Task) => void;
+  showNewTaskSuggestions?: boolean;
   initialPrompt?: string;
   /** Full editor content to prefill (chips + attachments), preferred over initialPrompt. */
   initialContent?: EditorContent;
   /** Pending-prompt record to clear once this prefill is applied (interrupted-prompt recovery). */
   recoveredFromKey?: string;
   initialPromptKey?: string;
-  initialCloudRepository?: string;
+  initialCloudRepository?: string | null;
   initialModel?: string;
   initialMode?: string;
   reportAssociation?: TaskInputReportAssociation;
@@ -216,6 +216,7 @@ export function TaskInput({
   sessionId = "task-input",
   onTaskCreated,
   onTaskCreatedEffect,
+  showNewTaskSuggestions = true,
   initialPrompt,
   initialContent,
   recoveredFromKey,
@@ -484,7 +485,7 @@ export function TaskInput({
     hasGithubIntegration,
   } = useUserRepositoryIntegration();
 
-  const piHarnessEnabled = useFeatureFlag("pi-harness", import.meta.env.DEV);
+  const piHarnessEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
   const flagsLoaded = useFeatureFlagsLoaded();
   const reposReady = areReposReady({
     isLoadingRepos,
@@ -502,17 +503,23 @@ export function TaskInput({
     );
   }, [flagsLoaded, lastUsedAgentRuntime, piHarnessEnabled, settingsHydrated]);
 
-  const { workspaceMode, setWorkspaceMode, overrideWorkspaceMode } =
-    useResolvedWorkspaceMode({
-      hasGithubIntegration,
-      isLoadingIntegrations,
-      pinCloud: !!initialCloudRepository,
-    });
+  const {
+    workspaceMode,
+    isResolved: isWorkspaceModeResolved,
+    setWorkspaceMode,
+    overrideWorkspaceMode,
+  } = useResolvedWorkspaceMode({
+    hasGithubIntegration,
+    isLoadingIntegrations,
+    pinCloud: initialCloudRepository !== undefined,
+  });
+  const localWorkspaceReady =
+    isWorkspaceModeResolved && workspaceMode !== "cloud";
 
   const showCodexNotConnectedNotice =
     runtime !== "pi" &&
     adapter === "codex" &&
-    workspaceMode !== "cloud" &&
+    localWorkspaceReady &&
     codexSubscription.needsConnection;
 
   const showClaudeNotConnectedNotice =
@@ -538,9 +545,9 @@ export function TaskInput({
   } = useUserGithubRepositories(cloudRepoSearchQuery, isCloudRepoPickerOpen);
   const [selectedRepository, setSelectedRepository] = useState<string | null>(
     () =>
-      initialCloudRepository?.toLowerCase() ??
-      lastUsedCloudRepository?.toLowerCase() ??
-      null,
+      initialCloudRepository === undefined
+        ? (lastUsedCloudRepository?.toLowerCase() ?? null)
+        : (initialCloudRepository?.toLowerCase() ?? null),
   );
   const selectedCloudRepository = useMemo(() => {
     if (!selectedRepository) return null;
@@ -548,7 +555,7 @@ export function TaskInput({
     return repositories.includes(lower) ? lower : null;
   }, [selectedRepository, repositories]);
   const { currentBranch, branchLoading, defaultBranch, busyState } =
-    useGitQueries(selectedDirectory);
+    useGitQueries(selectedDirectory, { enabled: localWorkspaceReady });
 
   const selectedGithubUserIntegrationId = selectedCloudRepository
     ? getUserIntegrationIdForRepo(selectedCloudRepository)
@@ -656,9 +663,9 @@ export function TaskInput({
   );
 
   useEffect(() => {
-    if (!initialCloudRepository) return;
+    if (initialCloudRepository === undefined) return;
     overrideWorkspaceMode("cloud");
-    setSelectedRepository(initialCloudRepository.toLowerCase());
+    setSelectedRepository(initialCloudRepository?.toLowerCase() ?? null);
   }, [initialCloudRepository, overrideWorkspaceMode]);
 
   const handleRefreshRepositories = useCallback(() => {
@@ -714,6 +721,9 @@ export function TaskInput({
     fastModeOption,
     isLoading: isPreviewLoading,
     setConfigOption,
+    resetToDefault,
+    isDefaultSelection,
+    resetToDefaultDisabled,
   } = usePreviewConfig(adapter, { allHarnessModels: true });
 
   const lastAppliedDeepLinkConfigKey = useRef<string | undefined>(undefined);
@@ -756,12 +766,16 @@ export function TaskInput({
   const { folders, isLoaded: foldersLoaded } = useFolders();
 
   useEffect(() => {
-    if (selectedRepository || !lastUsedCloudRepository) {
+    if (
+      initialCloudRepository !== undefined ||
+      selectedRepository ||
+      !lastUsedCloudRepository
+    ) {
       return;
     }
 
     setSelectedRepository(lastUsedCloudRepository.toLowerCase());
-  }, [lastUsedCloudRepository, selectedRepository]);
+  }, [initialCloudRepository, lastUsedCloudRepository, selectedRepository]);
 
   useEffect(() => {
     // Clear `selectedRepository` only when the list has actually loaded AND the
@@ -837,6 +851,10 @@ export function TaskInput({
 
   const effectiveWorkspaceMode = workspaceMode;
   const cloudIds = workspaceMode === "cloud" ? cloudTargetIds(cloudTarget) : {};
+  const cloudGithubUnavailable =
+    effectiveWorkspaceMode === "cloud" &&
+    !isLoadingIntegrations &&
+    !hasGithubIntegration;
 
   const repoOptional = !!allowNoRepo && workspaceMode === "cloud";
 
@@ -910,6 +928,7 @@ export function TaskInput({
       : effectiveReasoningLevel;
 
   useWarmTask({
+    claudeModelAccess: adapter === "claude" ? composerModelAccess : undefined,
     workspaceMode,
     selectedRepository: selectedCloudRepository,
     repositories: repoOptional ? taskRepositories : undefined,
@@ -1036,7 +1055,6 @@ export function TaskInput({
 
   const {
     isCreatingTask,
-    isExitingComposer,
     canSubmit,
     handleSubmit,
     additionalDirectories,
@@ -1072,7 +1090,7 @@ export function TaskInput({
     channelName,
     channelId,
     channelContextId,
-    submissionBlocked: channelContextBlocked,
+    submissionBlocked: channelContextBlocked || !isWorkspaceModeResolved,
     allowNoRepo: repoOptional,
   });
 
@@ -1106,7 +1124,7 @@ export function TaskInput({
       ...resolvedRun,
       instructions: contentToXml(content).trim(),
     });
-    const submitted = await handleSubmit(override);
+    const submitted = await handleSubmit(override, content);
     if (submitted) {
       track(ANALYTICS_EVENTS.AUTORESEARCH_RUN_STARTED, {
         direction: resolvedRun.direction,
@@ -1353,7 +1371,7 @@ export function TaskInput({
     >
       <DropZoneOverlay isVisible={isDraggingFile} />
       <Flex height="100%" width="100%">
-        {previewFile && selectedDirectory && (
+        {localWorkspaceReady && previewFile && selectedDirectory && (
           <Box className="h-full min-w-0 flex-1 border-gray-4 border-r">
             <NewTaskFilePreview
               repoPath={selectedDirectory}
@@ -1374,16 +1392,8 @@ export function TaskInput({
                 // suggestions fade out (and back in when the prompt is cleared).
                 top: suggestions && suggestions.length > 0 ? "38%" : "50%",
                 transform: "translate(-50%, -50%)",
-                // Once the task is on its way, the whole composer fades out and
-                // the pending chat fades in over it.
-                opacity: isExitingComposer ? 0 : 1,
-                transitionProperty: "opacity",
-                transitionDuration: `${NEW_TASK_COMPOSER_FADE_MS}ms`,
-                transitionTimingFunction: "ease-out",
               }}
-              className={`absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2 ${
-                isExitingComposer ? "pointer-events-none" : ""
-              }`}
+              className="absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
             >
               <Flex
                 gap="2"
@@ -1391,23 +1401,121 @@ export function TaskInput({
                 className="absolute bottom-full left-0 mb-2 min-w-0 gap-1"
               >
                 {spaceSelector?.({ disabled: isCreatingTask })}
-                <WorkspaceModeSelect
-                  value={workspaceMode}
-                  onChange={setWorkspaceMode}
-                  adapter={runtime === "pi" ? undefined : adapter}
-                  cloudTarget={cloudTarget}
-                  onCloudTargetChange={setCloudTarget}
-                  size="1"
-                />
-                {repoOptional && (
-                  <TaskRepositoryChip
-                    cloud={workspaceMode === "cloud"}
-                    repositoryCount={taskRepositories.length}
-                    hasFolder={!!taskFolder}
-                    disabled={isCreatingTask}
-                    onOpen={() => setRepositoryDialogOpen(true)}
+                {/* One group, so changing the location does not unmount the
+                    selector the user just used and take the focus with it. */}
+                <ButtonGroup
+                  ref={buttonGroupRef}
+                  data-tour={repoOptional ? undefined : "folder-picker"}
+                  data-tour-ready={
+                    !repoOptional &&
+                    (workspaceMode === "cloud"
+                      ? selectedRepository
+                      : selectedDirectory)
+                      ? "true"
+                      : undefined
+                  }
+                >
+                  <WorkspaceModeSelect
+                    value={workspaceMode}
+                    onChange={setWorkspaceMode}
+                    adapter={runtime === "pi" ? undefined : adapter}
+                    cloudTarget={cloudTarget}
+                    onCloudTargetChange={setCloudTarget}
+                    hasGithubIntegration={hasGithubIntegration}
+                    isLoadingGithubIntegration={isLoadingIntegrations}
+                    size="1"
                   />
-                )}
+                  {repoOptional ? (
+                    <TaskRepositoryChip
+                      cloud={workspaceMode === "cloud"}
+                      repositoryCount={taskRepositories.length}
+                      hasFolder={!!taskFolder}
+                      disabled={isCreatingTask || cloudGithubUnavailable}
+                      onOpen={() => setRepositoryDialogOpen(true)}
+                    />
+                  ) : (
+                    <>
+                      {workspaceMode === "cloud" ? (
+                        <GitHubRepoPicker
+                          value={selectedRepository}
+                          onChange={handleRepositorySelect}
+                          repositories={
+                            isCloudRepoPickerOpen
+                              ? visibleCloudRepositories
+                              : repositories
+                          }
+                          isLoading={
+                            isLoadingRepos ||
+                            (isCloudRepoPickerOpen && cloudRepositoriesLoading)
+                          }
+                          isLoadingMore={cloudRepositoriesFetchingMore}
+                          isRefreshing={isRefreshingRepos}
+                          onRefresh={handleRefreshRepositories}
+                          open={isCloudRepoPickerOpen}
+                          onOpenChange={handleCloudRepoPickerOpenChange}
+                          searchQuery={cloudRepoSearchQuery}
+                          onSearchQueryChange={handleCloudRepoSearchChange}
+                          hasMore={cloudRepositoriesHasMore}
+                          onLoadMore={handleLoadMoreCloudRepositories}
+                          placeholder="Select repository..."
+                          size="1"
+                          disabled={isCreatingTask}
+                        />
+                      ) : (
+                        <FolderPicker
+                          value={selectedDirectory}
+                          onChange={setSelectedDirectory}
+                          placeholder="Select repository..."
+                          anchor={buttonGroupRef}
+                        />
+                      )}
+                      <BranchSelector
+                        repoPath={
+                          workspaceMode === "cloud"
+                            ? selectedCloudRepository
+                            : localWorkspaceReady
+                              ? selectedDirectory
+                              : null
+                        }
+                        currentBranch={currentBranch}
+                        defaultBranch={
+                          workspaceMode === "cloud"
+                            ? cloudDefaultBranch
+                            : defaultBranch
+                        }
+                        disabled={
+                          isCreatingTask ||
+                          !isWorkspaceModeResolved ||
+                          (workspaceMode === "cloud" &&
+                            !selectedCloudRepository)
+                        }
+                        loading={
+                          workspaceMode === "cloud" ? false : branchLoading
+                        }
+                        workspaceMode={workspaceMode}
+                        selectedBranch={selectedBranch}
+                        onBranchSelect={setSelectedBranch}
+                        busyState={busyState}
+                        cloudBranches={cloudBranches}
+                        cloudBranchesLoading={cloudBranchesLoading}
+                        isRefreshing={cloudBranchesRefreshing}
+                        cloudBranchesFetchingMore={cloudBranchesFetchingMore}
+                        cloudBranchesHasMore={cloudBranchesHasMore}
+                        cloudSearchQuery={cloudBranchSearchQuery}
+                        onCloudPickerClose={handleCloudBranchPickerClose}
+                        onCloudSearchChange={handleCloudBranchSearchChange}
+                        onCloudBranchCommit={handleCloudBranchPickerClose}
+                        onCloudLoadMore={handleLoadMoreCloudBranches}
+                        onRefresh={
+                          workspaceMode === "cloud"
+                            ? handleRefreshBranches
+                            : undefined
+                        }
+                        anchor={buttonGroupRef}
+                      />
+                    </>
+                  )}
+                </ButtonGroup>
                 {!repoOptional && workspaceMode === "worktree" && (
                   <EnvironmentSelector
                     repoPath={effectiveRepoPath ?? null}
@@ -1421,97 +1529,7 @@ export function TaskInput({
                     }
                   />
                 )}
-                {!repoOptional && (
-                  <ButtonGroup
-                    ref={buttonGroupRef}
-                    data-tour="folder-picker"
-                    data-tour-ready={
-                      (
-                        workspaceMode === "cloud"
-                          ? selectedRepository
-                          : selectedDirectory
-                      )
-                        ? "true"
-                        : undefined
-                    }
-                  >
-                    {workspaceMode === "cloud" ? (
-                      <GitHubRepoPicker
-                        value={selectedRepository}
-                        onChange={handleRepositorySelect}
-                        repositories={
-                          isCloudRepoPickerOpen
-                            ? visibleCloudRepositories
-                            : repositories
-                        }
-                        isLoading={
-                          isLoadingRepos ||
-                          (isCloudRepoPickerOpen && cloudRepositoriesLoading)
-                        }
-                        isLoadingMore={cloudRepositoriesFetchingMore}
-                        isRefreshing={isRefreshingRepos}
-                        onRefresh={handleRefreshRepositories}
-                        open={isCloudRepoPickerOpen}
-                        onOpenChange={handleCloudRepoPickerOpenChange}
-                        searchQuery={cloudRepoSearchQuery}
-                        onSearchQueryChange={handleCloudRepoSearchChange}
-                        hasMore={cloudRepositoriesHasMore}
-                        onLoadMore={handleLoadMoreCloudRepositories}
-                        placeholder="Select repository..."
-                        size="1"
-                        disabled={isCreatingTask}
-                      />
-                    ) : (
-                      <FolderPicker
-                        value={selectedDirectory}
-                        onChange={setSelectedDirectory}
-                        placeholder="Select repository..."
-                        anchor={buttonGroupRef}
-                      />
-                    )}
-                    <BranchSelector
-                      repoPath={
-                        workspaceMode === "cloud"
-                          ? selectedCloudRepository
-                          : selectedDirectory
-                      }
-                      currentBranch={currentBranch}
-                      defaultBranch={
-                        workspaceMode === "cloud"
-                          ? cloudDefaultBranch
-                          : defaultBranch
-                      }
-                      disabled={
-                        isCreatingTask ||
-                        (workspaceMode === "cloud" && !selectedCloudRepository)
-                      }
-                      loading={
-                        workspaceMode === "cloud" ? false : branchLoading
-                      }
-                      workspaceMode={workspaceMode}
-                      selectedBranch={selectedBranch}
-                      onBranchSelect={setSelectedBranch}
-                      busyState={busyState}
-                      cloudBranches={cloudBranches}
-                      cloudBranchesLoading={cloudBranchesLoading}
-                      isRefreshing={cloudBranchesRefreshing}
-                      cloudBranchesFetchingMore={cloudBranchesFetchingMore}
-                      cloudBranchesHasMore={cloudBranchesHasMore}
-                      cloudSearchQuery={cloudBranchSearchQuery}
-                      onCloudPickerClose={handleCloudBranchPickerClose}
-                      onCloudSearchChange={handleCloudBranchSearchChange}
-                      onCloudBranchCommit={handleCloudBranchPickerClose}
-                      onCloudLoadMore={handleLoadMoreCloudBranches}
-                      onRefresh={
-                        workspaceMode === "cloud"
-                          ? handleRefreshBranches
-                          : undefined
-                      }
-                      anchor={buttonGroupRef}
-                    />
-                  </ButtonGroup>
-                )}
-                {!repoOptional && workspaceMode !== "cloud" && (
+                {!repoOptional && localWorkspaceReady && (
                   <AdditionalDirectoriesButton
                     values={additionalDirectories}
                     onChange={setAdditionalDirectories}
@@ -1678,6 +1696,12 @@ export function TaskInput({
                         modelAccess={composerModelAccess}
                         showBillingMenu
                         workspaceMode={workspaceMode}
+                        isDefaultSelection={isDefaultSelection}
+                        onResetToDefault={resetToDefault}
+                        resetToDefaultDisabled={resetToDefaultDisabled}
+                        onOpenDefaultSettings={() =>
+                          openSettings("task-agent-defaults")
+                        }
                       />
                     )
                   }
@@ -1740,13 +1764,6 @@ export function TaskInput({
                     </Tooltip>
                   </div>
                 )}
-                {effectiveWorkspaceMode === "cloud" &&
-                  !isLoadingRepos &&
-                  !hasGithubIntegration && (
-                    <div className="mx-2 mt-2">
-                      <CloudGithubMissingNotice />
-                    </div>
-                  )}
               </Flex>
               <div className="absolute top-full right-0 left-0 z-10">
                 {suggestions ? (
@@ -1806,13 +1823,15 @@ export function TaskInput({
                       </motion.div>
                     )}
                   </AnimatePresence>
-                ) : (
+                ) : showNewTaskSuggestions ? (
                   <NewTaskSuggestions
-                    repoPath={selectedDirectory || null}
+                    repoPath={
+                      localWorkspaceReady ? selectedDirectory || null : null
+                    }
                     workspaceMode={effectiveWorkspaceMode}
                     disabled={isCreatingTask}
                   />
-                )}
+                ) : null}
               </div>
             </div>
           </Flex>

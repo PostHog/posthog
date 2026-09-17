@@ -2,7 +2,6 @@ import '../Nodes/NotebookNodeCohort'
 import '../Nodes/NotebookNodeDashboard'
 import '../Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney'
 import '../Nodes/NotebookNodeSQLV2'
-import '../Nodes/NotebookNodeDuckSQL'
 import '../Nodes/NotebookNodeEarlyAccessFeature'
 import '../Nodes/NotebookNodeEmbed'
 import '../Nodes/NotebookNodeExperiment'
@@ -11,7 +10,6 @@ import '../Nodes/NotebookNodeFlag'
 import '../Nodes/NotebookNodeFlagCodeExample'
 import '../Nodes/NotebookNodeGroup'
 import '../Nodes/NotebookNodeGroupProperties'
-import '../Nodes/NotebookNodeHogQL'
 import '../Nodes/NotebookNodeImage'
 import '../Nodes/NotebookNodeIssues'
 import '../Nodes/NotebookNodeLatex'
@@ -21,7 +19,6 @@ import '../Nodes/NotebookNodePerson'
 import '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
 import '../Nodes/NotebookNodePersonProperties'
 import '../Nodes/NotebookNodePlaylist'
-import '../Nodes/NotebookNodePython'
 import '../Nodes/NotebookNodePythonV2'
 import '../Nodes/NotebookNodeQuery'
 import '../Nodes/NotebookNodeRecording'
@@ -170,10 +167,7 @@ export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, Notebook
     Dashboard: NotebookNodeType.Dashboard,
     Action: NotebookNodeType.Action,
     Workflow: NotebookNodeType.Workflow,
-    Python: NotebookNodeType.Python,
     PythonV2: NotebookNodeType.PythonV2,
-    DuckSQL: NotebookNodeType.DuckSQL,
-    HogQLSQL: NotebookNodeType.HogQLSQL,
     SQLV2: NotebookNodeType.SQLV2,
     Widget: NotebookNodeType.GeneratedWidget,
     Recording: NotebookNodeType.Recording,
@@ -217,6 +211,12 @@ const INLINE_QUERY_NOTEBOOK_NODE_OPTIONS: CreatePostHogWidgetNodeOptions<any> = 
         isDefaultFilterApplied: KNOWN_NODES[NotebookNodeType.Query].attributes.isDefaultFilterApplied,
         showSettings: KNOWN_NODES[NotebookNodeType.Query].attributes.showSettings,
         outputTab: KNOWN_NODES[NotebookNodeType.Query].attributes.outputTab,
+        returnVariable: KNOWN_NODES[NotebookNodeType.Query].attributes.returnVariable,
+        dataframeSource: KNOWN_NODES[NotebookNodeType.Query].attributes.dataframeSource,
+        dataframeQuery: KNOWN_NODES[NotebookNodeType.Query].attributes.dataframeQuery,
+        runId: KNOWN_NODES[NotebookNodeType.Query].attributes.runId,
+        result: KNOWN_NODES[NotebookNodeType.Query].attributes.result,
+        runStatus: KNOWN_NODES[NotebookNodeType.Query].attributes.runStatus,
     },
     defaultView: undefined,
     views: undefined,
@@ -252,34 +252,36 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     { tagName: 'Dashboard', category: 'Insight' },
     { tagName: 'Action', category: 'Data' },
     { tagName: 'Workflow', category: 'PostHog' },
-    // Legacy in-browser-kernel Python cell: still renders where it exists, but new cells
-    // are always the revamped PythonV2 below, so it has no insertCommand.
-    { tagName: 'Python', category: 'Code' },
-    // The revamped (sandbox-kernel) Python cell; insertion gated like SQLV2 in
-    // getMarkdownRegistryForFeatureFlags.
+    // The sandbox-kernel Python cell; insertion gated like SQLV2 in getMarkdownRegistryForFeatureFlags.
     {
         tagName: 'PythonV2',
         category: 'Code',
         label: 'Python',
         ToolbarComponent: NotebookCodeCellRunButton,
         insertCommand: {
+            // Sits next to SQL in the menu's top group, because the two cells do the same job in
+            // a notebook. A separate "Code" group sits below the fold, where a person who is not
+            // already looking for Python does not find it. Only the menu grouping moves. The
+            // definition's category still drives the node's styling in the editor.
+            category: COMMON_INSERT_COMMAND_CATEGORY,
+            badge: 'New',
             aliases: ['python', 'py'],
-            defaultProps: () => ({
-                ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2),
-                ...INPUT_PANEL_OPEN_PROPS,
-                nodeId: uuid(),
-            }),
+            defaultProps: () => {
+                const nodeId = uuid()
+                return {
+                    ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2),
+                    ...INPUT_PANEL_OPEN_PROPS,
+                    nodeId,
+                    returnVariable: `df_${nodeId.slice(0, 8)}`,
+                }
+            },
         },
     },
-    { tagName: 'DuckSQL', category: 'SQL', label: 'SQL (DuckDB)' },
-    { tagName: 'HogQLSQL', category: 'SQL', label: 'SQL (HogQL)' },
     // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
     // getMarkdownRegistryForFeatureFlags strips it when revamped-py-notebooks is off.
     {
         tagName: 'SQLV2',
         category: 'SQL',
-        // The single SQL node once the legacy SQL cells are deprecated (they render but
-        // are not insertable), so it reads as plain "SQL" in the insert menu.
         label: 'SQL',
         ToolbarComponent: NotebookCodeCellRunButton,
         insertCommand: {
@@ -291,11 +293,15 @@ export const MARKDOWN_NODE_DEFINITIONS: {
             // New cells get a durable nodeId up front: parsed markdown block ids are content
             // fingerprints, so without a persisted id every prop change (running the cell
             // writes runId/result) would orphan the cell's run history and cross-cell refs.
-            defaultProps: () => ({
-                ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2),
-                ...INPUT_PANEL_OPEN_PROPS,
-                nodeId: uuid(),
-            }),
+            defaultProps: () => {
+                const nodeId = uuid()
+                return {
+                    ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2),
+                    ...INPUT_PANEL_OPEN_PROPS,
+                    nodeId,
+                    returnVariable: `sql_df_${nodeId.slice(0, 8)}`,
+                }
+            },
         },
     },
     {
@@ -364,6 +370,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
             ToolbarComponent: definition.ToolbarComponent,
             exclusiveEditPanel: definition.exclusiveEditPanel,
             editableTitle: options?.editableTitle,
+            persistNodeId: ['Widget', 'SQLV2', 'PythonV2', 'Insight', 'Query'].includes(definition.tagName),
             // Nodes with a Settings panel keep their filters toggle on read-only canvases
             // (customer profiles), where the panel is the only way to configure them.
             viewModeFilters: !!options?.Settings,
@@ -464,13 +471,7 @@ export function getMarkdownNotebookNodeTitle(
             fallback
         )
     }
-    if (
-        nodeType === NotebookNodeType.Python ||
-        nodeType === NotebookNodeType.PythonV2 ||
-        nodeType === NotebookNodeType.SQLV2 ||
-        nodeType === NotebookNodeType.DuckSQL ||
-        nodeType === NotebookNodeType.HogQLSQL
-    ) {
+    if (nodeType === NotebookNodeType.PythonV2 || nodeType === NotebookNodeType.SQLV2) {
         // Never suggest the code/SQL body itself as a title — fall back to the language label
         return fallback
     }
@@ -601,7 +602,7 @@ export function RealNotebookNodeIdentityAndViewEdit({
     notebookNodeType: NotebookNodeType
     options: CreatePostHogWidgetNodeOptions<any>
 }): JSX.Element | null {
-    const hasId = 'id' in options.attributes
+    const hasId = notebookNodeType !== NotebookNodeType.GeneratedWidget && 'id' in options.attributes
     if (!hasId && !options.views) {
         return null
     }

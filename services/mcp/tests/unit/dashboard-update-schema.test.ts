@@ -30,7 +30,7 @@ describe('dashboard-update schema', () => {
     it('accepts optional dashboard PATCH write params', () => {
         const result = tool.schema.safeParse({
             id: 1,
-            breakdown_colors: { series_a: '#ff0000' },
+            breakdown_colors: [{ breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-1' }],
             data_color_theme_id: 2,
             quick_filter_ids: ['00000000-0000-4000-8000-000000000001'],
             use_template: '',
@@ -40,5 +40,21 @@ describe('dashboard-update schema', () => {
         })
 
         expect(result.success).toBe(true)
+    })
+
+    // The schema used to accept any JSON for this field, and its description read as a color
+    // mapping, so agents sent a dictionary of breakdown values to hex colors. The dashboard cannot
+    // read that shape.
+    it.each([
+        ['an object keyed by breakdown value', { series_a: '#ff0000' }],
+        ['entries under other key names', [{ breakdown_value: 'good', color: '#36a854' }]],
+        ['an entry without a color token', [{ breakdownValue: 'Chrome' }]],
+        ['a hex value where a palette slot belongs', [{ breakdownValue: 'Chrome', colorToken: '#3fb950' }]],
+        // Also proves the generated schema carries the serializer's token pattern.
+        ['palette slot zero', [{ breakdownValue: 'Chrome', colorToken: 'preset-0' }]],
+    ])('rejects breakdown_colors as %s', (_name, breakdownColors) => {
+        const result = tool.schema.safeParse({ id: 1, breakdown_colors: breakdownColors })
+
+        expect(result.success).toBe(false)
     })
 })

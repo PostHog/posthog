@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from products.alerts.backend.destination_configs import DestinationType, EventKindSpec
+from products.alerts.backend.facade.contracts import DestinationType, EventKindSpec
 
 EventKind = Literal["firing", "resolved", "broken", "errored"]
 LOGS_DESTINATION_TYPES = (DestinationType.SLACK, DestinationType.WEBHOOK, DestinationType.TEAMS)

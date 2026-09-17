@@ -1,13 +1,11 @@
 import uuid
 from typing import Any
 
-import posthoganalytics
 import temporalio.activity
 from asgiref.sync import sync_to_async
 from prometheus_client import Counter
 from structlog import get_logger
 
-from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY
 from posthog.ph_client import ph_scoped_capture
 from posthog.security.llm_prompt_sanitization import PROMPT_GUIDE_MAX_LEN, sanitize_user_text
 from posthog.storage import object_storage
@@ -266,34 +264,6 @@ def _load_core_memory_text(subscription: Subscription) -> str:
     return memory.formatted_text
 
 
-def _prompt_guide_feature_enabled_for_subscription(subscription: Subscription) -> bool:
-    """Gate the *read* side of `summary_prompt_guide` on the same flag as writes.
-
-    Writes are gated in `ee/api/subscription.py`, but without this read-side check
-    a value stored while the flag was on would keep steering the LLM after the
-    flag flipped off. Flipping the flag off must stop the guide from taking effect
-    on the next delivery, not just stop new writes. Evaluated per subscription —
-    anchored on the creator's distinct_id so the gate tracks whoever set it, with
-    the subscription's team organization as group context.
-
-    Subscriptions without a creator (or whose creator has no distinct_id) default
-    to disallowed — same fail-closed stance as the serializer gate.
-    """
-    creator = subscription.created_by
-    if not creator or not creator.distinct_id:
-        return False
-    org_id = str(subscription.team.organization_id) if subscription.team_id else ""
-    return bool(
-        posthoganalytics.feature_enabled(
-            SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
-            str(creator.distinct_id),
-            groups={"organization": org_id},
-            group_properties={"organization": {"id": org_id}},
-            only_evaluate_locally=False,
-        )
-    )
-
-
 def _capture_summary_generated_event(
     subscription: Subscription,
     *,
@@ -533,14 +503,11 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
     summary_text: str | None = None
     try:
         temporalio.activity.heartbeat("generating LLM summary")
-        # Gate the read side on the same flag as writes so stored guides stop steering
-        # the LLM as soon as the flag flips off — not only the next time someone edits.
-        if subscription.summary_prompt_guide and await database_sync_to_async(
-            _prompt_guide_feature_enabled_for_subscription, thread_sensitive=False
-        )(subscription):
-            prompt_guide = sanitize_user_text(subscription.summary_prompt_guide, PROMPT_GUIDE_MAX_LEN)
-        else:
-            prompt_guide = ""
+        prompt_guide = (
+            sanitize_user_text(subscription.summary_prompt_guide, PROMPT_GUIDE_MAX_LEN)
+            if subscription.summary_prompt_guide
+            else ""
+        )
         core_memory_text = await database_sync_to_async(_load_core_memory_text, thread_sensitive=False)(subscription)
         content_snapshots = [
             s

@@ -10,15 +10,10 @@ Recipe (mount-over-image — the default, ~minutes per PR):
   - Run the ready-made published image (``ghcr.io/posthog/posthog:master``) and
     bind-mount the PR's backend source (``posthog``/``ee``/``products``) over the
     image's ``/code``. The image is the prod Dockerfile: it runs from
-    ``WORKDIR /code`` via ``./bin/docker-server-unit`` with the frontend baked at
+    ``WORKDIR /code`` via ``./bin/docker-server`` with the frontend baked at
     ``/code/frontend/dist``. Mounting the source swaps the BACKEND code live — no
     per-PR build. (Frontend stays at the image's version; frontend hot-mount is a
     later iteration.) DEBUG=0 is required: the prod image lacks DEBUG-only apps.
-  - NEVER ``restart`` the web container. Nginx Unit applies its ``*:8000``
-    listener only on a fresh container's first boot (``/var/lib/unit`` empty); a
-    ``restart`` finds it non-empty, skips the listener, and the app comes up with
-    ``listeners: {}`` — nothing serves on 8000. ``wait_for_health`` just waits on
-    the clean ``up`` (use ``--force-recreate`` if web ever needs replacing).
   - DB coherence: the restored golden's DB was migrated + seeded against the same
     image tag, so a restore only needs the PR's *delta* migrations on top
     (``migrate`` + ``migrate_clickhouse``). Reseeding is skipped — the golden is
@@ -135,6 +130,7 @@ class PostHogPreviewStack:
         # into the compose override so every process of THIS preview shares it, and
         # never shared across previews — see the module-level note above.
         self.secret_key = secrets.token_hex(32)
+        self.oidc_private_key = ""  # see _ensure_oidc_private_key
         self.branch = branch
         # Default (None) -> the ready-made image; "" -> build-from-checkout escape
         # hatch; any tag -> run that published image.
@@ -161,6 +157,7 @@ class PostHogPreviewStack:
         url = self.backend.web_url
         if self.branch:
             self.checkout_branch(self.branch)
+        self._ensure_oidc_private_key()
         self.write_override()
         if self.image:
             self.pull_image()  # escape hatch: run a published image, skip build
@@ -169,8 +166,8 @@ class PostHogPreviewStack:
         if self.reset_db:
             self.reset_database()
         # Prepare the database and service-backed templates BEFORE web serves:
-        # web can't be restarted to pick up a PR's delta migrations (the
-        # Unit-listener gotcha), so all setup must finish before it boots.
+        # web is not restarted to pick up a PR's delta migrations, so all setup
+        # must finish before it boots.
         self.up_deps()
         self.migrate()
         self.start_cdp_service()
@@ -211,6 +208,7 @@ class PostHogPreviewStack:
         # rotate the key bring_up already migrated + seeded under, or anything it
         # wrote encrypted becomes undecryptable (and any live session drops).
         self._reuse_existing_secret_key()
+        self._ensure_oidc_private_key()
         # Rewrite the override so it now carries the frontend/dist + staticfiles
         # mounts (write_override only adds them when a dist is set), lay the dist
         # in + re-run collectstatic into the mounted staticfiles/, then recreate
@@ -221,18 +219,49 @@ class PostHogPreviewStack:
         self.wait_for_health()
         return self.backend.web_url
 
-    def _reuse_existing_secret_key(self) -> None:
-        """Adopt the SECRET_KEY the box already runs with (read from its override)
-        so a deferred swap doesn't rotate it. Falls back to the freshly-minted
-        key when the override can't be read — shouldn't happen post-bring_up, but
-        a random key is a safe default either way."""
-        r = self.backend.exec(
-            f"sed -n 's/.*SECRET_KEY=//p' {self.repo_dir}/{self.OVERRIDE} 2>/dev/null | head -n1",
+    def _override_value(self, name: str) -> str:
+        """Read one environment value out of the override the box already runs
+        with. Empty when the box has no override yet, or no such entry."""
+        return self.backend.exec(
+            f"sed -n 's/.*{name}=//p' {self.repo_dir}/{self.OVERRIDE} 2>/dev/null | head -n1",
             timeout=60,
+        ).stdout.strip()
+
+    def _reuse_existing_secret_key(self) -> None:
+        """Adopt the SECRET_KEY the box already runs with so a deferred swap
+        doesn't rotate it. Falls back to the freshly-minted key when the override
+        can't be read — shouldn't happen post-bring_up, but a random key is a
+        safe default either way."""
+        self.secret_key = self._override_value("SECRET_KEY") or self.secret_key
+
+    def _ensure_oidc_private_key(self) -> None:
+        """Give the box an RSA key for OAuth token signing, once per box.
+
+        PostHog signs OAuth tokens with RS256 and refuses to save an OAuth
+        application without OIDC_RSA_PRIVATE_KEY, so a preview cannot host an
+        OAuth client (PostHog Desktop, for one) until this is set. Adopted from
+        the override when the box already has one, because rotating it would
+        invalidate every token the preview already issued. Left empty when the
+        box cannot mint one, which serves everything except OAuth.
+        """
+        existing = self._override_value("OIDC_RSA_PRIVATE_KEY")
+        if existing:
+            self.oidc_private_key = existing
+            return
+        # One line, because it lives in a compose environment entry. The Django
+        # setting turns the escapes back into newlines.
+        r = self.backend.exec(
+            r"""openssl genrsa 2048 2>/dev/null | openssl pkcs8 -topk8 -nocrypt -outform PEM """
+            r"""| awk 'NF {sub(/\r/, ""); printf "%s\\n", $0}'""",
+            timeout=120,
         )
         key = r.stdout.strip()
-        if key:
-            self.secret_key = key
+        if not key.startswith("-----BEGIN PRIVATE KEY-----"):
+            sys.stderr.write(
+                "[hogbox-preview] could not mint an RSA key; OAuth applications will not save on this preview\n"
+            )
+            return
+        self.oidc_private_key = key
 
     # --- steps (each usable standalone, mirroring bin/hobby-ci.py) -----------
     def start_runtime(self) -> None:
@@ -283,8 +312,8 @@ class PostHogPreviewStack:
         #
         # A web recreate still happens in up_web — but only to bind-mount the PR's
         # backend source over the image's /code (you can't add a mount to a
-        # running container). On the warm golden that's a ~18s warm import (1 Unit
-        # worker + preloaded config), not the old ~120s cold rebuild; #315's win
+        # running container). On the warm golden that's a warm single-worker import
+        # rather than a cold rebuild; #315's win
         # is making that recreate warm and serving the frontend relative
         # (JS_URL=""), not removing it. Keeping the env constant means web only
         # ever recreates for the mount, never for config drift.
@@ -308,10 +337,12 @@ class PostHogPreviewStack:
             lines += [f"      - ./{src}:{dst}" for src, dst in mounts]
         lines += [
             "    environment:",
-            # SITE_URL is a cosmetic placeholder (absolute links in emails etc.);
-            # serving is driven by JS_URL="" (relative assets) + the wildcard
-            # CSRF origin, so the box's own edge host serves with no per-box env.
-            "      - SITE_URL=http://localhost:8000",
+            # The OAuth metadata documents (RFC 8414, RFC 9728) build their
+            # issuer and endpoints from SITE_URL, so a placeholder would send a
+            # discovery client to its own machine. Serving still needs no per-box
+            # env: JS_URL="" keeps assets relative, and the CSRF origin is a
+            # wildcard.
+            f"      - SITE_URL={self.backend.web_url}",
             "      - JS_URL=",
             f"      - EXTRA_CSRF_TRUSTED_ORIGINS={_CSRF_TRUSTED_ORIGINS}",
             "      - DISABLE_SECURE_SSL_REDIRECT=1",
@@ -321,13 +352,10 @@ class PostHogPreviewStack:
             # (compose run --rm web) needs it too. Not shared across previews, so
             # a public preview URL can't be used to forge sessions on another.
             f"      - SECRET_KEY={self.secret_key}",
-            # A preview serves one user, so one Unit worker is plenty — and the
-            # image's entrypoint otherwise double-loads Django on every boot
-            # (start→apply config→stop→restart), once per worker. Measured on a
-            # restored golden: the stock 4-worker double-load is ~118s to first
-            # /_health; one worker + a preloaded config is ~15-20s.
-            "      - NGINX_UNIT_APP_PROCESSES=1",
-            "      - NGINX_UNIT_PRELOAD_CONFIG=true",
+            f"      - OIDC_RSA_PRIVATE_KEY={self.oidc_private_key}",
+            # A preview serves one user, and each worker costs a full Django import
+            # at boot, so one worker reaches a serving /_health much sooner.
+            "      - GRANIAN_WORKERS=1",
             # master's Django hard-requires the personhog service for group-type
             # lookups (require_personhog_client() raises "personhog client not
             # configured" without it — #65968). Same addr the dev/hobby composes
@@ -342,6 +370,15 @@ class PostHogPreviewStack:
             # companion settings change that reads this from the env; it's an
             # inert no-op on an image that predates it.
             "      - USE_LOCAL_SETUP=1",
+            # ee/urls.py registers /admin/* only when ADMIN_PORTAL_ENABLED is true,
+            # and ee/settings.py defaults it to DEMO or DEBUG — both false here. So
+            # without this, Django has no /admin route at all: the request falls
+            # through to the SPA, which prefixes any path it doesn't know with the
+            # project id, and /admin lands on /project/1/admin. A box reaches admin
+            # only over the tailnet (hogland's box-front is an internal NLB behind
+            # split-DNS), and the seeded demo user is staff, so /admin is as exposed
+            # as the rest of the preview and no more.
+            "      - ADMIN_PORTAL_ENABLED=1",
         ]
         lines += [
             "  plugins:",
@@ -538,8 +575,7 @@ class PostHogPreviewStack:
         self.backend.run_long(script, name="up-deps", timeout=900)
 
     def up_web(self) -> None:
-        # Clean `up` (never `restart` — Unit-listener gotcha). --no-build reuses
-        # the pulled image; the override mounts PR source over its /code.
+        # --no-build reuses the pulled image; the override mounts PR source over its /code.
         #
         # The temporal worker comes up here, alongside web and for the same
         # reason: you can't add a bind mount to a running container, so the
@@ -659,9 +695,6 @@ class PostHogPreviewStack:
         timing.stage("frontend swap done (collectstatic done)")
 
     def wait_for_health(self) -> None:
-        # Do NOT `restart web` with the pinned image: Nginx Unit binds its :8000
-        # listener only on a fresh container's first boot (/var/lib/unit empty);
-        # a restart skips it and leaves `listeners: {}`, so nothing serves.
         # up_services already brought web up cleanly — just wait for it to serve.
         # Django is a heavy import; first health can take ~7 min.
         with timing.span("health-poll"):

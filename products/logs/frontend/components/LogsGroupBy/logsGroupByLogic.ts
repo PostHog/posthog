@@ -33,7 +33,9 @@ const EMPTY_RESPONSE: _LogsGroupByResponseApi = {
 export interface logsGroupByLogicValues {
     groupBys: LogsViewerGroupBy[] // logsViewerConfigLogic
     filters: LogsViewerFilters // logsViewerFiltersLogic
+    personId: string | undefined // logsViewerFiltersLogic
     queryFilterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
+    sessionId: string | undefined // logsViewerFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
         date_to: string | null | undefined
@@ -65,6 +67,9 @@ export interface logsGroupByLogicActions {
     setGroupBys: (groupBys: LogsViewerGroupBy[]) => {
         groupBys: LogsViewerGroupBy[]
     } // logsViewerConfigLogic
+    bumpFacetRefresh: () => {
+        value: true
+    } // logsViewerFiltersLogic
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
     } // logsViewerFiltersLogic
@@ -139,13 +144,21 @@ export const logsGroupByLogic = kea<logsGroupByLogicType>([
             teamLogic,
             ['currentTeamId'],
             logsViewerFiltersLogic({ id: props.id }),
-            ['filters', 'utcDateRange', 'queryFilterGroup'],
+            ['filters', 'utcDateRange', 'queryFilterGroup', 'personId', 'sessionId'],
             logsViewerConfigLogic({ id: props.id }),
             ['groupBys'],
         ],
         actions: [
             logsViewerFiltersLogic({ id: props.id }),
-            ['setDateRange', 'zoomDateRange', 'setSearchTerm', 'setFilters', 'setFilterGroup', 'setPinnedFilters'],
+            [
+                'setDateRange',
+                'zoomDateRange',
+                'setSearchTerm',
+                'setFilters',
+                'setFilterGroup',
+                'setPinnedFilters',
+                'bumpFacetRefresh',
+            ],
             logsViewerConfigLogic({ id: props.id }),
             ['setGroupBys', 'addGroupBy', 'removeGroupByAt', 'replaceGroupByAt'],
         ],
@@ -172,6 +185,10 @@ export const logsGroupByLogic = kea<logsGroupByLogicType>([
                             // filters from an embedded viewer, so a scoped viewer can't aggregate
                             // project-wide logs.
                             filterGroup: values.queryFilterGroup as unknown as _LogPropertyFilterApi[],
+                            // Person and session scoping travel as their own fields, not in the
+                            // filter group, so they have to be sent explicitly here too.
+                            personId: values.personId,
+                            sessionId: values.sessionId,
                             groupBys: values.groupBys,
                             orderGroupsBy: values.orderGroupsBy,
                         },
@@ -222,6 +239,9 @@ export const logsGroupByLogic = kea<logsGroupByLogicType>([
             setFilterGroup: reload,
             setPinnedFilters: reload,
             // Immediate: changing the grouping dimensions or ranking column is a deliberate click.
+            // The refresh button fires `bumpFacetRefresh` through the shared filters logic, so
+            // the groups re-aggregate with the logs table instead of showing the earlier result.
+            bumpFacetRefresh: () => actions.loadGroups(),
             setGroupBys: () => actions.loadGroups(),
             addGroupBy: () => actions.loadGroups(),
             removeGroupByAt: () => actions.loadGroups(),

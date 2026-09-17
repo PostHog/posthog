@@ -241,6 +241,7 @@ def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQu
             console_log_filters=console_log_filters,
             having_predicates=having_predicates,
             filter_test_accounts=filters.get("filter_test_accounts"),
+            recommended_only=filters.get("recommended_only"),
             operand=_derive_operand(filters.get("filter_group")),
             limit=filters.get("limit"),
             # Mirrors the frontend converter: dropping it would make a saved playlist count

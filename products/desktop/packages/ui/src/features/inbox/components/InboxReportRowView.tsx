@@ -4,6 +4,10 @@ import {
   GitPullRequestIcon,
 } from "@phosphor-icons/react";
 import {
+  REPORT_IMPLEMENTATION_LABELS,
+  type ReportImplementationState,
+} from "@posthog/core/inbox/reportImplementation";
+import {
   deriveHeadline,
   humanizeReportTitle,
   parseConventionalCommitTitle,
@@ -19,6 +23,7 @@ import type { HTMLAttributes, ReactNode } from "react";
 
 export interface InboxReportRowViewProps {
   report: SignalReport;
+  implementationState?: ReportImplementationState | null;
   reviewers?: ReactNode;
   restoreAction?: ReactNode;
   prefetchHandlers?: Pick<
@@ -31,6 +36,7 @@ export interface InboxReportRowViewProps {
 
 export function InboxReportRowView({
   report,
+  implementationState,
   reviewers,
   restoreAction,
   prefetchHandlers,
@@ -43,6 +49,13 @@ export function InboxReportRowView({
   const pr = prUrl ? parsePrUrl(prUrl) : null;
   const isTerminal =
     report.status === "resolved" || report.status === "suppressed";
+  // GitHub keeps a draft pull request in the `open` state, so the draft flag is the only thing
+  // that separates a PR ready for review from one the agent is still writing. A terminal report has
+  // no work left either way, and its PR close can lag or fail, so its stale draft flag says nothing.
+  const isDraftPr =
+    !isTerminal &&
+    report.implementation_pr_state === "draft" &&
+    report.implementation_pr_merged !== true;
   const isShipped =
     report.status === "resolved" &&
     (report.implementation_pr_merged === true ||
@@ -80,6 +93,17 @@ export function InboxReportRowView({
         {headline && (
           <span className="line-clamp-2 text-[13px] text-gray-11">
             {headline}
+          </span>
+        )}
+        {implementationState && (
+          <span
+            className={`flex items-center gap-1.5 text-[12px] ${implementationState === "working" ? "text-blue-11" : "text-amber-11"}`}
+          >
+            <span
+              aria-hidden="true"
+              className="size-1.5 rounded-full bg-current"
+            />
+            {REPORT_IMPLEMENTATION_LABELS[implementationState]}
           </span>
         )}
         <span className="flex min-w-0 items-center gap-1.5 overflow-hidden text-[12.5px] text-gray-10">
@@ -160,10 +184,12 @@ export function InboxReportRowView({
               title={
                 report.implementation_pr_merged
                   ? "This report's earlier PR merged, but evidence kept arriving"
-                  : "Open the pull request on GitHub"
+                  : isDraftPr
+                    ? "Open the draft pull request on GitHub"
+                    : "Open the pull request on GitHub"
               }
               className={
-                report.implementation_pr_merged
+                report.implementation_pr_merged || isDraftPr
                   ? "flex items-center gap-1 rounded border border-(--gray-6) px-1.5 py-0.5 font-mono text-[12px] text-gray-11 hover:bg-(--gray-3) hover:text-gray-12"
                   : "flex items-center gap-1 rounded border border-(--accent-7) bg-(--accent-2) px-1.5 py-0.5 font-mono text-(--accent-11) text-[12px] hover:bg-(--accent-3)"
               }
@@ -174,7 +200,11 @@ export function InboxReportRowView({
                 <GitPullRequestIcon size={11} />
               )}
               #{pr.number}
-              {report.implementation_pr_merged ? " merged" : ""}
+              {report.implementation_pr_merged
+                ? " merged"
+                : isDraftPr
+                  ? " draft"
+                  : ""}
             </button>
           )}
           {restoreAction}

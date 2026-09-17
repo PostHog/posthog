@@ -13,9 +13,19 @@ set -uo pipefail
 # the whole pipeline then reads as failed and the warning never prints.
 staged=$(git diff --cached --name-only)
 
-if grep -qE '^packages/quill/packages/[^/]+/src/.*\.(ts|tsx|css)$' <<< "$staged" \
-    && ! grep -qE '^packages/quill/.*AGENTS\.md$' <<< "$staged"; then
-    printf "\n\033[33mWarning: quill component sources changed without an AGENTS.md update.\n"
+# A package's consumer guide is its own AGENTS.md or, where the guide is split by topic,
+# any doc under its own src/docs/. The workspace AGENTS.md covers every package. A doc
+# in a different package does not count.
+packages=$(grep -oE '^packages/quill/packages/[^/]+/src/.*\.(ts|tsx|css)$' <<< "$staged" | cut -d/ -f4 | sort -u)
+stale=""
+for pkg in $packages; do
+    if ! grep -qE "^packages/quill/(AGENTS\.md|packages/$pkg/(AGENTS\.md|src/docs/[^/]+\.md))$" <<< "$staged"; then
+        stale="$stale $pkg"
+    fi
+done
+
+if [ -n "$stale" ]; then
+    printf "\n\033[33mWarning: quill component sources changed without an AGENTS.md update (%s).\n" "${stale# }"
     printf "If variants, composition, or spacing changed, update the consumer guide\n"
-    printf "(packages/quill/packages/<pkg>/AGENTS.md) in the same PR.\033[0m\n\n"
+    printf "(packages/quill/packages/<pkg>/AGENTS.md, or a topic doc under its src/docs/) in the same PR.\033[0m\n\n"
 fi

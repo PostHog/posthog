@@ -1,0 +1,4 @@
+WIZARD_REPOSITORY_ACCESS_ERROR_TYPE = "WizardRepositoryAccessError"
+WIZARD_RUN_CONFIGURATION_ERROR_TYPE = "WizardRunConfigurationError"
+WIZARD_WORKER_EXECUTION_ERROR_TYPE = "WizardWorkerExecutionError"
+WIZARD_WORKER_TIMEOUT_ERROR_TYPE = "WizardWorkerTimeoutError"

@@ -62,12 +62,14 @@ export const useRichContentEditor = ({
     onCreate = () => {},
     onUpdate = () => {},
     onSelectionUpdate = () => {},
+    autoFocus = false,
 }: RichContentEditorProps): TTEditor => {
     const editor = useEditor({
         shouldRerenderOnTransaction: false,
         extensions,
         editable: !disabled,
         content: initialContent,
+        autofocus: autoFocus,
         onSelectionUpdate: onSelectionUpdate,
         onUpdate: ({ editor }) => onUpdate(editor.getJSON()),
         onCreate: ({ editor }) => onCreate(editor),

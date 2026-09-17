@@ -3,6 +3,7 @@ import {
   REPORT_MODEL_RESOLVER,
   type ReportModelResolver,
 } from "@posthog/core/inbox/identifiers";
+import { inboxReportKeys } from "@posthog/core/inbox/inboxQuery";
 import {
   isUsageLimitResult,
   TASK_SERVICE,
@@ -37,7 +38,7 @@ import { openTask } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 /** Variant-specific copy used in the toasts/errors emitted by the runner. */
 interface InboxCloudTaskCopy {
@@ -107,6 +108,7 @@ export interface UseInboxCloudTaskRunnerOptions {
   analyticsExtras?: Record<string, unknown>;
   /** Called with the created task record, before any navigation happens. */
   onTaskCreated?: (task: Task) => void;
+  onTaskStarted?: (task: Task) => void;
   /**
    * When false, the runner does not navigate to the created task. The task is
    * still added to the sidebar via `invalidateTasks`, and a success toast with a
@@ -117,7 +119,7 @@ export interface UseInboxCloudTaskRunnerOptions {
 
 export interface UseInboxCloudTaskRunnerReturn {
   /** Kick off the cloud-task flow. Resolves after the task is created (or failed). */
-  run: () => Promise<void>;
+  run: () => Promise<boolean>;
   /** True while a task is being created. */
   isRunning: boolean;
 }
@@ -139,9 +141,11 @@ export function useInboxCloudTaskRunner({
   buildInput,
   analyticsExtras,
   onTaskCreated,
+  onTaskStarted,
   redirectOnSuccess = true,
 }: UseInboxCloudTaskRunnerOptions): UseInboxCloudTaskRunnerReturn {
   const [isRunning, setIsRunning] = useState(false);
+  const runningRef = useRef(false);
   const { getUserIntegrationIdForRepo } = useUserRepositoryIntegration();
   const { invalidateTasks } = useCreateTask();
   const taskService = useService<TaskService>(TASK_SERVICE);
@@ -151,7 +155,7 @@ export function useInboxCloudTaskRunner({
   const { isOnline } = useConnectivity();
 
   const run = useCallback(async () => {
-    if (isRunning) return;
+    if (runningRef.current) return false;
     const log = logger.scope(loggerScope);
     const startedAt = Date.now();
     const trackActionResult = (
@@ -177,13 +181,13 @@ export function useInboxCloudTaskRunner({
     if (!isOnline) {
       showOfflineToast();
       trackActionResult("failed", "offline");
-      return;
+      return false;
     }
 
     if (!cloudRepository && !allowMissingRepository) {
       toast.error(copy.errorTitle, { description: copy.missingRepository });
       trackActionResult("failed", "missing_repository");
-      return;
+      return false;
     }
 
     // A repo-less run has no GitHub identity; only resolve/require the user
@@ -194,80 +198,79 @@ export function useInboxCloudTaskRunner({
     if (cloudRepository && !githubUserIntegrationId) {
       toast.error(copy.errorTitle, { description: copy.missingIntegration });
       trackActionResult("failed", "missing_integration");
-      return;
+      return false;
     }
 
     if (!cloudRegion) {
       toast.error(copy.errorTitle, { description: copy.signedOut });
       trackActionResult("failed", "signed_out");
-      return;
+      return false;
     }
 
+    runningRef.current = true;
     setIsRunning(true);
     const toastId = toast.loading(copy.loadingTitle, reportTitle ?? undefined);
 
-    const settings = useSettingsStore.getState();
-    const adapter = settings.lastUsedAdapter ?? "claude";
-    const apiHost = getCloudUrlFromRegion(cloudRegion);
+    try {
+      const settings = useSettingsStore.getState();
+      const adapter = settings.lastUsedAdapter ?? "claude";
+      const apiHost = getCloudUrlFromRegion(cloudRegion);
 
-    // Pass the persisted model as a *preference*, not a hard selection: the
-    // resolver keeps it only if the gateway still offers it, otherwise it falls
-    // back to the server default. A stale id (e.g. one later de-listed for the
-    // org) would otherwise be sent here and fail the run with a gateway 403.
-    const preferredModel = defaultEligibleModel(settings.lastUsedModel);
-    const resolvedModel = await resolveDefaultModel(
-      queryClient,
-      apiHost,
-      adapter,
-      modelResolver,
-      preferredModel,
-    );
-    // The resolver returns undefined on a transient failure; fall back to the
-    // persisted id so a gateway outage degrades gracefully rather than blocking.
-    const model = resolvedModel ?? preferredModel;
+      // Pass the persisted model as a *preference*, not a hard selection: the
+      // resolver keeps it only if the gateway still offers it, otherwise it falls
+      // back to the server default. A stale id (e.g. one later de-listed for the
+      // org) would otherwise be sent here and fail the run with a gateway 403.
+      const preferredModel = defaultEligibleModel(settings.lastUsedModel);
+      const resolvedModel = await resolveDefaultModel(
+        queryClient,
+        apiHost,
+        adapter,
+        modelResolver,
+        preferredModel,
+      );
+      // The resolver returns undefined on a transient failure; fall back to the
+      // persisted id so a gateway outage degrades gracefully rather than blocking.
+      const model = resolvedModel ?? preferredModel;
 
-    if (!model) {
-      toast.dismiss(toastId);
-      toast.error(copy.errorTitle, { description: copy.missingModel });
-      setIsRunning(false);
-      trackActionResult("failed", "missing_model");
-      return;
-    }
+      if (!model) {
+        toast.dismiss(toastId);
+        toast.error(copy.errorTitle, { description: copy.missingModel });
+        setIsRunning(false);
+        trackActionResult("failed", "missing_model");
+        return false;
+      }
 
-    // The persisted effort belongs to `lastUsedModel`; if the resolver swapped in
-    // a fallback default, that tier may be unsupported for the new model and the
-    // cloud runtime rejects the pair (see agent `bin.ts`). Carry the effort only
-    // when the model is unchanged AND the tier is actually supported for it —
-    // an effort-less model (e.g. a Cloudflare `@cf/*` model) carrying a stale
-    // tier would otherwise hard-fail the run at startup. Otherwise let the
-    // runtime pick its default.
-    const reasoningLevel =
-      model === settings.lastUsedModel &&
-      settings.lastUsedReasoningEffort &&
-      isSupportedReasoningEffort(
+      // The persisted effort belongs to `lastUsedModel`; if the resolver swapped in
+      // a fallback default, that tier may be unsupported for the new model and the
+      // cloud runtime rejects the pair (see agent `bin.ts`). Carry the effort only
+      // when the model is unchanged AND the tier is actually supported for it —
+      // an effort-less model (e.g. a Cloudflare `@cf/*` model) carrying a stale
+      // tier would otherwise hard-fail the run at startup. Otherwise let the
+      // runtime pick its default.
+      const reasoningLevel =
+        model === settings.lastUsedModel &&
+        settings.lastUsedReasoningEffort &&
+        isSupportedReasoningEffort(
+          adapter,
+          model,
+          settings.lastUsedReasoningEffort,
+        )
+          ? settings.lastUsedReasoningEffort
+          : undefined;
+
+      const input = buildInput({
+        reportId,
+        reportTitle,
+        cloudRepository,
+        githubUserIntegrationId: githubUserIntegrationId
+          ? String(githubUserIntegrationId)
+          : null,
         adapter,
         model,
-        settings.lastUsedReasoningEffort,
-      )
-        ? settings.lastUsedReasoningEffort
-        : undefined;
+        reasoningLevel,
+      });
 
-    const input = buildInput({
-      reportId,
-      reportTitle,
-      cloudRepository,
-      githubUserIntegrationId: githubUserIntegrationId
-        ? String(githubUserIntegrationId)
-        : null,
-      adapter,
-      model,
-      reasoningLevel,
-    });
-
-    try {
-      let createdTask: Parameters<typeof openTask>[0] | null = null;
       const result = await taskService.createTask(input, (output) => {
-        createdTask = output.task;
         invalidateTasks(output.task);
         onTaskCreated?.(output.task);
         if (redirectOnSuccess) {
@@ -276,10 +279,23 @@ export function useInboxCloudTaskRunner({
       });
 
       if (result.success) {
+        try {
+          onTaskStarted?.(result.data.task);
+        } catch (error) {
+          log.error("Task started, but the handoff callback failed", error);
+          void queryClient
+            .invalidateQueries({ queryKey: inboxReportKeys.all })
+            .catch((refreshError) => {
+              log.error(
+                "Could not refresh reports after task startup",
+                refreshError,
+              );
+            });
+        }
         trackActionResult("succeeded");
         toast.dismiss(toastId);
         if (!redirectOnSuccess) {
-          const task = createdTask;
+          const task = result.data.task;
           toast.success(copy.successTitle ?? "Task started", {
             description: reportTitle ?? undefined,
             action: task
@@ -306,6 +322,7 @@ export function useInboxCloudTaskRunner({
             : { cloud_run_source: "manual" }),
           adapter,
           ...analyticsExtras,
+          space_context_mode: "none",
         });
       } else {
         const failureCode: InboxReportActionFailureCode = isUsageLimitResult(
@@ -346,6 +363,7 @@ export function useInboxCloudTaskRunner({
           });
         }
       }
+      return result.success;
     } catch (error) {
       trackActionResult("failed", "unexpected_error");
       toast.dismiss(toastId);
@@ -354,11 +372,12 @@ export function useInboxCloudTaskRunner({
         error,
         reportId,
       });
+      return false;
     } finally {
+      runningRef.current = false;
       setIsRunning(false);
     }
   }, [
-    isRunning,
     isOnline,
     loggerScope,
     cloudRepository,
@@ -374,6 +393,7 @@ export function useInboxCloudTaskRunner({
     copy,
     analyticsExtras,
     onTaskCreated,
+    onTaskStarted,
     modelResolver,
     taskService,
     redirectOnSuccess,

@@ -7,10 +7,12 @@ import zlib
 import random
 import threading
 import statistics
+from collections import defaultdict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import close_old_connections
 from django.utils.dateparse import parse_datetime
@@ -23,7 +25,8 @@ from prometheus_client import Counter, Gauge
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_queries
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries
 from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseAtCapacity
@@ -43,6 +46,9 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     BACKGROUND_WARMING_TRIGGERS,
     MAX_PRECOMPUTE_DAYS,
     SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS,
+    get_sticky_warm_shapes,
+    is_team_above_volume_floor,
+    publish_volume_floor_teams,
 )
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
     can_use_lazy_precompute as can_use_overview_lazy_precompute,
@@ -620,7 +626,59 @@ def _write_cached_warmable_queries(days: int, minimum_query_count: int, max_shap
 
 
 @dagster.op
-def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
+def publish_volume_floor_op(context: dagster.OpExecutionContext) -> bool:
+    """Refresh the above-floor team set the shared eligibility gate reads.
+
+    The count reads only the timestamp column over a 7-day window on the
+    OFFLINE workload; publishing before selection means this hour's warming
+    pass and all reads share one fresh floor. Fail-open by design: on any
+    error the previous set (or its expiry) governs and warming proceeds.
+    """
+    floor = settings.WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS
+    if floor <= 0:
+        context.log.info("Volume floor disabled (WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS <= 0).")
+        return True
+    try:
+        # Scan down to the exit floor (half the entry floor) so hysteresis has
+        # the candidates it needs: existing members stay until they fall below
+        # the exit floor instead of flapping around the entry threshold.
+        exit_floor = max(1, floor // 2)
+        tag_queries(feature=Feature.CACHE_WARMUP, trigger="webAnalyticsQueryWarming", product=Product.WEB_ANALYTICS)
+        rows = sync_execute(
+            """
+            SELECT team_id, count() AS ev7d
+            FROM events
+            WHERE timestamp > now() - INTERVAL 7 DAY AND timestamp < now()
+            GROUP BY team_id
+            HAVING ev7d >= %(exit_floor)s
+            """,
+            {"exit_floor": exit_floor},
+            workload=Workload.OFFLINE,
+            # Bound the fleet scan like the shape-selection query: a marks-only
+            # count still reads the timestamp column across every team, so cap it
+            # rather than let a plan regression drain offline capacity to timeout.
+            settings={"max_bytes_to_read": _SELECTION_MAX_BYTES_TO_READ, "max_execution_time": 300},
+        )
+        above_floor = [int(r[0]) for r in rows if int(r[1]) >= floor]
+        above_exit_floor = [int(r[0]) for r in rows]
+        if not above_floor:
+            # On any real fleet an empty result means the scan broke, not that
+            # every team shrank below the floor at once. Skip the publish so
+            # the previous set (or its 48h expiry, which fails open) governs.
+            context.log.error("Volume floor scan returned no teams; skipping publish (previous set governs).")
+            return True
+        publish_volume_floor_teams(above_floor, above_exit_floor=above_exit_floor)
+        context.log.info(
+            f"Published {len(above_floor)} teams at/above the {floor}-events/7d precompute floor "
+            f"(hysteresis band down to {exit_floor})."
+        )
+    except Exception:
+        context.log.exception("Volume floor refresh failed; readers keep the previous set (fail-open).")
+    return True
+
+
+@dagster.op
+def get_warmable_queries_op(context: dagster.OpExecutionContext, floor_published: bool = True) -> list[dict]:
     days = get_instance_setting("WEB_ANALYTICS_WARMING_DAYS")
     minimum_query_count = get_instance_setting("WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT")
     max_shapes = get_instance_setting("WEB_ANALYTICS_WARMING_MAX_SHAPES")
@@ -634,16 +692,81 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
         )
         _write_cached_warmable_queries(days, minimum_query_count, max_shapes, queries)
 
-    team_count = len({q["team_id"] for q in queries})
+    # `selection_cap_reached` reflects the selection query alone: sticky entries
+    # are appended below and floor-dropped shapes still consumed cap slots, so
+    # neither must read as the selection hitting its LIMIT.
+    selection_cap_reached = len(queries) >= max_shapes
 
+    # Union in shapes that check-missed twice since the selection was cached:
+    # they are proven lazy-eligible (recorded from inside the lazy gate) and
+    # their teams have repeat demand right now, so waiting for the selection
+    # blob's TTL leaves them re-missing for hours. No dedupe against the
+    # selection here — the warm pass already dedupes replays by (team_id, cache
+    # key), so an overlap costs one `skipped_duplicate`, not a double build.
+    # `representative_query_count=1` keeps any shape whose eligibility has since
+    # changed under the raw-replay demand bar, so stickiness can never mint raw
+    # background scans.
+    sticky = get_sticky_warm_shapes()
+    # Cap sticky contributions per team with the same bound the demand
+    # selection's `LIMIT ... BY team_id` uses. The two caps stack — a team can
+    # contribute up to MAX_SHAPES_PER_TEAM sticky shapes on top of its
+    # selection shapes — but each side is bounded, so one tenant filling the
+    # shared sticky set can't crowd the fleet-wide warm pass.
+    sticky_per_team: defaultdict[int, int] = defaultdict(int)
+    sticky_added = 0
+    for entry in sticky:
+        team_id = entry["team_id"]
+        if sticky_per_team[team_id] >= MAX_SHAPES_PER_TEAM:
+            continue
+        sticky_per_team[team_id] += 1
+        query_json = entry.get("query") or {}
+        date_from = (query_json.get("dateRange") or {}).get("date_from")
+        queries.append(
+            {
+                "team_id": team_id,
+                "query_json": query_json,
+                "query_count": 1,
+                "representative_query_count": 1,
+                # Stable per-shape int for the staleness jitter, derived the same
+                # way selection derives it — from the payload content.
+                "normalized_query_hash": zlib.crc32(json.dumps(query_json, sort_keys=True).encode()),
+                "observed_date_froms": [date_from] if date_from else [],
+            }
+        )
+        sticky_added += 1
+    if sticky_added:
+        context.log.info(f"Unioned {sticky_added} sticky check-miss shapes into the warm pass")
+
+    # The floor is enforced here, per replay, not in the selection SQL: keeping the
+    # cached selection floor-agnostic means a team that grows above the floor is
+    # warmed on the next pass, rather than waiting for the selection blob's TTL to
+    # lapse. It applies to sticky-unioned shapes too, so a below-floor team can't
+    # be warmed through the sticky path. A fresh `is_team_above_volume_floor`
+    # verdict (60s-cached) applies each pass.
+    pre_floor_count = len(queries)
+    queries = [q for q in queries if is_team_above_volume_floor(int(q["team_id"]))]
+    floor_dropped = pre_floor_count - len(queries)
+
+    team_count = len({q["team_id"] for q in queries})
     WARMING_SHAPES_SELECTED_GAUGE.set(len(queries))
     source = "cached" if from_cache else "freshly selected"
-    context.log.info(f"Warming {len(queries)} {source} hot query shapes across {team_count} teams")
+    context.log.info(
+        f"Warming {len(queries)} {source} hot query shapes across {team_count} teams"
+        + (
+            f" (volume floor dropped {floor_dropped} shapes under "
+            f"{settings.WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS} events/7d)"
+            if floor_dropped
+            else ""
+        )
+    )
     context.add_output_metadata(
         {
             "query_count": len(queries),
             "team_count": team_count,
-            "cap_reached": len(queries) >= max_shapes,
+            "sticky_count": len(sticky),
+            "sticky_added": sticky_added,
+            "floor_dropped": floor_dropped,
+            "cap_reached": selection_cap_reached,
             "from_cache": from_cache,
         }
     )
@@ -1199,7 +1322,8 @@ def report_warming_plan_op(context: dagster.OpExecutionContext, queries: list[di
     },
 )
 def web_analytics_cache_warming_job():
-    queries = get_warmable_queries_op()
+    floor_published = publish_volume_floor_op()
+    queries = get_warmable_queries_op(floor_published)
     # Aliased so the config path stays ops.warm_queries_op.config — the split op
     # takes the same WarmQueriesConfig, so saved Launchpad configs written for
     # the pre-sharding single op keep binding unchanged.

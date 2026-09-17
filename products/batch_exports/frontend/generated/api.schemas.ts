@@ -314,9 +314,9 @@ export const SnowflakeDestinationConfigApiType = {
 /**
  * Typed configuration for a Snowflake batch-export destination.
  *
- * Account, user, authentication type and credentials may live in a linked Integration (when one is
- * provided) or inline in this config (legacy). Mirrors the non-credential fields of
- * `SnowflakeBatchExportInputs` in `products/batch_exports/backend/service.py`.
+ * Account, user, authentication type and credentials live in the linked Integration, never here.
+ * Mirrors the non-credential fields of `SnowflakeBatchExportInputs` in
+ * `products/batch_exports/backend/service.py`.
  */
 export interface SnowflakeDestinationConfigApi {
     /** Snowflake database to write to. */
@@ -477,7 +477,7 @@ export interface BatchExportDestinationApi {
      */
     integration?: number | null
     /**
-     * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, Postgres, AwsS3, and S3Compatible destinations; optional for Snowflake and Redshift (inline credentials remain supported); unused for other types.
+     * ID of a team-scoped Integration providing credentials, for destinations that authenticate through one. Required for all of them.
      * @nullable
      */
     integration_id?: number | null
@@ -1374,7 +1374,7 @@ export const AwsS3DestinationRequestApiType = {
  */
 export interface AwsS3DestinationRequestApi {
     type: AwsS3DestinationRequestApiType
-    /** ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+    /** ID of an aws-s3-kind Integration providing AWS credentials. Use the integrations-list MCP tool to find one. */
     integration_id: number
     config: AwsS3DestinationConfigApi
 }
@@ -1391,7 +1391,7 @@ export const S3CompatibleDestinationRequestApiType = {
  */
 export interface S3CompatibleDestinationRequestApi {
     type: S3CompatibleDestinationRequestApiType
-    /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+    /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Use the integrations-list MCP tool to find one. */
     integration_id: number
     config: S3CompatibleDestinationConfigApi
 }
@@ -1408,8 +1408,8 @@ export const SnowflakeDestinationRequestApiType = {
  */
 export interface SnowflakeDestinationRequestApi {
     type: SnowflakeDestinationRequestApiType
-    /** ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
-    integration_id?: number
+    /** ID of a snowflake-kind Integration providing the account, user and credentials. Use the integrations-list MCP tool to find one. */
+    integration_id: number
     config: SnowflakeDestinationConfigApi
 }
 
@@ -1703,7 +1703,7 @@ export interface FileDownloadDestinationFileConfigApi {
      * * `snappy` - snappy */
     compression?: CompressionEnumApi | null
     /**
-     * Split download into multiple files of at most this size in MB
+     * Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.
      * @minimum 0
      * @nullable
      */
@@ -1822,6 +1822,11 @@ export const RetrieveCompletedOutputApiStatus = {
 export interface RetrieveCompletedOutputApi {
     status: RetrieveCompletedOutputApiStatus
     files: string[]
+    /**
+     * Number of rows this run exported.
+     * @nullable
+     */
+    records_completed: number | null
 }
 
 export type RetrieveFailedOutputApiStatus =

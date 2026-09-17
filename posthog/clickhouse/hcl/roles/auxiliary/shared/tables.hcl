@@ -29,10 +29,10 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "kafka" {
-      broker_list = "warpstream_ingestion"
-      topic_list  = "kafka_topic_list = 'clickhouse_ingestion_warnings'"
-      group_name  = "kafka_group_name = 'clickhouse_ingestion_warnings_v2'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "warpstream_ingestion"
+      topic_list = "clickhouse_ingestion_warnings"
+      group_name = "clickhouse_ingestion_warnings_v2"
+      format     = "JSONEachRow"
     }
   }
   table "kafka_message_assets" {
@@ -85,10 +85,10 @@ database "posthog" {
       type = "String"
     }
     engine "kafka" {
-      broker_list          = "warpstream_cyclotron"
-      topic_list           = "kafka_topic_list = 'clickhouse_message_assets'"
-      group_name           = "kafka_group_name = 'clickhouse_message_assets'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_cyclotron"
+      topic_list           = "clickhouse_message_assets"
+      group_name           = "clickhouse_message_assets"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -109,10 +109,10 @@ database "posthog" {
       type = "UInt64"
     }
     engine "kafka" {
-      broker_list         = "warpstream_ingestion"
-      topic_list          = "kafka_topic_list = 'clickhouse_property_values'"
-      group_name          = "kafka_group_name = 'clickhouse_property_values'"
-      format              = "kafka_format = 'JSONEachRow'"
+      collection          = "warpstream_ingestion"
+      topic_list          = "clickhouse_property_values"
+      group_name          = "clickhouse_property_values"
+      format              = "JSONEachRow"
       num_consumers       = 8
       thread_per_consumer = true
     }
@@ -426,6 +426,31 @@ database "posthog" {
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_usage_report_events_preagg"
       replica_name = "{replica}"
+    }
+  }
+  table "sharded_billing_usage_records" {
+    order_by     = ["team_id", "toDate(timestamp)", "producer_id", "usage_key", "record_id"]
+    partition_by = "toYYYYMM(timestamp)"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "schema_version" { type = "UInt8" }
+    column "record_id" { type = "String" }
+    column "producer_id" { type = "LowCardinality(String)" }
+    column "team_id" { type = "Int64" }
+    column "organization_id" { type = "UUID" }
+    column "usage_key" { type = "LowCardinality(String)" }
+    column "unit" { type = "LowCardinality(String)" }
+    column "quantity" { type = "Int64" }
+    column "timestamp" { type = "DateTime64(6, 'UTC')" }
+    column "inserted_at" { type = "DateTime64(6, 'UTC')" }
+    column "_timestamp" { type = "DateTime" }
+    column "_offset" { type = "UInt64" }
+    column "_partition" { type = "UInt64" }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
+      replica_name   = "{replica}"
+      version_column = "inserted_at"
     }
   }
   table "sharded_web_bot_definition" {
@@ -1029,10 +1054,10 @@ database "posthog" {
       type = "UInt8"
     }
     engine "kafka" {
-      broker_list          = "warpstream_cyclotron"
-      topic_list           = "kafka_topic_list = 'clickhouse_hog_invocation_results'"
-      group_name           = "kafka_group_name = 'clickhouse_hog_invocation_results'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_cyclotron"
+      topic_list           = "clickhouse_hog_invocation_results"
+      group_name           = "clickhouse_hog_invocation_results"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }

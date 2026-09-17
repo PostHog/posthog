@@ -34,10 +34,10 @@ Judges the report for safety, then persists it at the judged status.
 | `summary`                   | string                  | The report body prose — one tight passage a busy human can act on: a **quantified hook** (what's happening, with numbers), the **pattern** that makes it signal rather than noise, the suspected-cause **hypothesis**, and the **recommendation**. Cite entities inline as markdown links so the reader pivots straight to source (see below). |
 | `evidence`                  | list, 1–50              | Each `{description, source_id}`. Becomes a bound signal row backing the report. `source_id` is the citable entity id. Hard cap of **50** — summarize/trim before calling; a longer list fails validation before the report is judged or persisted.                                                                                             |
 | `actionability_explanation` | string                  | One sentence justifying the actionability call below.                                                                                                                                                                                                                                                                                          |
-| `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it.                                                                                                                                                                                                                |
+| `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it. See _Choosing actionability_ below.                                                                                                                                                                            |
 | `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                                                                                                             |
 | `charts`                    | list, ≤20, optional     | Queries the inbox draws on the report — the report's full set, replacing any it already had. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                                                   |
-| `suggested_prompts`         | list, ≤3, optional      | Follow-up questions the inbox offers above the report's `Ask AI` box, each ≤200 characters and all distinct. See _Suggesting follow-up questions_ below.                                                                                                                                                                                       |
+| `suggested_prompts`         | list, ≤3, optional      | Follow-up prompts the inbox offers above the report's `Ask AI` box (questions to ask, or next-step actions to request), each ≤200 characters and all distinct. See _Suggesting follow-up prompts_ below.                                                                                                                                       |
 
 **Cite each entity as a link, not a bare id.** In `summary` and in `evidence` descriptions, write
 the entity you name as a markdown link: reuse the url the returning tool attached (`_posthogUrl`
@@ -45,6 +45,10 @@ and friends), else build one with `generate-app-url`, and keep the bare id when 
 the entity itself. Two spots stay plain text, because the inbox renders them as text: `title`, and
 the summary's first line, which the inbox lifts out as the card headline. The harness prompt
 (_Linking what you reference_) carries the full rule.
+
+**Section labels are where a Slack thread splits.** A destination with "Post reports as a thread" on posts a short lead in the channel and each later section as a reply.
+A heading (`## Evidence`) and a bold label on a line of its own (`**Evidence**`) both mark a section, so write the outline you want the reader to get and either form works.
+Leave a blank line above each label, since a label the line above runs onto is part of that paragraph rather than a new section.
 
 **Status is decided for you, from safety × actionability:**
 
@@ -54,6 +58,17 @@ the summary's first line, which the inbox lifts out as the card headline. The ha
 | safe         | `requires_human_input`   | `PENDING_INPUT`  | yes                |
 | safe         | `not_actionable`         | `SUPPRESSED`     | no                 |
 | unsafe       | (any)                    | `SUPPRESSED`     | no                 |
+
+**Choosing actionability.** The harness prompt carries the full criteria; the call comes down to what a person would have to supply.
+
+1. `immediately_actionable` — a coding agent could take concrete, useful action right now: a bug fix, an experiment reaction, a flag cleanup, a UX fix, or a deep investigation with a clear jumping-off point.
+   An unknown root cause does not disqualify a report. When you name the evidence, the code surface, or a failure path someone can reproduce, the investigation is the action.
+2. `requires_human_input` — a code change is plausible, but a person must first make a call only a person can make: a product decision, a trade-off between valid approaches, business context that is not in the data or the code.
+   Name that decision in `actionability_explanation`. If you cannot name it, the report is not waiting on a human.
+3. `not_actionable` — no answer would lead to code work.
+
+In doubt between the first two, pick `immediately_actionable`; in doubt between the last two, pick `not_actionable`.
+It is not a free hedge: autostart only considers an immediately-actionable report, so parking one costs it the draft PR a person then has to start by hand.
 
 The result tells you what happened: `report_id` (always set when a report was persisted — **even when suppressed**, so you can edit or dedup against it), `report_status` (the birth status — `ready` / `pending_input` / `suppressed` — the field is named `report_status` in the response, not `status`), `emitted` (true only when it actually surfaced — `READY` / `PENDING_INPUT`), `safety_explanation`, and `skipped_reason` (set only when a preflight gate stopped the call before any report was created — the AI-data-processing / source-enabled gates that govern every scout write).
 
@@ -135,28 +150,33 @@ Leave `charts` out entirely and the report keeps the ones it has; read the repor
 Send `charts: []` to take every chart down, for when the finding has moved on and the old chart would now mislead.
 Cap is **20 charts per report** (and a combined query-size budget), which is far more than most reports should use. Each chart runs its query when the report is opened, so attach the ones that carry the argument rather than everything you looked at: three charts a reader studies beat a dozen they scroll past.
 
-### Suggesting follow-up questions
+### Suggesting follow-up prompts
 
-`suggested_prompts` are questions the inbox offers above the report's `Ask AI` box.
+`suggested_prompts` are prompts the inbox offers above the report's `Ask AI` box: follow-up questions, and next-step actions the reader can send as a request.
 Clicking one fills the box with it; nothing is sent on the click, so the reader can send it as written or edit it first.
-You did the research and know which threads you left open, so this hands the reader that knowledge instead of leaving them to invent a question from an empty box.
+You did the research and know which threads you left open and what should happen next, so this hands the reader that knowledge instead of leaving them to invent a prompt from an empty box.
 
-Optional, and worth it only when you can name a question worth an agent run.
+Optional, and worth it only when you can name a prompt worth an agent run.
 Write none rather than pad to the cap — a report with no suggestions looks exactly as it did before.
 
 **Ask what your research left open, not what it already answered.**
 A question the summary answers spends an agent run restating the report.
 Good ones widen the finding (who else is affected, since when, what changed), test a hypothesis you could not, or ask for the next step you did not have the standing to take.
 
-**Write the question the reader would ask, in their words**, and make each one stand alone — the question reaches an agent that gets the report as context but not your run, so it can't point at "the above" or "the second chart".
+**Offer the action your report recommends, so acting on it is one click.**
+The prompt reaches an agent run that can investigate, carry out the report's recommendation, and work the report itself — its work log and its state — so a good action prompt names the concrete work: "Create the alert the report recommends, then mark this report resolved".
+Fold in "mark this report resolved" only when the action completes in place — an action that lands as a pull request must not resolve the report, because a caller resolve closes the report's open PR and the merge resolves the report on its own.
+Suggest only actions your report's own recommendation makes concrete; leave anything a human should weigh first (deleting data, changing a flag serving live traffic) as a question instead.
+
+**Write each prompt as the reader would send it, in their words** — a question they would ask or a request they would make — and make each one stand alone: the prompt reaches an agent that gets the report as context but not your run, so it can't point at "the above" or "the second chart".
 
 **`suggested_prompts` on an edit is the report's whole set, not an addition.**
-It replaces what the report had, the way `summary` replaces the summary, so re-send every question you want kept.
+It replaces what the report had, the way `summary` replaces the summary, so re-send every prompt you want kept.
 Leave the field out and the report keeps the ones it has; send `suggested_prompts: []` to take them down.
 Rewriting `summary` on an edit does not clear them for you, so send the new set (or `[]`) in the same call.
-The research pipeline does clear them when it rewrites a report it re-researches, since the questions were written against the prose it replaces.
+The research pipeline does clear them when it rewrites a report it re-researches, since the prompts were written against the prose it replaces.
 
-Cap is **3 questions per report**, each **≤200 characters**, and duplicates are refused.
+Cap is **3 prompts per report**, each **≤200 characters**, and duplicates are refused.
 
 ### Opening a draft PR (autostart)
 
@@ -194,9 +214,9 @@ Each entry identifies one reviewer by **`github_login`**, **`user_uuid`**, or bo
 - **`github_login`** — a **bare, lowercase GitHub login** (e.g. `octocat`, not `@OctoCat`).
   Internal assignment matches it against each user's linked GitHub login by exact, lowercased comparison, so a mis-cased handle, an `@`-prefix, a display name, a CODEOWNERS **team** slug, or an email won't set `is_suggested_reviewer` for anyone (autostart's PR-selection path is more lenient, but the assignment path is not).
 - **`user_uuid`** — a **PostHog user UUID**.
-  The server resolves it to that org member's linked GitHub login for you (and it wins if you also pass a `github_login`).
-  Use this whenever your evidence already names a PostHog user — an account owner, an entity's `created_by`, a CSM — so you can route to them without ever looking up their handle.
-  A `user_uuid` that isn't an org member of this team **with a linked GitHub identity** is rejected (the whole call fails), so it never silently drops.
+  The server resolves it to that org member. It wins if you also pass a `github_login`.
+  Use this whenever your evidence already names a PostHog user. It works without a linked GitHub account.
+  A `user_uuid` that is not an org member of this team is rejected, so it never silently drops.
 
 So you have two routes to a reviewer.
 If you already hold a PostHog user UUID, prefer passing it as `user_uuid` — it's the most reliable.
@@ -210,7 +230,7 @@ Otherwise resolve a `github_login`, cheapest source first:
    `.github/CODEOWNERS` for the owning path, or the last `git log` author for the file.
    Neither usually hands you a usable login directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log` gives a name + email — both must be resolved to an **individual** GitHub login before you write the reviewer (a team slug or an email won't match any user).
 4. **`scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner.
-   It returns this project's members, each with `user_uuid`, `email`, name, and a resolved `github_login` (pass `search=` to narrow); match the owner and route to their `github_login`, or hand the `user_uuid` straight through and let the server resolve it.
+   It returns this project's members, each with `user_uuid`, email, name, and a resolved `github_login`. Pass `search=` to narrow the result. Match the owner and route with `user_uuid`.
    The org-scoped `org-members-list` / `org-member-get-github-login` tools are **not available in a scout run** — a scoped-team token can't reach the org-nested endpoint, so don't build a scout's reviewer recipe around them.
 
 **If you can't confidently identify a reviewer, leave `suggested_reviewers` empty** — the report still surfaces for a human to grab.
@@ -222,14 +242,21 @@ The fleet's reviewer map should compound over time.
 
 ## `edit_report` — update an existing report
 
-Rewrite `title`/`summary`, append a note, set `suggested_reviewers`, and/or replace `charts` / `suggested_prompts` on a report that already exists.
-Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `suggested_reviewers`, `charts`, `suggested_prompts`.
+Rewrite `title`/`summary`, append evidence or a note, set `suggested_reviewers`, and/or replace `charts` / `suggested_prompts` on a report that already exists.
+Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `append_evidence`, `suggested_reviewers`, `charts`, `suggested_prompts`.
+An edit that supplies content (`title`, `summary`, `charts`, `suggested_prompts`, `append_note`, `append_evidence`, or a reviewer `reason`) passes the same safety judge as `emit_report`; an unsafe edit is rejected whole and the report keeps what it had.
 
 `edit_report` can target **any** of the team's inbox reports — not just ones a scout authored.
 That makes it the right tool when a later run learns something about a report the pipeline (or another scout) created.
 Rules of good behavior:
 
-- **Prefer `append_note` over rewriting** `title`/`summary` on a report you didn't author.
+- Use **`append_evidence`** for a new observation that a reader can check.
+  It takes the same `{description, source_id}` items as `emit_report`, and each one lands in the report's evidence rail as a bound signal, so the report's `signal_count` and `total_weight` grow with it.
+- Use **`append_note`** for commentary — a reading of the report that adds nothing to check, such as the owning team already knowing, or a deploy having fixed it.
+  Send both in one call when an observation needs a reading alongside it.
+- **A recovery is a note, not evidence.** `signal_count` and `total_weight` only grow, and both feed the inbox ranking, so evidence that an issue is over would rank the report as stronger.
+- **At the cap, the note is the channel that still lands.** Emit plus every append share the report's **50** evidence rows, and the grouping pipeline can raise the count too, so a long-lived report can fill up. An append past the cap is rejected and the report keeps what it had.
+- Prefer these additive fields over rewriting `title`/`summary` on a report you didn't author.
   A note is additive and audit-friendly (it carries your scout as the author); a rewrite silently overwrites a human- or pipeline-authored headline.
 - **Don't fight an in-flight pipeline.** A report the summary/research workflow is mid-run on can have its fields overwritten under you.
   If a report is actively being worked, append a note rather than rewriting.
@@ -245,11 +272,14 @@ Before authoring, list the team's existing reports so you reconcile against one 
 - `inbox-reports-list` — filter by title/summary free-text (`search`), `status`, `source_product`, or your own `task_id`; newest-updated first.
 - `inbox-reports-retrieve` — fetch a single report by id (use the `report_id` you stashed in the scratchpad last run).
 
-## Dedup: the channel is NOT idempotent
+## Dedup: the retry is covered, the near-duplicate is not
 
-`emit_report` is **not idempotent** — a retried call authors a _second_ report.
-There is no server-side dedup key.
-The dedup story is two-sided and the scout owns it:
+`emit_report` carries an emit key, so resending a call that timed out returns the report the first one authored (`idempotent_replay` true) rather than a twin.
+The key is the `idempotency_key` you pass, or the report's own content when you pass none, and it is scoped to your run.
+Pass one when a retry might reword the report, since a reworded report is a different content key.
+
+That barrier covers the transport failure and nothing else.
+A report on a topic an earlier run already filed is a fresh emission with a fresh key, so the cross-run dedup is still two-sided and the scout owns it:
 
 1. **Before authoring**, `inbox-reports-list` for a prior report on the same topic.
    Found one?
@@ -257,8 +287,8 @@ The dedup story is two-sided and the scout owns it:
 2. **After authoring**, write a `report:<domain>:<entity>` scratchpad entry recording the `report_id` so the next run finds it (via `inbox-reports-retrieve`) without a title-search guess.
    (This is the report-channel member of the scratchpad key-prefix vocabulary — see [`dedupe-and-memory.md`](dedupe-and-memory.md).)
 
-**Never retry an `emit_report` / `edit_report` call that may have succeeded** — a transport error after the write commits, retried, double-files.
-If you're unsure whether a call landed, `inbox-reports-list` to check before retrying.
+`edit_report` has no such barrier: **never retry an `edit_report` call that may have succeeded**, since a transport error after the write commits, retried, appends a second note.
+If you're unsure whether an edit landed, `inbox-reports-retrieve` to check before retrying.
 
 ## The pipeline may rewrite what you authored (accepted)
 

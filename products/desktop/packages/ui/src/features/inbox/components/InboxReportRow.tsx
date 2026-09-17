@@ -1,3 +1,4 @@
+import type { ReportImplementationState } from "@posthog/core/inbox/reportImplementation";
 import type { SignalReport } from "@posthog/shared/types";
 import { InboxReportContextMenu } from "@posthog/ui/features/inbox/components/InboxReportContextMenu";
 import { InboxReportRowView } from "@posthog/ui/features/inbox/components/InboxReportRowView";
@@ -9,11 +10,13 @@ import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 
 export function InboxReportRow({
   report,
+  implementationState,
 }: {
   report: SignalReport;
+  implementationState?: ReportImplementationState | null;
 }): React.JSX.Element {
   const { pointerHandlers } = useInboxReportDetailPrefetch({
-    to: "/inbox/reports/$reportId",
+    to: "/reports/$reportId",
     params: { reportId: report.id },
   });
 
@@ -21,6 +24,7 @@ export function InboxReportRow({
     <InboxReportContextMenu report={report}>
       <InboxReportRowView
         report={report}
+        implementationState={implementationState}
         prefetchHandlers={pointerHandlers}
         reviewers={<SuggestedReviewerAvatarStack report={report} />}
         restoreAction={<ReportRestoreButton report={report} />}

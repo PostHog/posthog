@@ -23,17 +23,15 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         )
 
     def test_full_provisioning_flow(self):
-        # 1. Health check
         res = self._get_signed(f"{BASE_PATH}/provisioning/health")
         assert res.status_code == 200
         assert res.json()["status"] == "ok"
 
-        # 2. List services (billing not available in tests, falls back to the static catalog)
+        # Billing is not available in tests, so the endpoint falls back to the static catalog.
         res = self._get_signed(f"{BASE_PATH}/provisioning/services")
         assert res.status_code == 200
         assert {service["id"] for service in res.json()["data"]} == {"free", "pay_as_you_go", "analytics"}
 
-        # 3. Account request (new user)
         account_request = {
             "id": "acctreq_e2e_test",
             "object": "account_request",
@@ -55,7 +53,6 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         assert res.json()["type"] == "oauth"
         auth_code = res.json()["oauth"]["code"]
 
-        # 4. Exchange authorization code for tokens
         res = self._exchange({"grant_type": "authorization_code", "code": auth_code})
         assert res.status_code == 200
         token_data = res.json()
@@ -66,7 +63,6 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         assert refresh_token.startswith("phr_")
         assert token_data["account"]["id"]
 
-        # 5. Provision a resource
         res = self._post_signed_with_bearer(
             f"{BASE_PATH}/provisioning/resources",
             data={"service_id": "analytics"},
@@ -78,13 +74,11 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         resource_id = resource_data["id"]
         assert "api_key" in resource_data["complete"]["access_configuration"]
 
-        # 6. Get resource status
         res = self._get_signed_with_bearer(f"{BASE_PATH}/provisioning/resources/{resource_id}", token=access_token)
         assert res.status_code == 200
         assert res.json()["status"] == "complete"
         assert res.json()["id"] == resource_id
 
-        # 7. Rotate credentials (generates a new api_token)
         original_api_key = resource_data["complete"]["access_configuration"]["api_key"]
         res = self._post_signed_with_bearer(
             f"{BASE_PATH}/provisioning/resources/{resource_id}/rotate_credentials", token=access_token
@@ -94,7 +88,6 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         rotated_api_key = res.json()["complete"]["access_configuration"]["api_key"]
         assert rotated_api_key != original_api_key
 
-        # 8. Update the service
         res = self._post_signed_with_bearer(
             f"{BASE_PATH}/provisioning/resources/{resource_id}/update_service",
             data={"service_id": "free"},
@@ -103,7 +96,6 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         assert res.status_code == 200
         assert res.json()["service_id"] == "free"
 
-        # 9. Deep link - create and use it to login (consumed by /api/partners/stripe/login)
         res = self._post_signed_with_bearer(
             f"{BASE_PATH}/provisioning/deep_links", data={"purpose": "dashboard"}, token=access_token
         )
@@ -129,14 +121,12 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         assert reuse_res.status_code == 302
         assert "expired_or_invalid_token" in reuse_res["Location"]
 
-        # 10. Refresh the token
         res = self._exchange({"grant_type": "refresh_token", "refresh_token": refresh_token})
         assert res.status_code == 200
         new_access_token = res.json()["access_token"]
         assert new_access_token != access_token
         assert new_access_token.startswith("pha_")
 
-        # 11. New token works; the rotated-out one no longer does
         res = self._get_signed_with_bearer(f"{BASE_PATH}/provisioning/resources/{resource_id}", token=new_access_token)
         assert res.status_code == 200
         res = self._get_signed_with_bearer(f"{BASE_PATH}/provisioning/resources/{resource_id}", token=access_token)

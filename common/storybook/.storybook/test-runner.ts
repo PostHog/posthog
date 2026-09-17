@@ -106,6 +106,7 @@ declare module 'storybook/internal/types' {
 }
 
 const RETRY_TIMES = 2
+const FRAME_SELECTOR_SEPARATOR = ' >>> '
 const LOADER_SELECTORS = [
     '.Spinner',
     '.quill-spinner', // Quill's <Spinner /> — rotates while present, so it must settle before we snapshot
@@ -439,6 +440,11 @@ async function expectStoryToMatchSnapshot(
     await page.evaluate((layout: string) => {
         // Stop all animations for consistent snapshots, and adjust other styles
         document.body.classList.add('storybook-test-runner')
+        document.body.classList.remove(
+            'storybook-test-runner--fullscreen',
+            'storybook-test-runner--padded',
+            'storybook-test-runner--centered'
+        )
         document.body.classList.add(`storybook-test-runner--${layout}`)
 
         // Force all content-visibility:auto elements to render fully for deterministic snapshots.
@@ -485,10 +491,10 @@ async function expectStoryToMatchSnapshot(
     }
 
     if (typeof waitForSelector === 'string') {
-        await page.waitForSelector(waitForSelector, { timeout: waitForSelectorTimeout })
+        await waitForPossiblyFramedSelector(page, waitForSelector, waitForSelectorTimeout)
     } else if (Array.isArray(waitForSelector)) {
         await Promise.all(
-            waitForSelector.map((selector) => page.waitForSelector(selector, { timeout: waitForSelectorTimeout }))
+            waitForSelector.map((selector) => waitForPossiblyFramedSelector(page, selector, waitForSelectorTimeout))
         )
     }
 
@@ -499,6 +505,22 @@ async function expectStoryToMatchSnapshot(
     if (!skipDarkMode) {
         await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
     }
+}
+
+/**
+ * Wait for a selector that may live inside a same-origin iframe.
+ *
+ * `page.waitForSelector` does not cross a frame boundary, so a story whose content renders in one
+ * (the session replay player, which mounts rrweb into its own document) writes
+ * `'iframe.Outer >>> .inner'` and gets the frame's own wait instead.
+ */
+async function waitForPossiblyFramedSelector(page: Page, selector: string, timeout: number | undefined): Promise<void> {
+    const [frameSelector, innerSelector] = selector.split(FRAME_SELECTOR_SEPARATOR)
+    if (innerSelector === undefined) {
+        await page.waitForSelector(selector, { timeout })
+        return
+    }
+    await page.frameLocator(frameSelector.trim()).locator(innerSelector.trim()).first().waitFor({ timeout })
 }
 
 async function takeSnapshotWithTheme(

@@ -499,6 +499,8 @@ export interface MCPGatewayServerApi {
      * * `api_key` - API Key
      * * `oauth` - OAuth */
     readonly template_auth_type: MCPAuthTypeEnumApi | null
+    /** How members connect to this server: the template's type for catalog servers, or the type the custom server was added with. Null only for custom servers registered before the type was recorded; members then choose. */
+    readonly auth_type: MCPAuthTypeEnumApi | null
     readonly is_team_enabled: boolean
     /** Deprecated brand icon key from the linked template. Empty for custom servers. */
     readonly icon_key: string

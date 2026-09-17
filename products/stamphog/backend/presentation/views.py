@@ -187,10 +187,11 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
     serializer_class = StamphogRepoConfigSerializer
 
     def _get_or_404(self, pk: str | None) -> contracts.RepoConfigDTO:
-        for config in facade_api.list_repo_configs(self.canonical_team_id):
-            if str(config.id) == str(pk):
-                return config
-        raise NotFound()
+        # A keyed lookup, not a scan: an installation can surface hundreds of repositories.
+        config = facade_api.get_repo_config_by_id(self.canonical_team_id, str(pk))
+        if config is None:
+            raise NotFound()
+        return config
 
     def _require_review_gate_manager(self, request: Request) -> None:
         """Refuse a review-gating write below the manager level on the stamphog resource.
@@ -283,9 +284,10 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         if slug:
             install_url = f"https://github.com/apps/{slug}/installations/new?state={quote(state)}"
         if client_id:
-            # Authorize-first: an already-installed user gets a silent instant redirect back with an OAuth
-            # code but no installation_id, so the connect button never dead-ends on GitHub's "update
-            # installation" screen. Discovery then finds the installations from the code, server-side.
+            # The connect button opens install_url, so the user can choose repositories on GitHub. GitHub's
+            # redirect after "Configure" on an existing installation carries no OAuth code, so the frontend
+            # sends the browser through authorize_url once: an installed App redirects back at once with a
+            # code, and the sync proves ownership from it.
             authorize_url = (
                 f"https://github.com/login/oauth/authorize?client_id={quote(client_id)}&state={quote(state)}"
             )

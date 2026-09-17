@@ -17,6 +17,7 @@ from .custom_property_sync_run import CustomPropertySyncRun, SyncStatus, SyncTri
 from .custom_property_value import CustomPropertyValue
 from .customer_journey import CustomerJourney
 from .customer_profile_config import CustomerProfileConfig
+from .customer_task import CustomerTask, CustomerTaskActivity, CustomerTaskActivityType, CustomerTaskStatus
 from .event_stream import EventStream, EventStreamMember
 from .feature_request import (
     FeatureRequest,
@@ -30,8 +31,9 @@ from .feature_request import (
     FeatureRequestStatus,
 )
 from .meeting import Meeting, MeetingParticipant, MeetingResponseStatus, MeetingStatus
-from .relationship import AccountRelationship, AccountRelationshipDefinition
+from .relationship import AccountRelationship, AccountRelationshipControl, AccountRelationshipDefinition
 from .team_customer_analytics_config import TeamCustomerAnalyticsConfig
+from .user_customer_analytics_config import UserCustomerAnalyticsConfig
 
 __all__ = [
     "CANONICAL_DISPLAY_TYPE_BY_NAME",
@@ -43,6 +45,7 @@ __all__ = [
     "AccountTrackRuleRunStatus",
     "AccountTrackRuleRunTrigger",
     "AccountRelationship",
+    "AccountRelationshipControl",
     "AccountRelationshipDefinition",
     "Announcement",
     "AnnouncementDelivery",
@@ -51,6 +54,10 @@ __all__ = [
     "CustomPropertySyncRun",
     "CustomPropertyValue",
     "CustomerJourney",
+    "CustomerTask",
+    "CustomerTaskActivity",
+    "CustomerTaskActivityType",
+    "CustomerTaskStatus",
     "CustomerProfileConfig",
     "DataType",
     "DisplayType",
@@ -75,4 +82,5 @@ __all__ = [
     "SyncTrigger",
     "TargetType",
     "TeamCustomerAnalyticsConfig",
+    "UserCustomerAnalyticsConfig",
 ]

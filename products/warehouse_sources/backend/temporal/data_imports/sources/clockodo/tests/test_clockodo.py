@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from parameterized import parameterized
@@ -110,7 +110,7 @@ class TestFormatZ:
 
 
 class TestEndpointParams:
-    @freeze_time("2026-06-29T12:00:00Z")
+    @time_machine.travel("2026-06-29T12:00:00Z", tick=False)
     def test_entries_requires_time_window(self) -> None:
         params = _endpoint_params("entries", CLOCKODO_ENDPOINTS_V2["entries"])
         # Listing entries without a time range is rejected by the API.
@@ -223,7 +223,7 @@ class TestPagination:
         manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    @freeze_time("2026-06-29T12:00:00Z")
+    @time_machine.travel("2026-06-29T12:00:00Z", tick=False)
     def test_entries_sends_time_window(self, MockSession) -> None:
         session = MockSession.return_value
         params, _auths, _urls = _wire(session, [_response([{"id": 1}], data_key="entries", count_pages=1)])

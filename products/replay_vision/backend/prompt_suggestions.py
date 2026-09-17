@@ -44,7 +44,7 @@ logger = structlog.get_logger(__name__)
 _SUGGESTION_MODEL = "gemini-3.5-flash-lite"
 _MODEL_CALL_TIMEOUT_MS = 90_000
 # The agentic path digs through sessions before rewriting, so give it the stronger model.
-_AGENT_MODEL = "gemini-3.6-flash"
+_AGENT_MODEL = "gemini-3.8-flash"
 _MAX_RATED_SESSIONS = 20
 _MAX_REASONING_CHARS = 280
 _MAX_DISMISSED_EXAMPLES = 3
@@ -235,6 +235,8 @@ def _gemini_client() -> GeminiClient:
     try:
         return genai.Client(
             api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
+            # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
+            posthog_privacy_mode=True,
             posthog_client=posthoganalytics.default_client,
             http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
         )

@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
@@ -29,7 +29,7 @@ from products.experiments.backend.models.experiment import (
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     def test_regular_metric_activity_pins_runner_to_stored_query_to(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -59,7 +59,7 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         result_row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid=metric_dict["uuid"])
         assert result_row.query_to == expected_query_to
 
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     def test_saved_metric_activity_pins_runner_to_stored_query_to(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -99,7 +99,7 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         result_row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid=metric_dict["uuid"])
         assert result_row.query_to == expected_query_to
 
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     def test_temporal_activity_warms_query_cache(self):
         """
         After the daily Temporal recalc activity runs, a frontend /query
@@ -176,7 +176,7 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         assert isinstance(warm_response, CachedExperimentQueryResponse)
         self.assertTrue(warm_response.is_cached)
 
-    @freeze_time("2020-01-10T12:00:00Z")
+    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     def test_temporal_activity_warms_query_cache_for_saved_metric(self):
         """
         Saved metrics go through two backend-side transformations before /query

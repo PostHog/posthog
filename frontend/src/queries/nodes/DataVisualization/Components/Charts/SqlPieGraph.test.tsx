@@ -42,10 +42,14 @@ const yData = (data: (number | null)[]): AxisSeries<number | null>[] => [
     },
 ]
 
-const baseProps = (chartSettings: ChartSettings, data: (number | null)[]): SqlChartProps => ({
+const baseProps = (
+    chartSettings: ChartSettings,
+    data: (number | null)[],
+    visualizationType = ChartDisplayType.ActionsPie
+): SqlChartProps => ({
     xData,
     yData: yData(data),
-    visualizationType: ChartDisplayType.ActionsPie,
+    visualizationType,
     chartSettings,
 })
 
@@ -96,6 +100,38 @@ describe('SqlPieGraph', () => {
         await waitForSlices()
 
         expect(sliceLabelLines()).toEqual([['40'], ['30'], ['20'], ['10']])
+        expect(screen.queryByText('100')).not.toBeInTheDocument()
+    })
+
+    it('shows the total in the center of a donut', async () => {
+        render(
+            <SqlPieGraph
+                {...baseProps(
+                    { pie: { sliceContent: 'labels', showTotal: true } },
+                    [40, 30, 20, 10],
+                    ChartDisplayType.ActionsDonut
+                )}
+            />
+        )
+
+        await waitForSlices()
+
+        expect(screen.getByText('100').closest('[data-attr="sql-pie-chart"]')).toBeInTheDocument()
+    })
+
+    it('hides the donut center total when showTotal is false', async () => {
+        render(
+            <SqlPieGraph
+                {...baseProps(
+                    { pie: { sliceContent: 'labels', showTotal: false } },
+                    [40, 30, 20, 10],
+                    ChartDisplayType.ActionsDonut
+                )}
+            />
+        )
+
+        await waitForSlices()
+
         expect(screen.queryByText('100')).not.toBeInTheDocument()
     })
 

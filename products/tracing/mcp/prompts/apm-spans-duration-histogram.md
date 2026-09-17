@@ -1,5 +1,11 @@
 Trace counts per logarithmic duration bucket — the latency distribution of requests.
 
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1h" } } }
+```
+
 Returns one row per `(duration bucket, service)` pair:
 
 - `bucket_ns` — bucket floor in nanoseconds, on the 1-2-5 series (1ms, 2ms, 5ms, 10ms, 20ms, ...)
@@ -17,11 +23,7 @@ Use to answer:
 
 For percentiles per operation (p50/p95), use `apm-spans-aggregate`. For counts over time, use `apm-spans-sparkline`.
 
-All parameters must be nested inside a `query` object.
-
 # Parameters
-
-All parameters go inside `query`.
 
 ## query.dateRange
 

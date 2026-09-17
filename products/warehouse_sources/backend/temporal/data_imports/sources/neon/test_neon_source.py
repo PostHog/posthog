@@ -1,8 +1,7 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
-
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.neon.source import NeonSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -115,7 +114,8 @@ def test_cdc_prerequisites_delegate_for_direct_hosts(host):
     config = mock.MagicMock(host=host)
 
     with mock.patch.object(PostgresSource, "check_cdc_prerequisites", return_value=[]) as super_check:
-        errors = NeonSource().check_cdc_prerequisites(config, management_mode="posthog", tables=["users"])
+        errors = NeonSource().check_cdc_prerequisites(config, management_mode="posthog", tables=["users"], team_id=7)
 
     super_check.assert_called_once()
+    assert super_check.call_args.kwargs["team_id"] == 7
     assert errors == []

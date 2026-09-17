@@ -230,6 +230,7 @@ pub async fn run_merges(
                     state.mark_merge_pending(source).await;
                 }
                 let op_id = uuid::Uuid::new_v4();
+                let creator_event_uuid = uuid::Uuid::new_v4();
                 let event = MergeEvent::new(&op_id);
 
                 let start = Instant::now();
@@ -244,6 +245,7 @@ pub async fn run_merges(
                             json!(event.set),
                             json!(event.set_once),
                             &op_id,
+                            &creator_event_uuid,
                             allow_identified_sources,
                             move_limit,
                         )
@@ -436,6 +438,7 @@ pub async fn run_merges(
 /// time to re-drive it. An op that never settles is a violation.
 pub async fn settle_unresolved(
     pool: &PgPool,
+    person_table: &str,
     state: &PersonState,
     unresolved: Vec<UnresolvedMerge>,
     deadline: Duration,
@@ -450,10 +453,12 @@ pub async fn settle_unresolved(
     let mut violations = Vec::new();
     let mut pending = unresolved;
     let started = Instant::now();
+    let (lifecycle_op, _) = crate::seed::lifecycle_tables_for(person_table);
+    let op_query = format!("SELECT step, outcome FROM {lifecycle_op} WHERE op_id = $1");
     loop {
         let mut still_pending = Vec::new();
         for merge in pending {
-            let row = sqlx::query("SELECT step, outcome FROM lifecycle_op WHERE op_id = $1")
+            let row = sqlx::query(&op_query)
                 .bind(merge.op_id)
                 .fetch_optional(pool)
                 .await
@@ -670,6 +675,7 @@ pub fn outcome_name(outcome: MergeSourceOutcome) -> &'static str {
         MergeSourceOutcome::SkippedIllegal => "skipped_illegal",
         MergeSourceOutcome::SkippedAlreadyIdentified => "skipped_already_identified",
         MergeSourceOutcome::SkippedConflict => "skipped_conflict",
+        MergeSourceOutcome::SkippedRefused => "skipped_refused",
         MergeSourceOutcome::SkippedMoveLimit => "skipped_move_limit",
         MergeSourceOutcome::Error => "error",
         MergeSourceOutcome::Unspecified => "unspecified",

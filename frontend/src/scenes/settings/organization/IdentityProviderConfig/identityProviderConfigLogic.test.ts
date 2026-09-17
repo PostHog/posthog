@@ -1,7 +1,9 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import {
     ConfigScopeEnumApi,
@@ -31,6 +33,8 @@ const CREATED_CONFIG: IdentityProviderConfigApi = {
     created_at: '2026-08-01T00:00:00Z',
     updated_at: '2026-08-01T00:00:00Z',
     has_saml: true,
+    has_oidc: false,
+    has_oidc_client_secret: false,
     saml_relay_state: '0198bbbb-0000-4000-8000-000000000001',
     saml_entity_id: 'entity-id',
     saml_acs_url: 'https://idp.example.com/sso',
@@ -42,6 +46,70 @@ const CREATED_CONFIG: IdentityProviderConfigApi = {
 }
 
 describe('identityProviderConfigLogic', () => {
+    it('saves OIDC settings and clears the secret from the form', async () => {
+        let requestBody: Record<string, unknown> | undefined
+        const oidcConfig = {
+            ...CREATED_CONFIG,
+            config_scope: ConfigScopeEnumApi.Oidc,
+            oidc_issuer_url: 'https://idp.example.com',
+            oidc_client_id: 'example-client',
+            has_oidc: true,
+            has_oidc_client_secret: true,
+        }
+        useMocks({
+            get: {
+                '/api/organizations/:organization/domains': { count: 0, next: null, previous: null, results: [] },
+            },
+            post: {
+                '/api/organizations/:organization/identity_provider_configs': async ({ request }) => {
+                    requestBody = (await request.json()) as Record<string, unknown>
+                    return [201, oidcConfig]
+                },
+            },
+            patch: {
+                '/api/organizations/:organization/identity_provider_configs/:configId': async ({ request }) => {
+                    requestBody = (await request.json()) as Record<string, unknown>
+                    return [200, oidcConfig]
+                },
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSO_SETTINGS_REDESIGN], {
+            [FEATURE_FLAGS.SSO_SETTINGS_REDESIGN]: true,
+        })
+        const logic = identityProviderConfigLogic({ configScope: ConfigScopeEnumApi.Oidc, configId: 'new' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setIdentityProviderConfigFormValues({
+            oidc_issuer_url: ' https://idp.example.com ',
+            oidc_client_id: ' example-client ',
+            oidc_client_secret: 'example-secret',
+        })
+        logic.actions.submitIdentityProviderConfigForm()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(requestBody).toMatchObject({
+            config_scope: ConfigScopeEnumApi.Oidc,
+            oidc_issuer_url: 'https://idp.example.com',
+            oidc_client_id: 'example-client',
+            oidc_client_secret: 'example-secret',
+        })
+        expect(logic.values.identityProviderConfigForm.oidc_client_secret).toBe('')
+        expect(logic.values.identityProviderConfigFormChanged).toBe(false)
+        logic.actions.setIdentityProviderConfigFormValues({ oidc_client_secret_cleared: true })
+        expect(logic.values.identityProviderConfigFormChanged).toBe(true)
+        logic.actions.submitIdentityProviderConfigForm()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(requestBody).toMatchObject({ oidc_client_secret: '' })
+        logic.actions.setIdentityProviderConfigFormValues({ oidc_client_secret: '', oidc_client_secret_cleared: true })
+        logic.actions.setIdentityProviderConfigFormValues({ oidc_client_secret: 'rotated-secret' })
+        logic.actions.submitIdentityProviderConfigForm()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(requestBody).toMatchObject({ oidc_client_secret: 'rotated-secret' })
+        logic.actions.setIdentityProviderConfigFormValues({ name: 'Updated provider' })
+        logic.actions.submitIdentityProviderConfigForm()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(requestBody).not.toHaveProperty('oidc_client_secret')
+    })
     it('loads every page of organization domains', async () => {
         const requestedOffsets: string[] = []
         const firstPageDomains = Array.from({ length: 100 }, (_, index) => makeDomain(`domain-${index}`))
@@ -135,5 +203,78 @@ describe('identityProviderConfigLogic', () => {
             saml_acs_url: 'https://idp.example.com/sso',
             saml_x509_cert: 'certificate',
         })
+        // Saving keeps the user on the configuration page (the URL adopts the saved config's id)
+        // so the generated SCIM base URL and one-time token remain visible.
+        expect(router.values.location.pathname).toContain(
+            urls.identityProviderConfig(ConfigScopeEnumApi.Saml, CREATED_CONFIG.id)
+        )
+    })
+
+    it('keeps a user-edited name when the config list loads after the form is interactive', async () => {
+        useMocks({
+            get: {
+                '/api/organizations/:organization/domains': { count: 0, next: null, previous: null, results: [] },
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSO_SETTINGS_REDESIGN], {
+            [FEATURE_FLAGS.SSO_SETTINGS_REDESIGN]: true,
+        })
+        const logic = identityProviderConfigLogic({ configScope: ConfigScopeEnumApi.Scim, configId: 'new' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setIdentityProviderConfigFormValues({ name: 'Okta production' })
+        logic.actions.loadIdentityProviderConfigsSuccess([CREATED_CONFIG])
+
+        expect(logic.values.identityProviderConfigForm.name).toBe('Okta production')
+        expect(logic.values.identityProviderConfigFormChanged).toBe(true)
+
+        logic.unmount()
+    })
+
+    it('reconciles the default name from the loaded config list while the form is untouched', async () => {
+        useMocks({
+            get: {
+                '/api/organizations/:organization/domains': { count: 0, next: null, previous: null, results: [] },
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSO_SETTINGS_REDESIGN], {
+            [FEATURE_FLAGS.SSO_SETTINGS_REDESIGN]: true,
+        })
+        const logic = identityProviderConfigLogic({ configScope: ConfigScopeEnumApi.Scim, configId: 'new' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The initial guess assumed no existing configs; the list arriving later corrects it.
+        expect(logic.values.identityProviderConfigForm.name).toBe('Default SCIM configuration')
+        logic.actions.loadIdentityProviderConfigsSuccess([{ ...CREATED_CONFIG, config_scope: ConfigScopeEnumApi.Scim }])
+
+        expect(logic.values.identityProviderConfigForm.name).toBe('')
+        expect(logic.values.identityProviderConfigFormChanged).toBe(false)
+
+        logic.unmount()
+    })
+
+    it('clears a stale delete confirmation when the delete modal reopens', async () => {
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSO_SETTINGS_REDESIGN], {
+            [FEATURE_FLAGS.SSO_SETTINGS_REDESIGN]: true,
+        })
+        const logic = identityProviderConfigLogic({ configScope: ConfigScopeEnumApi.Saml, configId: 'new' })
+        logic.mount()
+
+        logic.actions.openDeleteModal()
+        logic.actions.setDeleteConfirmation('Delete x')
+        expect(logic.values.isDeleteModalOpen).toBe(true)
+
+        logic.actions.closeDeleteModal()
+        logic.actions.openDeleteModal()
+
+        expect(logic.values.isDeleteModalOpen).toBe(true)
+        expect(logic.values.deleteConfirmation).toBe('')
+
+        logic.unmount()
     })
 })

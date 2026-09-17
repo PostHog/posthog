@@ -7,7 +7,7 @@ from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
@@ -33,6 +33,7 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.types import ExportError
+from posthog.test.insight_queries import default_pageview_query
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -57,7 +58,10 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
     _skip_ai_delivery_over_credit_limit_sync,
     generate_ai_subscription_report,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+    AiReportResult,
+    QueryStepDiagnostic,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
 from products.exports.backend.temporal.subscriptions.delivery_common import deliver_email
 from products.exports.backend.temporal.subscriptions.types import (
@@ -281,7 +285,7 @@ async def subscriptions_worker(temporal_client: Client):
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_subscription_delivery_scheduling(
     mock_send_email: MagicMock,
@@ -312,7 +316,7 @@ async def test_subscription_delivery_scheduling(
     await sync_to_async(set_instance_setting)("EMAIL_HOST", "fake_host")
     await sync_to_async(set_instance_setting)("EMAIL_ENABLED", True)
 
-    with freeze_time("2022-02-02T08:30:00.000Z"):
+    with time_machine.travel("2022-02-02T08:30:00.000Z", tick=False):
         subscriptions = [
             await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user),
             await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user),
@@ -360,7 +364,7 @@ async def test_subscription_delivery_scheduling(
     "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team", return_value=None
 )
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_does_not_schedule_subscription_if_item_is_deleted(
     mock_send_email: MagicMock,
@@ -649,7 +653,7 @@ async def test_deliver_subscription_report_teams(
 @patch(
     "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team", return_value=None
 )
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_process_subscription_records_missing_slack_integration_failure(
     mock_get_slack: MagicMock,
@@ -1097,7 +1101,7 @@ async def test_deliver_subscription_handles_slack_api_errors(team, user, slack_e
 
 
 @patch("posthog.slo.events.posthoganalytics")
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_create_export_assets_creates_exported_assets(
     mock_analytics: MagicMock,
@@ -1105,7 +1109,11 @@ async def test_create_export_assets_creates_exported_assets(
     team,
     user,
 ):
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="prep01", name="Prep Test")
+    # The query is load-bearing: the query_service SLO assertion below only holds while the
+    # snapshot build has a query to run.
+    insight = await sync_to_async(Insight.objects.create)(
+        team=team, short_id="prep01", name="Prep Test", query=default_pageview_query()
+    )
     subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
 
     env = ActivityEnvironment()
@@ -1141,7 +1149,7 @@ async def test_create_export_assets_creates_exported_assets(
 
 @patch("products.exports.backend.temporal.subscriptions.activities.build_insight_delivery_snapshot")
 @patch("posthog.slo.events.posthoganalytics")
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_create_export_assets_persists_insight_snapshots_to_delivery_content(
     mock_analytics: MagicMock,
@@ -1190,7 +1198,7 @@ async def test_create_export_assets_persists_insight_snapshots_to_delivery_conte
     mock_analytics.capture.assert_not_called()
 
 
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_create_delivery_record_persists_row_and_idempotency_key_dedupes(team, user):
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="delrec01", name="Delivery record")
@@ -1234,7 +1242,7 @@ async def test_create_delivery_record_persists_row_and_idempotency_key_dedupes(t
     assert row_after.temporal_workflow_id == "wf-delivery-1"
 
 
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_update_delivery_record_patches_status_and_results_without_touching_content(team, user):
     # update_delivery_record is the observability finalizer; create_export_assets
@@ -1280,7 +1288,7 @@ async def test_update_delivery_record_patches_status_and_results_without_touchin
     assert row.finished_at is not None
 
 
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_update_delivery_record_none_omits_collection_fields(team, user):
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="omit01", name="Omit fields")
@@ -1326,7 +1334,7 @@ async def test_update_delivery_record_none_omits_collection_fields(team, user):
     assert row.recipient_results == [{"recipient": "a@b.com", "status": "success"}]
 
 
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_update_delivery_record_empty_lists_persist(team, user):
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="empty01", name="Empty lists")
@@ -1373,7 +1381,7 @@ async def test_update_delivery_record_empty_lists_persist(team, user):
 
 
 @patch("posthog.slo.events.posthoganalytics")
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_create_export_assets_dashboard_with_multiple_insights(
     mock_analytics: MagicMock,
@@ -1383,7 +1391,11 @@ async def test_create_export_assets_dashboard_with_multiple_insights(
 ):
     dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Multi-insight", created_by=user)
     for i in range(3):
-        insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"prep{i:02d}", name=f"Insight {i}")
+        # The query is load-bearing: the query_service SLO assertion below only holds while the
+        # snapshot build has a query to run.
+        insight = await sync_to_async(Insight.objects.create)(
+            team=team, short_id=f"prep{i:02d}", name=f"Insight {i}", query=default_pageview_query()
+        )
         await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=insight)
 
     subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
@@ -1412,7 +1424,7 @@ async def test_create_export_assets_dashboard_with_multiple_insights(
 @patch("posthog.slo.events.posthoganalytics")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @patch("products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event")
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_stale_dashboard_selection_fails_without_retrying(
     mock_capture_delivery_failed: MagicMock,
@@ -1489,7 +1501,7 @@ async def test_stale_dashboard_selection_fails_without_retrying(
     assert properties["reason"] == NoExportableInsightsReason.SELECTED_INSIGHTS_NO_LONGER_AVAILABLE
 
 
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_create_export_assets_excludes_deleted_insights(team, user):
     dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="With deleted", created_by=user)
@@ -1511,7 +1523,7 @@ async def test_create_export_assets_excludes_deleted_insights(team, user):
     assert result.total_insight_count == 2
 
 
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_create_export_assets_classifies_missing_resource(team, user):
     subscription = await sync_to_async(create_subscription)(team=team, created_by=user)
@@ -1560,7 +1572,7 @@ async def test_resolve_exportable_insights_filters_explicit_dashboard_selection(
     assert result.no_exportable_reason is None
 
 
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_create_export_assets_respects_max_asset_count(team, user):
     dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Big dashboard", created_by=user)
@@ -1587,7 +1599,7 @@ async def test_create_export_assets_rejects_non_positive_max_asset_count():
         )
 
 
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_create_export_assets_empty_dashboard(team, user):
     dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Empty", created_by=user)
@@ -1605,7 +1617,7 @@ async def test_create_export_assets_empty_dashboard(team, user):
     assert result.failure_context["reason"] == NoExportableInsightsReason.EMPTY_DASHBOARD
 
 
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_create_export_assets_excludes_deleted_standalone_insight(team, user):
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="deleted01", deleted=True)
@@ -1623,7 +1635,7 @@ async def test_create_export_assets_excludes_deleted_standalone_insight(team, us
 
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_deliver_subscription_legacy_false_sends_all_recipients(
     mock_send_email: MagicMock,
@@ -1661,7 +1673,7 @@ async def test_deliver_subscription_legacy_false_sends_all_recipients(
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_deliver_subscription_workflow_end_to_end(
     mock_send_email: MagicMock,
@@ -1862,7 +1874,7 @@ async def test_manual_send_uses_regular_template_not_invite(
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_scheduled_delivery_updates_next_delivery_date(
     mock_send_email: MagicMock,
@@ -1950,7 +1962,7 @@ def _make_export_counter(fail_count: int, error_factory):
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_export_error_slo_outcome(
     mock_send_email: MagicMock,
@@ -2056,7 +2068,7 @@ async def test_export_error_slo_outcome(
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_partial_export_failure_delivers_successful_assets(
     mock_send_email: MagicMock,
@@ -2164,7 +2176,7 @@ async def test_partial_export_failure_delivers_successful_assets(
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_delivery_failure_replaces_partial_export_slo_attribution(
     mock_send_email: MagicMock,
@@ -2372,7 +2384,7 @@ async def test_fetch_due_subscriptions_excludes_disabled(team, user):
 )
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_deliver_subscription_emits_success_slo_when_disabling(
     mock_slo_analytics: MagicMock,
@@ -2563,13 +2575,35 @@ async def test_generate_ai_report_persists_report_for_delivery(team, user):
 
     with patch(
         _GENERATE_REPORT,
-        return_value=AiReportResult(markdown="# Report", diagnostics=(), window_end_utc="2026-06-25T12:00:00+00:00"),
+        return_value=AiReportResult(
+            markdown="# Report",
+            diagnostics=(
+                QueryStepDiagnostic(
+                    description="adoption",
+                    hogql="SELECT expensive",
+                    ok=False,
+                    error_type="ClickHouseQueryMemoryLimitExceeded",
+                    error_code="clickhouse_memory_limit_exceeded",
+                    human_readable_error="Query exceeded the memory limit.",
+                ),
+            ),
+            window_end_utc="2026-06-25T12:00:00+00:00",
+        ),
     ):
         result = await ActivityEnvironment().run(
             generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
         )
 
     assert result.aborted is False
+    assert result.failed_step_count == 1
+    assert result.total_step_count == 1
+    assert result.query_errors == [
+        {
+            "type": "ClickHouseQueryMemoryLimitExceeded",
+            "code": "clickhouse_memory_limit_exceeded",
+            "message": "Query exceeded the memory limit.",
+        }
+    ]
     # The report is handed to delivery via the row, not the activity return value.
     refreshed = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery.id)
     assert refreshed.content_snapshot["ai_report"] == "# Report"
@@ -2855,7 +2889,7 @@ async def test_skip_helper_falls_back_when_billing_period_unsynced(team, user):
 @patch("products.exports.backend.temporal.subscriptions.ai_subscription.activities.send_email_ai_subscription_report")
 @patch(_GENERATE_REPORT)
 @patch(_IS_OVER_BUDGET, return_value=True)
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_schedule_ai_subscription_over_credit_budget_lands_skipped(
     mock_over_budget: MagicMock,
@@ -2911,7 +2945,7 @@ async def test_schedule_ai_subscription_over_credit_budget_lands_skipped(
     "products.exports.backend.temporal.subscriptions.ai_subscription.activities.build_ai_subscription_report",
     return_value=AiReportResult(markdown="# AI Report", diagnostics=(), window_end_utc="2026-06-25T12:00:00+00:00"),
 )
-@freeze_time("2022-02-02T08:55:00.000Z")
+@time_machine.travel("2022-02-02T08:55:00.000Z", tick=False)
 @pytest.mark.asyncio
 async def test_schedule_routes_ai_subscription_through_full_workflow(
     mock_generate: MagicMock,

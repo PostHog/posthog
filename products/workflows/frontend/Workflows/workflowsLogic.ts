@@ -17,9 +17,9 @@ export type WorkflowStatusFilter = 'all' | 'active' | 'draft' | 'archived'
 
 const WORKFLOW_STATUS_FILTERS: WorkflowStatusFilter[] = ['all', 'active', 'draft', 'archived']
 
-export type WorkflowTypeFilter = 'all' | 'messaging' | 'automation'
+export type WorkflowTypeFilter = 'all' | 'messaging' | 'automation' | 'loop'
 
-const WORKFLOW_TYPE_FILTERS: WorkflowTypeFilter[] = ['all', 'messaging', 'automation']
+const WORKFLOW_TYPE_FILTERS: WorkflowTypeFilter[] = ['all', 'messaging', 'automation', 'loop']
 
 export type WorkflowTriggerTypeFilter = 'all' | (NonNullable<HogFlow['trigger']> extends { type: infer T } ? T : never)
 

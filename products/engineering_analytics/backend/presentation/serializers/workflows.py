@@ -69,6 +69,10 @@ class WorkflowRunDetailSerializer(DataclassSerializer):
                 "first and fall back to this.",
                 "allow_null": True,
             },
+            "is_merge_queue": {
+                "help_text": "True when a merge queue pushed this run to gate pr_number, rather than the author "
+                "pushing it. Count it when measuring CI; drop it when counting what the author did."
+            },
         }
 
 
@@ -247,6 +251,11 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
             },
             "percentile_run_count": {
                 "help_text": "Successful runs that did real CI work. This is the p50/p95 sample count."
+            },
+            "merge_queue_run_count": {
+                "help_text": "Runs on merge-queue gate branches (trunk-merge/**) in the window, counted regardless "
+                "of branch or run_scope. Non-zero marks a workflow the queue runs before a merge lands, the closest "
+                "available proxy for a required check."
             },
         }
 
@@ -708,8 +717,8 @@ class WorkflowJobAggregateSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "failure_rate": {
-                "help_text": "Decisive failures ('failure', 'timed_out') over completed instances (0-1). Null if "
-                "none completed.",
+                "help_text": "Decisive failures over job instances with a pass-or-fail verdict (0-1). Skipped, "
+                "cancelled, neutral, and action-required instances are excluded. Null if none reached a verdict.",
                 "allow_null": True,
             },
             "retry_job_count": {"help_text": "Job instances that ran on a 2nd+ run attempt - retry pressure."},

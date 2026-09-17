@@ -18,6 +18,7 @@ from products.replay_vision.backend.temporal.activities import (
     emit_observation_signal_activity,
     ensure_session_asset_activity,
     fetch_session_events_activity,
+    fetch_session_network_activity,
     finalize_evaluation_activity,
     find_backfill_candidates_activity,
     find_scanner_candidates_activity,
@@ -34,13 +35,16 @@ from products.replay_vision.backend.temporal.activities import (
     reap_backfill_schedules_activity,
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
-    reap_stuck_vision_action_runs_activity,
     record_evaluation_result_activity,
     refresh_prompt_suggestion_activity,
     refresh_scanner_estimate_activity,
     select_evaluation_sessions_activity,
     upload_video_to_gemini_activity,
     upsert_scanner_schedule_activity,
+)
+from products.replay_vision.backend.temporal.activities.refresh_search_suggestions import (
+    list_stale_search_suggestions_activity,
+    refresh_scanner_search_suggestions_activity,
 )
 from products.replay_vision.backend.temporal.backfill_workflow import BackfillScannerWorkflow
 from products.replay_vision.backend.temporal.estimates import RefreshScannerEstimatesWorkflow
@@ -51,17 +55,8 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
 )
 from products.replay_vision.backend.temporal.read_meter import MeterScannerReadsWorkflow
 from products.replay_vision.backend.temporal.reconciler import ReconcileScannerSchedulesWorkflow
+from products.replay_vision.backend.temporal.search_suggestions import RefreshSearchSuggestionsWorkflow
 from products.replay_vision.backend.temporal.sweep_workflow import SweepScannerWorkflow
-from products.replay_vision.backend.temporal.vision_actions import (
-    ProcessVisionActionWorkflow,
-    create_vision_action_run_activity,
-    emit_action_ready_activity,
-    evaluate_alert_activity,
-    evaluate_due_vision_actions_activity,
-    synthesize_group_summary_activity,
-    update_vision_action_run_activity,
-    validate_vision_action_activity,
-)
 from products.replay_vision.backend.temporal.vision_alerts import (
     VisionAlertCheckWorkflow,
     cleanup_vision_alert_history_activity,
@@ -78,9 +73,9 @@ WORKFLOWS = [
     MeterScannerReadsWorkflow,
     ReconcileScannerSchedulesWorkflow,
     RefreshScannerEstimatesWorkflow,
+    RefreshSearchSuggestionsWorkflow,
     ReplayVisionGeminiCleanupSweepWorkflow,
     SweepScannerWorkflow,
-    ProcessVisionActionWorkflow,
     VisionAlertCheckWorkflow,
 ]
 ACTIVITIES: list[Callable[..., Any]] = [
@@ -94,6 +89,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     mark_observation_ineligible_activity,
     mark_observation_succeeded_activity,
     fetch_session_events_activity,
+    fetch_session_network_activity,
     ensure_session_asset_activity,
     upload_video_to_gemini_activity,
     call_scanner_provider_activity,
@@ -126,15 +122,9 @@ ACTIVITIES: list[Callable[..., Any]] = [
     meter_scanner_read_bytes_activity,
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
-    reap_stuck_vision_action_runs_activity,
     sweep_gemini_files_activity,
-    evaluate_alert_activity,
-    evaluate_due_vision_actions_activity,
-    create_vision_action_run_activity,
-    validate_vision_action_activity,
-    synthesize_group_summary_activity,
-    emit_action_ready_activity,
-    update_vision_action_run_activity,
+    list_stale_search_suggestions_activity,
+    refresh_scanner_search_suggestions_activity,
 ]
 
 __all__ = [
@@ -144,18 +134,11 @@ __all__ = [
     "BackfillScannerWorkflow",
     "EvaluatePromptSuggestionWorkflow",
     "MeterScannerReadsWorkflow",
-    "ProcessVisionActionWorkflow",
     "ReconcileScannerSchedulesWorkflow",
     "RefreshScannerEstimatesWorkflow",
+    "RefreshSearchSuggestionsWorkflow",
     "ReplayVisionGeminiCleanupSweepWorkflow",
     "SweepScannerWorkflow",
-    "create_vision_action_run_activity",
-    "emit_action_ready_activity",
-    "evaluate_alert_activity",
-    "evaluate_due_vision_actions_activity",
-    "synthesize_group_summary_activity",
-    "update_vision_action_run_activity",
-    "validate_vision_action_activity",
     "advance_scanner_watermark_activity",
     "refresh_prompt_suggestion_activity",
     "call_scanner_provider_activity",
@@ -171,6 +154,7 @@ __all__ = [
     "emit_observation_signal_activity",
     "ensure_session_asset_activity",
     "fetch_session_events_activity",
+    "fetch_session_network_activity",
     "find_scanner_candidates_activity",
     "list_enabled_scanners_activity",
     "list_scanner_schedules_activity",
@@ -182,7 +166,6 @@ __all__ = [
     "mark_observation_succeeded_activity",
     "reap_childless_inline_scanners_activity",
     "reap_orphaned_observations_activity",
-    "reap_stuck_vision_action_runs_activity",
     "record_evaluation_result_activity",
     "refresh_scanner_estimate_activity",
     "select_evaluation_sessions_activity",

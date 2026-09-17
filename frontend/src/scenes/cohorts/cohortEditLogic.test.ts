@@ -172,21 +172,28 @@ describe('cohortEditLogic', () => {
     })
 
     describe('calculation polling', () => {
-        it('refreshes import counts when calculation finishes', async () => {
+        // The final poll response is the only thing that refreshes these fields while the page
+        // stays open, so a field the merge drops keeps its stale value until a reload.
+        it.each([
+            ['import counts', { last_import_total_count: 5, last_import_unmatched_count: 3 }],
+            [
+                'failure reason',
+                {
+                    errors_calculating: 1,
+                    last_error_message: 'Cohort calculation was terminated for reading too much data.',
+                },
+            ],
+        ])('refreshes %s when calculation finishes', async (_, finishedFields) => {
             await initCohortLogic({ id: 1 })
 
             await expectLogic(logic, () => {
                 logic.actions.checkIfFinishedCalculating({
                     ...mockCohort,
                     is_calculating: false,
-                    last_import_total_count: 5,
-                    last_import_unmatched_count: 3,
+                    ...finishedFields,
                 })
             }).toMatchValues({
-                cohort: partial({
-                    last_import_total_count: 5,
-                    last_import_unmatched_count: 3,
-                }),
+                cohort: partial(finishedFields),
             })
         })
     })

@@ -1,4 +1,5 @@
-import type { Region } from '@/lib/constants'
+import { type Region, proxyOrigin } from '@/lib/constants'
+import { type SigningKeyEnv } from '@/lib/idtoken'
 import {
     getCallbackRedirectUri,
     getClientMapping,
@@ -7,7 +8,23 @@ import {
     resolveMappingRewrite,
 } from '@/lib/kv'
 import { preferClientError, proxyPostWithClientId, tryBothRegions } from '@/lib/proxy'
-import { errorResponse } from '@/lib/validation'
+import { reissueIdTokenInResponse } from '@/lib/token-response'
+import { duplicateParamError, errorResponse, findDuplicateParam } from '@/lib/validation'
+
+/** RFC 7523, which PostHog serves as the ID-JAG identity assertion exchange. */
+const JWT_BEARER_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:jwt-bearer'
+
+// The proxy reads a form body with `.get()`, which returns the first value, while Django's
+// QueryDict returns the last. A repeat lets the two authenticate different clients.
+const SINGLE_VALUE_TOKEN_PARAMS = [
+    'client_id',
+    'client_secret',
+    'grant_type',
+    'code',
+    'code_verifier',
+    'refresh_token',
+    'redirect_uri',
+] as const
 
 /**
  * OAuth Token Exchange — proxy to the correct region.
@@ -17,7 +34,7 @@ import { errorResponse } from '@/lib/validation'
  * For refresh_token grants, we fall back to try-both since the client may not
  * have gone through our authorize flow.
  */
-export async function handleToken(request: Request, kv: KVNamespace): Promise<Response> {
+export async function handleToken(request: Request, kv: KVNamespace, env: SigningKeyEnv): Promise<Response> {
     const body = await request.text()
 
     const contentType = request.headers.get('content-type') || ''
@@ -37,10 +54,46 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
         }
     } else {
         const formParams = new URLSearchParams(body)
+        const duplicate = findDuplicateParam(formParams, SINGLE_VALUE_TOKEN_PARAMS)
+        if (duplicate) {
+            return errorResponse(duplicateParamError(duplicate), { 'Cache-Control': 'no-store' })
+        }
         clientId = formParams.get('client_id')
         grantType = formParams.get('grant_type')
     }
 
+    const response = await routeToken(request, kv, body, clientId, grantType)
+
+    if (grantType === JWT_BEARER_GRANT_TYPE) {
+        // An ID-JAG exchange returns an access token and no ID token, so it has nothing to re-issue.
+        return response
+    }
+
+    return reissueIdTokenInResponse(response, {
+        issuer: proxyOrigin(request),
+        audience: clientId,
+        permittedUpstreamAudiences: response.ok && clientId ? await permittedUpstreamAudiences(kv, clientId) : [],
+        env,
+    })
+}
+
+/** A client registered through the proxy is known to each region under its own id. */
+async function permittedUpstreamAudiences(kv: KVNamespace, clientId: string): Promise<string[]> {
+    const mapping = await getClientMapping(kv, clientId)
+    if (!mapping) {
+        return [clientId]
+    }
+
+    return [clientId, mapping.us_client_id, mapping.eu_client_id].filter((id) => Boolean(id))
+}
+
+async function routeToken(
+    request: Request,
+    kv: KVNamespace,
+    body: string,
+    clientId: string | null,
+    grantType: string | null
+): Promise<Response> {
     const clientIdPrefix = clientId?.slice(0, 8) ?? 'none'
 
     const rebuild = (): Request =>
@@ -49,6 +102,24 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
             headers: request.headers,
             body,
         })
+
+    // The regional server checks the assertion's `client_id` claim against the posted one
+    // (posthog/api/id_jag.py), so rewriting it to the regional id fails on EU. This grant needs
+    // no rewrite: the assertion is the credential and no OAuth application is looked up.
+    if (grantType === JWT_BEARER_GRANT_TYPE) {
+        const { response, region } = await tryBothRegions(rebuild(), '/oauth/token/')
+        console.info(
+            JSON.stringify({
+                handler: 'token',
+                grant_type: grantType,
+                client_id_prefix: clientIdPrefix,
+                region_source: 'try_both_no_rewrite',
+                resolved_region: region,
+                status: response.status,
+            })
+        )
+        return response
+    }
 
     // Look up region by client_id (stored during the authorize step)
     if (clientId) {

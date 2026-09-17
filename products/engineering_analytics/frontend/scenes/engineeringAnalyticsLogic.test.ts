@@ -25,7 +25,7 @@ import type {
     WorkflowRunDetailApi,
 } from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
-import { summarizeLifecycle, workflowRuns } from '../lib/lifecycle'
+import { workflowRuns } from '../lib/lifecycle'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import {
     DEFAULT_FILTERS,
@@ -92,6 +92,7 @@ function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
         passing: 0,
         failing: 0,
         pending: 0,
+        inconclusive: 0,
         failingWorkflows: [],
         pushes: 0,
         pushHistory: [],
@@ -106,7 +107,7 @@ function apiPr(overrides: Partial<PullRequestListItemApi> = {}): PullRequestList
     return {
         author: { handle: 'alice', display_name: 'alice', avatar_url: 'https://a/avatar', is_bot: false },
         repo: { provider: 'github', owner: 'posthog', name: 'posthog' },
-        ci: { runs: 0, passing: 0, failing: 0, pending: 0 },
+        ci: { runs: 0, passing: 0, failing: 0, pending: 0, inconclusive: 0 },
         number: 1,
         title: 'feat: x',
         state: 'open',
@@ -126,13 +127,18 @@ function apiPr(overrides: Partial<PullRequestListItemApi> = {}): PullRequestList
 
 const CARDS: CICardSummaryApi = { open_prs: 18, repos: 10, stuck: 6, failing_ci: 4 }
 const PRS: PullRequestListItemApi[] = [
-    apiPr({ number: 101, ci: { runs: 3, passing: 2, failing: 1, pending: 0 }, pushes: 7, rerun_cycles: 2 }),
+    apiPr({
+        number: 101,
+        ci: { runs: 3, passing: 2, failing: 1, pending: 0, inconclusive: 0 },
+        pushes: 7,
+        rerun_cycles: 2,
+    }),
     apiPr({
         number: 102,
         title: 'fix: y',
         author: { handle: 'bob', display_name: 'bob', avatar_url: 'https://b/avatar', is_bot: false },
         repo: { provider: 'github', owner: 'posthog', name: 'posthog-js' },
-        ci: { runs: 5, passing: 5, failing: 0, pending: 0 },
+        ci: { runs: 5, passing: 5, failing: 0, pending: 0, inconclusive: 0 },
         state: 'merged',
         created_at: '2026-05-20T00:00:00Z',
         merged_at: '2026-05-21T00:00:00Z',
@@ -172,6 +178,7 @@ function makeWorkflow(overrides: Partial<WorkflowHealthRow> = {}): WorkflowHealt
         latestRunConclusion: 'success',
         granularity: 'day',
         buckets: [],
+        mergeQueueRunCount: 0,
         ...overrides,
     }
 }
@@ -200,6 +207,8 @@ describe('engineeringAnalyticsLogic', () => {
             available: true,
             owners_resolved: true,
             ttl_days: 15,
+            truncated: false,
+            limit: 5000,
             repository: 'PostHog/posthog',
             trunk_url: null,
             teams: [],
@@ -216,16 +225,6 @@ describe('engineeringAnalyticsLogic', () => {
         }
         jest.restoreAllMocks()
         resumeKeaLoadersErrors()
-    })
-
-    it.each([
-        ['no runs', { runs: 0, failing: 0, pending: 0 }, 'none'],
-        ['a failure', { runs: 3, failing: 1, pending: 0 }, 'failing'],
-        ['failure beats pending', { runs: 5, failing: 1, pending: 2 }, 'failing'],
-        ['unsettled run', { runs: 3, failing: 0, pending: 2 }, 'running'],
-        ['all green', { runs: 3, failing: 0, pending: 0 }, 'passing'],
-    ])('ciStatusOf derives %s', (_label, rollup, expected) => {
-        expect(ciStatusOf(rollup)).toBe(expected)
     })
 
     it('filters by state, author, repo, ci status, and search', () => {
@@ -345,44 +344,28 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '2026-01-01', date_to: '2026-03-01' })
     })
 
-    it('filters workflow health by the shared branch scope, only reloading on a real change', async () => {
-        // Branch lives in the shared filters logic (so it carries into the workflow detail page); the
-        // Workflows tab reads it and reloads workflow health when it's applied.
+    it('scopes workflow health to the shared run group', async () => {
+        // The scope lives in the shared filters logic so it carries into the workflow detail page; the
+        // Workflows tab reads it and reloads workflow health whenever the group changes.
         logic = engineeringAnalyticsLogic()
         logic.mount()
         const filters = engineeringAnalyticsFiltersLogic()
         extraUnmounts.push(filters.mount())
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        // All runs is the default, and the backend already reports every run when the param is absent.
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d' })
 
-        // Typing only stages the value — no reload until applied.
-        filters.actions.setBranchFilter('main')
-        expect(filters.values.branchInput).toBe('main')
-        expect(filters.values.appliedBranch).toBe('')
-
-        // Applying promotes it and reloads with the branch param (trimmed).
-        filters.actions.setBranchFilter('  main  ')
-        filters.actions.applyBranchFilter()
+        filters.actions.setRunScope('pull_request')
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
-        expect(filters.values.appliedBranch).toBe('main')
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', branch: 'main' })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', run_scope: 'pull_request' })
 
-        // Re-applying an unchanged value (e.g. a blur with no edit) does not reload.
-        mockWorkflowHealth.mockClear()
-        filters.actions.applyBranchFilter()
-        await expectLogic(logic).toNotHaveDispatchedActions(['loadWorkflowHealth'])
-        expect(mockWorkflowHealth).not.toHaveBeenCalled()
-
-        // The applied branch persists across a date-range reload.
+        // The group persists across a window change.
         filters.actions.setDateRange('-90d', null)
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d', branch: 'main' })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d', run_scope: 'pull_request' })
 
-        // Clearing the box (e.g. the search × button, which only fires onChange('')) applies
-        // immediately — no Enter/blur needed — and drops the filter.
-        filters.actions.setBranchFilter('')
-        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
-        expect(filters.values.appliedBranch).toBe('')
+        filters.actions.setRunScope('all')
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d' })
     })
 
@@ -567,37 +550,6 @@ describe('engineeringAnalyticsLogic', () => {
         expect(series).toEqual({ completed: [completed], failures: [failures], labels: [label] })
     })
 
-    it('summarizeLifecycle rolls events up into milestones and verdicts', () => {
-        const summary = summarizeLifecycle([
-            { kind: 'opened', at: '2026-06-01T00:00:00Z' },
-            { kind: 'ci_started', at: '2026-06-01T00:01:00Z', detail: 'Backend CI' },
-            { kind: 'ci_started', at: '2026-06-01T00:02:00Z', detail: 'Frontend CI' },
-            { kind: 'ci_started', at: '2026-06-01T00:03:00Z', detail: 'E2E: smoke' },
-            { kind: 'ci_finished', at: '2026-06-01T00:30:00Z', detail: 'Backend CI: failure' },
-            { kind: 'ci_finished', at: '2026-06-01T00:20:00Z', detail: 'Frontend CI: success' },
-            { kind: 'merged', at: '2026-06-02T00:00:00Z' },
-        ])
-        expect(summary.openedAt).toBe('2026-06-01T00:00:00Z')
-        expect(summary.firstCiStartedAt).toBe('2026-06-01T00:01:00Z')
-        expect(summary.lastCiFinishedAt).toBe('2026-06-01T00:30:00Z')
-        expect(summary.mergedAt).toBe('2026-06-02T00:00:00Z')
-        expect(summary.closedAt).toBeNull()
-        expect(summary.notPassing).toEqual([
-            { workflow: 'Backend CI', conclusion: 'failure', at: '2026-06-01T00:30:00Z' },
-        ])
-        expect(summary.passed).toBe(1)
-        expect(summary.unsettled).toBe(1)
-    })
-
-    it('summarizeLifecycle keeps workflow names that contain a colon', () => {
-        const summary = summarizeLifecycle([
-            { kind: 'ci_finished', at: '2026-06-01T00:30:00Z', detail: 'E2E: smoke: timed_out' },
-        ])
-        expect(summary.notPassing).toEqual([
-            { workflow: 'E2E: smoke', conclusion: 'timed_out', at: '2026-06-01T00:30:00Z' },
-        ])
-    })
-
     it('workflowRuns pairs starts and finishes into per-workflow runs with durations', () => {
         const runs = workflowRuns([
             { kind: 'opened', at: '2026-06-01T00:00:00Z' },
@@ -667,6 +619,7 @@ describe('engineeringAnalyticsLogic', () => {
             run_attempt: 1,
             pr_number: 10,
             commit_pr_number: null,
+            is_merge_queue: false,
             ...overrides,
         })
         const groups = groupRunsByCommit([
@@ -708,6 +661,8 @@ describe('engineeringAnalyticsLogic', () => {
             available: true,
             owners_resolved: true,
             ttl_days: 15,
+            truncated: true,
+            limit: 5000,
             repository: 'PostHog/posthog',
             trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog',
             teams: [{ owner_team: 'team-replay', test_count: 1, overdue_count: 1, oldest_age_days: 44 }],
@@ -743,6 +698,8 @@ describe('engineeringAnalyticsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadTrunkQuarantineSuccess'])
 
         expect(logic.values.trunkQuarantine?.ttlDays).toBe(15)
+        expect(logic.values.trunkQuarantine?.truncated).toBe(true)
+        expect(logic.values.trunkQuarantine?.limit).toBe(5000)
         expect(logic.values.trunkQuarantine?.repository).toBe('PostHog/posthog')
         expect(logic.values.trunkQuarantine?.trunkUrl).toBe(
             'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog'

@@ -99,6 +99,7 @@ interface SyncMethodFormProps {
     ) => void
     availableColumns?: AvailableColumn[]
     detectedPrimaryKeys?: string[] | null
+    primaryKeyDetectionSupported?: boolean
     primaryKeyLocked?: boolean
     saveButtonIsLoading?: boolean
     isNewSource?: boolean
@@ -131,10 +132,12 @@ const getCdcSyncSupported = (
 export const shouldOfferXmin = (schema: ExternalDataSourceSyncSchema): boolean =>
     !schema.webhook_only && !!schema.xmin_available
 
-const getSaveDisabledReason = (
+export const getSaveDisabledReason = (
     syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | undefined,
     incrementalField: string | null,
-    appendField: string | null
+    appendField: string | null,
+    mergeKey: string[] | null,
+    keyRequired: boolean
 ): string | undefined => {
     if (!syncType) {
         return 'You must select a sync method before saving'
@@ -144,15 +147,22 @@ const getSaveDisabledReason = (
         return 'You must select an incremental field'
     }
 
+    // An incremental sync merges rows on a key. Saved without one, the table syncs once and then
+    // fails on every later run, so the key is required here rather than at the first merge.
+    if (syncType === 'incremental' && keyRequired && !mergeKey?.length) {
+        return 'Select primary key columns, or use full table replication instead'
+    }
+
     if (syncType === 'append' && !appendField) {
         return 'You must select an append field'
     }
 }
 
-const getInitialRadioState = (
+export const getInitialRadioState = (
     schema: ExternalDataSourceSyncSchema,
     incrementalSyncSupported: boolean,
-    appendSyncSupported: boolean
+    appendSyncSupported: boolean,
+    keyResolvable: boolean
 ): 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' => {
     if (schema.sync_type) {
         return schema.sync_type
@@ -167,7 +177,9 @@ const getInitialRadioState = (
     if (schema.cdc_available) {
         return 'cdc'
     }
-    if (incrementalSyncSupported) {
+    // Offering incremental to a table with no key only leads to a sync that fails on its second
+    // run, so a keyless table falls through to a method it can actually run.
+    if (incrementalSyncSupported && keyResolvable) {
         return 'incremental'
     }
     if (appendSyncSupported) {
@@ -183,6 +195,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         onSave,
         availableColumns,
         detectedPrimaryKeys,
+        primaryKeyDetectionSupported,
         primaryKeyLocked,
         saveButtonIsLoading,
         isNewSource,
@@ -197,11 +210,17 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
 
     const columns = availableColumns ?? schema.available_columns ?? []
     const resolvedDetectedPks = detectedPrimaryKeys ?? schema.detected_primary_keys ?? null
+    // A key is only asked for when the source reads keys off the table and the columns are
+    // known. A source that declares its key in code resolves it at sync time, and with no
+    // column list there is nothing to pick from.
+    const keyRequired =
+        (primaryKeyDetectionSupported ?? schema.primary_key_detection_supported ?? false) && columns.length > 0
+    const keyResolvable = !keyRequired || !!(schema.primary_key_columns?.length || resolvedDetectedPks?.length)
 
     const defaultField = schema.incremental_field ?? schema.incremental_fields[0]?.field ?? null
 
     const [radioValue, setRadioValue] = useState(() =>
-        getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled)
+        getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled, keyResolvable)
     )
     const [incrementalFieldValue, setIncrementalFieldValue] = useState(defaultField)
     const [appendFieldValue, setAppendFieldValue] = useState(defaultField)
@@ -219,7 +238,14 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const [lookbackUnit, setLookbackUnit] = useState<LookbackUnit>(initialLookback.unit)
 
     useEffect(() => {
-        setRadioValue(getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled))
+        setRadioValue(
+            getInitialRadioState(
+                schema,
+                !incrementalSyncSupported.disabled,
+                !appendSyncSupported.disabled,
+                keyResolvable
+            )
+        )
         setIncrementalFieldValue(defaultField)
         setAppendFieldValue(defaultField)
         setPrimaryKeyColumns(schema.primary_key_columns ?? (primaryKeyLocked ? [] : (resolvedDetectedPks ?? [])))
@@ -629,7 +655,13 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         return false
     })()
 
-    const validationDisabledReason = getSaveDisabledReason(radioValue, incrementalFieldValue, appendFieldValue)
+    const validationDisabledReason = getSaveDisabledReason(
+        radioValue,
+        incrementalFieldValue,
+        appendFieldValue,
+        primaryKeyColumns.length ? primaryKeyColumns : resolvedDetectedPks,
+        keyRequired
+    )
     const saveDisabledReason = validationDisabledReason ?? (!isDirty ? 'No changes to save' : undefined)
 
     const handleSave = (): void => {

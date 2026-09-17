@@ -16,14 +16,23 @@ from products.signals.backend.temporal.summary import (
     mark_report_ready_activity,
     reset_report_to_potential_activity,
 )
-from products.signals.backend.temporal.types import RERESEARCH_MAX_SIGNALS
 
 PIPELINE_MODULE_PATH = "products.signals.backend.temporal.summary"
+
+CHART_PAYLOAD = {
+    "chart_id": "signups-drop",
+    "title": "Daily signups",
+    "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
+}
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_started_and_ready_fire_expected_captures(ateam):
+@pytest.mark.parametrize(
+    "charts_enabled,charts,expected_chart_count",
+    [(True, [CHART_PAYLOAD], 1), (False, None, 0)],
+)
+async def test_started_and_ready_fire_expected_captures(ateam, charts_enabled, charts, expected_chart_count):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.CANDIDATE,
@@ -50,6 +59,8 @@ async def test_started_and_ready_fire_expected_captures(ateam):
                 summary="summary",
                 processed_signal_count=2,
                 source_products=source_products,
+                charts=charts,
+                charts_enabled=charts_enabled,
             )
         )
 
@@ -66,6 +77,13 @@ async def test_started_and_ready_fire_expected_captures(ateam):
         assert "project" in e["groups"]
     assert events[0]["properties"].get("result") is None
     assert events[1]["properties"]["result"] == "ready"
+    # Pipeline chart rate is only measurable if the completion event carries the chart set.
+    assert events[0]["properties"].get("chart_count") is None
+    assert events[1]["properties"]["chart_count"] == expected_chart_count
+    # A zero count from a team the rollout never opened charts to is not the agent declining to
+    # chart, so the count only reads as a rate next to the rollout state the run saw.
+    assert events[1]["properties"]["charts_enabled"] is charts_enabled
+    assert "charts_enabled" not in events[0]["properties"]
 
 
 @pytest.mark.asyncio
@@ -96,6 +114,7 @@ async def test_failed_fires_completed_with_failure_reason(ateam):
     kwargs = pipeline_calls[0].kwargs
     assert kwargs["event"] == "signal_report_completed"
     assert kwargs["properties"]["result"] == "failed"
+    assert "chart_count" not in kwargs["properties"]
     assert kwargs["properties"]["failure_reason"] == "safety_judge_rejected"
     assert kwargs["properties"]["signal_count"] == 3
     assert kwargs["properties"]["source_products"] == ["zendesk"]
@@ -234,6 +253,10 @@ async def test_pending_input_fires_completed_and_status_changed_with_pending_rea
     calls_by_event = {call.kwargs["event"]: call.kwargs for call in capture.call_args_list}
     assert calls_by_event["signal_report_completed"]["properties"]["result"] == "pending_input"
     assert calls_by_event["signal_report_completed"]["properties"]["pending_reason"] == pending_reason
+    assert calls_by_event["signal_report_completed"]["properties"]["chart_count"] == 0
+    # No research ran to ask about the rollout here, so the property stays absent rather than
+    # reporting a team as opted out of charts.
+    assert "charts_enabled" not in calls_by_event["signal_report_completed"]["properties"]
     assert calls_by_event["signal_report_status_changed"]["properties"]["pending_reason"] == pending_reason
 
 
@@ -304,12 +327,33 @@ async def test_reset_to_potential_is_idempotent_when_already_potential(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_ready_loops_when_new_signals_within_cap(ateam):
-    """New signals arrived mid-run and the report is within the cap: re-promote to CANDIDATE and loop."""
+@pytest.mark.parametrize(
+    ("run_count", "processed_signal_count", "signal_count", "expected_loop"),
+    [
+        # Signals landed mid-run and carried the report to its next bucket: loop rather than make
+        # them wait for a signal that arrives after the run.
+        (1, 1, 2, True),
+        (1, 1, 9, True),
+        # Signals landed but the report is still short of its next bucket, so the run settles.
+        (2, 2, 3, False),
+        (3, 4, 9, False),
+        # No new signals at all.
+        (2, 2, 2, False),
+        # This pass covered the last bucket: the report stays READY however far past it grew.
+        (4, 10, 15, False),
+        # Attempts are not passes: a report whose run_count was spent on runs that paused before
+        # researching still loops when this pass leaves it at a bucket.
+        (9, 1, 2, True),
+    ],
+)
+async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
+    ateam, run_count: int, processed_signal_count: int, signal_count: int, expected_loop: bool
+):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
-        signal_count=RERESEARCH_MAX_SIGNALS,
+        signal_count=signal_count,
+        run_count=run_count,
         total_weight=2.0,
     )
     report_id = str(report.id)
@@ -321,41 +365,15 @@ async def test_ready_loops_when_new_signals_within_cap(ateam):
                 report_id=report_id,
                 title="title",
                 summary="summary",
-                processed_signal_count=1,
+                processed_signal_count=processed_signal_count,
                 source_products=["zendesk"],
             )
         )
 
-    assert has_new_signals is True
+    assert has_new_signals is expected_loop
     refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report_id)
-    assert refreshed.status == SignalReport.Status.CANDIDATE
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_ready_does_not_loop_when_new_signals_past_cap(ateam):
-    """New signals arrived mid-run but the report is past the cap: stay READY rather than looping
-    into another full research run."""
-    report = await database_sync_to_async(SignalReport.objects.create)(
-        team=ateam,
-        status=SignalReport.Status.IN_PROGRESS,
-        signal_count=RERESEARCH_MAX_SIGNALS + 5,
-        total_weight=2.0,
-    )
-    report_id = str(report.id)
-
-    with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"):
-        has_new_signals = await mark_report_ready_activity(
-            MarkReportReadyInput(
-                team_id=ateam.id,
-                report_id=report_id,
-                title="title",
-                summary="summary",
-                processed_signal_count=RERESEARCH_MAX_SIGNALS,
-                source_products=["zendesk"],
-            )
-        )
-
-    assert has_new_signals is False
-    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report_id)
-    assert refreshed.status == SignalReport.Status.READY
+    expected_status = SignalReport.Status.CANDIDATE if expected_loop else SignalReport.Status.READY
+    assert refreshed.status == expected_status
+    # Stamped by the pass that just completed, so the next bucket is measured against what this run
+    # actually covered rather than against how many times the workflow has started.
+    assert refreshed.signals_researched == processed_signal_count

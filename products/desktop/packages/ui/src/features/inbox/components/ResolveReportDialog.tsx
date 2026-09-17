@@ -31,6 +31,7 @@ export function ResolveReportDialog({
   report,
   isSubmitting,
   initialReason,
+  initialNote = "",
   onConfirm,
 }: {
   open: boolean;
@@ -38,12 +39,13 @@ export function ResolveReportDialog({
   report: SignalReport;
   isSubmitting: boolean;
   initialReason?: ResolveReasonOptionValue;
+  initialNote?: string;
   onConfirm: (result: ResolveReportDialogResult) => void;
 }): React.JSX.Element {
   const [reason, setReason] = useState<ResolveReasonOptionValue | null>(
     initialReason ?? null,
   );
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(initialNote);
   const fieldId = useId();
   const title = report.title?.trim() ? report.title : "Untitled report";
   const hasOpenPr =
@@ -91,7 +93,13 @@ export function ResolveReportDialog({
             <Textarea
               autoFocus={initialReason != null}
               value={note}
-              onChange={(event) => setNote(event.target.value)}
+              onChange={(event) => {
+                const value = event.target.value;
+                setNote(value);
+                if (reason === null && value.trim()) {
+                  setReason("other");
+                }
+              }}
               placeholder="Optional: link to the fix or explain what changed"
               rows={3}
               maxLength={4000}

@@ -11,6 +11,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.source import HookdeckSource
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.source"
+UNREACHABLE_MESSAGE = (
+    "PostHog could not reach Hookdeck to check your API key. Wait a moment and try again, or "
+    "check Hookdeck's status page."
+)
 
 INCREMENTAL_ENDPOINTS = sorted(name for name, c in HOOKDECK_ENDPOINTS.items() if c.incremental_fields)
 FULL_REFRESH_ENDPOINTS = sorted(name for name, c in HOOKDECK_ENDPOINTS.items() if not c.incremental_fields)
@@ -84,12 +88,28 @@ class TestHookdeckSource:
         "probe_result, schema_name, expected",
         [
             ((True, 200), None, (True, None)),
-            ((False, 401), None, (False, "Invalid Hookdeck API key")),
+            (
+                (False, 401),
+                None,
+                (
+                    False,
+                    "Your Hookdeck API key is invalid or has been rotated. Copy the current key from "
+                    "Settings → Project → Secrets in Hookdeck, then enter it again.",
+                ),
+            ),
             # A 403 at source-create is a per-resource restriction, not a bad key.
             ((False, 403), None, (True, None)),
-            ((False, 403), "events", (False, "Your Hookdeck API key can't access this resource")),
-            ((False, None), None, (False, "Could not connect to the Hookdeck API")),
-            ((False, 500), None, (False, "Could not connect to the Hookdeck API")),
+            (
+                (False, 403),
+                "events",
+                (
+                    False,
+                    "Your Hookdeck API key can't access this resource. Check that the key belongs to the "
+                    "project you want to sync.",
+                ),
+            ),
+            ((False, None), None, (False, UNREACHABLE_MESSAGE)),
+            ((False, 500), None, (False, UNREACHABLE_MESSAGE)),
         ],
     )
     @mock.patch(f"{SOURCE_MODULE}.validate_hookdeck_credentials")

@@ -57,6 +57,7 @@ from products.review_hog.backend.temporal.activities import (
     SyncReviewSkillsInput,
     TrackReviewCompletedInput,
     TrackReviewFailedInput,
+    TrackReviewStartedInput,
     ValidateChunkInput,
     ValidateChunkResult,
     ValidateIntegrationInput,
@@ -80,6 +81,7 @@ from products.review_hog.backend.temporal.activities import (
     sync_review_skills_activity,
     track_review_completed_activity,
     track_review_failed_activity,
+    track_review_started_activity,
     validate_chunk_activity,
     validate_github_integration_activity,
 )
@@ -112,6 +114,9 @@ _ONESHOT_RETRY = RetryPolicy(
     initial_interval=timedelta(seconds=30),
     backoff_coefficient=2.0,
     maximum_interval=timedelta(minutes=4),
+    # Truncated sandbox output stays retryable: the error proves only an unclosed object, not the
+    # output limit — a killed sandbox or half-flushed log tail raises the same type and recovers on
+    # retry. Only the one-shot path can read stop_reason == "max_tokens" and fail fast on it.
 )
 
 
@@ -415,6 +420,7 @@ class ReviewPRWorkflow:
                 head_branch=inputs.head_branch,
                 signal_report_id=inputs.signal_report_id,
                 trigger_source=inputs.trigger_source,
+                signal_priority=inputs.signal_priority,
             ),
             start_to_close_timeout=_FETCH_TIMEOUT,
             retry_policy=_RETRY,
@@ -481,6 +487,25 @@ class ReviewPRWorkflow:
             workflow.logger.info(f"Acting user {acting.acting_user_id} has inbox reviews turned off; skipping review")
             return report_id
         acting_user_id = acting.acting_user_id
+
+        # The turn passed every gate and is about to spend sandboxes: one started event per turn,
+        # the counterpart of the completed/failed pair below. Best-effort like both of them.
+        if workflow.patched("track-review-started-2026-09"):
+            try:
+                await workflow.execute_activity(
+                    track_review_started_activity,
+                    TrackReviewStartedInput(
+                        team_id=inputs.team_id,
+                        report_id=report_id,
+                        head_sha=head_sha,
+                        run_index=meta.run_index,
+                        turn_trigger_source=inputs.trigger_source,
+                    ),
+                    start_to_close_timeout=_QUICK_TIMEOUT,
+                    retry_policy=_RETRY,
+                )
+            except ActivityError:
+                workflow.logger.warning("Could not capture the review-started analytics event")
 
         # One gate, three consumers: the status comment, finalize's deferred idle write, and the
         # stage-7 publish dispatch all key off "this run publishes to a PR".
@@ -652,7 +677,12 @@ class ReviewPRWorkflow:
                 try:
                     await workflow.execute_activity(
                         track_review_failed_activity,
-                        TrackReviewFailedInput(team_id=inputs.team_id, report_id=report_id, run_index=meta.run_index),
+                        TrackReviewFailedInput(
+                            team_id=inputs.team_id,
+                            report_id=report_id,
+                            run_index=meta.run_index,
+                            turn_trigger_source=inputs.trigger_source,
+                        ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
                     )
@@ -673,6 +703,7 @@ class ReviewPRWorkflow:
                     run_index=meta.run_index,
                     published=posted,
                     workflow_started_at=workflow.info().start_time.isoformat(),
+                    turn_trigger_source=inputs.trigger_source,
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,

@@ -1,7 +1,6 @@
 import re
 import hmac
 import time
-import hashlib
 import logging
 import functools
 from abc import abstractmethod
@@ -20,6 +19,7 @@ from django.utils import timezone
 
 import jwt
 import structlog
+import posthoganalytics
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import authentication
@@ -30,11 +30,17 @@ from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.constants import AvailableFeature
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
+from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
-from posthog.models.activity_logging.utils import activity_storage
+from posthog.models.activity_logging.utils import (
+    ACTIVITY_LOG_INTENT_HEADER,
+    ACTIVITY_LOG_INTENT_MAX_LENGTH,
+    activity_storage,
+)
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
@@ -54,6 +60,7 @@ from posthog.models.utils import (
     hash_key_value,
 )
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.oauth_provenance import is_interactive_desktop_grant
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.shared_link_user import SharedLinkUser
@@ -199,6 +206,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
     personal_api_key: PersonalAPIKey
     personal_api_key_source: Optional[str] = None
+    # Set once the key is validated, so rate limiting can identify the key without re-reading the
+    # request body. See `hashed_personal_api_key_for_throttling` in posthog/rate_limit.py.
+    personal_api_key_hash: Optional[str] = None
 
     # Normalized source identifiers returned by find_key_with_source
     SOURCE_HEADER = "header"
@@ -306,7 +316,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             if not personal_api_key_with_source:
                 return None
 
-            _, source = personal_api_key_with_source
+            key_value, source = personal_api_key_with_source
             span.set_attribute("auth.source", source)
 
             personal_api_key_object = self.validate_key(personal_api_key_with_source)
@@ -338,6 +348,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
             self.personal_api_key = personal_api_key_object
             self.personal_api_key_source = source
+            self.personal_api_key_hash = hash_key_value(key_value)
 
             return personal_api_key_object.user, None
 
@@ -890,6 +901,24 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             return None
 
 
+def _record_agent_attribution(request: Union[HttpRequest, Request], access_token: OAuthAccessToken) -> None:
+    """Record a trusted task binding, or intent from a Desktop OAuth application.
+
+    Intent is self-reported. Only the token binding can supply a verified task id.
+    Attribution is extra detail on an audit row, so an error here must not fail the request.
+    """
+    try:
+        if access_token.sandbox_task_id is None and not is_interactive_desktop_grant(request, access_token):
+            return
+        if access_token.sandbox_task_id is not None:
+            activity_storage.set_agent_task_id(str(access_token.sandbox_task_id))
+        intent = request.headers.get(ACTIVITY_LOG_INTENT_HEADER, "").strip()[:ACTIVITY_LOG_INTENT_MAX_LENGTH]
+        if intent:
+            activity_storage.set_agent_intent(intent)
+    except Exception as e:
+        capture_exception(e)
+
+
 class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
     """
     OAuth 2.0 Bearer token authentication using access tokens
@@ -911,34 +940,51 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                 if not access_token:
                     raise AuthenticationFailed(detail="Invalid access token.")
 
-                self._enforce_toolbar_access(access_token)
-
-                self.access_token = access_token
-
-                tag_authentication(
-                    user_id=access_token.user.pk,
-                    team_id=access_token.user.current_team_id,
-                    access_method=AccessMethod.OAUTH,
-                )
-
-                # ActivityLoggingMiddleware only captures session-authenticated users (it runs
-                # before DRF auth), so signal-driven activity logging would otherwise record
-                # bearer-token requests as system actions. Only write when the middleware owns
-                # cleanup: outside a request cycle (e.g. authenticate() called directly) the
-                # thread-local would leak.
-                if activity_storage.is_request_scoped():
-                    activity_storage.set_user(access_token.user)
-                    # Tokens minted during staff impersonation must keep the impersonation
-                    # marker in the audit trail.
-                    if access_token.impersonated_by_id is not None:
-                        activity_storage.set_was_impersonated(True)
-
-                return access_token.user, None
+                return self._authenticate_access_token(request, access_token)
 
             except AuthenticationFailed:
                 raise
-            except Exception:
+            except Exception as e:
+                # _validate_token converts its own failures, so anything reaching here is a
+                # bug in the authentication path, not a bad token. Record it before it is
+                # reported to the caller as one.
+                with posthoganalytics.new_context():
+                    posthoganalytics.set_capture_exception_code_variables_context(False)
+                    capture_exception(e)
                 raise AuthenticationFailed(detail="Invalid access token.")
+
+    def _authenticate_access_token(
+        self, request: Union[HttpRequest, Request], access_token: OAuthAccessToken
+    ) -> tuple[Any, None]:
+        self._enforce_toolbar_access(access_token)
+
+        self.access_token = access_token
+
+        # The delegated query rejects missing users, but the nullable relation needs a type guard.
+        user = access_token.user
+        if user is None:
+            raise AuthenticationFailed(detail="User associated with access token not found.")
+
+        tag_authentication(
+            user_id=user.pk,
+            team_id=user.current_team_id,
+            access_method=AccessMethod.OAUTH,
+        )
+
+        # ActivityLoggingMiddleware only captures session-authenticated users (it runs
+        # before DRF auth), so signal-driven activity logging would otherwise record
+        # bearer-token requests as system actions. Only write when the middleware owns
+        # cleanup: outside a request cycle (e.g. authenticate() called directly) the
+        # thread-local would leak.
+        if activity_storage.is_request_scoped():
+            activity_storage.set_user(user)
+            # Tokens minted during staff impersonation must keep the impersonation
+            # marker in the audit trail.
+            if access_token.impersonated_by_id is not None:
+                activity_storage.set_was_impersonated(True)
+            _record_agent_attribution(request, access_token)
+
+        return user, None
 
     def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:
         if "authorization" in request.headers:
@@ -1067,18 +1113,7 @@ class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
         except (KeyError, OAuthAccessToken.DoesNotExist) as error:
             raise AuthenticationFailed(detail="Source OAuth access token is no longer valid.") from error
 
-        self._enforce_toolbar_access(access_token)
-        self.access_token = access_token
-        tag_authentication(
-            user_id=access_token.user.pk,
-            team_id=access_token.user.current_team_id,
-            access_method=AccessMethod.OAUTH,
-        )
-        if activity_storage.is_request_scoped():
-            activity_storage.set_user(access_token.user)
-            if access_token.impersonated_by_id is not None:
-                activity_storage.set_was_impersonated(True)
-        return access_token.user, None
+        return self._authenticate_access_token(request, access_token)
 
 
 class WidgetAuthentication(authentication.BaseAuthentication):
@@ -1367,11 +1402,13 @@ class WebauthnBackend(BaseBackend):
             response: The WebAuthn authentication response containing userHandle, authenticatorData, clientDataJSON, and signature
         """
         if challenge is None or credential_id is None or response is None:
+            # Django passes the same keyword arguments to every authentication backend, so `response`
+            # can hold another backend's credentials. Log only whether it is present.
             structlog_logger.warning(
                 "no request, response, or credential id while authenticating webauthn credential",
                 credential_id=credential_id,
                 challenge=challenge,
-                response=response,
+                has_response=response is not None,
             )
             return None
 
@@ -1506,12 +1543,8 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
         raw_body = django_request.body.decode()
 
         hmac_input = self.build_hmac_input(timestamp, raw_body)
-        expected = hmac.new(
-            signing_secret.encode(),
-            hmac_input.encode(),
-            hashlib.sha256,
-        ).hexdigest()
-        if not hmac.compare_digest(signature, expected):
+        expected = hmac_sha256_signature(signing_secret, hmac_input.encode())
+        if not signatures_match(expected, signature):
             raise AuthenticationFailed("Invalid webhook signature.")
 
         try:

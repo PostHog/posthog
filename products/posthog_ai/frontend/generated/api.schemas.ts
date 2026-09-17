@@ -572,6 +572,32 @@ export interface SandboxMessageResponseApi {
     just_created_run: boolean
 }
 
+export interface JsonValueApi {}
+
+/**
+ * Arguments validated against the selected tool's schema.
+ */
+export type MCPToolRequestApiArgs = { [key: string]: JsonValueApi }
+
+export interface MCPToolRequestApi {
+    /** Arguments validated against the selected tool's schema. */
+    args?: MCPToolRequestApiArgs
+}
+
+/**
+ * Structured tool output for native widgets.
+ */
+export type MCPToolResponseApiStructuredContent = { [key: string]: JsonValueApi } | null
+
+export interface MCPToolResponseApi {
+    /** Formatted tool output for the model. */
+    content: string
+    /** Structured tool output for native widgets. */
+    structured_content?: MCPToolResponseApiStructuredContent
+    /** Whether the tool completed successfully. */
+    success: boolean
+}
+
 export interface DocsSearchRequestApi {
     /** Natural-language description of what to find in the PostHog documentation. Inkeep performs hybrid (semantic + full-text) RAG, so phrase the query the way a user would ask the question. */
     query: string
@@ -592,5 +618,3 @@ export type ConversationsListParams = {
      */
     offset?: number
 }
-
-export type McpToolsCreate200 = { [key: string]: unknown }

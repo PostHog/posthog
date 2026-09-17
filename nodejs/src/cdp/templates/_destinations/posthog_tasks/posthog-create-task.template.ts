@@ -41,6 +41,14 @@ if (not empty(inputs.connectors)) {
   payload.connectors := inputs.connectors
 }
 
+if (not empty(inputs.channel)) {
+  payload.channel := inputs.channel
+}
+
+if (not empty(inputs.skills)) {
+  payload.skills := inputs.skills
+}
+
 if (not empty(inputs.posthog_mcp_scopes)) {
   payload.posthog_mcp_scopes := inputs.posthog_mcp_scopes
 }
@@ -63,16 +71,16 @@ if (inputs.reply_in_slack_thread != false and event.event == '$slack_message_rec
 
 let response := postHogCreateTask(payload)
 
-if (response.status == 409) {
-  print(f'Task not created: {apiErrorMessage(response)}')
-  return { 'skipped': true, 'reason': apiErrorMessage(response) }
-}
-
 if (response.status >= 400) {
   throw Error(f'Failed to create task ({response.status}): {apiErrorMessage(response)}')
 }
 
-return response.body
+let task := response.body
+if (not empty(task.run_id)) {
+  // Park the workflow step until the run finishes: the tasks runtime cap plus slack for its wake.
+  task.await := { 'max_wait': '190m', 'label': 'task' }
+}
+return task
 `,
     inputs_schema: [
         {
@@ -118,6 +126,15 @@ return response.body
                 'MCP servers the agent can use. Only servers shared with everyone in this project can be selected.',
         },
         {
+            key: 'skills',
+            type: 'task_skills',
+            label: 'Skills',
+            secret: false,
+            required: false,
+            description:
+                'Skills from your project’s skills store. The agent gets a short summary of each one and reads the full skill when it needs it. Always the latest saved version.',
+        },
+        {
             key: 'posthog_mcp_scopes',
             type: 'choice',
             label: 'PostHog access',
@@ -141,6 +158,21 @@ return response.body
                 'New runs are skipped while this many tasks from this workflow are still running. Protects against a burst of trigger events starting too many agents at once. Daily limits on how many tasks a workflow and project can create also apply.',
         },
         {
+            // A space is a Tasks concept the workflow editor has no picker for, so the field is
+            // hidden and set by the clients that know about spaces. The display name rides along
+            // after a pipe, like the Slack channel picker's "C123|#name": the API keeps the id and
+            // the clients read the name back without a second input to keep in step.
+            key: 'channel',
+            type: 'string',
+            label: 'Space',
+            secret: false,
+            required: false,
+            hidden: true,
+            templating: false,
+            description:
+                'Space the created task is filed into, as its id, optionally followed by "|" and the space name. Leave empty to file the task in no space.',
+        },
+        {
             // Only meaningful on a Slack-triggered workflow; the builder hides it for other
             // triggers, and the hog code above no-ops when the trigger event isn't a Slack message.
             // Off, the backend sees no slack_context and ends the run when the agent finishes;
@@ -156,9 +188,8 @@ return response.body
                 'The agent posts its updates as replies in the Slack thread that started this workflow. Replies in that thread are sent to the agent. The run stays open for about 2 minutes after the agent finishes so replies can reach it.',
         },
         {
-            // The engine treats a 4xx as a step failure before the code above runs, unless the
-            // status is listed here. 409 is the "task limit reached" reply, which the code turns
-            // into a graceful skip.
+            // Allow 409 through to the template so it can surface the API's detailed limit
+            // message as the step error rather than the executor's generic fetch failure.
             key: 'non_failure_status_codes',
             type: 'non_failure_status_codes',
             label: 'Non-failure status codes',

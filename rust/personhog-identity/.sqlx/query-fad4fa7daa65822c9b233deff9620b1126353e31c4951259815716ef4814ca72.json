@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='op_gc' */ \n            DELETE FROM lifecycle_op\n            WHERE op_id IN (\n                SELECT op_id FROM lifecycle_op\n                WHERE completed_at IS NOT NULL\n                  AND completed_at < now() - make_interval(secs => $1)\n                LIMIT $2\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Float8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fad4fa7daa65822c9b233deff9620b1126353e31c4951259815716ef4814ca72"
+}

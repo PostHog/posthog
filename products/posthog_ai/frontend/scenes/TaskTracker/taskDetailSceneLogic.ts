@@ -18,8 +18,11 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { isUUIDLike } from 'lib/utils/guards'
 
+import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { isApiNotFound, loadErrorMessage } from '../../lib/load-error'
 import { phDebugQueryParams } from '../../lib/ph-debug'
+import type { RunContinuationHandoff } from '../../logics/runInteractionLogic'
 import { TaskLogicProps, taskLogic } from '../../logics/taskLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
 import { TaskRun } from '../../types/taskTypes'
@@ -38,10 +41,12 @@ export interface taskDetailSceneLogicValues {
     isHeaderLoading: boolean
     isRunPending: boolean
     isTaskPending: boolean
+    latestRun: TaskRunDetailDTOApi | null
+    runContinuation: RunContinuationHandoff | null
     runs: TaskRun[]
     runsError: string | null
     runsLoading: boolean
-    selectedRun: TaskRun | null
+    selectedRun: TaskRunDetailDTOApi | null
     selectedRunData: TaskRun | null
     selectedRunDataLoading: boolean
     selectedRunError: string | null
@@ -73,6 +78,12 @@ export interface taskDetailSceneLogicActions {
     updateTask: (args_0: { data: TaskUpsertProps }) => {
         data: TaskUpsertProps
     } // taskLogic
+    clearContinuationDraft: (runId: string) => {
+        runId: string
+    }
+    continueWithRun: (handoff: RunContinuationHandoff) => {
+        handoff: RunContinuationHandoff
+    }
     loadSelectedTaskRun: () => any
     loadSelectedTaskRunFailure: (
         error: string,
@@ -120,14 +131,20 @@ export interface taskDetailSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         taskId: (arg: any) => any
-        selectedRun: (selectedRunData: TaskRun | null, runs: TaskRun[], selectedRunId: string | null) => TaskRun | null
+        selectedRun: (
+            selectedRunData: TaskRun | null,
+            runs: TaskRun[],
+            selectedRunId: string | null,
+            runContinuation: RunContinuationHandoff | null
+        ) => TaskRunDetailDTOApi | null
+        latestRun: (runs: TaskRun[], runContinuation: RunContinuationHandoff | null) => TaskRunDetailDTOApi | null
         canEditRepository: (runs: TaskRun[]) => boolean
         isTaskPending: (taskLoading: boolean, task: Task | null) => boolean
         isRunPending: (
             runsLoading: boolean,
             runs: TaskRun[],
             selectedRunDataLoading: boolean,
-            selectedRun: TaskRun | null
+            selectedRun: TaskRunDetailDTOApi | null
         ) => boolean
         isHeaderLoading: (isTaskPending: boolean, isRunPending: boolean) => boolean
         title: (task: Task | null) => string
@@ -157,6 +174,8 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     actions({
         setSelectedRunId: (runId: TaskRun['id'] | null, taskId: string) => ({ runId, taskId }),
         updateRun: (run: TaskRun) => ({ run }),
+        continueWithRun: (handoff: RunContinuationHandoff) => ({ handoff }),
+        clearContinuationDraft: (runId: string) => ({ runId }),
     }),
 
     reducers(({ props }) => ({
@@ -164,6 +183,17 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             null as TaskRun['id'] | null,
             {
                 setSelectedRunId: (state, { runId, taskId }) => (taskId === props.taskId ? runId : state),
+                continueWithRun: (state, { handoff }) => (handoff.run.task === props.taskId ? handoff.run.id : state),
+            },
+        ],
+        runContinuation: [
+            null as RunContinuationHandoff | null,
+            {
+                continueWithRun: (state, { handoff }) => (handoff.run.task === props.taskId ? handoff : state),
+                clearContinuationDraft: (state, { runId }) =>
+                    state?.run.id === runId ? { ...state, draft: '' } : state,
+                setSelectedRunId: (state, { runId, taskId }) =>
+                    taskId === props.taskId && state?.run.id !== runId ? null : state,
             },
         ],
         runs: [
@@ -238,15 +268,35 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     selectors({
         taskId: [() => [(_, props) => props.taskId], (taskId) => taskId],
         selectedRun: [
-            (s) => [s.selectedRunData, s.runs, s.selectedRunId],
-            (selectedRunData: TaskRun | null, runs: TaskRun[], selectedRunId: TaskRun['id'] | null): TaskRun | null => {
+            (s) => [s.selectedRunData, s.runs, s.selectedRunId, s.runContinuation],
+            (
+                selectedRunData: TaskRun | null,
+                runs: TaskRun[],
+                selectedRunId: TaskRun['id'] | null,
+                continuation: RunContinuationHandoff | null
+            ): TaskRunDetailDTOApi | null => {
                 if (selectedRunData && selectedRunData.id === selectedRunId) {
                     return selectedRunData
                 }
                 if (!selectedRunId) {
                     return null
                 }
-                return runs.find((run) => run.id === selectedRunId) ?? null
+                return (
+                    runs.find((run) => run.id === selectedRunId) ??
+                    (continuation?.run.id === selectedRunId ? continuation.run : null)
+                )
+            },
+        ],
+        // The newest run, for the run actions in the header. A handoff successor is selected before the
+        // refreshed runs list holds it — and stays out of that list for good when the refresh fails — so
+        // prefer it over the terminal predecessor still sitting at the head of the stale list.
+        latestRun: [
+            (s) => [s.runs, s.runContinuation],
+            (runs: TaskRun[], continuation: RunContinuationHandoff | null): TaskRunDetailDTOApi | null => {
+                if (continuation && !runs.some((run) => run.id === continuation.run.id)) {
+                    return continuation.run
+                }
+                return runs[0] ?? null
             },
         ],
         canEditRepository: [
@@ -265,8 +315,8 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 runsLoading: boolean,
                 runs: TaskRun[],
                 selectedRunDataLoading: boolean,
-                selectedRun: TaskRun | null
-            ): boolean => (runsLoading && runs.length === 0) || (selectedRunDataLoading && !selectedRun),
+                selectedRun: TaskRunDetailDTOApi | null
+            ): boolean => !selectedRun && ((runsLoading && runs.length === 0) || selectedRunDataLoading),
         ],
         // The header (task panel + title + run metadata) and the run log share the runs-loading phase, so
         // both resolve together: one skeleton-only loading state, no piecemeal pop-in.
@@ -283,6 +333,11 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        continueWithRun: ({ handoff }) => {
+            if (handoff.run.task === props.taskId) {
+                actions.loadTaskRuns()
+            }
+        },
         setSelectedRunId: ({ runId, taskId }) => {
             if (taskId !== props.taskId || !runId) {
                 return
@@ -303,6 +358,9 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             actions.loadTaskRuns()
         },
         loadTaskRunsSuccess: ({ runs }) => {
+            if (values.runContinuation?.run.id === values.selectedRunId) {
+                return
+            }
             // Default to the latest run. An explicit ?runId deep-link (e.g. from an Inbox signal report)
             // still wins so those links land on the run they reference; we just never write it ourselves.
             const runIdFromUrl = router.values.searchParams.runId

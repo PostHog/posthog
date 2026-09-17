@@ -16,10 +16,8 @@ The grain is the CI run, not the span and not the run attempt:
 - Every attempt of a run tests the same commit, so attempts are repeated trials: a run that both
   failed and passed a test has proven it nondeterministic, whichever attempt failed first. That is
   what ``recovered_in_run`` means. Recovery must happen in the same stable matrix job as the failure;
-  a pass under a different configuration proves nothing. Backend CI runs pytest without ``--reruns``
-  deliberately (failures stay visible instead of being retried away), so a "re-run failed jobs"
-  recovery is where that proof comes from; ``rerun_passed`` is the same proof from the handful of
-  tests hand-marked ``@pytest.mark.flaky(reruns=N)``.
+  a pass under a different configuration proves nothing. ``rerun_passed`` is the same proof from
+  pytest's in-process retry, whose count survives in JUnit even when the final outcome is a pass.
 
 Failures with no recovery prove nothing about determinism. This surface answers how much a failing
 test costs us, so unproven failures are ranked by blast radius and never called flaky.
