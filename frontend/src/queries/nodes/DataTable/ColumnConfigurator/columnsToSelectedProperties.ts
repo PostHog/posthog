@@ -39,7 +39,9 @@ export function columnsToSelectedProperties({
     /** Group whose prefix the table's own namespace makes optional — a sessions table selects `$is_bounce` as well as `session.$is_bounce`. */
     implicitPrefixGroupType?: TaxonomicFilterGroupType
 }): SelectedProperties {
-    const bareColumns = columns.map((column) => removeExpressionComment(column).trim())
+    // `removeExpressionComment` cuts at every `--`, which also cuts a quoted key that contains one,
+    // so keep the whole column as a candidate as well and let the round-trip below pick the winner.
+    const columnForms = columns.map((column) => [column.trim(), removeExpressionComment(column).trim()])
     const selectedProperties: SelectedProperties = {}
 
     for (const groupType of taxonomicGroupTypes) {
@@ -48,11 +50,14 @@ export function columnsToSelectedProperties({
             continue
         }
         const values: string[] = []
-        for (const column of bareColumns) {
-            const key = trimQuotes(column.startsWith(prefix) ? column.slice(prefix.length) : column)
-            const rebuilt = toHogQL(groupType, key)
-            if (rebuilt === column || (groupType === implicitPrefixGroupType && rebuilt === `${prefix}${column}`)) {
-                values.push(key)
+        for (const forms of columnForms) {
+            for (const form of forms) {
+                const key = trimQuotes(form.startsWith(prefix) ? form.slice(prefix.length) : form)
+                const rebuilt = toHogQL(groupType, key)
+                if (rebuilt === form || (groupType === implicitPrefixGroupType && rebuilt === `${prefix}${form}`)) {
+                    values.push(key)
+                    break
+                }
             }
         }
         if (values.length > 0) {

@@ -22,6 +22,7 @@ describe('columnsToSelectedProperties', () => {
                     'properties.$browser',
                     'properties."odd name"',
                     'properties."$feature/my-flag"',
+                    'properties."plan--tier"',
                     'person.properties.email',
                     'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
                     'timestamp',
@@ -35,8 +36,13 @@ describe('columnsToSelectedProperties', () => {
                 toHogQL: taxonomicEventFilterToHogQL,
             },
             {
-                [TaxonomicFilterGroupType.EventProperties]: ['$browser', 'odd name', '$feature/my-flag'],
-                [TaxonomicFilterGroupType.EventFeatureFlags]: ['$browser', 'odd name', '$feature/my-flag'],
+                [TaxonomicFilterGroupType.EventProperties]: ['$browser', 'odd name', '$feature/my-flag', 'plan--tier'],
+                [TaxonomicFilterGroupType.EventFeatureFlags]: [
+                    '$browser',
+                    'odd name',
+                    '$feature/my-flag',
+                    'plan--tier',
+                ],
                 [TaxonomicFilterGroupType.PersonProperties]: ['email'],
             },
         ],
@@ -58,7 +64,7 @@ describe('columnsToSelectedProperties', () => {
     it('marks the prefixed and the bare session columns of a sessions table', () => {
         expect(
             columnsToSelectedProperties({
-                columns: ['$is_bounce', 'session.$entry_current_url', 'person.properties.email'],
+                columns: ['$is_bounce', 'session.$entry_current_url -- Entry URL', 'person.properties.email'],
                 taxonomicGroupTypes: [
                     TaxonomicFilterGroupType.SessionProperties,
                     TaxonomicFilterGroupType.PersonProperties,
