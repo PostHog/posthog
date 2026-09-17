@@ -432,6 +432,22 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         assert {(log.user_id, log.organization_id) for log in logs} == {(self.user.pk, self.organization.id)}
 
     @override_settings(PERSON_BULK_DELETE_ASYNC=True)
+    @mock.patch("posthog.models.person.bulk_delete.queue_person_training_deletion")
+    @mock.patch("posthog.api.person.queue_person_training_deletion")
+    def test_bulk_delete_async_queues_training_deletion_once_per_distinct_id(self, request_side, task_side):
+        p1 = self._seed_person(team=self.team, distinct_ids=["did-1", "did-2"])
+
+        resp = self.client.post("/api/person/bulk_delete/", {"distinct_ids": ["did-1", "ghost"]})
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        assert resp.json()["persons_found"] == 1
+        # The request only covers the requested ID with no person; the task covers the person's full set.
+        request_side.assert_called_once_with(self.team.pk, ["ghost"])
+        task_side.assert_called_once()
+        assert sorted(task_side.call_args.args[1]) == ["did-1", "did-2"]
+        assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is None
+
+    @override_settings(PERSON_BULK_DELETE_ASYNC=True)
     @mock.patch("posthog.models.person.bulk_delete._start_recording_workflows")
     def test_bulk_delete_async_keep_person_with_recordings(self, start_workflows):
         p1 = self._seed_person(team=self.team, distinct_ids=["did-1", "did-2"])

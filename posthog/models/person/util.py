@@ -343,15 +343,28 @@ def create_person_distinct_id(
 def _fetch_persons_by_distinct_ids_via_personhog(
     team_id: int, distinct_ids: list[str], *, distinct_id_limit: int | None = None
 ) -> list[Person]:
+    # distinct_id_limit=0 skips the per-person distinct-id fetch, like the UUID variant. Each person
+    # then carries only the requested distinct IDs that resolved to it, which the lookup RPC already
+    # returns, so a caller can tell which requested IDs matched no person at all.
+    if distinct_id_limit == 0:
+        matched_results = _batched_get_persons_by_distinct_ids(
+            team_id, distinct_ids, "get_persons_by_distinct_ids", deduplicate_by_person=False
+        )
+        matched_by_person: dict[int, list[str]] = {}
+        person_by_id: dict[int, person_pb2.Person] = {}
+        for r in matched_results:
+            person_by_id.setdefault(r.person.id, r.person)
+            matched_by_person.setdefault(r.person.id, []).append(r.distinct_id)
+        return [
+            proto_person_to_model(person, distinct_ids=matched_by_person[person_id])
+            for person_id, person in person_by_id.items()
+        ]
+
     valid_results = _batched_get_persons_by_distinct_ids(team_id, distinct_ids, "get_persons_by_distinct_ids")
 
     person_ids = [r.person.id for r in valid_results]
     if not person_ids:
         return []
-
-    # As in the UUID variant, distinct_id_limit=0 skips the per-person distinct-id fetch entirely.
-    if distinct_id_limit == 0:
-        return [proto_person_to_model(r.person, distinct_ids=[]) for r in valid_results]
 
     distinct_ids_by_person = _batched_get_distinct_ids_for_persons(
         team_id, person_ids, limit_per_person=distinct_id_limit

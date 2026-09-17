@@ -50,6 +50,14 @@ class ResolvePersonsTests(BaseTest):
         [resolved] = resolve_persons_for_deletion(self.team.pk, uuids=[str(p.uuid)], distinct_ids=None)
         assert sorted(resolved.distinct_ids) == ["a", "b"]
 
+    def test_without_distinct_ids_keeps_only_the_requested_ids_that_matched(self):
+        p = create_person(team=self.team, distinct_ids=["a", "b", "c"], properties={})
+        [resolved] = resolve_persons_for_deletion(
+            self.team.pk, uuids=None, distinct_ids=["a", "b", "ghost"], with_distinct_ids=False
+        )
+        assert resolved.uuid == p.uuid
+        assert sorted(resolved.distinct_ids) == ["a", "b"]
+
     def test_returns_empty_when_neither(self):
         assert resolve_persons_for_deletion(self.team.pk, uuids=None, distinct_ids=None) == []
 

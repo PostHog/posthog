@@ -962,7 +962,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         actor = cast(User, request.user)
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids, with_distinct_ids=False)
         if distinct_ids and (not keep_person or delete_recordings):
-            queue_person_training_deletion(self.team_id, distinct_ids)
+            # The task covers every distinct ID of each resolved person. Only a requested distinct ID
+            # with no person row is left, and it can still own replay sessions, so queue those here.
+            matched = {distinct_id for person in persons for distinct_id in person.distinct_ids}
+            unmatched = [distinct_id for distinct_id in distinct_ids if distinct_id not in matched]
+            if unmatched:
+                queue_person_training_deletion(self.team_id, unmatched)
         if delete_events:
             queue_person_event_deletion(self.team_id, persons, actor=actor)
         persons_queued = queue_person_deletion(

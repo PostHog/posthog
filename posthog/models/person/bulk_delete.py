@@ -111,7 +111,8 @@ def resolve_persons_for_deletion(
 
     With ``with_distinct_ids`` the fetch of each person's distinct IDs is unbounded, which the
     synchronous callers need because recording deletion wants the full set per person. The
-    queued path passes False and pages through them later, inside the task.
+    queued path passes False and pages through them later, inside the task; a person resolved
+    by distinct ID then carries only the requested distinct IDs that matched it.
     """
     from posthog.personhog_client.client import personhog_call
 
