@@ -165,12 +165,18 @@ class TestSyncMetricLineage(BaseTest):
 
         assert not Node.objects.filter(team=self.team, type=NodeType.METRIC).exists()
 
-    def test_a_write_dispatches_the_sync_after_it_commits(self) -> None:
+    def test_a_write_dispatches_the_sync_only_when_it_can_change_the_lineage(self) -> None:
         with patch("products.data_catalog.backend.logic.metrics.sync_metric_lineage_task") as task:
             with self.captureOnCommitCallbacks(execute=True):
                 metric = self._upsert("mrr", definition=_HOGQL_EVENTS)
 
-        task.delay.assert_called_once_with(str(metric.id), self.team.id)
+            task.delay.assert_called_once_with(str(metric.id), self.team.id)
+            task.delay.reset_mock()
+
+            with self.captureOnCommitCallbacks(execute=True):
+                upsert_metric(team=self.team, user=self.user, name="mrr", description="what it counts")
+
+            task.delay.assert_not_called()
 
     def test_metric_nodes_live_in_the_teams_default_dag(self) -> None:
         metric = self._upsert("mrr", definition=_HOGQL_EVENTS)

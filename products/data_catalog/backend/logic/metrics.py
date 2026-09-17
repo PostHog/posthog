@@ -262,6 +262,7 @@ def upsert_metric(
             fields[key] = value
 
     fields.update(_resolve_definition_fields(definition, source_insight_short_id, team, user))
+    written_fields = set(fields)
 
     # team_scope so the ModelActivityMixin's before-update lookup (via the fail-closed manager)
     # works regardless of caller context (viewset, Celery, MCP, tests).
@@ -290,7 +291,8 @@ def upsert_metric(
                 _refine(existing, fields)
                 metric, created = existing, False
 
-    _schedule_lineage_sync(metric)
+    if created or written_fields & _LINEAGE_FIELDS:
+        _schedule_lineage_sync(metric)
     capture_metric_event(
         METRIC_CREATED_EVENT if created else METRIC_UPDATED_EVENT, metric, team=team, user=user, request=request
     )
