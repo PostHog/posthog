@@ -2,12 +2,11 @@ import { cn } from "@posthog/quill";
 import type { BrowserTab } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { usePinnedTabsStore } from "@posthog/ui/features/browser-tabs/pinnedTabsStore";
-import { pushTabHistoryEntry } from "@posthog/ui/features/browser-tabs/tabHistory";
 import { useTabReorderStore } from "@posthog/ui/features/browser-tabs/tabReorderStore";
 import { useActiveTabId } from "@posthog/ui/features/browser-tabs/useActiveTabId";
 import { useTabsSnapshot } from "@posthog/ui/features/browser-tabs/useBrowserTabs";
+import { useGoToTab } from "@posthog/ui/features/browser-tabs/useGoToTab";
 import { track } from "@posthog/ui/shell/analytics";
-import { useRouter } from "@tanstack/react-router";
 import {
   Fragment,
   type ReactNode,
@@ -90,7 +89,7 @@ function TileTree(props: TileTreeProps) {
 }
 
 export function TileLayout({ children }: { children: ReactNode }) {
-  const router = useRouter();
+  const goToTab = useGoToTab();
   const snapshot = useTabsSnapshot();
   const groups = useTileLayoutStore((s) => s.groups);
   const prune = useTileLayoutStore((s) => s.prune);
@@ -118,12 +117,6 @@ export function TileLayout({ children }: { children: ReactNode }) {
     [snapshot.tabs],
   );
 
-  const onActivate = useCallback(
-    (tab: BrowserTab) => {
-      if (tab.href) pushTabHistoryEntry(router.history, tab.href, tab.id);
-    },
-    [router],
-  );
   const onUntile = useCallback(
     (tab: BrowserTab) => {
       const group = groupForTab(groups, tab.id);
@@ -133,7 +126,7 @@ export function TileLayout({ children }: { children: ReactNode }) {
       untile(tab.id);
       if (tab.id === activeTabId && remaining.length > 1) {
         const next = tabsById.get(remaining[0]);
-        if (next?.href) pushTabHistoryEntry(router.history, next.href, next.id);
+        if (next) goToTab(next);
       }
       const rest = groupForTab(
         useTileLayoutStore.getState().groups,
@@ -143,7 +136,7 @@ export function TileLayout({ children }: { children: ReactNode }) {
         tile_count: rest ? tabIdsIn(rest.root).length : 0,
       });
     },
-    [groups, untile, activeTabId, tabsById, router],
+    [groups, untile, activeTabId, tabsById, goToTab],
   );
 
   const group = activeTabId ? groupForTab(groups, activeTabId) : null;
@@ -171,7 +164,7 @@ export function TileLayout({ children }: { children: ReactNode }) {
         activeTabId={activeTabId}
         showDropZones={draggingTabId !== null}
         groupFull={tabIdsIn(group.root).length >= MAX_TILES_PER_GROUP}
-        onActivate={onActivate}
+        onActivate={goToTab}
         onUntile={onUntile}
       >
         {children}

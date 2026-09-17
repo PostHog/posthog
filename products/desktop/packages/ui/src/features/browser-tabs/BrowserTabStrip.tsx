@@ -40,7 +40,6 @@ import {
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { feedIdFromHref } from "@posthog/ui/features/canvas/stores/taskFeedSelectionStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
-import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useInboxReportById } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useTabSession } from "@posthog/ui/features/navigation/useActiveSession";
@@ -89,10 +88,10 @@ import {
   TAB_APP_VIEW_META,
   type TabAppView,
 } from "./tabAppViews";
-import { pushTabHistoryEntry } from "./tabHistory";
 import { useTabReorderStore } from "./tabReorderStore";
 import { applyLocalTransform, persistWrite, readMirror } from "./tabsSync";
 import { useTabsSnapshot } from "./useBrowserTabs";
+import { useGoToTab } from "./useGoToTab";
 import { useOpenBrowserTab } from "./useOpenBrowserTab";
 
 /**
@@ -130,17 +129,6 @@ function taskHasCloseableEditorTab(taskId: string | undefined): boolean {
   );
   return !!activeTab && activeTab.closeable !== false;
 }
-
-type TabRef = {
-  id: string;
-  /** Where the tab is. Null only for tabs persisted before hrefs were stored. */
-  href: string | null;
-  dashboardId: string | null;
-  taskId: string | null;
-  channelId: string | null;
-  channelSection: string | null;
-  appView: string | null;
-};
 
 function BrowserTabStripImpl() {
   const spacesLayout = useChannelsLayout();
@@ -206,7 +194,7 @@ function BrowserTabStripImpl() {
     scopedSpaceId === null && channelsLoading ? undefined : scopedSpaceId;
   // With channel reports on, a restored inbox tab lands on the spaces index
   // (the inbox is gone as a destination).
-  const channelReportsEnabled = useChannelReportsEnabled();
+  const goToTab = useGoToTab();
 
   // The active channel sub-section (artifacts/history/context) is the
   // route segment after the channelId. Null when on the channel home or a
@@ -736,106 +724,6 @@ function BrowserTabStripImpl() {
   //
   // The reconstruction survives underneath for tabs persisted before hrefs were
   // stored, whose `href` is null until their next navigation.
-  const goToTab = useCallback(
-    (tab: TabRef) => {
-      const state = (prev: object) => ({ ...prev, tabId: tab.id });
-      if (tab.href) {
-        pushTabHistoryEntry(router.history, tab.href, tab.id);
-        return;
-      }
-      if (tab.taskId && tab.channelId) {
-        navigate({
-          to: "/spaces/$channelId/tasks/$taskId",
-          params: { channelId: tab.channelId, taskId: tab.taskId },
-          state,
-        });
-      } else if (tab.taskId) {
-        // A channel-less task tab — the Code task detail route.
-        navigate({
-          to: "/tasks/$taskId",
-          params: { taskId: tab.taskId },
-          state,
-        });
-      } else if (tab.dashboardId && tab.channelId) {
-        navigate({
-          to: "/spaces/$channelId/dashboards/$dashboardId",
-          params: { channelId: tab.channelId, dashboardId: tab.dashboardId },
-          state,
-        });
-      } else if (tab.channelId) {
-        const params = { channelId: tab.channelId };
-        // Section keys are the route segments; unknown/stale sections (e.g. from
-        // a since-removed tab type) fall back to the channel home.
-        const section = channelSectionFor(tab.channelSection);
-        if (section) {
-          navigate({
-            to: `/spaces/$channelId/${section.key}` as const,
-            params,
-            state,
-          });
-        } else {
-          navigate({ to: "/spaces/$channelId", params, state });
-        }
-      } else if (tab.appView && isTabAppView(tab.appView)) {
-        // A top-level app page — back to its canonical route (literal `to` per
-        // case so the router types stay checked).
-        switch (tab.appView) {
-          case "activity":
-            navigate({ to: "/activity", state });
-            break;
-          case "home":
-          case "report":
-            navigate({ to: "/", state });
-            break;
-          case "inbox":
-            navigate({
-              to: channelReportsEnabled ? "/spaces" : "/inbox",
-              state,
-            });
-            break;
-          case "agents":
-            navigate({
-              to: "/settings/$category",
-              params: { category: "agents" },
-              state,
-            });
-            break;
-          case "loops":
-            navigate({ to: "/loops", state });
-            break;
-          case "archived":
-            navigate({ to: "/archived", state });
-            break;
-          case "skills":
-            navigate({ to: "/skills", state });
-            break;
-          case "mcp-servers":
-            navigate({ to: "/mcp-servers", state });
-            break;
-          case "command-center":
-            navigate({ to: "/command-center", state });
-            break;
-          case "context":
-            navigate({ to: "/context", search: { path: undefined }, state });
-            break;
-          case "settings":
-            navigate({ to: "/settings", state });
-            break;
-          default: {
-            // Exhaustiveness guard: a new AppView value fails to compile here
-            // until its canonical route is wired above — so the tab-target set
-            // (union + APP_VIEW_META) and this navigation can't drift apart.
-            const _exhaustive: never = tab.appView;
-            return _exhaustive;
-          }
-        }
-      } else {
-        navigate({ to: DEFAULT_TAB_HREF, state });
-      }
-    },
-    [channelReportsEnabled, navigate, router.history],
-  );
-
   const handleSelect = useCallback(
     (tabId: string) => {
       if (!windowId) return;
