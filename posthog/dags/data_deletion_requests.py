@@ -1397,6 +1397,9 @@ def delete_person_profiles_op(
     submit a follow-up request for them. This mirrors the best-effort semantics of the
     `POST /api/projects/:id/persons/bulk_delete/` endpoint and avoids flipping the whole
     request to FAILED after upstream events/recordings ops have already done their work.
+
+    The one exception is the batch Postgres delete: when it fails, every tombstoned person is
+    still in Postgres, so the op raises and the request finalizes as FAILED for a retry.
     """
     if not person_removal.drop_profiles:
         context.log.info("drop_profiles=False, skipping profile deletion")
@@ -1412,16 +1415,6 @@ def delete_person_profiles_op(
         return person_removal
 
     result = delete_persons_profile(person_removal.team_id, persons, actor=None)
-    postgres_failures = [f for f in result.failures if f.step is PersonDeletionStep.DELETE_POSTGRES]
-    if postgres_failures:
-        # Best-effort covers per-person failures only. A failed batch delete leaves every
-        # tombstoned person in Postgres, so the request must not finalize as COMPLETED.
-        raise dagster.Failure(
-            description=(
-                f"Deletion request {person_removal.request_id}: the Postgres delete failed for "
-                f"{len(postgres_failures)} persons ({postgres_failures[0].error})"
-            )
-        )
     metadata: dict[str, dagster.MetadataValue] = {
         "deleted_count": dagster.MetadataValue.int(result.deleted_count),
         "errors": dagster.MetadataValue.int(len(result.errors)),
@@ -1432,6 +1425,15 @@ def delete_person_profiles_op(
             f"Postgres rows remain for failed UUIDs and can be retried via a follow-up request"
         )
         metadata["error_uuids"] = dagster.MetadataValue.text(", ".join(str(u) for u in result.errors))
+    postgres_failures = [f for f in result.failures if f.step is PersonDeletionStep.DELETE_POSTGRES]
+    if postgres_failures:
+        raise dagster.Failure(
+            description=(
+                f"Deletion request {person_removal.request_id}: the Postgres delete failed for "
+                f"{len(postgres_failures)} persons ({postgres_failures[0].error})"
+            ),
+            metadata=metadata,
+        )
     context.add_output_metadata(metadata)
     return person_removal
 

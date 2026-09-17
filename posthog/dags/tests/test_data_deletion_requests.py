@@ -2456,21 +2456,30 @@ def test_delete_person_profiles_op_raises_when_the_postgres_delete_fails():
         drop_events=False,
         drop_recordings=False,
     )
+    tombstone_failed = uuid4()
     with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
         deleter.return_value = PersonProfileDeletionResult(
             deleted_count=0,
             failures=[
                 PersonDeletionFailure(
+                    step=PersonDeletionStep.TOMBSTONE_CLICKHOUSE, person_uuid=tombstone_failed, error="RuntimeError: ch"
+                ),
+                PersonDeletionFailure(
                     step=PersonDeletionStep.DELETE_POSTGRES, person_uuid=UUID(p_uuid), error="RuntimeError: down"
-                )
+                ),
             ],
         )
-        with pytest.raises(dagster.Failure, match="Postgres delete failed"):
+        with pytest.raises(dagster.Failure, match="Postgres delete failed for 1 persons") as raised:
             delete_person_profiles_op(build_op_context(), ctx)
+    # The run metadata still carries every failure, not only the Postgres ones named in the description.
+    assert raised.value.metadata["errors"].value == 2
+    assert raised.value.metadata["deleted_count"].value == 0
+    assert set(str(raised.value.metadata["error_uuids"].value).split(", ")) == {str(tombstone_failed), p_uuid}
 
 
 @pytest.mark.django_db
-def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseCluster):
+@pytest.mark.parametrize("postgres_delete_fails", [False, True])
+def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseCluster, postgres_delete_fails: bool):
     p_uuid = str(uuid4())
     create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
     request = DataDeletionRequest.objects.create(
@@ -2487,7 +2496,18 @@ def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseClust
         patch("posthog.dags.data_deletion_requests.delete_persons_profile") as profile,
         patch("posthog.dags.data_deletion_requests.queue_person_recording_deletion"),
     ):
-        profile.return_value = PersonProfileDeletionResult(deleted_count=1)
+        profile.return_value = (
+            PersonProfileDeletionResult(
+                deleted_count=0,
+                failures=[
+                    PersonDeletionFailure(
+                        step=PersonDeletionStep.DELETE_POSTGRES, person_uuid=UUID(p_uuid), error="RuntimeError: down"
+                    )
+                ],
+            )
+            if postgres_delete_fails
+            else PersonProfileDeletionResult(deleted_count=1)
+        )
         result = data_deletion_request_person_removal.execute_in_process(
             run_config={
                 "ops": {
@@ -2495,11 +2515,14 @@ def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseClust
                 },
             },
             resources={"cluster": cluster},
+            raise_on_error=False,
         )
 
-    assert result.success
+    # A failed Postgres delete has to reach the request status through the skipped finalize op and
+    # the failure hook, not only raise inside the op.
+    assert result.success is not postgres_delete_fails
     request.refresh_from_db()
-    assert request.status == RequestStatus.COMPLETED
+    assert request.status == (RequestStatus.FAILED if postgres_delete_fails else RequestStatus.COMPLETED)
 
 
 @pytest.mark.django_db
