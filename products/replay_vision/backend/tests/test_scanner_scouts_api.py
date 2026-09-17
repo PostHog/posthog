@@ -37,6 +37,20 @@ class TestScannerScoutCreate(_VisionAPITestCase):
         assert config.source_product == SCOUT_SOURCE_PRODUCT
         assert config.source_id == str(self.scanner.id)
 
+    def test_a_scout_named_only_by_its_label_gets_a_derived_slug(self) -> None:
+        # The body serializer takes a display name with no skill name, so a caller that sends one
+        # must get a scout rather than a 500 from a missing identity.
+        payload = self._payload(display_name="Daily digest")
+        del payload["name"]
+        response = self.client.post(self._scouts_url(str(self.scanner.id)), data=payload, format="json")
+        assert response.status_code == 201, response.json()
+
+        with team_scope(self.team.id):
+            config = SignalScoutConfig.objects.get(skill_name="daily-digest")
+        assert config.display_name == "Daily digest"
+        assert config.source_product == SCOUT_SOURCE_PRODUCT
+        assert config.source_id == str(self.scanner.id)
+
     def test_a_scout_can_be_created_with_a_slack_destination(self) -> None:
         # The create modal offers a Slack channel, so the destination arrives on the create call
         # rather than a follow-up PATCH. Validating it needs the project and the request in the
