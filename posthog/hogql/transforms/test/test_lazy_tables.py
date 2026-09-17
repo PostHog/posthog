@@ -262,3 +262,8 @@ class TestLazyJoins(BaseTest):
             "AND session.$session_duration > 0"
         )
         self._assert_matches_snapshot(printed)
+
+    def test_resolve_lazy_table_through_namespace(self):
+        # A namespaced table is in scope under `posthog__persons`, not under its own printed name.
+        printed = self._print_select("SELECT id, properties.email FROM posthog.persons")
+        assert "posthog__persons.id AS id" in printed

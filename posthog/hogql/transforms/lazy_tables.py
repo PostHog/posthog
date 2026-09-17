@@ -561,6 +561,10 @@ class LazyTableResolver(TraversingVisitor):
         # Remove lazy joins that are now resolved inside wrapped subqueries
         joins_to_add = {k: v for k, v in joins_to_add.items() if v.from_table not in tables_to_wrap}
 
+        # A lazy table is replaced by a subquery under its scope name below. Remember that name:
+        # once the scope no longer holds the lazy type, its name can no longer be derived from it.
+        expanded_tables: list[tuple[ast.TableOrSelectType, str]] = []
+
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
             subquery = table_to_add.lazy_table.lazy_select(table_to_add, self.context, node=node)
@@ -580,7 +584,10 @@ class LazyTableResolver(TraversingVisitor):
                     context=self.context,
                     setTimeZones=False,
                 ).visit(subquery)
-            old_table_type = select_type.tables[table_name]
+            old_table_type = select_type.tables.get(table_name)
+            if old_table_type is None:
+                raise ResolutionError(f'Can\'t resolve the lazy table "{table_name}": it is not in scope')
+            expanded_tables.append((old_table_type, table_name))
             select_type.tables[table_name] = ast.SelectQueryAliasType(alias=table_name, select_query_type=subquery.type)
 
             join_ptr = node.select_from
@@ -721,7 +728,10 @@ class LazyTableResolver(TraversingVisitor):
             while isinstance(table_type, ast.VirtualTableType):
                 table_type = table_type.table_type
 
-            table_name = get_long_table_name(select_type, table_type)
+            table_name = next(
+                (name for expanded, name in expanded_tables if expanded is table_type),
+                get_long_table_name(select_type, table_type),
+            )
             try:
                 table_type = select_type.tables[table_name]
             except KeyError:
