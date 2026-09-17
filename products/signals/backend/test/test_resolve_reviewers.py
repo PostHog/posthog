@@ -202,7 +202,7 @@ def test_scout_source_uses_current_team_display_name(team):
 
 def test_legacy_long_reviewer_reasons_do_not_reach_presentation():
     long_reason = "word " * 101
-    reviewers = [
+    reviewers: list[dict[str, object]] = [
         {"github_login": "author", "relevant_commits": [{"reason": long_reason}]},
         {"github_login": "candidate", "reason": long_reason},
     ]
