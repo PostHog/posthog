@@ -7972,7 +7972,7 @@
         "feature_flag": "loops",
         "hidden_when_flag_on": "loops-hog-flows",
         "superseded_by": ["workflows-test-run"],
-        "redirect_hint": "Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product \"loops\"."
+        "redirect_hint": "Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product \"loops\". A test run steps one node at a time and mocks outbound calls, so it checks the graph and creates no task run. To fire a loop for real, use Run now on an enabled schedule loop in PostHog Desktop, or wait for its trigger."
     },
     "loops-runs-retrieve": {
         "description": "List a loop's run history, newest first, cursor-paginated. Each entry carries the run's status, branch, error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and what they produced. Set status=failed to find failure records without reading canvas state. Keep the status filter unchanged when following next_cursor. Use these records and the loop's last_run_status, last_error, and consecutive_failures for current health; an enabled schedule alone does not show successful work.",
