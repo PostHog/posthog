@@ -1,6 +1,6 @@
-"""Destination config, object-key layout, and upload helper — same
-`{prefix}/dt=.../part-*.parquet` layout as the ML mirror's Parquet store, but
-with deterministic part names so re-runs overwrite.
+"""Destination config, object-key layout, and upload helper — the
+`{prefix}/dt=.../part-*.parquet` layout of the mirror's v1 Parquet store, with
+deterministic part names so re-runs overwrite.
 
 The destination is its own `SESSION_RECORDING_ML_SCORE_EXPORT_S3_*` config
 with NO fallback to the `SESSION_RECORDING_V2_S3_*` replay-store settings: on

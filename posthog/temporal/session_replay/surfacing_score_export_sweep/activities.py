@@ -1,17 +1,22 @@
-"""Activities: plan the (day × hash bucket) fan-out, then per partition fetch → pseudonymize → Parquet → S3 put.
+"""Activities: plan the (day × hash bucket) fan-out, then per partition fetch → consent gate → Parquet → S3 put.
 
-All scored sessions are exported, pseudonymized with the ML mirror's exact
-pseudonym scheme, so exported ids join onto `block-metadata` — which only
-exists for AI-training opted-in orgs (the mirror's gate) — and nothing else.
-Rows from non-opted-in teams are opaque pseudonyms that join to nothing.
-Object keys are deterministic, so retries and the re-export window overwrite;
-an empty partition still writes an empty object so deleted sessions drop out
-rather than going stale.
+Rows carry the real team and session ids, the same ids the v2 ML mirror keys
+its encrypted `block-metadata/v2` catalog by, so the two join directly. With
+real ids there is no "opaque rows join to nothing" argument, so the export
+applies the mirror's own consent gate: only sessions of organizations with
+`is_ai_training_opted_in` set (NULL reads as opted out, as everywhere else)
+are written, and only sessions the mirror itself stored under raw ids, which
+it decides from the session id's UUIDv7 timestamp. Object keys are
+deterministic, so retries and the re-export window overwrite; an empty
+partition still writes an empty object so deleted sessions drop out rather
+than going stale.
 """
 
 from __future__ import annotations
 
 import io
+import time
+import threading
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
@@ -22,11 +27,12 @@ from asgiref.sync import sync_to_async
 from boto3 import client as boto3_client
 from botocore.client import Config
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models import Team
 from posthog.temporal.session_replay.surfacing_score_export_sweep import sql as export_sql
 from posthog.temporal.session_replay.surfacing_score_export_sweep.constants import (
+    BACKFILL_UNTIL,
     CH_EXPORT_QUERY_MAX_MEMORY_BYTES,
     CH_EXPORT_QUERY_TIMEOUT_S,
     DEFAULT_OF_CHUNKS,
@@ -34,19 +40,13 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.constants impo
     EXPORT_PAGE_MAX_ROWS,
     REEXPORT_WINDOW_DAYS,
 )
-from posthog.temporal.session_replay.surfacing_score_export_sweep.pseudonymize import (
-    PSEUDONYM_SESSION,
-    PSEUDONYM_TEAM,
-    PseudonymKeyFingerprintMismatchError,
-    PseudonymKeyNotConfiguredError,
-    is_pseudonym_key_configured,
-    pseudonymize,
-    resolve_pseudonym_key,
-)
 from posthog.temporal.session_replay.surfacing_score_export_sweep.s3 import (
     score_export_destination,
     score_export_object_key,
     upload_parquet,
+)
+from posthog.temporal.session_replay.surfacing_score_export_sweep.session_identifier_format import (
+    uses_raw_session_identifiers,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.types import (
     ExportPartitionResult,
@@ -59,16 +59,15 @@ logger = structlog.get_logger(__name__)
 
 
 def _disabled_reason() -> str | None:
-    if not is_pseudonym_key_configured():
-        return "pseudonym key not configured"
     if score_export_destination() is None:
         return "score export S3 destination not configured"
     return None
 
 
 def export_days(today: date) -> list[str]:
-    """Complete UTC days within the re-export window, never before the floor."""
-    first_day = max(EXPORT_FLOOR_DAY, today - timedelta(days=REEXPORT_WINDOW_DAYS))
+    """Complete UTC days within the re-export window and temporary cutoff-day backfill."""
+    window_start = EXPORT_FLOOR_DAY if today < BACKFILL_UNTIL else today - timedelta(days=REEXPORT_WINDOW_DAYS)
+    first_day = max(EXPORT_FLOOR_DAY, window_start)
     days = []
     day = first_day
     while day < today:
@@ -106,6 +105,38 @@ _PARQUET_SCHEMA = pa.schema(_PARQUET_FIELDS)
 # (team_id, session_id, started_at, score)
 _ScoredRow = tuple[int, str, datetime, float]
 
+
+# Match the mirror's consent refresh interval.
+OPTED_IN_TEAMS_TTL_S = 300
+
+_opted_in_teams_lock = threading.Lock()
+_opted_in_teams_cache: tuple[float, frozenset[int]] | None = None
+
+
+def _opted_in_team_ids() -> frozenset[int]:
+    """Return the mirror's consent gate, cached per worker across partition activities."""
+    global _opted_in_teams_cache
+    with _opted_in_teams_lock:
+        cached = _opted_in_teams_cache
+        if cached is not None and time.monotonic() - cached[0] < OPTED_IN_TEAMS_TTL_S:
+            return cached[1]
+        team_ids = frozenset(
+            Team.objects.filter(organization__is_ai_training_opted_in=True).values_list("id", flat=True)
+        )
+        _opted_in_teams_cache = (time.monotonic(), team_ids)
+        return team_ids
+
+
+def _as_utc(started_at: datetime) -> datetime:
+    return started_at.replace(tzinfo=UTC) if started_at.tzinfo is None else started_at
+
+
+def exportable_rows(rows: list[_ScoredRow], opted_in_team_ids: frozenset[int]) -> tuple[list[_ScoredRow], int]:
+    """Rows the export may carry, plus how many were dropped for missing consent or an id the mirror pseudonymized."""
+    kept = [row for row in rows if row[0] in opted_in_team_ids and uses_raw_session_identifiers(row[1])]
+    return kept, len(rows) - len(kept)
+
+
 # Keyset cursor over the (session_id, team_id) page ordering; ("", 0) sorts before every real row.
 _Cursor = tuple[str, int]
 _FIRST_PAGE: _Cursor = ("", 0)
@@ -132,19 +163,17 @@ def _fetch_page(spec: ExportPartitionSpec, cursor: _Cursor) -> list[_ScoredRow]:
     )
 
 
-def _page_table(rows: list[_ScoredRow], secret: bytes) -> pa.Table:
-    records: list[dict[str, Any]] = []
-    for team_id, session_id, started_at, score in rows:
-        if started_at.tzinfo is None:
-            started_at = started_at.replace(tzinfo=UTC)
-        records.append(
-            {
-                "session_id": pseudonymize(secret, PSEUDONYM_SESSION, session_id),
-                "team_id": pseudonymize(secret, PSEUDONYM_TEAM, str(team_id)),
-                "started_at": started_at,
-                "surfacing_score": float(score),
-            }
-        )
+def _page_table(rows: list[_ScoredRow]) -> pa.Table:
+    # team_id stays a string so the Glue column type matches the pseudonymized dataset.
+    records: list[dict[str, Any]] = [
+        {
+            "session_id": session_id,
+            "team_id": str(team_id),
+            "started_at": _as_utc(started_at),
+            "surfacing_score": float(score),
+        }
+        for team_id, session_id, started_at, score in rows
+    ]
     return pa.Table.from_pylist(records, schema=_PARQUET_SCHEMA)
 
 
@@ -165,10 +194,7 @@ def _upload(key: str, body: bytes) -> None:
 
 @activity.defn
 async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportPartitionResult:
-    try:
-        secret = await sync_to_async(resolve_pseudonym_key, thread_sensitive=False)()
-    except (PseudonymKeyNotConfiguredError, PseudonymKeyFingerprintMismatchError) as e:
-        raise ApplicationError(str(e), type=type(e).__name__, non_retryable=True) from e
+    opted_in_team_ids = await sync_to_async(_opted_in_team_ids, thread_sensitive=False)()
 
     activity.heartbeat({"phase": "fetch", "day": spec.day, "chunk_id": spec.chunk_id})
 
@@ -176,13 +202,17 @@ async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportP
     writer = pq.ParquetWriter(sink, _PARQUET_SCHEMA, compression="snappy")
     cursor = _FIRST_PAGE
     rows_total = 0
+    rows_dropped = 0
     try:
         while True:
             rows = await sync_to_async(_fetch_page, thread_sensitive=False)(spec, cursor)
             if rows:
-                table = await sync_to_async(_page_table, thread_sensitive=False)(rows, secret)
+                kept, dropped = exportable_rows(rows, opted_in_team_ids)
+                rows_dropped += dropped
+                table = await sync_to_async(_page_table, thread_sensitive=False)(kept)
                 await sync_to_async(writer.write_table, thread_sensitive=False)(table)
-                rows_total += len(rows)
+                rows_total += len(kept)
+                # Keyed on the fetched page, not the kept rows, or a dropped tail would stall the scan.
                 cursor = (rows[-1][1], rows[-1][0])
             if len(rows) < EXPORT_PAGE_MAX_ROWS:
                 break
@@ -200,6 +230,7 @@ async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportP
         day=spec.day,
         chunk_id=spec.chunk_id,
         rows=rows_total,
+        rows_dropped=rows_dropped,
         bytes=len(body),
         key=key,
     )

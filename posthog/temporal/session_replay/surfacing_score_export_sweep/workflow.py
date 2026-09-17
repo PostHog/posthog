@@ -83,13 +83,7 @@ class ExportSurfacingScoresWorkflow(PostHogWorkflow):
             spec,
             start_to_close_timeout=EXPORT_PARTITION_ACTIVITY_TIMEOUT,
             heartbeat_timeout=EXPORT_PARTITION_HEARTBEAT_TIMEOUT,
-            retry_policy=RetryPolicy(
-                maximum_attempts=EXPORT_PARTITION_MAX_ATTEMPTS,
-                non_retryable_error_types=[
-                    "PseudonymKeyNotConfiguredError",
-                    "PseudonymKeyFingerprintMismatchError",
-                ],
-            ),
+            retry_policy=RetryPolicy(maximum_attempts=EXPORT_PARTITION_MAX_ATTEMPTS),
         )
 
 
