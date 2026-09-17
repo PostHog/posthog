@@ -1,4 +1,6 @@
+import itertools
 import dataclasses
+from collections.abc import Callable, Iterator
 from typing import Any, Optional
 
 from requests import Response
@@ -13,8 +15,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
     rest_api_resources,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    make_parent_key_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
@@ -35,7 +41,7 @@ class ChameleonResumeConfig:
     # Pre-framework fan-out bookmark (the Microsurvey being paged through). Kept with a default so
     # previously saved state still parses; no longer written — fan-out resume lives in fanout_state.
     survey_id: str | None = None
-    # Framework fan-out resume state for the responses endpoint:
+    # Framework fan-out resume state for a fan-out endpoint:
     # {"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}.
     fanout_state: dict | None = None
 
@@ -136,60 +142,71 @@ def _standard_resource(
     )
 
 
-def _stamp_survey_id(row: dict[str, Any]) -> dict[str, Any]:
-    # include_from_parent lands the parent Microsurvey id as `_surveys_id`; rename it to the plain
-    # `survey_id` column responses rows carry.
-    value = row.pop("_surveys_id", None)
-    if value is not None:
-        row["survey_id"] = value
-    return row
+def _stamp_parent_id(parent_name: str, column: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Rename the parent id `include_from_parent` injects to the plain join column child rows carry.
+
+    Where the API already returns that column (interactions' `tour_id`) the value is the same one —
+    every row came back from a request filtered to that parent.
+    """
+    injected_key = make_parent_key_name(parent_name, "id")
+
+    def stamp(row: dict[str, Any]) -> dict[str, Any]:
+        value = row.pop(injected_key, None)
+        if value is not None:
+            row[column] = value
+        return row
+
+    return stamp
 
 
-def _responses_resource(
+def _fan_out_resource(
     account_secret: str,
+    config: ChameleonEndpointConfig,
+    parent_name: str,
+    parent_key_column: str,
     team_id: int,
     job_id: str,
     manager: ResumableSourceManager[ChameleonResumeConfig],
 ) -> Resource:
-    """Fan out over every Microsurvey, listing its responses and stamping the parent `survey_id`.
+    """Fan out over every parent record, listing this endpoint per parent and stamping the parent id.
 
-    /analyze/responses requires an `id` (the Microsurvey id), so responses can only be pulled per
-    survey. Full refresh — re-pulled rows on resume are deduped by the `id` primary key on merge.
+    /analyze/responses and /analyze/interactions both require an `id` (the Microsurvey and the Tour
+    respectively), so their rows can only be pulled one parent at a time. Full refresh — re-pulled
+    rows on resume are deduped by the `id` primary key on merge.
     """
-    surveys_config = CHAMELEON_ENDPOINTS["surveys"]
-    responses_config = CHAMELEON_ENDPOINTS["responses"]
+    parent_config = CHAMELEON_ENDPOINTS[parent_name]
 
     rest_config: RESTAPIConfig = {
         "client": _client_config(account_secret),
         "resources": [
             {
-                "name": "surveys",
+                "name": parent_name,
                 "endpoint": {
-                    "path": surveys_config.path,
-                    "params": {"limit": surveys_config.page_size},
+                    "path": parent_config.path,
+                    "params": {"limit": parent_config.page_size},
                     "paginator": ChameleonBeforeCursorPaginator(),
-                    "data_selector": surveys_config.data_key,
+                    "data_selector": parent_config.data_key,
                 },
             },
             {
-                "name": "responses",
+                "name": config.name,
                 "endpoint": {
-                    # The survey id is a required QUERY param; the framework binds resolve params via
+                    # The parent id is a required QUERY param; the framework binds resolve params via
                     # path templating, so the query string rides in the path (requests merges the
                     # remaining params into it).
-                    "path": f"{responses_config.path}?id={{id}}",
+                    "path": f"{config.path}?id={{id}}",
                     "params": {
-                        "id": {"type": "resolve", "resource": "surveys", "field": "id"},
-                        "limit": responses_config.page_size,
+                        "id": {"type": "resolve", "resource": parent_name, "field": "id"},
+                        "limit": config.page_size,
                     },
                     "paginator": ChameleonBeforeCursorPaginator(),
-                    "data_selector": responses_config.data_key,
-                    # A survey deleted between enumeration and this fetch 404s. Skip it rather than
-                    # failing the whole sync — the responses are genuinely gone.
+                    "data_selector": config.data_key,
+                    # A parent deleted between enumeration and this fetch 404s. Skip it rather than
+                    # failing the whole sync — its child records are genuinely gone.
                     "response_actions": [{"status_code": 404, "action": "ignore"}],
                 },
                 "include_from_parent": ["id"],
-                "data_map": _stamp_survey_id,
+                "data_map": _stamp_parent_id(parent_name, parent_key_column),
             },
         ],
     }
@@ -215,7 +232,47 @@ def _responses_resource(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
-    return next(r for r in resources if r.name == "responses")
+    return next(r for r in resources if r.name == config.name)
+
+
+def _stamp_kind(kind: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    # The documented list payload does not echo `kind` back, and profile and company property
+    # definitions share one table, so stamp the kind each request filtered on.
+    def stamp(row: dict[str, Any]) -> dict[str, Any]:
+        row["kind"] = kind
+        return row
+
+    return stamp
+
+
+def _kind_resources(
+    account_secret: str,
+    config: ChameleonEndpointConfig,
+    team_id: int,
+    job_id: str,
+) -> list[Resource]:
+    """One resource per required `kind` value, read back to back into a single table.
+
+    /edit/properties returns the whole matching set in one response, so each kind is a single page.
+    """
+    resources: list[Resource] = []
+    for kind in config.kinds:
+        rest_config: RESTAPIConfig = {
+            "client": _client_config(account_secret),
+            "resources": [
+                {
+                    "name": f"{config.name}_{kind}",
+                    "endpoint": {
+                        "path": f"{config.path}?kind={kind}",
+                        "paginator": SinglePagePaginator(),
+                        "data_selector": config.data_key,
+                    },
+                    "data_map": _stamp_kind(kind),
+                }
+            ],
+        }
+        resources.append(rest_api_resource(rest_config, team_id, job_id, None))
+    return resources
 
 
 def chameleon_source(
@@ -227,14 +284,30 @@ def chameleon_source(
 ) -> SourceResponse:
     endpoint_config: ChameleonEndpointConfig = CHAMELEON_ENDPOINTS[endpoint]
 
-    if endpoint_config.fan_out_over_surveys:
-        resource = _responses_resource(account_secret, team_id, job_id, resumable_source_manager)
+    resources: list[Resource]
+    if endpoint_config.fan_out_parent is not None and endpoint_config.fan_out_parent_key is not None:
+        resources = [
+            _fan_out_resource(
+                account_secret,
+                endpoint_config,
+                endpoint_config.fan_out_parent,
+                endpoint_config.fan_out_parent_key,
+                team_id,
+                job_id,
+                resumable_source_manager,
+            )
+        ]
+    elif endpoint_config.kinds:
+        resources = _kind_resources(account_secret, endpoint_config, team_id, job_id)
     else:
-        resource = _standard_resource(account_secret, endpoint_config, team_id, job_id, resumable_source_manager)
+        resources = [_standard_resource(account_secret, endpoint_config, team_id, job_id, resumable_source_manager)]
+
+    def items() -> Iterator[Any]:
+        return itertools.chain.from_iterable(resources)
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=items,
         primary_keys=endpoint_config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -243,5 +316,5 @@ def chameleon_source(
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
         # Chameleon returns records most-recently-created first.
         sort_mode="desc",
-        column_hints=resource.column_hints,
+        column_hints=resources[0].column_hints,
     )

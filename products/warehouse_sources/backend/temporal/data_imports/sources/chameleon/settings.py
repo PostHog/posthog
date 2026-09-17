@@ -14,9 +14,13 @@ class ChameleonEndpointConfig:
     page_size: int = 500  # Chameleon caps `limit` at 500
     primary_keys: list[str] = field(default_factory=lambda: ["id"])  # Chameleon IDs are globally-unique ObjectIds
     should_sync_default: bool = True
-    # Microsurvey responses can only be listed per-survey (the `id` param is required), so this endpoint
-    # fans out over every Microsurvey and stamps the parent `survey_id` onto each row.
-    fan_out_over_surveys: bool = False
+    # Endpoints that require a parent record's `id` query param can only be listed one parent at a
+    # time, so this endpoint fans out over every record of the named parent endpoint.
+    fan_out_parent: Optional[str] = None
+    # Column the parent's id is stamped onto on each child row.
+    fan_out_parent_key: Optional[str] = None
+    # Values of a required `kind` query param to request in turn, unioned into one table.
+    kinds: tuple[str, ...] = ()
 
 
 CHAMELEON_ENDPOINTS: dict[str, ChameleonEndpointConfig] = {
@@ -26,13 +30,32 @@ CHAMELEON_ENDPOINTS: dict[str, ChameleonEndpointConfig] = {
     "tours": ChameleonEndpointConfig(name="tours", path="/edit/tours", data_key="tours"),
     "surveys": ChameleonEndpointConfig(name="surveys", path="/edit/surveys", data_key="surveys"),
     "launchers": ChameleonEndpointConfig(name="launchers", path="/edit/launchers", data_key="launchers"),
+    "tooltips": ChameleonEndpointConfig(name="tooltips", path="/edit/tooltips", data_key="tooltips"),
+    "tags": ChameleonEndpointConfig(name="tags", path="/edit/tags", data_key="tags"),
     "event_names": ChameleonEndpointConfig(name="event_names", path="/edit/event_names", data_key="event_names"),
+    # /edit/properties requires `kind` and returns the whole matching set in one un-paginated
+    # response, so a complete table means one request per documented kind.
+    "properties": ChameleonEndpointConfig(
+        name="properties",
+        path="/edit/properties",
+        data_key="properties",
+        kinds=("profile", "company"),
+    ),
     # Fan-out child: one paginated request per Microsurvey against /analyze/responses?id=<survey_id>.
     "responses": ChameleonEndpointConfig(
         name="responses",
         path="/analyze/responses",
         data_key="responses",
-        fan_out_over_surveys=True,
+        fan_out_parent="surveys",
+        fan_out_parent_key="survey_id",
+    ),
+    # Fan-out child: one paginated request per Tour against /analyze/interactions?id=<tour_id>.
+    "interactions": ChameleonEndpointConfig(
+        name="interactions",
+        path="/analyze/interactions",
+        data_key="interactions",
+        fan_out_parent="tours",
+        fan_out_parent_key="tour_id",
     ),
 }
 
