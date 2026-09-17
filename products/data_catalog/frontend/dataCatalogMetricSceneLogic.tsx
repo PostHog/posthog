@@ -209,6 +209,9 @@ export interface dataCatalogMetricSceneLogicActions {
         runResult: DataCatalogMetricRunApi
         payload?: any
     }
+    markLineageStale: () => {
+        value: true
+    }
     refreshMetricFromInsight: () => {
         value: true
     }
@@ -301,6 +304,7 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         loadMetric: true,
         loadLineage: true,
         loadLineageIfNeeded: true,
+        markLineageStale: true,
         setLineageRetried: (lineageRetried: boolean) => ({ lineageRetried }),
         setMetric: (metric: DataCatalogMetricApi) => ({ metric }),
         approveMetric: true,
@@ -380,6 +384,7 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             false,
             {
                 setMetric: () => true,
+                markLineageStale: () => true,
                 loadLineageSuccess: () => false,
             },
         ],
@@ -485,6 +490,9 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             if (values.pendingDefinitionEdit) {
                 actions.setPendingDefinitionEdit(false)
                 actions.startEditingMarkdown()
+            }
+            if (values.activeTab !== 'lineage') {
+                actions.markLineageStale()
             }
             actions.loadLineageIfNeeded()
         },
