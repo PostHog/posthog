@@ -51,11 +51,19 @@ export function AISection(): JSX.Element {
         aiAllChannels,
         aiResolutionChannels,
         aiReplyModes,
+        ticketPatternsEnabled,
+        ticketPatternsLoading,
     } = useValues(supportSettingsLogic)
-    const { setAiSuggestionsEnabled, setAiDiagnosticsEnabled, setAiResolutionChannels, setAiReplyMode } =
-        useActions(supportSettingsLogic)
+    const {
+        setAiSuggestionsEnabled,
+        setAiDiagnosticsEnabled,
+        setAiResolutionChannels,
+        setAiReplyMode,
+        setTicketPatternsEnabled,
+    } = useActions(supportSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const businessKnowledgeEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE]
+    const ticketPatternsFlagEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_PATTERNS]
 
     const isChannelActive = (channel: TicketChannel): boolean => aiEnabledChannels.includes(channel)
 
@@ -237,6 +245,31 @@ export function AISection(): JSX.Element {
                                     ))}
                                 </tbody>
                             </table>
+                        </div>
+                    </LemonCard>
+                </SceneSection>
+            )}
+
+            {ticketPatternsFlagEnabled && (
+                <SceneSection
+                    title="Ticket spike detection"
+                    className="my-8"
+                    description="Every 15 minutes, PostHog checks whether several customers have reported the same problem, and captures a Conversation ticket pattern detected event when they have. Build a workflow on that event to alert your team in Slack or by email."
+                >
+                    <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
+                        <div className="flex items-center gap-4 justify-between">
+                            <div>
+                                <label className="font-medium">Detect ticket spikes</label>
+                                <p className="text-xs text-muted-alt mb-0">
+                                    Subjects and opening messages from recent tickets are sent to an AI model to group
+                                    them. Requires AI data processing consent at the organization level.
+                                </p>
+                            </div>
+                            <LemonSwitch
+                                checked={ticketPatternsEnabled}
+                                onChange={(checked) => setTicketPatternsEnabled(checked)}
+                                loading={ticketPatternsLoading}
+                            />
                         </div>
                     </LemonCard>
                 </SceneSection>

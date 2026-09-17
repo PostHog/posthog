@@ -71,6 +71,8 @@ export interface supportSettingsLogicValues {
     aiResolutionChannels: TicketChannel[]
     aiSuggestionsEnabled: boolean
     aiSuggestionsLoading: boolean
+    ticketPatternsEnabled: boolean
+    ticketPatternsLoading: boolean
     conversationsDomains: string[]
     conversationsEnabledLoading: boolean
     domainInputValue: string
@@ -428,6 +430,12 @@ export interface supportSettingsLogicActions {
     setAiSuggestionsLoading: (loading: boolean) => {
         loading: boolean
     }
+    setTicketPatternsEnabled: (enabled: boolean) => {
+        enabled: boolean
+    }
+    setTicketPatternsLoading: (loading: boolean) => {
+        loading: boolean
+    }
     setConversationsEnabledLoading: (loading: boolean) => {
         loading: boolean
     }
@@ -560,6 +568,7 @@ export interface supportSettingsLogicMeta {
         githubSelectedRepos: (currentTeam: TeamPublicType | TeamType | null) => string[]
         aiSuggestionsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         aiDiagnosticsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        ticketPatternsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         aiEnabledChannels: (
             currentTeam: TeamPublicType | TeamType | null,
             emailConfigs: EmailConfigStatus[]
@@ -678,6 +687,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setAiSuggestionsLoading: (loading: boolean) => ({ loading }),
         setAiDiagnosticsEnabled: (enabled: boolean) => ({ enabled }),
         setAiDiagnosticsLoading: (loading: boolean) => ({ loading }),
+        setTicketPatternsEnabled: (enabled: boolean) => ({ enabled }),
+        setTicketPatternsLoading: (loading: boolean) => ({ loading }),
         setAiResolutionChannels: (channels: TicketChannel[]) => ({ channels }),
         setAiReplyMode: (channel: string, ticketType: string, mode: 'private_note' | 'bot_reply') => ({
             channel,
@@ -868,6 +879,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             false,
             {
                 setAiSuggestionsLoading: (_, { loading }) => loading,
+                updateCurrentTeamSuccess: () => false,
+                updateCurrentTeamFailure: () => false,
+            },
+        ],
+        ticketPatternsLoading: [
+            false,
+            {
+                setTicketPatternsLoading: (_, { loading }) => loading,
                 updateCurrentTeamSuccess: () => false,
                 updateCurrentTeamFailure: () => false,
             },
@@ -1138,6 +1157,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.ai_diagnostics_enabled,
+        ],
+        ticketPatternsEnabled: [
+            (s) => [s.currentTeam],
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
+                !!currentTeam?.conversations_settings?.ticket_patterns_enabled,
         ],
         aiEnabledChannels: [
             (s) => [s.currentTeam, s.emailConfigs],
@@ -1594,6 +1618,15 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
                     ai_suggestions_enabled: enabled,
+                },
+            })
+        },
+        setTicketPatternsEnabled: ({ enabled }) => {
+            actions.setTicketPatternsLoading(true)
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ticket_patterns_enabled: enabled,
                 },
             })
         },

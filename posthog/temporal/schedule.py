@@ -87,6 +87,7 @@ from products.business_knowledge.backend.temporal.schedule import (
 from products.context_layer.backend.temporal.schedule import create_context_layer_dream_schedule
 from products.conversations.backend.temporal.channel_summary.schedule import create_channel_summary_coordinator_schedule
 from products.conversations.backend.temporal.schedule import create_support_reply_coordinator_schedule
+from products.conversations.backend.temporal.ticket_patterns.schedule import create_ticket_patterns_coordinator_schedule
 from products.customer_analytics.backend.facade.temporal import (
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
@@ -943,6 +944,7 @@ schedules = [
     create_scout_suggestions_coordinator_schedule,
     create_support_reply_coordinator_schedule,
     create_channel_summary_coordinator_schedule,
+    create_ticket_patterns_coordinator_schedule,
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
     create_ownership_claims_coordinator_schedule,

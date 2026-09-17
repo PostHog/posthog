@@ -3,6 +3,7 @@ import { useActions } from 'kea'
 import { IconBolt } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { HogFlowPropertyFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowFilters'
@@ -92,6 +93,10 @@ const SUPPORT_TRIGGER_META: Record<string, { name: string; description: string }
     $conversation_ticket_assigned: {
         name: 'Ticket assigned',
         description: 'This trigger runs when a ticket is assigned to a teammate or team.',
+    },
+    $conversation_ticket_pattern_detected: {
+        name: 'Ticket spike detected',
+        description: 'This trigger runs when several customers report the same problem within a short window.',
     },
 }
 
@@ -217,6 +222,23 @@ registerTriggerType({
         type: 'event',
         filters: {
             events: [{ id: '$conversation_message_received', type: 'events', name: 'Ticket message received' }],
+        },
+    }),
+    ConfigComponent: StepTriggerConfigurationSupportFilters,
+})
+
+registerTriggerType({
+    value: 'support_ticket_pattern_detected',
+    label: 'Ticket spike detected',
+    icon: <IconBolt />,
+    description: 'Trigger when several customers report the same problem within a short window',
+    group: 'Support',
+    featureFlag: FEATURE_FLAGS.PRODUCT_SUPPORT_TICKET_PATTERNS,
+    matchConfig: (config) => config.type === 'event' && getEventId(config) === '$conversation_ticket_pattern_detected',
+    buildConfig: () => ({
+        type: 'event',
+        filters: {
+            events: [{ id: '$conversation_ticket_pattern_detected', type: 'events', name: 'Ticket spike detected' }],
         },
     }),
     ConfigComponent: StepTriggerConfigurationSupportFilters,
