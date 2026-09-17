@@ -1,5 +1,5 @@
 import { ServiceProvider } from "@posthog/di/react";
-import { posthogToolMeta } from "@posthog/shared";
+import { createPiToolCallRecord, posthogToolMeta } from "@posthog/shared";
 import type { ConversationItem } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
@@ -50,7 +50,7 @@ function toolItem(
   id: string,
   options: {
     title: string;
-    rawInput?: unknown;
+    details?: unknown;
     toolMeta?: ReturnType<typeof posthogToolMeta>;
   },
 ): SessionUpdateItem {
@@ -63,8 +63,34 @@ function toolItem(
       title: options.title,
       kind: "other",
       status: "in_progress",
-      rawInput: options.rawInput,
+      details: options.details,
       _meta: options.toolMeta,
+    },
+    turnContext: {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: false,
+    },
+  } as SessionUpdateItem;
+}
+
+function piToolItem(
+  id: string,
+  name: string,
+  args: unknown,
+): SessionUpdateItem {
+  const toolCall = createPiToolCallRecord(
+    { id, name, arguments: args },
+    "in_progress",
+  );
+  return {
+    type: "session_update",
+    id,
+    update: {
+      sessionUpdate: "tool_call",
+      toolCallId: id,
+      ...toolCall,
     },
     turnContext: {
       toolCalls: new Map(),
@@ -128,29 +154,21 @@ describe("ToolGroup", () => {
     {
       name: "names an MCP proxy call while it is active",
       items: [
-        toolItem("mcp-call", {
-          title: "mcp",
-          rawInput: {
-            tool: "mcp_posthog_query_trends",
-            args: "{}",
-          },
+        piToolItem("mcp-call", "mcp", {
+          tool: "mcp_posthog_query_trends",
+          args: "{}",
         }),
       ],
       expected: "MCP: posthog query trends",
     },
     {
       name: "names an MCP search while it is active",
-      items: [
-        toolItem("mcp-search", {
-          title: "mcp",
-          rawInput: { search: "dashboard metrics" },
-        }),
-      ],
+      items: [piToolItem("mcp-search", "mcp", { search: "dashboard metrics" })],
       expected: 'Searching MCP tools for "dashboard metrics"',
     },
     {
       name: "names a direct MCP tool while it is active",
-      items: [toolItem("mcp-direct", { title: "mcp_posthog_query_trends" })],
+      items: [piToolItem("mcp-direct", "mcp_posthog_query_trends", {})],
       expected: "MCP: posthog query trends",
     },
     {
@@ -165,6 +183,16 @@ describe("ToolGroup", () => {
         }),
       ],
       expected: "MCP: posthog / query-trends",
+    },
+    {
+      name: "ignores malformed MCP display details",
+      items: [
+        toolItem("mcp-invalid", {
+          title: "mcp",
+          details: { kind: "tool", name: 42 },
+        }),
+      ],
+      expected: "MCP",
     },
     {
       name: "reads as thinking while a trailing thought streams",

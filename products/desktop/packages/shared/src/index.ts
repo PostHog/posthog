@@ -277,9 +277,12 @@ export {
   createPiToolCallRecord,
   isPiToolName,
   PI_TOOL_KIND_BY_NAME,
+  type PiMcpCallDetails,
   type PiToolCallInput,
   type PiToolCallRecord,
   type PiToolName,
+  parsePiMcpCallDetails,
+  readPiMcpCallDetails,
 } from "./pi-tool-call";
 export {
   buildPrOutput,

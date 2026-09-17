@@ -23,6 +23,37 @@ export interface PiToolCallInput {
   arguments: unknown;
 }
 
+export const piMcpCallDetailsSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("search"), query: z.string().min(1) }),
+  z.object({ kind: z.literal("tool"), name: z.string().min(1) }),
+]);
+export type PiMcpCallDetails = z.infer<typeof piMcpCallDetailsSchema>;
+
+const piMcpProxyInputSchema = z.object({
+  search: z.string().trim().min(1).optional(),
+  tool: z.string().trim().min(1).optional(),
+});
+
+export function parsePiMcpCallDetails(
+  name: string,
+  args: unknown,
+): PiMcpCallDetails | undefined {
+  if (name !== "mcp") return undefined;
+
+  const parsed = piMcpProxyInputSchema.safeParse(args);
+  if (!parsed.success) return undefined;
+  if (parsed.data.search) return { kind: "search", query: parsed.data.search };
+  if (parsed.data.tool) return { kind: "tool", name: parsed.data.tool };
+  return undefined;
+}
+
+export function readPiMcpCallDetails(
+  details: unknown,
+): PiMcpCallDetails | undefined {
+  const parsed = piMcpCallDetailsSchema.safeParse(details);
+  return parsed.success ? parsed.data : undefined;
+}
+
 export const piToolCallRecordSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -43,6 +74,7 @@ export const piToolCallRecordSchema = z.object({
   ]),
   status: z.enum(["pending", "in_progress", "completed", "failed"]),
   rawInput: z.unknown(),
+  details: piMcpCallDetailsSchema.optional(),
   locations: z
     .array(
       z.object({
@@ -80,6 +112,8 @@ export function createPiToolCallRecord(
   status: AgentToolCallStatus,
 ): PiToolCallRecord {
   const locations = readLocations(input.name, input.arguments);
+  const details = parsePiMcpCallDetails(input.name, input.arguments);
+
   return {
     id: input.id,
     name: input.name,
@@ -87,6 +121,7 @@ export function createPiToolCallRecord(
     kind: isPiToolName(input.name) ? PI_TOOL_KIND_BY_NAME[input.name] : "other",
     status,
     rawInput: input.arguments,
+    ...(details ? { details } : {}),
     ...(locations ? { locations } : {}),
   };
 }

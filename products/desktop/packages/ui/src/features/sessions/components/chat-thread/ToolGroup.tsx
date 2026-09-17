@@ -4,7 +4,11 @@ import {
   ChatMarkerIcon,
   cn,
 } from "@posthog/quill";
-import { readAgentToolName, readMcpToolDescriptor } from "@posthog/shared";
+import {
+  readAgentToolName,
+  readMcpToolDescriptor,
+  readPiMcpCallDetails,
+} from "@posthog/shared";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
@@ -87,16 +91,12 @@ function mcpDisplayName(toolCall: ToolCall): string | undefined {
 
   if (toolCall.title !== "mcp") return undefined;
 
-  if (!toolCall.rawInput || typeof toolCall.rawInput !== "object") {
-    return "MCP";
+  const details = readPiMcpCallDetails(toolCall.details);
+  if (details?.kind === "search") {
+    return `Searching MCP tools for "${details.query}"`;
   }
-
-  const input = toolCall.rawInput as Record<string, unknown>;
-  if (typeof input.search === "string" && input.search.trim()) {
-    return `Searching MCP tools for "${input.search}"`;
-  }
-  if (typeof input.tool === "string" && input.tool.trim()) {
-    return `MCP: ${formatMcpToolName(input.tool)}`;
+  if (details?.kind === "tool") {
+    return `MCP: ${formatMcpToolName(details.name)}`;
   }
   return "MCP";
 }
