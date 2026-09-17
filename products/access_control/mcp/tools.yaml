@@ -96,8 +96,8 @@ tools:
         confirmed_action:
             message: >
                 About to set the default {resource} access rule in project {id} to {access_level}, for object
-                {resource_id} (null means the whole scope; a null level clears the rule). This changes what every
-                member without a rule of their own gets. Reply 'confirm' to proceed.
+                {resource_id} (null means the whole scope; a null level clears the rule). This changes what every member
+                without a rule of their own gets. Reply 'confirm' to proceed.
             action_label: change the default access rule
     access-control-defaults-get:
         operation: organizations_projects_access_control_defaults_retrieve
@@ -234,9 +234,9 @@ tools:
         feature_entitlement: access_control
         confirmed_action:
             message: >
-                About to set the {resource} access rule for member {member_id} in project {id} to {access_level},
-                for object {resource_id} (null means the whole scope; a null level clears the rule). Reply 'confirm'
-                to proceed.
+                About to set the {resource} access rule for member {member_id} in project {id} to {access_level}, for
+                object {resource_id} (null means the whole scope; a null level clears the rule). Reply 'confirm' to
+                proceed.
             action_label: change a member's access rule
     access-control-members-list:
         operation: organizations_projects_access_control_members_retrieve
@@ -373,9 +373,9 @@ tools:
         feature_entitlement: role_based_access
         confirmed_action:
             message: >
-                About to set the {resource} access rule for role {role_id} in project {id} to {access_level}, for
-                object {resource_id} (null means the whole scope; a null level clears the rule). This affects every
-                member of the role. Reply 'confirm' to proceed.
+                About to set the {resource} access rule for role {role_id} in project {id} to {access_level}, for object
+                {resource_id} (null means the whole scope; a null level clears the rule). This affects every member of
+                the role. Reply 'confirm' to proceed.
             action_label: change a role's access rule
     access-control-roles-list:
         operation: organizations_projects_access_control_roles_retrieve
