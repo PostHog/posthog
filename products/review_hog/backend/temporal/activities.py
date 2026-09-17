@@ -77,11 +77,11 @@ from products.review_hog.backend.reviewer.persistence import (
     load_valid_findings,
     persist_chunk_set,
     persist_commit_snapshot,
-    persist_findings,
     persist_perspective_results,
     persist_perspective_selection,
     persist_pr_snapshot,
     persist_verdict,
+    replace_deduplicated_findings,
     upsert_review_report,
 )
 from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_review
@@ -1072,8 +1072,9 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
     persisted_arm = await database_sync_to_async(load_review_arm, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id
     )
+    review_arm = review_arm_for_mode(input.review_mode, persisted_arm)
     issues = await database_sync_to_async(_combine_and_clean, thread_sensitive=False)(
-        input.team_id, input.report_id, input.head_sha, review_arm_for_mode(input.review_mode, persisted_arm).model
+        input.team_id, input.report_id, input.head_sha, review_arm.model
     )
     snapshot = await database_sync_to_async(load_pr_snapshot, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha
@@ -1098,8 +1099,15 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
             repository=input.repository,
             workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
         )
-    issue_ids = await database_sync_to_async(persist_findings, thread_sensitive=False)(
-        team_id=input.team_id, report_id=input.report_id, issues=survivors, run_index=input.run_index
+    issue_ids = await database_sync_to_async(replace_deduplicated_findings, thread_sensitive=False)(
+        team_id=input.team_id,
+        report_id=input.report_id,
+        issues=survivors,
+        run_index=input.run_index,
+        head_sha=input.head_sha,
+        review_mode=input.review_mode,
+        review_arm=review_arm,
+        validation_arm=validation_arm_for_mode(input.review_mode),
     )
     await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
     return DedupResult(issue_ids=issue_ids)

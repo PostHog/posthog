@@ -189,6 +189,7 @@ class ReviewPerspectivesWorkflow:
                         repository=inputs.repository,
                         branch=inputs.branch,
                         run_index=inputs.run_index,
+                        review_mode=inputs.review_mode,
                         perspectives=ordered,
                     ),
                     start_to_close_timeout=_SANDBOX_TIMEOUT,

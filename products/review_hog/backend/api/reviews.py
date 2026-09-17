@@ -267,8 +267,8 @@ class ReviewTriggerRequestSerializer(serializers.Serializer):
         "requesting user's resolve_comments setting is on, chains the resolution stage; "
         "'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips "
         "the review and only runs the resolution stage on the PR's existing unresolved review "
-        "threads; 'flash' runs the cheaper Flash review (a fast, lower-cost model in every review "
-        "step) and never resolves comments.",
+        "threads; 'flash' uses a lower-cost model for the review passes and validation, and never "
+        "resolves comments.",
     )
 
 
@@ -718,7 +718,8 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "enabled perspectives, blind-spot check, validator, urgency threshold, and resolution criteria "
         "drive the run, and it appears under their recent reviews. `run_mode` picks the variant: a review "
         "(which chains the resolution stage per the user's resolve_comments setting), a review without "
-        "resolving, or resolution only. Nonexistent, closed, and fork PRs are rejected synchronously; "
+        "resolving, resolution only, or a lower-cost Flash review that never resolves comments. "
+        "Nonexistent, closed, and fork PRs are rejected synchronously; "
         "a PR whose current commit already has a published review returns 'already_reviewed' without "
         "starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole "
         "point), and triggering a PR whose run is currently in flight joins that run. "

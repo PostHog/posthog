@@ -55,6 +55,10 @@ class ReviewIssueFinding(BaseModel):
     run_index: int = Field(
         description="The review turn (1-based) that produced this finding; scopes publishing to one turn."
     )
+    validation_context: str | None = Field(
+        default=None,
+        description="The reviewed head, mode, and model configurations required to reuse this finding's verdict.",
+    )
     title: str = Field(description="Issue title.")
     file: str = Field(description="Repository-relative path to the file containing the issue.")
     lines: list[LineRange] = Field(default_factory=list, description="Affected line ranges.")

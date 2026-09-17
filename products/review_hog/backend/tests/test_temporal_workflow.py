@@ -206,6 +206,7 @@ async def _run_full_review_pr_workflow(
 
     @activity.defn(name="select_perspectives_activity")
     async def select_perspectives(input: SelectPerspectivesInput) -> PerspectiveSelectionDTO | None:
+        _saw_mode("select", input.review_mode)
         if fail_selection:
             raise ApplicationError("selector down", non_retryable=True)
         return selection
@@ -562,7 +563,9 @@ async def test_review_pr_workflow_flash_turn_threads_its_mode_and_never_chains_r
     )
     assert recorded["publish"] == [7]
     assert recorded["resolve_dispatches"] == []
-    assert recorded["modes"] == {stage: {"flash"} for stage in ("review", "validate", "publish", "status", "track")}
+    assert recorded["modes"] == {
+        stage: {"flash"} for stage in ("select", "review", "validate", "publish", "status", "track")
+    }
 
 
 @pytest.mark.asyncio

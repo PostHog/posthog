@@ -3,13 +3,13 @@
 ReviewHog's review **perspectives**, its **validation criteria**, and its **blind-spot check** are
 stored and synced the way Signals' scouts store theirs: canonical `SKILL.md` on disk
 (`products/review_hog/skills/`) mirrored into per-team `LLMSkill` rows by `lazy_seed.sync_canonical_*`.
-Delivery is **pull** — the review / validation prompts instruct the sandbox agent to `skill-get` the
-skill body over the PostHog MCP — so these loaders only need to pin the current version per skill
-(not the body).
+Each run pins the current version per skill. Full turns pull bodies and bundled files over the
+PostHog MCP. Flash turns embed bodies and supply pinned MCP calls for bundled files.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 
@@ -17,7 +17,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.models.issues_review import PerspectiveType
-from products.skills.backend.models.skills import LLMSkill
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 logger = logging.getLogger(__name__)
 
@@ -417,14 +417,24 @@ class SkillBodyNotFoundError(LookupError):
 def load_skill_body(team_id: int, skill_name: str, version: int) -> str:
     """The body of one pinned skill version, for a turn that carries the skill in its prompt.
 
-    Full turns pull the skill over MCP (`skill-get`). Flash embeds the same pinned body so
-    the instructions do not depend on a tool lookup.
+    Full turns pull the skill over MCP (`skill-get`). Flash embeds the pinned body and keeps
+    bundled files available through version-pinned MCP calls.
     """
-    body = (
-        LLMSkill.objects.filter(team_id=team_id, name=skill_name, version=version, deleted=False)
-        .values_list("body", flat=True)
-        .first()
+    skill = (
+        LLMSkill.objects.filter(team_id=team_id, name=skill_name, version=version, deleted=False).only("body").first()
     )
-    if body is None:
+    if skill is None:
         raise SkillBodyNotFoundError(f"No live skill '{skill_name}' v{version} on team {team_id}")
-    return body
+    file_paths = list(LLMSkillFile.objects.filter(skill=skill).order_by("path").values_list("path", flat=True))
+    if not file_paths:
+        return skill.body
+    file_calls = "\n".join(
+        f"- `call skill-file-get {json.dumps({'skill_name': skill_name, 'file_path': path, 'version': version})}`"
+        for path in file_paths
+    )
+    return (
+        f"{skill.body}\n\n<bundled_skill_files>\n"
+        "The files below belong to this pinned skill version. Read referenced files over the PostHog MCP "
+        "before applying their instructions. Use these calls to keep each file pinned to this version:\n\n"
+        f"{file_calls}\n</bundled_skill_files>"
+    )

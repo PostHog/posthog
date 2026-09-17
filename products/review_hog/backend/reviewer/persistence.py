@@ -6,6 +6,7 @@ within one run and persists them as rows; the DB-driven resume reads those rows 
 on-disk store. Resume is head_sha-scoped and covers the turn-stable sandbox stages — chunk_set /
 perspective_result; dedup recomputes on a re-run because its post-dedup issue set (and thus the
 per-issue ids) isn't stable across runs, while validation resumes per issue off its persisted verdicts.
+Dedup replaces only an unfinished turn's superseded findings and verdicts; completed turns remain intact.
 
 Durable rows this layer writes:
 
@@ -23,9 +24,10 @@ per-thread rulings + delivery watermarks, via the helpers below) plus `task_run`
 work-log entries for its session, fix commits, and run summaries.
 """
 
+import json
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -513,6 +515,73 @@ def persist_findings(*, team_id: int, report_id: str, issues: list[Issue], run_i
     return [issue.id for issue, _finding in pairs]
 
 
+def replace_deduplicated_findings(
+    *,
+    team_id: int,
+    report_id: str,
+    issues: list[Issue],
+    run_index: int,
+    head_sha: str,
+    review_mode: str,
+    review_arm: ReviewArm,
+    validation_arm: ReviewArm,
+) -> list[str]:
+    """Replace an unfinished turn's dedup snapshot, retaining only compatible cached verdicts.
+
+    A failed turn keeps its index, so its next attempt can produce different findings or use different
+    models. Only unpublished working rows retire: completed history and per-commit reviewer results
+    stay intact. Identical findings at the same head, mode, and arm configurations keep their verdicts.
+    """
+    context = json.dumps(
+        {
+            "head_sha": head_sha,
+            "review_mode": review_mode,
+            "review_arm": asdict(review_arm),
+            "validation_arm": asdict(validation_arm),
+        },
+        sort_keys=True,
+    )
+    pairs = _persistable_findings(issues, run_index, validation_context=context)
+    with transaction.atomic():
+        report = ReviewReport.objects.for_team(team_id).select_for_update().only("run_count").get(id=report_id)
+        if run_index <= report.run_count:
+            raise ValueError("Cannot replace findings from a completed review turn")
+
+        previous: dict[str, ReviewIssueFinding] = {}
+        row_keys: dict[str, str] = {}
+        rows = (
+            ReviewReportArtefact.objects.for_team(team_id)
+            .filter(
+                report_id=report_id,
+                type__in=[
+                    ReviewReportArtefact.ArtefactType.ISSUE_FINDING,
+                    ReviewReportArtefact.ArtefactType.VALIDATION_VERDICT,
+                ],
+            )
+            .order_by("created_at", "id")
+        )
+        for row in rows:
+            try:
+                content = parse_artefact_content(row.type, row.content)
+            except ArtefactContentValidationError:
+                continue
+            if isinstance(content, ReviewIssueFinding) and content.run_index == run_index:
+                previous[content.issue_key] = content
+                row_keys[str(row.id)] = content.issue_key
+            elif isinstance(content, ValidationVerdict) and content.issue_key.startswith(f"r{run_index}:"):
+                row_keys[str(row.id)] = content.issue_key
+
+        preserved = {finding.issue_key for _, finding in pairs if previous.get(finding.issue_key) == finding}
+        obsolete_ids = [row_id for row_id, key in row_keys.items() if key not in preserved]
+        if obsolete_ids:
+            ReviewReportArtefact.objects.for_team(team_id).filter(report_id=report_id, id__in=obsolete_ids).delete()
+        for _, finding in pairs:
+            ReviewReportArtefact.append_finding(
+                team_id=team_id, report_id=report_id, content=finding, attribution=ArtefactAttribution.system()
+            )
+    return [issue.id for issue, _ in pairs]
+
+
 def persist_verdicts(
     *, team_id: int, report_id: str, issues: list[Issue], validations: dict[str, IssueValidation], run_index: int
 ) -> int:
@@ -836,7 +905,9 @@ def _issue_key(issue: Issue, run_index: int) -> str:
     return f"r{run_index}:{issue.file}:{start}:{perspective}:{issue.id}"
 
 
-def _persistable_findings(issues: list[Issue], run_index: int) -> list[tuple[Issue, ReviewIssueFinding]]:
+def _persistable_findings(
+    issues: list[Issue], run_index: int, *, validation_context: str | None = None
+) -> list[tuple[Issue, ReviewIssueFinding]]:
     """Pair each canonical issue with its durable finding, dropping any that fail durable validation.
 
     Shared by both persist passes so a verdict is only ever written for an issue that produced a
@@ -845,17 +916,18 @@ def _persistable_findings(issues: list[Issue], run_index: int) -> list[tuple[Iss
     pairs: list[tuple[Issue, ReviewIssueFinding]] = []
     for issue in issues:
         try:
-            pairs.append((issue, _to_finding(issue, run_index)))
+            pairs.append((issue, _to_finding(issue, run_index, validation_context=validation_context)))
         except ValidationError as e:
             logger.warning("Skipping finding %s that failed durable validation: %s", issue.id, e)
     return pairs
 
 
-def _to_finding(issue: Issue, run_index: int) -> ReviewIssueFinding:
+def _to_finding(issue: Issue, run_index: int, *, validation_context: str | None = None) -> ReviewIssueFinding:
     """Map a live pipeline `Issue` onto the durable `ReviewIssueFinding` content schema."""
     return ReviewIssueFinding(
         issue_key=_issue_key(issue, run_index),
         run_index=run_index,
+        validation_context=validation_context,
         title=issue.title,
         file=issue.file,
         lines=issue.lines,
