@@ -73,6 +73,7 @@ tools:
             destructive: false
             idempotent: true
         list: true
+        enrich_url: '{id}'
         title: List business knowledge sources
         description: >
             List all business knowledge sources in the project, with document/chunk counts, processing status, and
@@ -122,6 +123,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{id}'
         title: Get business knowledge source
         description: >
             Get a single business knowledge source by ID, including processing status, document/chunk counts, and
