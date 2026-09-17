@@ -44,6 +44,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { ConditionSetSummary } from 'products/feature_flags/frontend/ConditionSetSummary'
 import { FractionalRolloutWarning } from 'products/feature_flags/frontend/FractionalRolloutWarning'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
@@ -205,27 +206,11 @@ export function FeatureFlagReleaseConditions({
                         <div className="flex items-center">
                             <LemonSnack className="mr-2">Set {index + 1}</LemonSnack>
                             <div>
-                                {group.properties?.length ? (
-                                    <>
-                                        {readOnly ? (
-                                            <>
-                                                Match <b>{aggregationTargetName(group.aggregation_group_type_index)}</b>{' '}
-                                                against <b>all</b> criteria
-                                            </>
-                                        ) : (
-                                            <>
-                                                Matching{' '}
-                                                <b>{aggregationTargetName(group.aggregation_group_type_index)}</b>{' '}
-                                                against the criteria
-                                            </>
-                                        )}
-                                    </>
-                                ) : (
-                                    <>
-                                        Condition set will match{' '}
-                                        <b>all {aggregationTargetName(group.aggregation_group_type_index)}</b>
-                                    </>
-                                )}
+                                <ConditionSetSummary
+                                    group={group}
+                                    aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
+                                    editing={!readOnly}
+                                />
                             </div>
                         </div>
                         {!readOnly && (
