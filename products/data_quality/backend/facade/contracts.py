@@ -74,6 +74,20 @@ class MetricSubject:
 
 
 @dataclass(frozen=True)
+class SelectableSubject:
+    """One thing a caller may author a check on, with enough to fill a picker.
+
+    ``columns`` is empty for a metric, whose output columns come from running its query.
+    """
+
+    subject_type: str
+    id: str
+    name: str
+    display_name: str = ""
+    columns: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class OutputColumn:
     name: str
     type: str | None

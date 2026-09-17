@@ -78,6 +78,7 @@ __all__ = [
     "resolve_object_by_name",
     "direct_access_table_ids",
     "allowed_table_ids",
+    "all_queryable_tables",
     "list_tables_for_source",
     "list_jobs_for_source",
     "list_column_statistics",
@@ -461,6 +462,12 @@ def _resolve_allowed_table_ids(
     return frozenset(
         table.id for table in tables if user_access_control.check_access_level_for_object(table, required_level)
     )
+
+
+def all_queryable_tables(team_id: int) -> list[contracts.DataWarehouseTable]:
+    """Every table in this team that is still queryable, with its recorded columns. One query."""
+    rows = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id)
+    return [_to_table(table) for table in rows]
 
 
 def list_tables_for_source(source_id: UUID, team_id: int) -> list[contracts.DataWarehouseTable]:

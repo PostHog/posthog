@@ -11,8 +11,8 @@ import {
     dataQualityChecksMetricSubjectsList,
     dataQualityRunsCreate,
     dataQualityRunsRetrieve,
-    warehouseSavedQueriesChecksCheckTypesList,
-    warehouseSavedQueriesChecksRunsList,
+    dataQualityChecksCheckTypesList,
+    dataQualityChecksRunsList,
 } from 'products/data_quality/frontend/generated/api'
 import type { DataQualityOverviewCheckApi } from 'products/data_quality/frontend/generated/api.schemas'
 
@@ -59,15 +59,12 @@ jest.mock('products/data_quality/frontend/generated/api', () => ({
     dataQualityChecksMetricSubjectsList: jest.fn(),
     dataQualityRunsCreate: jest.fn(),
     dataQualityRunsRetrieve: jest.fn(),
-    warehouseSavedQueriesChecksRunsList: jest.fn(),
-    warehouseSavedQueriesChecksDestroy: jest.fn(),
-    warehouseTablesChecksDestroy: jest.fn(),
-    warehouseSavedQueriesChecksCheckTypesList: jest.fn(),
-    warehouseTablesChecksCheckTypesList: jest.fn(),
-    warehouseSavedQueriesChecksCreate: jest.fn(),
-    warehouseSavedQueriesChecksPartialUpdate: jest.fn(),
-    warehouseTablesChecksCreate: jest.fn(),
-    warehouseTablesChecksPartialUpdate: jest.fn(),
+    dataQualityChecksRunsList: jest.fn(),
+    dataQualityChecksDestroy: jest.fn(),
+    dataQualityChecksCheckTypesList: jest.fn(),
+    dataQualityChecksCreate: jest.fn(),
+    dataQualityChecksPartialUpdate: jest.fn(),
+    dataQualityChecksSubjectsList: jest.fn(),
 }))
 
 function buildCheck(
@@ -144,7 +141,7 @@ describe('DataQualityOverview', () => {
             error: '',
         })
         ;(dataQualityRunsRetrieve as jest.Mock).mockResolvedValue({ id: 'suite-1', status: 'running' })
-        ;(warehouseSavedQueriesChecksRunsList as jest.Mock).mockResolvedValue([
+        ;(dataQualityChecksRunsList as jest.Mock).mockResolvedValue([
             {
                 id: 'run-1',
                 status: 'failed',
@@ -156,7 +153,7 @@ describe('DataQualityOverview', () => {
                 started_at: null,
             },
         ])
-        ;(warehouseSavedQueriesChecksCheckTypesList as jest.Mock).mockResolvedValue([
+        ;(dataQualityChecksCheckTypesList as jest.Mock).mockResolvedValue([
             { check_type: 'not_null', description: '', requires_column: true, config_schema: {} },
         ])
     })
@@ -281,7 +278,7 @@ describe('DataQualityOverview', () => {
     })
 
     it('shows a retry when the check type catalog cannot load', async () => {
-        ;(warehouseSavedQueriesChecksCheckTypesList as jest.Mock).mockRejectedValueOnce(new Error('down'))
+        ;(dataQualityChecksCheckTypesList as jest.Mock).mockRejectedValueOnce(new Error('down'))
         await renderOverview()
 
         fireEvent.click(queryAll('[data-attr="data-quality-overview-check-actions"]')[0])

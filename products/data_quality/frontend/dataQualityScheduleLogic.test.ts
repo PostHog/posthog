@@ -5,14 +5,11 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
 import { dataQualityScheduleLogic } from './dataQualityScheduleLogic'
-import {
-    dataCatalogMetricsChecksScheduleRetrieve,
-    dataCatalogMetricsChecksSchedulePartialUpdate,
-} from './generated/api'
+import { dataQualityChecksScheduleRetrieve, dataQualityChecksSchedulePartialUpdate } from './generated/api'
 
 jest.mock('./generated/api', () => ({
-    dataCatalogMetricsChecksScheduleRetrieve: jest.fn(),
-    dataCatalogMetricsChecksSchedulePartialUpdate: jest.fn(),
+    dataQualityChecksScheduleRetrieve: jest.fn(),
+    dataQualityChecksSchedulePartialUpdate: jest.fn(),
 }))
 
 const SCHEDULE = {
@@ -31,7 +28,7 @@ describe('dataQualityScheduleLogic', () => {
         jest.clearAllMocks()
         initKeaTests()
         silenceKeaLoadersErrors()
-        ;(dataCatalogMetricsChecksScheduleRetrieve as jest.Mock).mockResolvedValue(SCHEDULE)
+        ;(dataQualityChecksScheduleRetrieve as jest.Mock).mockResolvedValue(SCHEDULE)
         logic = dataQualityScheduleLogic({ metricId: 'metric-1' })
     })
 
@@ -44,13 +41,15 @@ describe('dataQualityScheduleLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.schedule).toEqual(SCHEDULE)
-        ;(dataCatalogMetricsChecksSchedulePartialUpdate as jest.Mock).mockResolvedValue({
+        ;(dataQualityChecksSchedulePartialUpdate as jest.Mock).mockResolvedValue({
             ...SCHEDULE,
             interval: '6hour',
         })
         logic.actions.updateSchedule({ interval: '6hour' })
         await expectLogic(logic).toFinishAllListeners()
-        expect(dataCatalogMetricsChecksSchedulePartialUpdate).toHaveBeenCalledWith('997', 'metric-1', {
+        expect(dataQualityChecksSchedulePartialUpdate).toHaveBeenCalledWith('997', {
+            subject_type: 'metric',
+            subject_uuid: 'metric-1',
             interval: '6hour',
         })
         expect(logic.values.schedule).toMatchObject({ interval: '6hour', enabled: true })
@@ -59,13 +58,13 @@ describe('dataQualityScheduleLogic', () => {
     it('keeps the persisted schedule visible after a rejected edit and can retry', async () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        ;(dataCatalogMetricsChecksSchedulePartialUpdate as jest.Mock).mockRejectedValue(new Error('Could not save'))
+        ;(dataQualityChecksSchedulePartialUpdate as jest.Mock).mockRejectedValue(new Error('Could not save'))
         logic.actions.updateSchedule({ enabled: false })
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.schedule?.enabled).toBe(true)
         expect(logic.values.scheduleError).toBeTruthy()
         expect(logic.values.scheduleLoading).toBe(false)
-        ;(dataCatalogMetricsChecksSchedulePartialUpdate as jest.Mock).mockResolvedValue({ ...SCHEDULE, enabled: false })
+        ;(dataQualityChecksSchedulePartialUpdate as jest.Mock).mockResolvedValue({ ...SCHEDULE, enabled: false })
         logic.actions.updateSchedule({ enabled: false })
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.schedule?.enabled).toBe(false)
@@ -74,8 +73,8 @@ describe('dataQualityScheduleLogic', () => {
     it('refetches persisted state when an edit response is lost', async () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        ;(dataCatalogMetricsChecksSchedulePartialUpdate as jest.Mock).mockRejectedValue(new Error('Connection lost'))
-        ;(dataCatalogMetricsChecksScheduleRetrieve as jest.Mock).mockResolvedValue({
+        ;(dataQualityChecksSchedulePartialUpdate as jest.Mock).mockRejectedValue(new Error('Connection lost'))
+        ;(dataQualityChecksScheduleRetrieve as jest.Mock).mockResolvedValue({
             ...SCHEDULE,
             enabled: false,
             next_run_at: null,
@@ -90,15 +89,15 @@ describe('dataQualityScheduleLogic', () => {
     it('reports a denied edit without refetching the schedule', async () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        ;(dataCatalogMetricsChecksScheduleRetrieve as jest.Mock).mockClear()
-        ;(dataCatalogMetricsChecksSchedulePartialUpdate as jest.Mock).mockRejectedValue(
+        ;(dataQualityChecksScheduleRetrieve as jest.Mock).mockClear()
+        ;(dataQualityChecksSchedulePartialUpdate as jest.Mock).mockRejectedValue(
             new ApiError('Forbidden', 403, undefined, {
                 detail: 'You do not have permission to perform this action.',
             })
         )
         logic.actions.updateSchedule({ enabled: false })
         await expectLogic(logic).toFinishAllListeners()
-        expect(dataCatalogMetricsChecksScheduleRetrieve).not.toHaveBeenCalled()
+        expect(dataQualityChecksScheduleRetrieve).not.toHaveBeenCalled()
         expect(logic.values.scheduleError).toEqual({
             message: 'You do not have permission to perform this action.',
             uncertain: false,
@@ -110,13 +109,13 @@ describe('dataQualityScheduleLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         let resolveRefresh!: (schedule: typeof SCHEDULE) => void
-        ;(dataCatalogMetricsChecksScheduleRetrieve as jest.Mock).mockReturnValueOnce(
+        ;(dataQualityChecksScheduleRetrieve as jest.Mock).mockReturnValueOnce(
             new Promise((resolve) => {
                 resolveRefresh = resolve
             })
         )
         logic.actions.refreshSchedule()
-        ;(dataCatalogMetricsChecksSchedulePartialUpdate as jest.Mock).mockResolvedValue({ ...SCHEDULE, enabled: false })
+        ;(dataQualityChecksSchedulePartialUpdate as jest.Mock).mockResolvedValue({ ...SCHEDULE, enabled: false })
         await expectLogic(logic, () => logic.actions.updateSchedule({ enabled: false })).toDispatchActions([
             'updateScheduleSuccess',
         ])
@@ -131,7 +130,7 @@ describe('dataQualityScheduleLogic', () => {
             refreshSchedule = handler as () => void
             return 1
         })
-        ;(dataCatalogMetricsChecksScheduleRetrieve as jest.Mock)
+        ;(dataQualityChecksScheduleRetrieve as jest.Mock)
             .mockResolvedValueOnce(SCHEDULE)
             .mockResolvedValueOnce({ ...SCHEDULE, next_run_at: '2026-09-06T00:00:00Z' })
 

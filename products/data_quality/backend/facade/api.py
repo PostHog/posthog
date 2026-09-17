@@ -16,6 +16,7 @@ from ..logic.checks import (
     live_subject_checks,
     soft_delete_check,
     start_check_suite,
+    subject_filter,
     subject_health,
     upsert_check,
     validate_check,
@@ -56,9 +57,9 @@ from ..logic.subject_access import (
     visible_checks,
     without_denied_runs,
 )
-from ..logic.subjects import resolve_metric_subjects, resolve_subject, testable_metric_subjects
+from ..logic.subjects import resolve_metric_subjects, resolve_subject, selectable_subjects, testable_metric_subjects
 from ..logic.triggers import materialization_audit_mode as quality_audit_mode
-from .contracts import CheckTypeInfo, MetricSubject, OutputColumn
+from .contracts import CheckTypeInfo, MetricSubject, OutputColumn, SelectableSubject
 
 __all__ = [
     "log_metric_schedule_change",
@@ -73,6 +74,7 @@ __all__ = [
     "DenialContext",
     "MetricSubject",
     "OutputColumn",
+    "SelectableSubject",
     "ReadableSubjects",
     "ReferencedSubjects",
     "SubjectKey",
@@ -114,8 +116,10 @@ __all__ = [
     "schedule_with_history",
     "soft_delete_check",
     "start_check_suite",
+    "subject_filter",
     "subject_health",
     "subject_locations",
+    "selectable_subjects",
     "testable_metric_subjects",
     "suites_backing_unreadable_runs_q",
     "to_config_entry",

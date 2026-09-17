@@ -4,7 +4,9 @@ Data quality checks audit warehouse tables, saved views, and catalog metrics. Ch
 
 ## Authorization
 
-Check and run routes require project membership, query access, and access to the subject. The static check-type catalog does not require query access. Metric checks use catalog permissions. Table and view checks use their respective warehouse object permissions, including explicit object grants and inherited source grants. A resource-wide denial does not discard a more specific grant that the canonical access-control rules permit.
+Every check is authored, read, run and scheduled through the project-wide `data_quality_checks` and `data_quality_runs` routes, whichever kind of subject it audits. A request names its subject in the body on create, and by check id after that; `subject_type` and `subject_uuid` query parameters narrow a listing, a health rollup, a run history, or a schedule to one subject.
+
+Check and run routes require project membership, query access, and access to the subject. The static check-type catalog needs no access to any subject. Metric checks use catalog permissions. Table and view checks use their respective warehouse object permissions, including explicit object grants and inherited source grants. A resource-wide denial does not discard a more specific grant that the canonical access-control rules permit.
 
 Reading checks, health, and run history requires viewer access. Creating, editing, deleting, or manually running checks requires editor access to their subject. Referenced subjects require viewer access. These checks apply even when the warehouse query-enforcement feature flag is disabled.
 
@@ -18,15 +20,12 @@ A check that reads more than its own subject executes as a user. A manual run ex
 
 All routes below also require `query:read`. Write scopes include read access; read-only scopes do not authorize writes. Token scopes limit access independently of the user's grants, including for organization administrators.
 
-| Route                                            | Read scope               | Write scope               |
-| ------------------------------------------------ | ------------------------ | ------------------------- |
-| Nested warehouse table checks and suite runs     | `warehouse_table:read`   | `warehouse_table:write`   |
-| Nested warehouse view checks and suite runs      | `warehouse_view:read`    | `warehouse_view:write`    |
-| Nested catalog metric checks and suite runs      | `data_catalog:read`      | `data_catalog:write`      |
-| Project-wide checks and runs, warehouse subjects | `warehouse_objects:read` | `warehouse_objects:write` |
-| Project-wide checks and runs, metric subjects    | `data_catalog:read`      | `data_catalog:write`      |
+| Subject kind               | Read scope               | Write scope               |
+| -------------------------- | ------------------------ | ------------------------- |
+| Warehouse tables and views | `warehouse_objects:read` | `warehouse_objects:write` |
+| Catalog metrics            | `data_catalog:read`      | `data_catalog:write`      |
 
-A project-wide token may select only the subject types its scopes permit. An unnamed manual sweep skips inaccessible checks; an explicitly selected inaccessible check is rejected. Cross-subject references must also fall within the caller's permitted subject types.
+The per-kind `warehouse_table` and `warehouse_view` scopes do not reach these routes: one route spans both kinds, so it answers to the family scope. A token may select only the subject kinds its scopes permit. An unnamed manual sweep skips inaccessible checks; an explicitly selected inaccessible check is rejected. Cross-subject references must also fall within the caller's permitted subject types.
 
 The table above applies to the REST routes only. A raw HogQL query against `system.information_schema.data_quality_*` needs `query:read` and no other scope. The user's own permissions still apply to each row. A token with `query:read` reads metric checks only if its user has catalog access.
 

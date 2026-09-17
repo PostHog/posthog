@@ -70,8 +70,10 @@ Reach for these first, in roughly this order:
 
 Call `posthog:data-quality-check-types` for each type's exact config schema rather than guessing.
 
-Checks live on the subject they audit: create them with `data-quality-check-create-on-view`
-(`saved_query_id` path parameter) or `data-quality-check-create-on-table` (`table_id`).
+One tool set covers every kind of subject. Call `posthog:data-quality-subjects` for the tables,
+views and metrics you can author on, then pass the `subject_type` and `id` it gives you as
+`subject_type` and `subject_uuid` in `posthog:data-quality-check-create`. After that a check is
+addressed by its own id: `-update`, `-delete`, `-run` and `-results` take no subject.
 
 ## Checks on catalog metrics
 
@@ -92,10 +94,9 @@ through a subquery. Metric check SQL cannot define CTEs, including nested CTEs a
 bindings. CTEs and saved parameters inside the metric definition remain supported. Other placeholders
 are not accepted in the check.
 
-Use the metric's Tests tab or the nested REST endpoints under
-`/api/projects/{project_id}/data_catalog/metrics/{metric_id}/checks/`. The catalog metric detail
-endpoint uses the metric name, but nested check endpoints use its UUID. The metric check-type
-endpoint offers only Custom SQL. Do not assume the table/view MCP tools accept metric subjects.
+Use the metric's Tests tab, or `posthog:data-quality-check-create` with `subject_type: "metric"`.
+The catalog addresses a metric by name, but a check names it by UUID. Pass `subject_type=metric` to
+`posthog:data-quality-check-types` and it offers only Custom SQL.
 
 Saving validates SQL composition without executing it. Run the check to verify column names and
 results. Every run reloads the saved metric: if an edit removes a column used by the check, the next
@@ -128,16 +129,15 @@ Disabling or deleting every check preserves the schedule preferences. Deleting t
 
 Author, run once, read the result. A check nobody has run is a guess.
 
-1. `posthog:data-quality-check-create-on-view` (or `-on-table`)
-2. `posthog:data-quality-check-run-on-view` (or `-on-table`) — returns a suite run
+1. `posthog:data-quality-check-create`
+2. `posthog:data-quality-check-run` — returns a suite run
 3. Poll `system.information_schema.data_quality_check_runs` (or
-   `posthog:data-quality-check-results-on-view`/`-on-table`) for the outcome
+   `posthog:data-quality-check-results`) for the outcome
 
 A `failed` result on the first run is the interesting case: either you found real bad data, or the
 assertion is wrong. Take the `compiled_query` off the run, execute it with `posthog:execute-sql`, and
 look at what it actually matched before reporting anything. That `compiled_query` comes from
-`posthog:data-quality-check-results-on-view`/`-on-table`; the information_schema poll in step 3 does
-not return it. An `errored` result is never a data
+`posthog:data-quality-check-results`; the information_schema poll in step 3 does not return it. An `errored` result is never a data
 problem — the query could not run at all, usually a column name typo or a subject that no longer
 exists.
 

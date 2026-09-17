@@ -7,13 +7,12 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
 import {
-    dataCatalogMetricsChecksDestroy,
+    dataQualityChecksDestroy,
     dataQualityChecksHealthList,
     dataQualityChecksList,
+    dataQualityChecksRunsList,
     dataQualityRunsCreate,
     dataQualityRunsRetrieve,
-    warehouseSavedQueriesChecksDestroy,
-    warehouseSavedQueriesChecksRunsList,
 } from 'products/data_quality/frontend/generated/api'
 import type {
     DataQualityOverviewCheckApi,
@@ -41,15 +40,12 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 }))
 
 jest.mock('products/data_quality/frontend/generated/api', () => ({
-    dataCatalogMetricsChecksDestroy: jest.fn(),
-    dataQualityChecksList: jest.fn(),
+    dataQualityChecksDestroy: jest.fn(),
     dataQualityChecksHealthList: jest.fn(),
+    dataQualityChecksList: jest.fn(),
+    dataQualityChecksRunsList: jest.fn(),
     dataQualityRunsCreate: jest.fn(),
     dataQualityRunsRetrieve: jest.fn(),
-    warehouseSavedQueriesChecksDestroy: jest.fn(),
-    warehouseTablesChecksDestroy: jest.fn(),
-    warehouseSavedQueriesChecksRunsList: jest.fn(),
-    warehouseTablesChecksRunsList: jest.fn(),
 }))
 
 function buildCheck(
@@ -376,33 +372,20 @@ describe('dataQualityOverviewLogic', () => {
     })
 
     it('removes a deleted check and refreshes the snapshot', async () => {
-        ;(warehouseSavedQueriesChecksDestroy as jest.Mock).mockResolvedValue(undefined)
+        ;(dataQualityChecksDestroy as jest.Mock).mockResolvedValue(undefined)
         await mountLogic()
         const loadsBeforeDelete = (dataQualityChecksList as jest.Mock).mock.calls.length
 
         logic.actions.deleteCheck(buildCheck('check-1', 'orders', 'failed'))
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(warehouseSavedQueriesChecksDestroy).toHaveBeenCalledWith('1', 'uuid-orders', 'check-1')
+        expect(dataQualityChecksDestroy).toHaveBeenCalledWith('1', 'check-1')
         expect((dataQualityChecksList as jest.Mock).mock.calls.length).toBeGreaterThan(loadsBeforeDelete)
         expect(lemonToast.success).toHaveBeenCalledWith('Check deleted')
     })
 
-    it('deletes a metric check through its catalog route', async () => {
-        ;(dataCatalogMetricsChecksDestroy as jest.Mock).mockResolvedValue(undefined)
-        await mountLogic()
-
-        logic.actions.deleteCheck(
-            buildCheck('check-1', 'signups', 'failed', { subject_type: 'metric', subject_uuid: 'uuid-signups' })
-        )
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(dataCatalogMetricsChecksDestroy).toHaveBeenCalledWith('1', 'uuid-signups', 'check-1')
-        expect(lemonToast.success).toHaveBeenCalledWith('Check deleted')
-    })
-
     it('keeps the row and says so when a delete fails', async () => {
-        ;(warehouseSavedQueriesChecksDestroy as jest.Mock).mockRejectedValue(new Error('down'))
+        ;(dataQualityChecksDestroy as jest.Mock).mockRejectedValue(new Error('down'))
         await mountLogic()
 
         logic.actions.deleteCheck(buildCheck('check-1', 'orders', 'failed'))
@@ -414,7 +397,7 @@ describe('dataQualityOverviewLogic', () => {
     })
 
     it('deletes a check once when the confirmation is submitted twice', async () => {
-        ;(warehouseSavedQueriesChecksDestroy as jest.Mock).mockResolvedValue(undefined)
+        ;(dataQualityChecksDestroy as jest.Mock).mockResolvedValue(undefined)
         await mountLogic()
         const check = buildCheck('check-1', 'orders', 'failed')
 
@@ -422,7 +405,7 @@ describe('dataQualityOverviewLogic', () => {
         logic.actions.deleteCheck(check)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(warehouseSavedQueriesChecksDestroy).toHaveBeenCalledTimes(1)
+        expect(dataQualityChecksDestroy).toHaveBeenCalledTimes(1)
     })
 
     it('reloads the rows once the polled run finishes', async () => {
@@ -450,18 +433,16 @@ describe('dataQualityOverviewLogic', () => {
         // A row expanded before the run caches its history; loadOverview refreshes status and
         // rollups but not those runs, so without a reload the just-finished run is missing until a
         // collapse and re-expand.
-        ;(warehouseSavedQueriesChecksRunsList as jest.Mock).mockResolvedValue([{ compiled_query: 'SELECT 1' }])
+        ;(dataQualityChecksRunsList as jest.Mock).mockResolvedValue([{ compiled_query: 'SELECT 1' }])
         await mountLogic()
         logic.actions.loadCheckRuns(buildCheck('check-1', 'orders', 'failed'))
         await expectLogic(logic).toFinishAllListeners()
-        const runsLoadsBeforeFinish = (warehouseSavedQueriesChecksRunsList as jest.Mock).mock.calls.length
+        const runsLoadsBeforeFinish = (dataQualityChecksRunsList as jest.Mock).mock.calls.length
 
         logic.actions.finishSuiteRun(buildSuiteRun({ status: 'completed', checks_passed: 3 }))
         await expectLogic(logic).toFinishAllListeners()
 
-        expect((warehouseSavedQueriesChecksRunsList as jest.Mock).mock.calls.length).toBeGreaterThan(
-            runsLoadsBeforeFinish
-        )
+        expect((dataQualityChecksRunsList as jest.Mock).mock.calls.length).toBeGreaterThan(runsLoadsBeforeFinish)
     })
 
     it('stops polling a run that never finishes', async () => {
@@ -490,7 +471,7 @@ describe('dataQualityOverviewLogic', () => {
         ],
         ['past runs whose query was cleared', [{ compiled_query: '' }, { compiled_query: 'SELECT 1' }], 'SELECT 1'],
     ])('opens the failing rows of %s', async (_case, runs, expected) => {
-        ;(warehouseSavedQueriesChecksRunsList as jest.Mock).mockResolvedValue(runs)
+        ;(dataQualityChecksRunsList as jest.Mock).mockResolvedValue(runs)
         await mountLogic()
 
         logic.actions.openFailingRows(buildCheck('check-1', 'orders', 'failed'))
@@ -504,7 +485,7 @@ describe('dataQualityOverviewLogic', () => {
         ['the check has never run', []],
         ['every run has lost its query to retention', [{ compiled_query: '' }]],
     ])('says why there is nothing to open when %s', async (_case, runs) => {
-        ;(warehouseSavedQueriesChecksRunsList as jest.Mock).mockResolvedValue(runs)
+        ;(dataQualityChecksRunsList as jest.Mock).mockResolvedValue(runs)
         await mountLogic()
 
         logic.actions.openFailingRows(buildCheck('check-1', 'orders', 'failed'))

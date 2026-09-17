@@ -141,7 +141,7 @@ function definitionPayload(form: CheckFormValues, requiresColumn: boolean): Chec
 
 type CheckDefinitionPayload = Pick<CheckCreatePayload, 'check_type' | 'column_name' | 'config'>
 type CheckCreatePayload = Parameters<typeof checksApi.create>[1]
-type CheckEditPayload = Parameters<typeof checksApi.partialUpdate>[2]
+type CheckEditPayload = Parameters<typeof checksApi.partialUpdate>[1]
 
 export function checkCreatePayload(form: CheckFormValues, requiresColumn: boolean): CheckCreatePayload {
     return {
@@ -929,7 +929,6 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                 try {
                     const saved = editing
                         ? await checksApi.partialUpdate(
-                              values.subject,
                               editing.id,
                               checkEditPayload(form, values.requiresColumn, editing)
                           )

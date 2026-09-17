@@ -37,6 +37,7 @@ _LAZY = {
     "get_saved_query_columns": "logic.saved_query_reads",
     "get_saved_query_ids_for_nodes": "logic.saved_query_reads",
     "get_saved_query_summary": "logic.saved_query_reads",
+    "all_saved_query_columns": "logic.saved_query_reads",
     "all_saved_query_names": "logic.saved_query_reads",
     "allowed_saved_query_ids": "logic.saved_query_reads",
     "backing_table_ids_by_saved_query": "logic.saved_query_reads",

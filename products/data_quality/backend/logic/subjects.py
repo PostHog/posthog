@@ -15,7 +15,7 @@ from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.warehouse_sources.backend.facade import api as warehouse_facade
 from products.warehouse_sources.backend.facade.contracts import WAREHOUSE_OBJECT_TABLE, WAREHOUSE_OBJECT_VIEW
 
-from ..facade.contracts import MetricSubject
+from ..facade.contracts import MetricSubject, SelectableSubject
 from ..facade.enums import SubjectType
 from .contracts import SubjectRef
 
@@ -33,6 +33,58 @@ def resolve_subject(team_id: int, subject_type: str, subject_uuid: str | UUID) -
     if kind is SubjectType.METRIC:
         return _resolve_metric(team_id, subject_uuid)
     return _resolve_view(team_id, subject_uuid)
+
+
+def selectable_subjects(team_id: int, kinds: Collection[SubjectType]) -> list[SelectableSubject]:
+    """Everything in this team a check can be authored on, of the kinds asked for.
+
+    The catalog, not the gate: narrowing it to what the caller may read is the caller's job.
+    """
+    subjects: list[SelectableSubject] = []
+    if SubjectType.TABLE in kinds:
+        subjects.extend(
+            SelectableSubject(
+                subject_type=SubjectType.TABLE,
+                id=str(table.id),
+                name=table.name,
+                columns=_clickhouse_types(table.columns),
+            )
+            for table in warehouse_facade.all_queryable_tables(team_id)
+        )
+    if SubjectType.VIEW in kinds:
+        columns_by_id = data_modeling_facade.all_saved_query_columns(team_id)
+        subjects.extend(
+            SelectableSubject(
+                subject_type=SubjectType.VIEW,
+                id=saved_query_id,
+                name=name,
+                columns=columns_by_id.get(saved_query_id) or {},
+            )
+            for saved_query_id, name in data_modeling_facade.all_saved_query_names(team_id).items()
+        )
+    if SubjectType.METRIC in kinds:
+        subjects.extend(
+            SelectableSubject(
+                subject_type=SubjectType.METRIC,
+                id=str(metric.id),
+                name=metric.name,
+                display_name=metric.display_name,
+            )
+            for metric in testable_metric_subjects(team_id)
+        )
+    return sorted(subjects, key=lambda subject: (subject.subject_type, subject.name))
+
+
+def _clickhouse_types(columns: dict | None) -> dict[str, str]:
+    return {name: type_ for name, entry in (columns or {}).items() if (type_ := _clickhouse_type(entry)) is not None}
+
+
+def _clickhouse_type(entry: object) -> str | None:
+    # A table records either a bare type string (older rows) or a dict keyed "clickhouse", the same
+    # two shapes hogql_fields_and_structure_for_columns handles.
+    if isinstance(entry, dict):
+        entry = entry.get("clickhouse")
+    return entry if isinstance(entry, str) else None
 
 
 def testable_metric_subjects(team_id: int) -> list[MetricSubject]:
@@ -128,13 +180,9 @@ def subject_column_type(team_id: int, subject_type: str, subject_uuid: str | UUI
         columns = table.columns if table else {}
     else:
         columns = data_modeling_facade.get_saved_query_columns(team_id, subject_uuid)
-    entry = (columns or {}).get(column_name)
-    # A table records either a bare type string (older rows) or a dict keyed "clickhouse", the same
-    # two shapes hogql_fields_and_structure_for_columns handles; the saved-query facade already
-    # unwrapped a view's entry to the string.
-    if isinstance(entry, dict):
-        entry = entry.get("clickhouse")
-    return entry if isinstance(entry, str) else None
+    # The saved-query facade already unwrapped a view's entry to the string; a table's is unwrapped
+    # here.
+    return _clickhouse_type((columns or {}).get(column_name))
 
 
 def _missing(kind: SubjectType, subject_uuid: str | UUID) -> SubjectRef:

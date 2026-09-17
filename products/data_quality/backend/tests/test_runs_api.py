@@ -39,6 +39,7 @@ class TestDataQualityRunAPI(APIBaseTest):
         self.customers = self._make_view("customers")
         self.url = f"/api/projects/{self.team.id}/data_quality_runs/"
         self.checks_url = f"/api/projects/{self.team.id}/data_quality_checks/"
+
         flag = patch(FLAG, return_value=True)
         flag.start()
         self.addCleanup(flag.stop)
@@ -81,6 +82,12 @@ class TestDataQualityRunAPI(APIBaseTest):
                 **overrides,
             }
         )
+
+    def _subject_query(self, subject_type: str, subject_uuid) -> str:
+        return f"subject_type={subject_type}&subject_uuid={subject_uuid}"
+
+    def _checks_of(self, subject_type: str, subject_uuid) -> str:
+        return f"{self.checks_url}?{self._subject_query(subject_type, subject_uuid)}"
 
     def _run(self, **body):
         with patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())):
@@ -238,12 +245,11 @@ class TestDataQualityRunAPI(APIBaseTest):
             swept = self.client.post(self.url, {}, format="json")
         assert swept.status_code == 200
         temporal.start_workflow.assert_not_called()
-        nested_url = f"/api/projects/{self.team.id}/data_catalog/metrics/{metric.id}/checks/"
-        nested = self.client.get(nested_url)
-        assert nested.status_code == 200
-        assert nested.json()["results"] == []
+        scoped = self.client.get(self._checks_of(SubjectType.METRIC, metric.id))
+        assert scoped.status_code == 200
+        assert scoped.json()["results"] == []
         with patch(START_SUITE, return_value=temporal):
-            assert self.client.post(f"{nested_url}{check.id}/run/").status_code == 403
+            assert self.client.post(f"{self.checks_url}{check.id}/run/").status_code == 403
 
     @parameterized.expand(
         [
@@ -266,25 +272,32 @@ class TestDataQualityRunAPI(APIBaseTest):
             for level in ("read", "write")
         ]
     )
-    def test_nested_warehouse_routes_honor_their_own_scopes(self, kind: str, subject_type: str, level: str) -> None:
+    def test_the_warehouse_objects_scope_covers_both_kinds_of_subject(
+        self, kind: str, subject_type: str, level: str
+    ) -> None:
         subject: DataWarehouseSavedQuery | DataWarehouseTable
         if subject_type == "table":
             subject = DataWarehouseTable.objects.create(team=self.team, name="purchases", format="Parquet")
             check = self._check(self.orders, subject_type=SubjectType.TABLE, saved_query_id=None, table_id=subject.id)
-            path = "warehouse_tables"
         else:
             subject = self.orders
             check = self._check(self.orders)
-            path = "warehouse_saved_queries"
-        nested = f"/api/projects/{self.team.id}/{path}/{subject.id}/checks/"
-        self._authenticate_token(kind, [f"warehouse_{subject_type}:{level}", "query:read"])
+        self._authenticate_token(kind, [f"warehouse_objects:{level}", "query:read"])
 
-        listed = self.client.get(nested)
+        listed = self.client.get(self._checks_of(subject_type, subject.id))
         assert listed.status_code == 200, listed.json()
         assert [row["id"] for row in listed.json()["results"]] == [str(check.id)]
-        assert self.client.get(f"{nested}{check.id}/runs/").status_code == 200
+        assert self.client.get(f"{self.checks_url}{check.id}/runs/").status_code == 200
         with patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())):
-            assert self.client.post(f"{nested}{check.id}/run/").status_code == (200 if level == "write" else 403)
+            assert self.client.post(f"{self.checks_url}{check.id}/run/").status_code == (
+                200 if level == "write" else 403
+            )
+
+    @parameterized.expand([("table",), ("view",)])
+    def test_a_token_scoped_to_one_kind_of_warehouse_object_does_not_reach_checks(self, subject_type: str) -> None:
+        self._check(self.orders)
+        self._authenticate_token("pat", [f"warehouse_{subject_type}:write", "query:read"])
+
         assert self.client.get(self.checks_url).status_code == 403
 
     def test_catalog_only_members_see_teammates_metric_checks_and_suites(self) -> None:
@@ -316,13 +329,12 @@ class TestDataQualityRunAPI(APIBaseTest):
         )
         self._check(self.orders)
         cache.clear()
-        nested = f"/api/projects/{self.team.id}/data_catalog/metrics/{metric.id}/"
 
-        for url in (self.checks_url, f"{nested}checks/"):
+        for url in (self.checks_url, self._checks_of(SubjectType.METRIC, metric.id)):
             response = self.client.get(url)
             assert response.status_code == 200, response.json()
             assert [row["id"] for row in response.json()["results"]] == [str(check.id)]
-        for url in (self.url, f"{nested}check_suite_runs/"):
+        for url in (self.url, f"{self.url}?{self._subject_query(SubjectType.METRIC, metric.id)}"):
             response = self.client.get(url)
             assert response.status_code == 200, response.json()
             assert [row["id"] for row in response.json()["results"]] == [str(suite.id)]
@@ -346,14 +358,12 @@ class TestDataQualityRunAPI(APIBaseTest):
                 for name in ("granted_table", "ungranted_table")
             ]
             subject_fk = "table_id"
-            parent_path = "warehouse_tables"
         else:
             subjects = [self.orders, self.customers]
             DataWarehouseSavedQuery.objects.filter(team=self.team, id__in=[subject.id for subject in subjects]).update(
                 created_by=author
             )
             subject_fk = "saved_query_id"
-            parent_path = "warehouse_saved_queries"
         granted, ungranted = [
             self._check(
                 self.orders,
@@ -407,15 +417,15 @@ class TestDataQualityRunAPI(APIBaseTest):
         )
         flag.start()
         self.addCleanup(flag.stop)
-        nested = f"/api/projects/{self.team.id}/{parent_path}/{subjects[0].id}/checks/"
-        denied_nested = f"/api/projects/{self.team.id}/{parent_path}/{subjects[1].id}/checks/"
+        scoped = self._checks_of(subject_type, subjects[0].id)
+        denied_scoped = self._checks_of(subject_type, subjects[1].id)
 
-        for url in (nested, self.checks_url):
+        for url in (scoped, self.checks_url):
             listed = self.client.get(url)
             assert listed.status_code == status.HTTP_200_OK, listed.json()
             assert listed.json()["count"] == 1
             assert [row["id"] for row in listed.json()["results"]] == [str(granted.id)]
-        assert self.client.get(denied_nested).status_code == status.HTTP_403_FORBIDDEN
+        assert self.client.get(denied_scoped).status_code == status.HTTP_403_FORBIDDEN
         history = self.client.get(self.url)
         assert history.status_code == status.HTTP_200_OK, history.json()
         assert [suite["id"] for suite in history.json()["results"]] == [str(allowed_suite.id)]
@@ -423,14 +433,14 @@ class TestDataQualityRunAPI(APIBaseTest):
 
         temporal = MagicMock(start_workflow=AsyncMock())
         with patch(START_SUITE, return_value=temporal):
-            assert self.client.post(f"{denied_nested}{ungranted.id}/run/").status_code == status.HTTP_403_FORBIDDEN
+            assert self.client.post(f"{self.checks_url}{ungranted.id}/run/").status_code == status.HTTP_403_FORBIDDEN
             denied_selection = self.client.post(self.url, {"check_ids": [str(ungranted.id)]}, format="json")
             assert denied_selection.status_code == status.HTTP_403_FORBIDDEN, denied_selection.json()
             temporal.start_workflow.assert_not_called()
 
             expected_status = status.HTTP_200_OK if access_level == "editor" else status.HTTP_403_FORBIDDEN
-            nested_run = self.client.post(f"{nested}{granted.id}/run/")
-            assert nested_run.status_code == expected_status, nested_run.json()
+            direct_run = self.client.post(f"{self.checks_url}{granted.id}/run/")
+            assert direct_run.status_code == expected_status, direct_run.json()
             selected_run = self.client.post(self.url, {"check_ids": [str(granted.id)]}, format="json")
             assert selected_run.status_code == expected_status, selected_run.json()
         assert temporal.start_workflow.call_count == (2 if access_level == "editor" else 0)

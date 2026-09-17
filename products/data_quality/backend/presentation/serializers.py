@@ -29,6 +29,36 @@ class DataQualityMetricSubjectSerializer(serializers.Serializer):
     display_name = serializers.CharField(allow_blank=True, help_text="Metric label shown in the data catalog.")
 
 
+@extend_schema_serializer(component_name="DataQualitySubjectRef")
+class DataQualitySubjectRefSerializer(serializers.Serializer):
+    """The subject a request names, wherever it names it: a body, a query string, or both."""
+
+    subject_type = serializers.ChoiceField(
+        choices=[(t.value, t.value) for t in SubjectType],
+        help_text="Kind of catalog object: 'table', 'view', or 'metric'.",
+    )
+    subject_uuid = serializers.UUIDField(help_text="Id of the table, view, or metric.")
+
+
+@extend_schema_serializer(component_name="DataQualitySubject")
+class DataQualitySubjectSerializer(serializers.Serializer):
+    """One thing a check can be authored on, whatever kind it is."""
+
+    subject_type = serializers.ChoiceField(
+        choices=[(t.value, t.value) for t in SubjectType],
+        help_text="Kind of object: 'table', 'view', or 'metric'. Pass it back as subject_type when creating a check.",
+    )
+    id = serializers.CharField(help_text="Id of the subject. Pass it back as subject_uuid when creating a check.")
+    name = serializers.CharField(help_text="Queryable name of the subject.")
+    display_name = serializers.CharField(
+        allow_blank=True, help_text="Label shown in the data catalog. Blank for tables and views."
+    )
+    columns = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Column name to ClickHouse type. Empty for a metric, and for a view that has not run yet.",
+    )
+
+
 class DataQualityOutputColumnSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Output column name available through the {metric} relation.")
     type = serializers.CharField(allow_null=True, help_text="ClickHouse type, or null when it could not be inferred.")
@@ -40,15 +70,20 @@ class DataQualityOutputSchemaSerializer(serializers.Serializer):
 
 @extend_schema_serializer(component_name="DataQualityCheck")
 class DataQualityCheckSerializer(serializers.ModelSerializer):
-    """The subject is implied by the URL (the parent saved query or table), never part of the body."""
+    """A check as it reads back, and everything an edit may change about it.
+
+    The subject is not one of those: it is writable only on ``DataQualityCheckCreate``.
+    """
 
     subject_type = serializers.ChoiceField(
         choices=[(t.value, t.value) for t in SubjectType],
         read_only=True,
         help_text="Kind of catalog object being checked: 'table', 'view', or 'metric'.",
     )
-    subject_uuid = serializers.SerializerMethodField(
-        help_text="Id of the table, view, or metric being checked, from the parent resource in the URL."
+    subject_uuid = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Id of the table, view, or metric being checked. Null once the subject is deleted.",
     )
     check_type = serializers.ChoiceField(
         choices=[(t.value, t.value) for t in CheckType],
@@ -168,15 +203,10 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
     def get_owner(self, obj: DataQualityCheck) -> str | None:
         return obj.owner.email if obj.owner else None
 
-    @extend_schema_field(serializers.UUIDField(allow_null=True))
-    def get_subject_uuid(self, obj: DataQualityCheck) -> str | None:
-        return str(obj.subject_uuid) if obj.subject_uuid else None
-
     def validate(self, attrs: dict) -> dict:
         if self.instance is not None:
             return attrs
 
-        # The subject comes from the URL: the viewset resolves the parent and passes it in context.
         try:
             api.validate_check(
                 self.context["get_team"](),
@@ -209,6 +239,17 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {field: ErrorDetail(str(conflict), code=conflict.code) for field in fields}
             )
+
+
+@extend_schema_serializer(component_name="DataQualityCheckCreate")
+class DataQualityCheckCreateSerializer(DataQualityCheckSerializer):
+    """The create body, where the subject is named for the only time in a check's life."""
+
+    subject_type = serializers.ChoiceField(
+        choices=[(t.value, t.value) for t in SubjectType],
+        help_text="Kind of catalog object to check: 'table', 'view', or 'metric'.",
+    )
+    subject_uuid = serializers.UUIDField(help_text="Id of the table, view, or metric to check.")
 
 
 @extend_schema_serializer(component_name="DataQualityOverviewCheck")
@@ -265,11 +306,20 @@ class DataQualityOverviewCheckSerializer(DataQualityCheckSerializer):
         return self._location(obj).metric_name
 
 
-class DataQualityCheckScheduleUpdateSerializer(serializers.Serializer):
+@extend_schema_serializer(component_name="DataQualityCheckScheduleUpdate")
+class DataQualityCheckScheduleUpdateSerializer(DataQualitySubjectRefSerializer):
+    """Which subject's schedule to change, and what to change about it."""
+
+    SCHEDULE_FIELDS = ("interval", "enabled")
+
     interval = serializers.ChoiceField(
-        choices=list(ScheduleInterval), required=False, help_text="How often all enabled checks on the metric run."
+        choices=list(ScheduleInterval), required=False, help_text="How often all enabled checks on the subject run."
     )
     enabled = serializers.BooleanField(required=False, help_text="Whether checks run automatically on this schedule.")
+
+    @property
+    def schedule_changes(self) -> dict:
+        return {key: value for key, value in self.validated_data.items() if key in self.SCHEDULE_FIELDS}
 
 
 class DataQualityCheckScheduleSerializer(serializers.Serializer):
@@ -420,6 +470,22 @@ class DataQualityRunRequestSerializer(serializers.Serializer):
         required=False,
         help_text="Ids of the checks to run. Omit to run every enabled check in the project.",
     )
+    subject_type = serializers.ChoiceField(
+        choices=[(t.value, t.value) for t in SubjectType],
+        required=False,
+        help_text="Narrow the run to one subject. Pass subject_uuid with it. Ignored when check_ids is given.",
+    )
+    subject_uuid = serializers.UUIDField(
+        required=False,
+        help_text="Id of the subject to run every enabled check on. Pass subject_type with it.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if bool(attrs.get("subject_type")) != bool(attrs.get("subject_uuid")):
+            raise serializers.ValidationError(
+                {"subject_uuid": "Name the subject with both subject_type and subject_uuid, or neither."}
+            )
+        return attrs
 
 
 @extend_schema_serializer(component_name="DataQualityGateConfig")
