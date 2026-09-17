@@ -64,7 +64,9 @@ class TestHandleTaskRunCompleted(TeamScopedTestMixin, BaseTest):
             pipeline=training_run.pipeline,
             iteration_number=number,
             recipe_hash=f"hash{number}",
-            recipe_snapshot={"feature_sql": "SELECT person_id AS distinct_id FROM events"},
+            recipe_snapshot={
+                "feature_sql": "SELECT a.person_id AS distinct_id, count() AS c FROM {anchors} a GROUP BY a.person_id"
+            },
             model_spec={"model_class": "sklearn.linear_model.LogisticRegression", "model_params": {}},
             holdout_score=holdout,
             status=status,
