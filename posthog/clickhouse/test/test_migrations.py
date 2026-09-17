@@ -141,10 +141,11 @@ class TestUniqueMigrationPrefixes(TestCase):
         """Walk a migration's operations and return any convention violations.
 
         ``full=False`` is used for per-deployment passes: it only runs the cheap, deployment-
-        agnostic checks (ON CLUSTER + missing _sql) so cloud-gated branches don't get flagged
-        against legacy ALTER-TABLE flag rules they already shipped past.
+        agnostic checks (ON CLUSTER + missing _sql + crash_log flush) so cloud-gated branches
+        don't get flagged against legacy ALTER-TABLE flag rules they already shipped past.
         """
         violations: list[dict] = []
+        flushed_roles: set[NodeRole] = set()
         for idx, operation in enumerate(operations):
             sql = getattr(operation, "_sql", None)
             if sql is None:
@@ -170,6 +171,15 @@ class TestUniqueMigrationPrefixes(TestCase):
             errors: list[str] = []
             if "ON CLUSTER" in sql:
                 errors.append("ON CLUSTER is not supposed to be used in migrations")
+            # ClickHouse creates system.crash_log on the first flush rather than at startup, so a
+            # node that never crashed has no such table and the read fails with UNKNOWN_TABLE.
+            if re.search(r"\bSYSTEM\s+FLUSH\s+LOGS\b", sql, re.IGNORECASE):
+                flushed_roles.update(operation._node_roles)
+            elif "system.crash_log" in sql and not self._covered_by_flush(operation._node_roles, flushed_roles):
+                errors.append(
+                    'reads system.crash_log without an earlier run_sql_with_exceptions("SYSTEM FLUSH LOGS", ...) '
+                    "on the same node roles"
+                )
             if full:
                 errors += self.check_alter_table(
                     sql,
@@ -191,6 +201,12 @@ class TestUniqueMigrationPrefixes(TestCase):
                     }
                 )
         return violations
+
+    @staticmethod
+    def _covered_by_flush(node_roles: list[NodeRole], flushed_roles: set[NodeRole]) -> bool:
+        if NodeRole.ALL in flushed_roles:
+            return True
+        return set(node_roles) <= flushed_roles
 
     @staticmethod
     def _checked_modules():
@@ -259,31 +275,6 @@ class TestUniqueMigrationPrefixes(TestCase):
                 error_message += f"  Errors: \n\t-{'\n\t-'.join(v['errors'])}\n\n"
             error_message += "For more information, see posthog/clickhouse/migrations/AGENTS.md\n"
             self.fail(error_message)
-
-    def test_crash_log_reads_are_preceded_by_a_flush(self):
-        """A migration that reads system.crash_log must flush the logs first.
-
-        ClickHouse creates system.crash_log on the first flush rather than at startup, so on a
-        node that never crashed the table is absent and the read fails with UNKNOWN_TABLE,
-        which aborts migrate_clickhouse for the whole cluster build.
-        """
-        violations: list[tuple[str, int]] = []
-        for name, module in self._checked_modules():
-            operations = getattr(module, "operations", None) or []
-            flushed = False
-            for idx, operation in enumerate(operations):
-                sql = getattr(operation, "_sql", None) or ""
-                if re.search(r"\bSYSTEM\s+FLUSH\s+LOGS\b", sql, re.IGNORECASE):
-                    flushed = True
-                elif "system.crash_log" in sql and not flushed:
-                    violations.append((name, idx))
-
-        if violations:
-            msg = "Found migration operations that read system.crash_log without flushing first:\n\n"
-            for name, idx in violations:
-                msg += f"  {name}: operation {idx}\n"
-            msg += '\nAdd run_sql_with_exceptions("SYSTEM FLUSH LOGS", ...) before the operation.\n'
-            self.fail(msg)
 
     def test_no_on_cluster_in_migration_source_strings(self):
         """Static backstop: flag ``ON CLUSTER`` in any string literal in migration source.
