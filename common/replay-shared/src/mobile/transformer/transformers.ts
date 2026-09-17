@@ -255,8 +255,6 @@ function makeWebViewElement(
     labelledWireframe.style = {
         // the placeholder hatching is dark, so the default foreground color is hard to read on it
         color: BACKGROUND,
-        // centered text overflows a small web view above its top edge, where nothing clips it
-        verticalAlign: 'top',
         ...wireframe.style,
     }
 

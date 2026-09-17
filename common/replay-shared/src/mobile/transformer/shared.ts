@@ -29,7 +29,7 @@ export function makePlaceholderElement(
             attributes: {
                 style: asStyleString([
                     makeStylesString(wireframe, {
-                        verticalAlign: wireframe.style?.verticalAlign || 'center',
+                        verticalAlign: 'center',
                         horizontalAlign: 'center',
                         backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
                         color: wireframe.style?.color || FOREGROUND,
@@ -41,6 +41,10 @@ export function makePlaceholderElement(
                     // a url has no break opportunities, so it must break anywhere to keep the label
                     // inside the wireframe, where the clip below would otherwise cut its start
                     'overflow-wrap:anywhere',
+                    // a label taller than the wireframe escapes its top edge when centered, where
+                    // the status bar can cover it and the clip below cannot reach it. `safe` aligns
+                    // it to the start instead, and an engine without `safe` keeps the centering
+                    'align-items:safe center',
                     // a label longer than the wireframe must not spill over the rest of the screen
                     'overflow:hidden',
                 ]),
