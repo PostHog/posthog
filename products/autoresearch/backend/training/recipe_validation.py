@@ -286,6 +286,9 @@ def validate_recipe(model_spec: object, recipe_snapshot: object) -> None:
     model_class = model_spec.get("model_class")
     if not isinstance(model_class, str) or not model_class.strip():
         raise RecipeValidationError("model_spec.model_class is required and must be a non-empty string.")
+    model_params = model_spec.get("model_params")
+    if model_params is not None and not isinstance(model_params, Mapping):
+        raise RecipeValidationError("model_spec.model_params must be a JSON object when present.")
     if not isinstance(recipe_snapshot, Mapping):
         raise RecipeValidationError("recipe_snapshot must be a JSON object.")
     feature_sql = recipe_snapshot.get("feature_sql")

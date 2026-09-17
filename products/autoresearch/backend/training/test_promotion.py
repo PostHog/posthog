@@ -58,6 +58,7 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         feature_sql: str = ANCHORED_FEATURE_SQL,
         feature_transforms: list[dict[str, str]] | None = None,
         model_class: str = "sklearn.linear_model.LogisticRegression",
+        model_params: object = None,
     ) -> AutoresearchIteration:
         recipe_snapshot: dict[str, object] = {"feature_sql": feature_sql} if feature_sql else {}
         if feature_transforms:
@@ -68,7 +69,7 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
             iteration_number=number,
             recipe_hash=f"hash{number}",
             recipe_snapshot=recipe_snapshot,
-            model_spec={"model_class": model_class, "model_params": {}},
+            model_spec={"model_class": model_class, "model_params": {} if model_params is None else model_params},
             holdout_score=holdout,
             status=status,
             agent_description=f"iteration {number}",
@@ -191,6 +192,7 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
             # The in-process scorer fits on the raw columns, so a recipe whose holdout score
             # was measured on transformed features would serve a different model.
             ("feature_transforms", {"feature_transforms": [{"column": "c", "transform": "log1p"}]}),
+            ("string_model_params", {"model_params": "bad"}),
         ]
     )
     def test_recipe_the_legacy_scorer_cannot_run_is_refused(self, _name, iteration_kwargs):

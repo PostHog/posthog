@@ -884,10 +884,7 @@ class IterationTrailSerializer(DataclassSerializer):
         allow_blank=True,
         help_text="The agent's one-line rationale for what it tried and why.",
     )
-    recipe_snapshot = IterationRecipeField(
-        help_text="The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them."
-    )
-    model_spec = serializers.JSONField(help_text="Model class and hyperparameters tried in this iteration.")
+    model_spec = ModelSpecField(help_text="Model class and hyperparameters tried in this iteration.")
 
     class Meta:
         dataclass = IterationTrailEntry
@@ -898,8 +895,19 @@ class IterationTrailSerializer(DataclassSerializer):
             "train_score",
             "agent_description",
             "model_spec",
-            "recipe_snapshot",
         ]
+
+
+@extend_schema_serializer(component_name="IterationTrailWithRecipe")
+class IterationTrailWithRecipeSerializer(IterationTrailSerializer):
+    """The trail with each iteration's recipe, for history only: a run list page would otherwise carry every recipe of every run."""
+
+    recipe_snapshot = IterationRecipeField(
+        help_text="The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them."
+    )
+
+    class Meta(IterationTrailSerializer.Meta):
+        fields = [*IterationTrailSerializer.Meta.fields, "recipe_snapshot"]
 
 
 @extend_schema_serializer(component_name="AutoresearchTrainingRun")
@@ -987,10 +995,10 @@ class AutoresearchIterationSerializer(DataclassSerializer):
         max_value=2147483647,
     )
     recipe_hash = serializers.CharField(max_length=64)
-    recipe_snapshot = serializers.JSONField(
+    recipe_snapshot = IterationRecipeField(
         help_text="Compact recipe snapshot at time of iteration. Full artifact lives in the model row."
     )
-    model_spec = serializers.JSONField(help_text="Model class and hyperparameters tried in this iteration.")
+    model_spec = ModelSpecField(help_text="Model class and hyperparameters tried in this iteration.")
     train_score = serializers.FloatField(required=False, allow_null=True)
     holdout_score = serializers.FloatField(required=False, allow_null=True)
     status = serializers.ChoiceField(choices=ITERATION_STATUS_CHOICES)
@@ -1047,7 +1055,7 @@ class TrainingRunHistoryEntrySerializer(serializers.Serializer):
         allow_null=True,
         help_text="Distilled tier-1 summary of this run — read this first to orient. Null for older runs without one.",
     )
-    iterations = IterationTrailSerializer(
+    iterations = IterationTrailWithRecipeSerializer(
         many=True,
         help_text="The iteration trail: every recipe tried, kept or discarded, with rationale and score.",
     )

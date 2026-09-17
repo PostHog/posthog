@@ -236,6 +236,11 @@ def _require_legacy_recipe_is_runnable(recipe: dict[str, Any]) -> None:
             "Cannot persist a model on the legacy scoring path: it does not apply feature_transforms, "
             "so a recipe that needs them must ship as an uploaded bundle."
         )
+    if not isinstance(recipe.get("model_params"), dict):
+        raise PromotionError(
+            "Cannot persist a model on the legacy scoring path: model_params must be a JSON object, "
+            "because the in-process scorer expands it into the estimator's constructor."
+        )
     try:
         validate_model_class(str(recipe["model_class"]))
     except RecipeValidationError as exc:

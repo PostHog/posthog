@@ -471,7 +471,9 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
                 _require_parent_pipeline_id(self),
                 iteration_budget=request.validated_data.get("iteration_budget"),
             )
-        except (PipelineNotFound, AutoresearchConflict) as exc:
+        except PipelineNotFound as exc:
+            raise NotFound(str(exc)) from exc
+        except AutoresearchConflict as exc:
             raise ValidationError(str(exc)) from exc
         return Response(AutoresearchTrainingRunSerializer(instance=training_run).data, status=201)
 
@@ -570,5 +572,5 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
         try:
             history = api.training_run_history(self.team_id, _require_parent_pipeline_id(self), limit=limit)
         except PipelineNotFound as exc:
-            raise ValidationError(str(exc)) from exc
+            raise NotFound(str(exc)) from exc
         return Response(TrainingRunHistorySerializer(instance=history).data)

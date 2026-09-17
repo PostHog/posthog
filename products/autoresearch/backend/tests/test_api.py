@@ -16,6 +16,7 @@ from products.actions.backend.models.action import Action
 from products.autoresearch.backend.dataset.templates import TEMPLATES
 from products.autoresearch.backend.dataset.validation import ValidationResult, ValidationWarning
 from products.autoresearch.backend.models import (
+    AutoresearchIteration,
     AutoresearchModel,
     AutoresearchPipeline,
     AutoresearchRun,
@@ -416,10 +417,23 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     def test_list_training_runs_for_pipeline(self):
         pipeline = self._make_pipeline()
-        AutoresearchTrainingRun.objects.create(pipeline=pipeline, status="completed", iteration_count=1)
+        run = AutoresearchTrainingRun.objects.create(pipeline=pipeline, status="completed", iteration_count=1)
+        AutoresearchIteration.objects.create(
+            pipeline=pipeline,
+            training_run=run,
+            iteration_number=0,
+            recipe_hash="abc",
+            recipe_snapshot={"feature_sql": "SELECT 1"},
+            model_spec={"model_class": "m"},
+            status="kept",
+        )
         resp = self.client.get(f"{self.base_url}/{pipeline.id}/training_runs/")
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["count"] == 1
+        # The list carries the trail without recipes; history is where a recipe is read back.
+        trail_entry = resp.json()["results"][0]["iterations"][0]
+        assert trail_entry["model_spec"] == {"model_class": "m"}
+        assert "recipe_snapshot" not in trail_entry
 
     def test_list_runs_for_pipeline(self):
         pipeline = self._make_pipeline()

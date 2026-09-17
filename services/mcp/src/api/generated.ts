@@ -11234,6 +11234,16 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Compact recipe snapshot at time of iteration. Full artifact lives in the model row.
+     */
+    export type AutoresearchIterationRecipeSnapshot = { [key: string]: unknown };
+
+    /**
+     * Model class and hyperparameters tried in this iteration.
+     */
+    export type AutoresearchIterationModelSpec = { [key: string]: unknown };
+
+    /**
      * * `kept` - Kept
      * * `discarded` - Discarded
      * * `crashed` - Crashed
@@ -11259,9 +11269,9 @@ export namespace Schemas {
       /** @maxLength 64 */
       recipe_hash: string;
       /** Compact recipe snapshot at time of iteration. Full artifact lives in the model row. */
-      recipe_snapshot: unknown;
+      recipe_snapshot: AutoresearchIterationRecipeSnapshot;
       /** Model class and hyperparameters tried in this iteration. */
-      model_spec: unknown;
+      model_spec: AutoresearchIterationModelSpec;
       /** @nullable */
       train_score?: number | null;
       /** @nullable */
@@ -11724,9 +11734,9 @@ export namespace Schemas {
     }
 
     /**
-     * The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them.
+     * Model class and hyperparameters tried in this iteration.
      */
-    export type IterationTrailRecipeSnapshot = { [key: string]: unknown };
+    export type IterationTrailModelSpec = { [key: string]: unknown };
 
     /**
      * Compact, read-only view of one iteration for the cross-run history feed and the Training tab.
@@ -11757,9 +11767,7 @@ export namespace Schemas {
       /** The agent's one-line rationale for what it tried and why. */
       agent_description?: string;
       /** Model class and hyperparameters tried in this iteration. */
-      model_spec: unknown;
-      /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
-      recipe_snapshot: IterationTrailRecipeSnapshot;
+      model_spec: IterationTrailModelSpec;
     }
 
     export interface AutoresearchTrainingRun {
@@ -50160,6 +50168,50 @@ export namespace Schemas {
       readonly complaint_base: number;
       /** Rates AWS did not return for this provider, from `delivery`, `bounce`, `transient_bounce` and `complaint`. A rate named here is missing, not zero, and the UI says so rather than showing a number. */
       readonly unavailable: readonly string[];
+    }
+
+    /**
+     * Model class and hyperparameters tried in this iteration.
+     */
+    export type IterationTrailWithRecipeModelSpec = { [key: string]: unknown };
+
+    /**
+     * The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them.
+     */
+    export type IterationTrailWithRecipeRecipeSnapshot = { [key: string]: unknown };
+
+    /**
+     * The trail with each iteration's recipe, for history only: a run list page would otherwise carry every recipe of every run.
+     */
+    export interface IterationTrailWithRecipe {
+      /**
+         * Order of this attempt within its run (0-based).
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      iteration_number: number;
+      /** Whether this recipe was kept (improved the best score), discarded, or crashed.
+       *
+       * * `kept` - Kept
+       * * `discarded` - Discarded
+       * * `crashed` - Crashed */
+      status: AutoresearchIterationStatusEnum;
+      /**
+         * Holdout AUC this iteration achieved. Null if it was skipped/degenerate.
+         * @nullable
+         */
+      holdout_score?: number | null;
+      /**
+         * Train-fold AUC for this iteration, if recorded.
+         * @nullable
+         */
+      train_score?: number | null;
+      /** The agent's one-line rationale for what it tried and why. */
+      agent_description?: string;
+      /** Model class and hyperparameters tried in this iteration. */
+      model_spec: IterationTrailWithRecipeModelSpec;
+      /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
+      recipe_snapshot: IterationTrailWithRecipeRecipeSnapshot;
     }
 
     export interface JiraIssueSignalExtra {
@@ -92877,7 +92929,7 @@ export namespace Schemas {
       /** Distilled tier-1 summary of this run — read this first to orient. Null for older runs without one. */
       summary: TrainingRunSummary | null;
       /** The iteration trail: every recipe tried, kept or discarded, with rationale and score. */
-      iterations: IterationTrail[];
+      iterations: IterationTrailWithRecipe[];
     }
 
     /**

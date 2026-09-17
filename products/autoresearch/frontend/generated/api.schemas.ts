@@ -552,9 +552,9 @@ export const AutoresearchIterationStatusEnumApi = {
 } as const
 
 /**
- * The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them.
+ * Model class and hyperparameters tried in this iteration.
  */
-export type IterationTrailApiRecipeSnapshot = { [key: string]: unknown }
+export type IterationTrailApiModelSpec = { [key: string]: unknown }
 
 /**
  * Compact, read-only view of one iteration for the cross-run history feed and the Training tab.
@@ -585,9 +585,7 @@ export interface IterationTrailApi {
     /** The agent's one-line rationale for what it tried and why. */
     agent_description?: string
     /** Model class and hyperparameters tried in this iteration. */
-    model_spec: unknown
-    /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
-    recipe_snapshot: IterationTrailApiRecipeSnapshot
+    model_spec: IterationTrailApiModelSpec
 }
 
 export interface AutoresearchTrainingRunApi {
@@ -775,6 +773,16 @@ export interface RecordIterationApi {
     parent_suggestion?: string | null
 }
 
+/**
+ * Compact recipe snapshot at time of iteration. Full artifact lives in the model row.
+ */
+export type AutoresearchIterationApiRecipeSnapshot = { [key: string]: unknown }
+
+/**
+ * Model class and hyperparameters tried in this iteration.
+ */
+export type AutoresearchIterationApiModelSpec = { [key: string]: unknown }
+
 export interface AutoresearchIterationApi {
     readonly id: string
     pipeline: string
@@ -787,9 +795,9 @@ export interface AutoresearchIterationApi {
     /** @maxLength 64 */
     recipe_hash: string
     /** Compact recipe snapshot at time of iteration. Full artifact lives in the model row. */
-    recipe_snapshot: unknown
+    recipe_snapshot: AutoresearchIterationApiRecipeSnapshot
     /** Model class and hyperparameters tried in this iteration. */
-    model_spec: unknown
+    model_spec: AutoresearchIterationApiModelSpec
     /** @nullable */
     train_score?: number | null
     /** @nullable */
@@ -807,6 +815,50 @@ export interface AutoresearchIterationApi {
      */
     parent_suggestion?: string | null
     readonly created_at: string
+}
+
+/**
+ * Model class and hyperparameters tried in this iteration.
+ */
+export type IterationTrailWithRecipeApiModelSpec = { [key: string]: unknown }
+
+/**
+ * The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them.
+ */
+export type IterationTrailWithRecipeApiRecipeSnapshot = { [key: string]: unknown }
+
+/**
+ * The trail with each iteration's recipe, for history only: a run list page would otherwise carry every recipe of every run.
+ */
+export interface IterationTrailWithRecipeApi {
+    /**
+     * Order of this attempt within its run (0-based).
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    iteration_number: number
+    /** Whether this recipe was kept (improved the best score), discarded, or crashed.
+     *
+     * * `kept` - Kept
+     * * `discarded` - Discarded
+     * * `crashed` - Crashed */
+    status: AutoresearchIterationStatusEnumApi
+    /**
+     * Holdout AUC this iteration achieved. Null if it was skipped/degenerate.
+     * @nullable
+     */
+    holdout_score?: number | null
+    /**
+     * Train-fold AUC for this iteration, if recorded.
+     * @nullable
+     */
+    train_score?: number | null
+    /** The agent's one-line rationale for what it tried and why. */
+    agent_description?: string
+    /** Model class and hyperparameters tried in this iteration. */
+    model_spec: IterationTrailWithRecipeApiModelSpec
+    /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
+    recipe_snapshot: IterationTrailWithRecipeApiRecipeSnapshot
 }
 
 /**
@@ -838,7 +890,7 @@ export interface TrainingRunHistoryEntryApi {
     /** Distilled tier-1 summary of this run — read this first to orient. Null for older runs without one. */
     summary: TrainingRunSummaryApi | null
     /** The iteration trail: every recipe tried, kept or discarded, with rationale and score. */
-    iterations: IterationTrailApi[]
+    iterations: IterationTrailWithRecipeApi[]
 }
 
 /**

@@ -354,8 +354,10 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
             f"/api/projects/{self.team.pk}/autoresearch/{other_pipeline.pk}/training_runs/", {}, format="json"
         )
         # Pipeline belongs to another team — must not be reachable through this project.
-        assert resp.status_code in (status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND)
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
         assert not AutoresearchTrainingRun.objects.filter(pipeline=other_pipeline).exists()
+        resp = self.client.get(f"/api/projects/{self.team.pk}/autoresearch/{other_pipeline.pk}/training_runs/history/")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
 
     def test_complete_records_artifact_prefix_when_bundle_uploaded(self):
         fake_storage = _InMemoryStorage()
@@ -580,6 +582,7 @@ class TestAgentWriteSerializers(SimpleTestCase):
             ("nested_nan_in_spec", {"model_spec": {**VALID_SPEC, "model_params": {"C": float("nan")}}}, "model_spec"),
             ("lone_surrogate_in_recipe", {"recipe_snapshot": {**VALID_RECIPE, "note": "\ud800"}}, "recipe_snapshot"),
             ("boolean_holdout", {"holdout_score": True}, "holdout_score"),
+            ("string_model_params", {"model_spec": {**VALID_SPEC, "model_params": "bad"}}, "non_field_errors"),
             ("nul_in_recipe", {"recipe_snapshot": {**VALID_RECIPE, "note": "a\x00b"}}, "recipe_snapshot"),
             (
                 "oversized_recipe",

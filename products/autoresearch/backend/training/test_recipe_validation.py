@@ -187,6 +187,7 @@ class TestRecipeValidation(SimpleTestCase):
             ("feature_sql_missing", {"model_class": "m"}, {}),
             ("feature_sql_not_a_string", {"model_class": "m"}, {"feature_sql": 1}),
             ("feature_sql_blank", {"model_class": "m"}, {"feature_sql": "  "}),
+            ("model_params_not_an_object", {"model_class": "m", "model_params": "bad"}, {"feature_sql": ANCHORED}),
         ]
     )
     def test_validate_recipe_rejects_malformed_agent_input(self, _name, model_spec, recipe_snapshot):
