@@ -103,11 +103,12 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        title: Change when a subject's data quality checks run
+        title: Change when a metric's data quality checks run
         description: >
-            Set how often every enabled check on one subject runs, or stop running them automatically. Name the subject
-            with subject_type and subject_uuid. A subject gets a schedule when it takes its first check, so this fails
-            with a 404 until then.
+            Set how often every enabled check on a metric runs, or stop running them automatically. Name the subject
+            with subject_type 'metric' and subject_uuid. Only a metric runs its checks on a schedule: a table's checks
+            run after each sync of it, and a view's when the view refreshes, so naming either one is rejected. A metric
+            gets a schedule when it takes its first check, so this fails with a 404 until then.
         feature_flag: data-quality-checks
     data-quality-check-types:
         operation: data_quality_checks_check_types_list
