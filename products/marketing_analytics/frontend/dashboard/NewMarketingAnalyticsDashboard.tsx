@@ -34,11 +34,12 @@ import {
     WebOverviewQueryResponse,
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
+import { ChartDisplayType } from '~/types'
 
 import { CustomerAcquisitionCards } from './CustomerAcquisitionCards'
 import { marketingAcquisitionLogic } from './marketingAcquisitionLogic'
 import { marketingTrafficQueryContext } from './marketingTrafficQueryContext'
+import { TRAFFIC_CHART_METRICS } from './trafficChartSeries'
 
 const TRAFFIC_BREAKDOWNS = [
     { value: WebStatsBreakdown.InitialChannelType, label: 'Channel' },
@@ -92,9 +93,15 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
     const isTraffic = activeSection === 'acquisition' || activeSection === 'engagement'
     const { revenueGoals, selectedRevenueGoalId, revenueQuery, breakdownBy } = useValues(marketingAttributionLogic)
     const { setRevenueGoalId, setBreakdownBy } = useActions(marketingAttributionLogic)
-    const { customerGoals, selectedCustomerGoal, customerConversionGoal, trafficOrderBy } =
-        useValues(marketingAcquisitionLogic)
-    const { setCustomerGoalId, toggleTrafficSort } = useActions(marketingAcquisitionLogic)
+    const {
+        customerGoals,
+        selectedCustomerGoal,
+        customerConversionGoal,
+        trafficOrderBy,
+        trafficChartMetric,
+        trafficChartSeries,
+    } = useValues(marketingAcquisitionLogic)
+    const { setCustomerGoalId, toggleTrafficSort, setTrafficChartMetric } = useActions(marketingAcquisitionLogic)
     const { dateFilter, compareFilter, shouldFilterTestAccounts } = useValues(marketingAnalyticsLogic)
     const { setDates, setCompareFilter, setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
     const { setupPlan, setupPlanLoading, visibleSuggestions } = useValues(setupPlanLogic)
@@ -416,11 +423,30 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                     <>
                         {activeSection === 'acquisition' && (
                             <LemonCard hoverEffect={false}>
-                                <h3>Visitors over time</h3>
+                                <div className="flex flex-wrap justify-between items-center gap-2">
+                                    <h3 className="mb-0">
+                                        {`${TRAFFIC_CHART_METRICS.find(({ value }) => value === trafficChartMetric)?.label} over time`}
+                                    </h3>
+                                    <LemonSelect
+                                        size="small"
+                                        value={trafficChartMetric}
+                                        onChange={(value) => value && setTrafficChartMetric(value)}
+                                        options={TRAFFIC_CHART_METRICS.map(({ value, label }) => ({
+                                            value,
+                                            label,
+                                            disabledReason:
+                                                value === 'new_customers' && !customerConversionGoal
+                                                    ? 'Mark a conversion goal as a new customer goal in Setup first.'
+                                                    : undefined,
+                                        }))}
+                                        aria-label="Chart metric"
+                                        data-attr="marketing-traffic-chart-metric"
+                                    />
+                                </div>
                                 <p className="text-secondary text-sm">All traffic in the selected period.</p>
                                 <div className="flex flex-col h-80">
                                     <Query
-                                        key={activeSection}
+                                        key={`${activeSection}-${trafficChartMetric}`}
                                         query={{
                                             kind: NodeKind.InsightVizNode,
                                             source: {
@@ -430,22 +456,7 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                                 filterTestAccounts: shouldFilterTestAccounts,
                                                 interval: 'day',
                                                 tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                                series: [
-                                                    {
-                                                        kind: NodeKind.EventsNode,
-                                                        event: null,
-                                                        properties: [
-                                                            {
-                                                                key: 'event',
-                                                                type: PropertyFilterType.EventMetadata,
-                                                                operator: PropertyOperator.Exact,
-                                                                value: ['$pageview', '$screen'],
-                                                            },
-                                                        ],
-                                                        math: BaseMathType.UniqueUsers,
-                                                        custom_name: 'Visitors',
-                                                    },
-                                                ],
+                                                series: [trafficChartSeries],
                                                 trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
                                             },
                                             embedded: true,
