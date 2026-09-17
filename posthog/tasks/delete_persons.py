@@ -57,9 +57,14 @@ def queue_person_deletion(
     return len(uuids)
 
 
+# Late ack plus reject-on-worker-lost redeliver the chunk when a worker restarts or is killed
+# mid-run, instead of dropping a deletion the API already reported as queued. Redelivery is safe
+# because every step is idempotent and deleted persons no longer resolve.
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
+    acks_late=True,
+    reject_on_worker_lost=True,
     autoretry_for=(Exception,),
     max_retries=3,
     retry_backoff=60,
