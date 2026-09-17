@@ -40,8 +40,8 @@ export function BroadcastContentStep(): JSX.Element {
             <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />
             <EmailTemplater
                 type="native_email"
-                layout="inline"
                 templating="liquid"
+                liveChanges
                 value={email as unknown as EmailTemplate}
                 defaultValue={DEFAULT_BROADCAST_EMAIL as unknown as EmailTemplate}
                 onChange={(value) => setEmail(value as unknown as BroadcastEmailValue)}

@@ -694,6 +694,10 @@ depends_on = [
     "products.event_definitions",
     "products.ai_observability",
     "products.logs",
+    # The skill build reads the bundled-skill names the skills store validates against, so the
+    # two sides share one definition. The skills product has no facade, so this matches how
+    # review_hog, signals and tasks reach it.
+    "products.skills",
     "products.tasks",
 ]
 layer = "modules"
@@ -820,6 +824,8 @@ depends_on = [
     "products.cdp",
     "products.conversations",
     "products.dashboards",
+    # Facade-only: the DRI pick on a self-driving pull request asks which team owns each of its files.
+    "products.engineering_analytics",
     # Facade-only (enforced by data_catalog's [[interfaces]] block): the scout harness gates
     # its catalog-first prompt rule on the data catalog flag.
     "products.data_catalog",
@@ -890,6 +896,7 @@ depends_on = [
     "posthog",
     "products.cdp",
     "products.conversations",
+    "products.data_modeling",
     "products.data_warehouse",
     "products.notebooks",
     "products.notifications",
