@@ -50,7 +50,16 @@ function patchAddOverlay(cmAdapter: any): () => void {
             return
         }
 
-        const allMatches = model.findMatches(source, false, isRegex, matchCase, null, false) as any[]
+        // A pattern the browser refuses to compile throws out of findMatches, because V8
+        // compiles a regex on first use rather than on construction. Highlighting nothing beats
+        // an unhandled SyntaxError.
+        let allMatches: any[]
+        try {
+            allMatches = model.findMatches(source, false, isRegex, matchCase, null, false) as any[]
+        } catch {
+            this.removeOverlay()
+            return
+        }
         if (!allMatches?.length) {
             this.removeOverlay()
             return
