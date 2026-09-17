@@ -6,6 +6,7 @@ import { LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonTag, Link, T
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -13,6 +14,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -105,6 +107,8 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
 }
 
 export function WorkflowsTable(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
     const logic = workflowsLogic()
     const {
         workflowsLoading,
@@ -178,12 +182,23 @@ export function WorkflowsTable(): JSX.Element {
                         <span className="font-semibold text-sm text-muted">{item.name}</span>
                     </Tooltip>
                 ) : (
-                    <LemonTableLink
-                        to={urls.workflow(item.id, 'workflow')}
-                        title={item.name}
-                        description={item.description}
-                        truncateDescription
-                    />
+                    <div className="flex items-center gap-2">
+                        <LemonTableLink
+                            to={urls.workflow(item.id, 'workflow')}
+                            title={item.name}
+                            description={item.description}
+                            truncateDescription
+                        />
+                        {selfOptimisingEnabled && !!item.pending_suggestions && (
+                            <Link to={urls.workflow(item.id, 'suggestions')} data-attr="workflow-list-suggestions">
+                                <LemonTag type="completion">
+                                    {item.pending_suggestions === 1
+                                        ? '1 suggestion'
+                                        : `${item.pending_suggestions} suggestions`}
+                                </LemonTag>
+                            </Link>
+                        )}
+                    </div>
                 )
             },
         },

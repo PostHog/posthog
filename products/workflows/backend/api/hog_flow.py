@@ -15,7 +15,8 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import IntegrityError, models, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Count, OuterRef, Q, QuerySet, Subquery
+from django.db.models.functions import Coalesce
 from django.http import Http404, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -2776,6 +2777,9 @@ class WorkflowEmailPauseStatusSerializer(serializers.Serializer):
 
 class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    pending_suggestions = serializers.SerializerMethodField(
+        help_text="How many suggested changes are waiting for a person on this workflow. Counted on the list only."
+    )
 
     class Meta:
         model = HogFlow
@@ -2800,8 +2804,15 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "variables",
             "billable_action_types",
             "user_access_level",
+            "pending_suggestions",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_pending_suggestions(self, hog_flow: HogFlow) -> int | None:
+        # Annotated onto the list queryset, so a workflow list can flag suggestions without a click.
+        # The detail serializer leaves the field out: the Suggestions tab is the count there.
+        return getattr(hog_flow, "pending_suggestions", None)
 
     def to_representation(self, instance):
         # Never return secret function inputs. Replace each set secret with the {"secret": True}
@@ -4426,6 +4437,14 @@ class HogFlowViewSet(
             # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
             # otherwise repeat on one page and never appear on another.
             queryset = queryset.order_by("-updated_at", "-id")
+            pending = (
+                WorkflowProposal.objects.filter(hog_flow=OuterRef("pk"), status=WorkflowProposal.Status.SUGGESTED)
+                .order_by()
+                .values("hog_flow")
+                .annotate(count=Count("id"))
+                .values("count")
+            )
+            queryset = queryset.annotate(pending_suggestions=Coalesce(Subquery(pending), 0))
 
             search = self.request.GET.get("search")
             if search is not None:

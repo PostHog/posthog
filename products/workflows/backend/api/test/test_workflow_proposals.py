@@ -266,6 +266,21 @@ class TestWorkflowProposals(APIBaseTest):
         assert draft["exit_condition"] == "exit_only_at_end"
         assert {action["name"] for action in draft["actions"]} >= {"renamed"}
 
+    def test_the_workflow_list_counts_what_is_waiting(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        other_id = self._create_active_flow()
+        self._propose(flow_id, source_id="waiting:1")
+        self._propose(flow_id, source_id="waiting:2")
+        rejected = self._propose(flow_id, source_id="waiting:3")
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{rejected['id']}/reject/", {})
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/").json()["results"]
+        counts = {item["id"]: item["pending_suggestions"] for item in listed}
+        assert counts[flow_id] == 2
+        assert counts[other_id] == 0
+        detail = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
+        assert "pending_suggestions" not in detail
+
     def test_a_workflow_nobody_opted_in_is_not_suggested_against(self, _mock_flag):
         flow_id = self._create_active_flow()
         self.client.post(
