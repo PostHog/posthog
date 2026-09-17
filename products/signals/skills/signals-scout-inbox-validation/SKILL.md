@@ -105,7 +105,7 @@ This is the whole scheduled run. **Cap ~5 per run** — on a busy project (and o
 
 If the report is plainly non-measurable (a docs change, a process recommendation, a one-off data correction), attach nothing: write `noise:inbox_validation:report-<id8>` ("unverifiable: <why> — no measurable check") and move on. Honest unverifiability beats a fake threshold.
 
-One more sweep: a fast-failing fix can leave `status=resolved` before any check runs — any new matching signal re-promotes a resolved report back into the pipeline. So also glance at the default inbox list for **non-resolved reports with merged entries in `pull_requests`**: one whose PR actually merged (verify the merge when you can fetch it — an open PR doesn't count) re-opened after its fix, which is the failed-fix case with the recurrence already in hand. That one is a report to author now, not a check to attach.
+One more sweep: a fix can fail before the check you just attached ever runs. A recurrence never reopens the resolved report — the pipeline files a fresh report and links the two with a symmetric `related_to` artefact — so the tell is a `related_to` entry on the resolved report (read its log with `inbox-report-artefacts-list`) naming a report filed after the merge. When you see one the recurrence is already in the inbox: cite it in the check's rationale and let the check settle the question, rather than authoring a report the pipeline has already filed.
 
 ### Answering a check you were dispatched for
 
@@ -120,7 +120,7 @@ The dispatch section at the top of this file says when you are in this mode. Run
 
    and read the top ~10 — treat distance as relative, not a threshold. New post-fix signals on the same entities mean the pipeline itself re-detected the problem.
 
-3. **Sibling-report recurrence.** `inbox-reports-list {"search": "<key terms>"}` — did a fresh report appear after the merge covering the same problem? If so, the recurrence is already surfaced; your unique contribution is the linkage — "this is a failed fix of PR X", citing both report ids.
+3. **Sibling-report recurrence.** Start with `inbox-report-artefacts-list` on the report: a signal that would have grouped into it after resolution spawns a fresh report and leaves a symmetric `related_to` artefact, so that link names the recurrence exactly. Fall back to `inbox-reports-list {"search": "<key terms>"}` for one the pipeline grouped elsewhere — did a fresh report appear after the merge covering the same problem? Either way the recurrence is already surfaced; your unique contribution is the linkage — "this is a failed fix of PR X", citing both report ids.
 
 ### Verdict table
 
@@ -192,7 +192,7 @@ Direct calls (read-only):
 
 Reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
 
-- `inbox-report-artefacts-list` — the original report's artefact log, where its routed `suggested_reviewers` live — reviewer precedent for the failed-validation report.
+- `inbox-report-artefacts-list` — the original report's artefact log: its routed `suggested_reviewers` (reviewer precedent for the failed-validation report) and its `related_to` links (the recurrence the pipeline filed against it).
 - `scout-members-list` — the in-run roster for routing `suggested_reviewers` to the fix's author / the original report's reviewer.
 
 Writes:
