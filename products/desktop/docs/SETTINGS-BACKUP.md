@@ -39,5 +39,7 @@ Keep app version metadata independent of the file format version.
 
 The core service owns validation and merging, the UI supplies a store adapter, and Electron supplies native file dialogs and bounded file reads.
 Exports write to a temporary sibling file before replacing the destination.
-Imports persist settings and audio before publishing them to the live settings store, and serialize the complete update after any pending storage write.
-The import preserves edits to unrelated preferences and additions or removals in the sound library while saving.
+Export reads the current settings when you start it.
+Import merges the validated backup with the current sound library when you confirm it, then updates the settings and theme stores.
+The existing persistence code saves those changes in the same way as changes made with the settings controls.
+Import does not wait for a separate disk write before it reports success.
