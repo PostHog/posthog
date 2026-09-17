@@ -100,13 +100,22 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(logic.values.lineageProblem).toBeNull()
     })
 
-    it('reloads lineage when the metric is replaced under the open tab', async () => {
+    it.each([
+        ['replaced locally', (metric: DataCatalogMetricApi) => logic.actions.setMetric(metric)],
+        [
+            'reloaded from the API',
+            (metric: DataCatalogMetricApi) => {
+                ;(dataCatalogMetricsRetrieve as jest.Mock).mockResolvedValue(metric)
+                logic.actions.loadMetric()
+            },
+        ],
+    ])('reloads lineage when the metric is %s under the open tab', async (_, changeMetric) => {
         lineageRequest().mockResolvedValue({ nodes: [{ id: 'node-1' }], edges: [] })
         logic.actions.setActiveTab('lineage')
         await expectLogic(logic).toFinishAllListeners()
         lineageRequest().mockClear()
 
-        logic.actions.setMetric(buildMetric({ definition: { kind: 'HogQLQuery', query: 'SELECT 2' } }))
+        changeMetric(buildMetric({ definition: { kind: 'HogQLQuery', query: 'SELECT 2' } }))
         await expectLogic(logic).toFinishAllListeners()
 
         expect(lineageRequest()).toHaveBeenCalledTimes(1)
