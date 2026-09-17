@@ -12,12 +12,15 @@ import openai
 from openai import APIStatusError, APITimeoutError, InternalServerError, RateLimitError
 from temporalio.exceptions import ApplicationError
 
+from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS
+from posthog.temporal.ai_observability.eval_reports.constants import EVAL_REPORT_AGENT_MODEL
 from posthog.temporal.ai_observability.llm_endpoint import (
     AI_FEATURES_CLOUD_ONLY_ERROR_TYPE,
     FlexFirstChatOpenAI,
     build_langchain_callbacks,
     build_langchain_chat_client,
 )
+from posthog.temporal.ai_observability.trace_clustering.constants import LABELING_AGENT_MODEL
 from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES
 
 GATEWAY_URL = "https://gateway.example/v1"
@@ -211,12 +214,14 @@ class TestBuildOpenAIChatClient:
             )
             assert client.service_tier == expected_tier
 
+    @pytest.mark.parametrize("model", [EVAL_REPORT_AGENT_MODEL, LABELING_AGENT_MODEL])
+    def test_every_batch_agent_runs_a_flex_capable_model(self, model):
+        # A model outside the allowlist keeps working and silently doubles that agent's bill.
+        assert model in FLEX_CAPABLE_MODELS
+
     def test_labeling_clients_bound_every_call_inside_the_activity_budget(self):
-        from posthog.temporal.ai_observability.clustering_agent import (
-            LABELING_FLEX_CALL_TIMEOUT,
-            LABELING_STANDARD_CALL_TIMEOUT,
-            get_labeling_llm,
-        )
+        from posthog.temporal.ai_observability.clustering_agent import get_labeling_llm
+        from posthog.temporal.ai_observability.llm_endpoint import FLEX_CALL_TIMEOUT, STANDARD_CALL_TIMEOUT
 
         with override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY):
             flex_client = get_labeling_llm(
@@ -228,10 +233,10 @@ class TestBuildOpenAIChatClient:
 
         # Flex: 120s x 1 attempt (the standard-tier fallback call is the retry); standard: 240s x 2 = 480s.
         # Both fit the 600s activity budget, where the old 600s x 3 attempts per call could not.
-        assert flex_client.request_timeout == LABELING_FLEX_CALL_TIMEOUT
+        assert flex_client.request_timeout == FLEX_CALL_TIMEOUT
         assert flex_client.max_retries == 0
         assert standard_client.service_tier is None
-        assert standard_client.request_timeout == LABELING_STANDARD_CALL_TIMEOUT
+        assert standard_client.request_timeout == STANDARD_CALL_TIMEOUT
         assert standard_client.max_retries == 1
 
 

@@ -282,6 +282,7 @@ class CreateFeatureFlagTool(MaxTool):
                 user=self._user,
                 method="POST",
                 successful_authenticator=None,
+                is_posthog_ai=True,
                 session={},
                 data=serializer_data,
                 META={},

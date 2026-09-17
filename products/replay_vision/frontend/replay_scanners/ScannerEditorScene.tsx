@@ -112,7 +112,6 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     // Multivariate flag; a truthy check would turn the goal flow on for control too.
     const goalFlow = featureFlags[FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW] === 'test'
-    const [manualMode, setManualMode] = useState(false)
     // Read once on mount, because the wizard strips the deep-link params as soon as it consumes them.
     const [experimentDeepLink] = useState(() => parseExperimentScannerParams(router.values.searchParams) !== null)
     // Reached a form step by clicking Edit on the goal overview: the overview is home, not a wizard
@@ -138,7 +137,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     // user restate it, so those entries get the template picker with the prefill already applied.
     // Only the deep link decides this. A context that arrives later (the experiment fetch, or a
     // restored draft that carries targeting) would swap the layout under someone already typing.
-    const showGoalEntry = step === 'template' && goalFlow && !manualMode && !experimentDeepLink
+    const showGoalEntry = step === 'template' && goalFlow && !experimentDeepLink
 
     if (step !== 'template' && (scannerLoading || !scanner)) {
         return (
@@ -217,7 +216,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                         for you to review.
                                     </p>
                                 </div>
-                                <ScannerGoalFlow onManual={() => setManualMode(true)} />
+                                <ScannerGoalFlow />
                             </>
                         ) : (
                             <>

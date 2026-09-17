@@ -661,6 +661,8 @@ export interface surveyLogicValues {
     teamSdkVersions: TeamSdkVersions // surveysLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
+    activeAnswerFiltersCount: number
+    activeResultsFilterCount: number
     activeTab: SurveyTab
     aiGeneratedTranslationFields: string[]
     answerFilterHogQLExpression: string
@@ -716,6 +718,7 @@ export interface surveyLogicValues {
     processedSurveyStats: SurveyStats | null
     projectTreeRef: ProjectTreeRef
     propertyFilters: AnyPropertyFilter[]
+    resultsFiltersExpanded: boolean
     resultsRequeryInProgress: boolean
     reusableSurveyNotifications: HogFunctionType[]
     reusableSurveyNotificationsLoading: boolean
@@ -1265,6 +1268,9 @@ export interface surveyLogicActions {
         expanded: boolean
         uuid: string
     }
+    setResultsFiltersExpanded: (expanded: boolean) => {
+        expanded: boolean
+    }
     setSelectedPageIndex: (idx: number | null) => {
         idx: number | null
     }
@@ -1396,7 +1402,13 @@ export interface surveyLogicMeta {
             consolidatedSurveyResultsLoading: boolean
         ) => boolean
         defaultAnswerFilters: (survey: NewSurvey | Survey) => EventPropertyFilter[]
-        hasActiveAnswerFilters: (answerFilters: EventPropertyFilter[]) => boolean
+        activeAnswerFiltersCount: (answerFilters: EventPropertyFilter[]) => number
+        hasActiveAnswerFilters: (activeAnswerFiltersCount: number) => boolean
+        activeResultsFilterCount: (
+            activeAnswerFiltersCount: number,
+            propertyFilters: AnyPropertyFilter[],
+            showArchivedResponses: boolean
+        ) => number
         hasActiveDateRange: (dateRange: SurveyDateRange | null, survey: NewSurvey | Survey) => boolean
         hasActiveFilters: (
             hasActiveAnswerFilters: boolean,
@@ -1573,6 +1585,7 @@ export const surveyLogic = kea<surveyLogicType>([
         }),
         setDateRange: (dateRange: SurveyDateRange, reloadResults: boolean = true) => ({ dateRange, reloadResults }),
         clearFilters: true,
+        setResultsFiltersExpanded: (expanded: boolean) => ({ expanded }),
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
@@ -2448,11 +2461,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 setGeneratingTranslationDrafts: (_, { generating }) => generating,
             },
         ],
+        resultsFiltersExpanded: [false, { setResultsFiltersExpanded: (_, { expanded }) => expanded }],
         showArchivedResponses: [
             false,
             { persist: true },
             {
                 setShowArchivedResponses: (_, { show }) => show,
+                clearFilters: () => false,
             },
         ],
         filterSurveyStatsByDistinctId: [
@@ -2895,16 +2910,27 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
             },
         ],
-        hasActiveAnswerFilters: [
+        activeAnswerFiltersCount: [
             (s) => [s.answerFilters],
-            (answerFilters: EventPropertyFilter[]): boolean => {
-                return answerFilters.some((filter) => {
-                    if (!filter?.value) {
+            (answerFilters: EventPropertyFilter[]): number =>
+                answerFilters.filter((filter) => {
+                    if (filter.value === undefined || filter.value === null || filter.value === '') {
                         return false
                     }
-                    return Array.isArray(filter.value) ? filter.value.length > 0 : filter.value !== ''
-                })
-            },
+                    return Array.isArray(filter.value) ? filter.value.length > 0 : true
+                }).length,
+        ],
+        hasActiveAnswerFilters: [
+            (s) => [s.activeAnswerFiltersCount],
+            (activeAnswerFiltersCount: number): boolean => activeAnswerFiltersCount > 0,
+        ],
+        activeResultsFilterCount: [
+            (s) => [s.activeAnswerFiltersCount, s.propertyFilters, s.showArchivedResponses],
+            (
+                activeAnswerFiltersCount: number,
+                propertyFilters: AnyPropertyFilter[],
+                showArchivedResponses: boolean
+            ): number => activeAnswerFiltersCount + propertyFilters.length + Number(showArchivedResponses),
         ],
         hasActiveDateRange: [
             (s) => [s.dateRange, s.survey],
@@ -3219,10 +3245,44 @@ export const surveyLogic = kea<surveyLogicType>([
                         question.branching?.type === SurveyQuestionBranchingType.ResponseBased &&
                         isObject(question.branching?.responseValues)
                     ) {
-                        for (const [_, toIndex] of Object.entries(question.branching?.responseValues)) {
+                        // The responses the SDK can select; a key outside this list routes nobody.
+                        let responses: (string | number)[] = []
+                        if (question.type === SurveyQuestionType.SingleChoice) {
+                            responses = question.choices.map((_, choiceIndex) => choiceIndex)
+                        } else if (isRatingSurveyQuestion(question)) {
+                            // The SDK keys rating responses by bucket. An unknown scale keeps every key.
+                            if (question.scale === 2) {
+                                responses = ['positive', 'negative']
+                            } else if (question.scale === 10) {
+                                responses = ['detractors', 'passives', 'promoters']
+                            } else if ([3, 5, 7].includes(question.scale)) {
+                                responses = ['negative', 'neutral', 'positive']
+                            }
+                        }
+
+                        const { responseValues } = question.branching
+                        const destinations =
+                            responses.length > 0
+                                ? responses.map((response) => responseValues[String(response)])
+                                : Object.values(responseValues)
+                        for (const toIndex of destinations) {
                             if (Number.isInteger(toIndex)) {
                                 graph.get(fromIndex).add(toIndex)
                             }
+                        }
+
+                        // The SDK falls through to the next question only when the selected response
+                        // has no destination, so a question that routes every response never gets
+                        // there. An optional question is the exception, because a skip routes nowhere.
+                        if (
+                            !question.optional &&
+                            responses.length > 0 &&
+                            responses.every((response) => {
+                                const destination = responseValues[String(response)]
+                                return Number.isInteger(destination) || destination === SurveyQuestionBranchingType.End
+                            })
+                        ) {
+                            return
                         }
                     }
 

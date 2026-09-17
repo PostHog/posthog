@@ -184,10 +184,10 @@ def read_parquet(client, bucket: str, key: str, columns: list[str] | None = None
     return pq.read_table(pa.BufferReader(body), columns=columns)
 
 
-def read_parquet_if_exists(client, bucket: str, key: str) -> pa.Table | None:
+def read_parquet_if_exists(client, bucket: str, key: str, columns: list[str] | None = None) -> pa.Table | None:
     """The object's rows, or None when it was never written."""
     try:
-        return read_parquet(client, bucket, key)
+        return read_parquet(client, bucket, key, columns)
     except ClientError as error:
         if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
             return None

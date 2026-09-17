@@ -9,7 +9,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled, is_slack_app_markdown_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
@@ -22,6 +22,7 @@ from products.slack_app.backend.services.slack_messages import (
     post_slack_thread_reply,
     reply_footer_block,
     slack_message_exists,
+    strip_object_tags,
     turn_feedback_block,
     viewer_has_code_access,
 )
@@ -70,6 +71,16 @@ def _split_markdown_text(text: str, limit: int = _MARKDOWN_CHUNK_LIMIT) -> list[
     if remaining:
         pieces.append(remaining)
     return pieces
+
+
+def _markdown_text_pieces(text: str) -> list[str]:
+    """Prepare agent prose for `markdown_text` stream chunks.
+
+    Object tags go first because Slack renders none of them, then labeled mentions become
+    bare ones so an echoed ping notifies, then the result is split to fit a chunk.
+    """
+    text = normalize_labeled_mentions_to_bare(strip_object_tags(text))
+    return _split_markdown_text(text) if text.strip() else []
 
 
 def _task_update_chunk(
@@ -159,7 +170,6 @@ class SlackThreadHandler:
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
-        self._markdown_flag: bool | None = None
         self._code_access: bool | None = None
 
     def _get_integration(self) -> Integration:
@@ -180,24 +190,6 @@ class SlackThreadHandler:
         if self._code_access is None:
             self._code_access = viewer_has_code_access(self._get_integration(), self.actor_slack_user_id)
         return bool(self._code_access)
-
-    def renders_markdown(self) -> bool:
-        """Whether an answer is delivered as a Slack `markdown` block rather than converted to
-        `mrkdwn` first. Memoized like the sibling gates, because the flag is evaluated remotely.
-
-        The one place the gate is read. The relay asks before it prepares the answer, because
-        the conversion it runs and the size it chunks to both depend on the block the answer
-        lands in, and then passes the result to `post_thread_message`. That call sits outside
-        the try blocks the posting methods wrap themselves in, so a failed integration lookup
-        is answered here rather than left to fail the relay.
-        """
-        if self._markdown_flag is None:
-            try:
-                self._markdown_flag = is_slack_app_markdown_enabled(self._get_integration())
-            except Exception as e:
-                logger.warning("slack_app_markdown_gate_failed", error=str(e))
-                self._markdown_flag = False
-        return bool(self._markdown_flag)
 
     def reader_footer(self) -> RunFooter:
         """`run_footer` with the desktop link withheld where this reply's reader can't
@@ -360,7 +352,7 @@ class SlackThreadHandler:
         if first_task_id and first_task_title:
             chunks.append(_task_update_chunk(first_task_id, first_task_title, "in_progress", first_task_details))
         if first_markdown_text:
-            for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(first_markdown_text)):
+            for piece in _markdown_text_pieces(first_markdown_text):
                 chunks.append({"type": "markdown_text", "text": piece})
         if not chunks:
             return None
@@ -400,7 +392,7 @@ class SlackThreadHandler:
                 continue
             chunks.append(_task_update_chunk(str(task_id), str(title), str(status), t.get("details")))
         if markdown_text:
-            for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(markdown_text)):
+            for piece in _markdown_text_pieces(markdown_text):
                 chunks.append({"type": "markdown_text", "text": piece})
         if not chunks:
             return
@@ -434,7 +426,7 @@ class SlackThreadHandler:
                 _task_update_chunk(complete_task_id, complete_task_title, "complete", complete_task_details)
             )
         if final_markdown:
-            for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(final_markdown)):
+            for piece in _markdown_text_pieces(final_markdown):
                 final_chunks.append({"type": "markdown_text", "text": piece})
         if self.context.mentioning_slack_user_id:
             # Newlines keep the mention off the tail of the last streamed prose chunk.
@@ -654,9 +646,9 @@ class SlackThreadHandler:
         chunk of a non-streamed answer — the streamed path appends its own instead.
         `_answer_blocks` decides what the answer is carried in.
 
-        ``markdown`` says the text is the agent's Markdown, for a caller that already read
-        `renders_markdown`. It defaults off so a message of our own wording, which carries no
-        Markdown worth rendering, never reaches the flag lookup behind that gate.
+        ``markdown`` says the text is the agent's Markdown, which the relay passes on as
+        written. It defaults off for a message of our own wording, which is already Slack
+        ``mrkdwn`` and carries no Markdown worth rendering.
         """
         # Text past the block's character cap can only be posted as plain text, which carries
         # no blocks at all. Dropping the footer there costs a line of provenance, while keeping

@@ -87,19 +87,23 @@ graph LR
 
 ## The goal: CI Signals for PostHog Desktop
 
+Backend pytest retries retain their failed-attempt diagnostics even when the job passes.
+The job-log collector uses recovered-test spans to include those successful jobs, and keeps their original conclusion.
+See [Backend test retries](../../docs/internal/backend-test-retries.md) for the retry budget and reporting path.
+
 Valuable CI conditions ("this check is flaky", "master went red at SHA X", "this PR is wedged on a failing required check") become [Signals](../signals): grouped, researched against the repository, and handed to PostHog Desktop for autonomous remediation.
 Detection is defined once in `logic/` over the read layer, so the emitter and the MCP tools share one definition.
 Shortening ready-for-review-to-merge is the headline metric this serves.
 
 ## The data boundary
 
-| Question                                                                     | Substrate                                                                         |
-| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| CI and job durations, queue time, cost, failure logs, flaky and broken tests | Warehouse + Logs + Traces                                                         |
-| Open to merge time (coarse: `open_to_merge_seconds`)                         | PR snapshot                                                                       |
-| Ready to merge time (`ready_to_merge_seconds`), draft/ready transitions      | Warehouse `github_issue_events` (bounded window, grows forward)                   |
-| Approvals, review submissions                                                | Warehouse `github_reviews` (synced; reads deferred until a wedge tool needs them) |
-| Deploys and DORA                                                             | Warehouse `github_deployments` + `github_deployment_statuses`                     |
+| Question                                                                     | Substrate                                                              |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| CI and job durations, queue time, cost, failure logs, flaky and broken tests | Warehouse + Logs + Traces                                              |
+| Open to merge time (coarse: `open_to_merge_seconds`)                         | PR snapshot                                                            |
+| Ready to merge time (`ready_to_merge_seconds`), draft/ready transitions      | Warehouse `github_issue_events` (bounded window, grows forward)        |
+| Approvals, review submissions                                                | Warehouse `github_reviews` (optional; the author page reads approvals) |
+| Deploys and DORA                                                             | Warehouse `github_deployments` + `github_deployment_statuses`          |
 
 The warehouse snapshots overwrite state on update, so transition timing is unrecoverable from them.
 Immutable lifecycle events are the only thing the deferred events destination is for.
@@ -120,11 +124,11 @@ Change one only in a separate PR with a written reason. Engineering-level decisi
 - Two first-class surfaces, one endpoint set: the in-app UI and MCP tools. Named typed endpoints run the curated read layer privately (no global HogQL views, core imports only the viewset); keep `mcp/tools.yaml` current whenever endpoints change.
 - One sanctioned write: the test-health sidecar (quarantine, as an issue plus PR through the team's GitHub App). The write now lives behind the API and MCP tool only; the test-health UI became the Trunk quarantine debt scoreboard because Trunk's auto-quarantine outran the file-based flow as the thing teams need to see. No saved views or stateful filters; persisted surfaces are a separate decision.
 - Data path: HogQL over the warehouse, plus reads from Logs and Traces. PR lifecycle event ingestion deferred. Product Postgres DB stays empty.
-- No author leaderboards or per-developer performance rankings, ever. The author page (own PRs plus own CI cost, reached only from PR-row author links) is allowed; ranking people against each other is not.
+- No author leaderboards or per-developer performance rankings, ever. The author page (one author's PRs, CI cost, delivery timing and lead time against the repository, reached only from PR-row author links) is allowed; ranking people against each other is not. The team page renders the same delivery figures for one GitHub team, as an aggregate and never a per-member figure. It leaves out the author page's per-pull-request day view, which is too long to read at team size.
 - Bots and drafts excluded by default in throughput / cycle-time reads; bot detection = `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`.
 - Author identity = `Author{handle, display_name, avatar_url, is_bot}`. No PostHog-user mapping.
 - Time to merge = `open_to_merge_seconds` = `merged_at - created_at`: coarse, and named so. `ready_to_merge_seconds` is the precise companion (last observed ready-for-review to merge, from `github_issue_events`); NULL means "not observed", never zero.
-- The GitHub `reviews` endpoint syncs, but review reads stay deferred until a wedge tool needs them.
+- The GitHub `reviews` endpoint syncs; the author page is its first reader (the approval split and the review states of a PR timeline).
 
 ## Glossary
 

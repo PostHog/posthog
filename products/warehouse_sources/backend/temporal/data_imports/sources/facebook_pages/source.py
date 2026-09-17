@@ -2,17 +2,15 @@ from typing import Optional, cast
 
 import requests
 
-from posthog.schema import (
+from posthog.models.integration import FACEBOOK_PAGES_SCOPE
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
 )
-
-from posthog.models.integration import FACEBOOK_PAGES_SCOPE
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -77,7 +75,7 @@ class FacebookPagesSource(ResumableSource[FacebookPagesSourceConfig, FacebookPag
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FACEBOOK_PAGES,
+            name=ExternalDataSourceType.FACEBOOKPAGES,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Facebook Pages",
             keywords=["facebook", "meta", "graph api"],

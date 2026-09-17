@@ -13,6 +13,7 @@ Exports:
 * BudgetSpec, budget_spec_for, budget_enabled
 * refill_and_read, debit, seconds_until_positive
 * QueryCost, reset_request_query_cost, record_request_query_cost, get_request_query_cost
+* claim_limited_event
 """
 
 import math
@@ -155,6 +156,22 @@ def debit(team_id: str, bytes_read: int) -> Optional[float]:
         API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="debit").inc()
         capture_exception(e)
         return None
+
+
+LIMITED_EVENT_INTERVAL_SECONDS = 3600
+
+
+def claim_limited_event(team_id: str) -> bool:
+    try:
+        return bool(
+            get_client().set(
+                f"{BUDGET_KEY_PREFIX}limited-event/{team_id}", "1", nx=True, ex=LIMITED_EVENT_INTERVAL_SECONDS
+            )
+        )
+    except Exception as e:
+        API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event").inc()
+        capture_exception(e)
+        return False
 
 
 def seconds_until_positive(remaining: float, spec: BudgetSpec) -> int:

@@ -106,7 +106,12 @@ export function RunEscapeBoundary({
     })
 
     return (
-        <div ref={containerRef} data-run-escape-scope={scope} className={className}>
+        <div
+            ref={containerRef}
+            data-run-escape-scope={scope}
+            tabIndex={scope === 'chat' ? -1 : undefined}
+            className={className}
+        >
             {children}
         </div>
     )

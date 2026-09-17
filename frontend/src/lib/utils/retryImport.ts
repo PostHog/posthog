@@ -1,6 +1,6 @@
 import { ComponentType, LazyExoticComponent, lazy } from 'react'
 
-import { isChunkLoadError, markAsChunkLoadError } from 'lib/utils/isChunkLoadError'
+import { isChunkLoadError, isGenericNetworkTypeError, markAsChunkLoadError } from 'lib/utils/isChunkLoadError'
 
 function isMinifiedBootModuleEvaluationError(error: unknown): boolean {
     if (!error || typeof error !== 'object') {
@@ -27,7 +27,12 @@ export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs 
     try {
         return await factory()
     } catch (error) {
-        if (retries <= 0 || !isChunkLoadError(error)) {
+        if (!isChunkLoadError(error) && !isGenericNetworkTypeError(error)) {
+            throw error
+        }
+        // Mark as a chunk load error so downstream boundaries recognize it if retries fail.
+        markAsChunkLoadError(error)
+        if (retries <= 0) {
             throw error
         }
         await new Promise<void>((resolve) => setTimeout(resolve, baseDelayMs))

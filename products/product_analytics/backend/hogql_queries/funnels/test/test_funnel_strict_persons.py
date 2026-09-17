@@ -1,8 +1,7 @@
 from datetime import datetime, timedelta
-from typing import Any, Optional, cast
 from uuid import UUID
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -13,11 +12,8 @@ from posthog.test.base import (
 
 from django.utils import timezone
 
-from posthog.schema import FunnelsQuery
+from posthog.schema import DateRange, EventsNode, FunnelsFilter, FunnelsQuery, IntervalType, StepOrderValue
 
-from posthog.constants import INSIGHT_FUNNELS
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
 
@@ -26,26 +22,16 @@ from products.product_analytics.backend.hogql_queries.funnels.test.test_funnel_p
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
 
-def get_actors_legacy_filters(
-    filters: dict[str, Any],
-    team: Team,
-    funnel_step: Optional[int] = None,
-    funnel_step_breakdown: Optional[str | float | list[str | float]] = None,
-    funnel_trends_drop_off: Optional[bool] = None,
-    funnel_trends_entrance_period_start: Optional[str] = None,
-    offset: Optional[int] = None,
-    include_recordings: bool = False,
-) -> list[list]:
-    funnels_query = cast(FunnelsQuery, filter_to_query(filters))
-    return get_actors(
-        funnels_query,
-        team,
-        funnel_step,
-        funnel_step_breakdown,
-        funnel_trends_drop_off,
-        funnel_trends_entrance_period_start,
-        offset,
-        include_recordings,
+def strict_funnel_query(date_from: str, date_to: str) -> FunnelsQuery:
+    return FunnelsQuery(
+        series=[
+            EventsNode(event="step one", name="step one"),
+            EventsNode(event="step two", name="step two"),
+            EventsNode(event="step three", name="step three"),
+        ],
+        interval=IntervalType.DAY,
+        dateRange=DateRange(date_from=date_from, date_to=date_to),
+        funnelsFilter=FunnelsFilter(funnelOrderType=StepOrderValue.STRICT),
     )
 
 
@@ -73,87 +59,42 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
 
     def test_first_step(self):
         self._create_sample_data_multiple_dropoffs()
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_order_type": "strict",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
 
-        results = get_actors_legacy_filters(filters, self.team, funnel_step=1)
+        results = get_actors(
+            strict_funnel_query("2021-05-01 00:00:00", "2021-05-07 00:00:00"), self.team, funnel_step=1
+        )
 
         self.assertEqual(35, len(results))
 
     def test_second_step(self):
         self._create_sample_data_multiple_dropoffs()
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_order_type": "strict",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
 
-        results = get_actors_legacy_filters(filters, self.team, funnel_step=2)
+        results = get_actors(
+            strict_funnel_query("2021-05-01 00:00:00", "2021-05-07 00:00:00"), self.team, funnel_step=2
+        )
 
         self.assertEqual(10, len(results))
 
     def test_second_step_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_order_type": "strict",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
 
-        results = get_actors_legacy_filters(filters, self.team, funnel_step=-2)
+        results = get_actors(
+            strict_funnel_query("2021-05-01 00:00:00", "2021-05-07 00:00:00"), self.team, funnel_step=-2
+        )
 
         self.assertEqual(25, len(results))
 
     def test_third_step(self):
         self._create_sample_data_multiple_dropoffs()
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_order_type": "strict",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "funnel_step": 3,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
 
-        results = get_actors_legacy_filters(filters, self.team, funnel_step=3)
+        results = get_actors(
+            strict_funnel_query("2021-05-01 00:00:00", "2021-05-07 00:00:00"), self.team, funnel_step=3
+        )
 
         self.assertEqual(0, len(results))
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-02 00:00:00.000Z")
+    @time_machine.travel("2021-01-02 00:00:00.000Z", tick=False)
     def test_strict_funnel_person_recordings(self):
         p1 = _create_person(distinct_ids=[f"user_1"], team=self.team)
         _create_event(
@@ -199,21 +140,9 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         # First event, but no recording
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_order_type": "strict",
-            "date_from": "2021-01-01",
-            "date_to": "2021-01-08",
-            "interval": "day",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
-
-        results = get_actors_legacy_filters(filters, self.team, funnel_step=1, include_recordings=True)
+        results = get_actors(
+            strict_funnel_query("2021-01-01", "2021-01-08"), self.team, funnel_step=1, include_recordings=True
+        )
 
         # self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(results[0][0], p1.uuid)
@@ -224,21 +153,9 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Second event, with recording
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_order_type": "strict",
-            "date_from": "2021-01-01",
-            "date_to": "2021-01-08",
-            "interval": "day",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
-
-        results = get_actors_legacy_filters(filters, self.team, funnel_step=2, include_recordings=True)
+        results = get_actors(
+            strict_funnel_query("2021-01-01", "2021-01-08"), self.team, funnel_step=2, include_recordings=True
+        )
 
         # self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(results[0][0], p1.uuid)
@@ -260,21 +177,9 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Third event dropoff, with recording
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_order_type": "strict",
-            "date_from": "2021-01-01",
-            "date_to": "2021-01-08",
-            "interval": "day",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
-
-        results = get_actors_legacy_filters(filters, self.team, funnel_step=-3, include_recordings=True)
+        results = get_actors(
+            strict_funnel_query("2021-01-01", "2021-01-08"), self.team, funnel_step=-3, include_recordings=True
+        )
 
         # self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(results[0][0], p1.uuid)

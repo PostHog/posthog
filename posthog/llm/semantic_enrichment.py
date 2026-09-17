@@ -3,8 +3,8 @@
 Warehouse table enrichment and data-modeling view enrichment both draft one-sentence descriptions of
 data assets so PostHog AI picks the right tables/columns and joins. The surface-specific orchestration
 (what to enrich, how to build the prompt, where to persist) lives with each product; the pieces shared
-by both — prompt-injection hardening, the JSON completion + parsing, the feature-flag/consent gates,
-telemetry, the team's business context, and the guarded annotation upsert — live here.
+by both — prompt-injection hardening, the JSON completion + parsing, telemetry, the team's business
+context, and the guarded annotation upsert — live here.
 
 This module deliberately has zero warehouse- or data-modeling-model dependencies: `upsert_column_annotation`
 takes the annotation model class and its owner fields as arguments so one code path serves both
@@ -103,26 +103,6 @@ def extract_json_object(content: str) -> dict[str, Any] | None:
         if isinstance(parsed, dict):
             return parsed
     return None
-
-
-def enrichment_enabled(team: Team, flag_key: str) -> bool:
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                flag_key,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        capture_exception(e)
-        return False
 
 
 def capture_enrichment_event(team: Team, event: str, properties: dict[str, Any]) -> None:

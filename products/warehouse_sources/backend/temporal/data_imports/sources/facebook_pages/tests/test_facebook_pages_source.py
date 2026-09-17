@@ -3,10 +3,13 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldOauthAccountSelectConfig, SourceFieldOauthConfig
-
 from posthog.models.integration import FACEBOOK_PAGES_SCOPE
 
+from products.warehouse_sources.backend.facade.source_config import (
+    ReleaseStatus,
+    SourceFieldOauthAccountSelectConfig,
+    SourceFieldOauthConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )

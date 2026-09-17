@@ -7,8 +7,9 @@
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
-use metrics::{counter, gauge};
+use metrics::{counter, gauge, histogram};
 use tracing::{debug, info, warn};
 
 use cohort_core::clickhouse_timestamp_to_millis;
@@ -22,8 +23,9 @@ use crate::filters::reverse_index::TeamFilters;
 use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, RECONCILE_BITS_FIXED_TOTAL,
     RECONCILE_JOBS_COMPLETED_TOTAL, RECONCILE_JOBS_DISCARDED_TOTAL,
-    RECONCILE_MARKERS_EMITTED_TOTAL, RECONCILE_MARKER_PRODUCE_ERRORS, RECONCILE_QUEUE_DEPTH,
-    RECONCILE_ROWS_EMITTED_TOTAL, RECONCILE_ROWS_SCANNED_TOTAL,
+    RECONCILE_MARKERS_EMITTED_TOTAL, RECONCILE_MARKER_PRODUCE_ERRORS,
+    RECONCILE_PAGE_DURATION_SECONDS, RECONCILE_QUEUE_DEPTH, RECONCILE_ROWS_EMITTED_TOTAL,
+    RECONCILE_ROWS_SCANNED_TOTAL,
 };
 use crate::partitions::offset_tracker::{DeferredOffset, MarkOutcome, OffsetTracker};
 use crate::producer::{
@@ -35,7 +37,9 @@ use crate::store::{
     ReadLane, Stage2CohortPrefix, Stage2DirtyKey, Stage2Key, StagedBatch, StoreHandle,
 };
 use crate::workers::merge_path::MergeWorkerDeps;
-use crate::workers::stage2_path::recompute_and_diff;
+use crate::workers::reconcile_page::read_page;
+#[cfg(test)]
+use crate::workers::reconcile_page::MAX_ROWS;
 use crate::workers::worker::{
     count_by_status, first_cascades, produce_cascades, produce_membership,
 };
@@ -355,8 +359,8 @@ pub(crate) async fn handle_reconcile_drain(
         // ordering prevents observing `loaded = true` alongside the pre-refresh empty snapshot.
         let catalog_loaded = catalog.is_loaded();
         let catalog_snapshot = catalog.load_full();
-        let filters = catalog_snapshot.team(tile.team_id()).map(Arc::as_ref);
-        match evaluate_guard(catalog_loaded, filters, &tile) {
+        let filters = catalog_snapshot.team(tile.team_id());
+        match evaluate_guard(catalog_loaded, filters.map(Arc::as_ref), &tile) {
             ReconcileGuard::Retry(ReconcileRetryReason::CatalogNotLoaded) => {
                 debug!(
                     partition_id,
@@ -396,10 +400,6 @@ pub(crate) async fn handle_reconcile_drain(
         }
 
         let filters = filters.expect("the proceed guard proved the team exists");
-        let tree = filters
-            .cohorts
-            .get(&tile.cohort_id())
-            .expect("the proceed guard proved the cohort exists");
         // Only flipped bits of a full-tree cohort cascade to referrers; single-leaf fixes never do.
         let cascades_flips = filters
             .eligibility
@@ -425,7 +425,6 @@ pub(crate) async fn handle_reconcile_drain(
                     queue,
                     &tile,
                     filters,
-                    tree,
                     cascades_flips,
                     prefix,
                     source_offset,
@@ -443,7 +442,6 @@ pub(crate) async fn handle_reconcile_drain(
                     queue,
                     &tile,
                     filters,
-                    tree,
                     cascades_flips,
                     prefix,
                     source_offset,
@@ -489,8 +487,7 @@ async fn drain_scanning(
     merge: &MergeWorkerDeps,
     queue: &mut ReconcileQueue,
     tile: &ReconcileTile,
-    filters: &TeamFilters,
-    tree: &crate::filters::tree::CohortTree,
+    filters: &Arc<TeamFilters>,
     cascades_flips: bool,
     prefix: Stage2CohortPrefix,
     source_offset: i64,
@@ -529,7 +526,6 @@ async fn drain_scanning(
         merge,
         tile,
         filters,
-        tree,
         cascades_flips,
         &page,
         &dirty_to_clear,
@@ -575,8 +571,7 @@ async fn drain_dirty(
     merge: &MergeWorkerDeps,
     queue: &mut ReconcileQueue,
     tile: &ReconcileTile,
-    filters: &TeamFilters,
-    tree: &crate::filters::tree::CohortTree,
+    filters: &Arc<TeamFilters>,
     cascades_flips: bool,
     prefix: Stage2CohortPrefix,
     source_offset: i64,
@@ -640,7 +635,6 @@ async fn drain_dirty(
         merge,
         tile,
         filters,
-        tree,
         cascades_flips,
         &existing_keys,
         &page,
@@ -797,6 +791,50 @@ struct PageProgress {
     bits_fixed: u64,
 }
 
+/// The ordered steps one settlement page takes. Doubles as the `stage` metric label, so the
+/// duration histogram can never name a step the page does not have.
+#[derive(Debug, Clone, Copy)]
+enum PageStage {
+    /// Every section of the page's read and evaluation, permit waits included.
+    Recompute,
+    MembershipProduce,
+    CascadeProduce,
+    Commit,
+}
+
+impl PageStage {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Recompute => "recompute",
+            Self::MembershipProduce => "membership_produce",
+            Self::CascadeProduce => "cascade_produce",
+            Self::Commit => "commit",
+        }
+    }
+}
+
+/// Splits one page's wall clock into per-stage samples: each [`mark`](Self::mark) records the time
+/// since the previous one. A page that fails records no sample for the step that failed, so the
+/// histogram stays a picture of settled work.
+struct PageClock {
+    last: Instant,
+}
+
+impl PageClock {
+    fn start() -> Self {
+        Self {
+            last: Instant::now(),
+        }
+    }
+
+    fn mark(&mut self, stage: PageStage) {
+        let now = Instant::now();
+        histogram!(RECONCILE_PAGE_DURATION_SECONDS, "stage" => stage.as_str())
+            .record(now.duration_since(self.last).as_secs_f64());
+        self.last = now;
+    }
+}
+
 /// Emit one current reconcile page, then atomically commit any corrected bits and clear the exact
 /// dirty markers covered by that evaluation. Returning `None` leaves the queue phase unchanged so
 /// the same page is retried on the next tick.
@@ -807,8 +845,7 @@ async fn settle_reconcile_page(
     sink: &Arc<dyn MembershipSink>,
     merge: &MergeWorkerDeps,
     tile: &ReconcileTile,
-    filters: &TeamFilters,
-    tree: &crate::filters::tree::CohortTree,
+    filters: &Arc<TeamFilters>,
     cascades_flips: bool,
     page: &[Stage2Key],
     dirty_to_clear: &[Stage2DirtyKey],
@@ -817,38 +854,37 @@ async fn settle_reconcile_page(
 ) -> Option<PageProgress> {
     let evaluated_at_ms = clickhouse_timestamp_to_millis(last_updated)
         .expect("worker-generated last_updated timestamps always parse");
-    let mut changes = Vec::with_capacity(page.len());
+    let mut clock = PageClock::start();
+    let diffs = match read_page(handle, filters, tile.cohort_id(), page).await {
+        Ok(diffs) => diffs,
+        Err(error) => {
+            warn_job!(
+                tile,
+                partition_id,
+                rows = page.len(),
+                error = %error,
+                "reconcile page read failed; retrying this page on the next tick",
+            );
+            return None;
+        }
+    };
+    clock.mark(PageStage::Recompute);
+    debug_assert_eq!(
+        diffs.len(),
+        page.len(),
+        "the page reader returns one diff per requested row",
+    );
+
+    let mut changes = Vec::with_capacity(diffs.len());
     let mut cascade_changes = Vec::new();
     let mut writes: Vec<(Stage2Key, Stage2State)> = Vec::new();
     let mut fixed_entered = 0u64;
     let mut fixed_left = 0u64;
-    for key in page {
-        let diff = match recompute_and_diff(
-            partition_id,
-            key.person_id,
-            tree,
-            filters,
-            handle,
-            ReadLane::Maintenance,
-        )
-        .await
-        {
-            Ok(diff) => diff,
-            Err(error) => {
-                warn_job!(
-                    tile,
-                    partition_id,
-                    person_id = %key.person_id,
-                    error = %error,
-                    "reconcile recompute failed; retrying this page on the next tick",
-                );
-                return None;
-            }
-        };
+    for diff in &diffs {
         let change = CohortMembershipChange {
             team_id: tile.team_id().0,
             cohort_id: tile.cohort_id().0,
-            person_id: key.person_id.to_string(),
+            person_id: diff.stage2_key.person_id.to_string(),
             last_updated: last_updated.to_string(),
             status: diff.status(),
             origin: Some(ChangeOrigin::Reconcile),
@@ -892,6 +928,7 @@ async fn settle_reconcile_page(
         );
         return None;
     }
+    clock.mark(PageStage::MembershipProduce);
 
     let cascade_errors = produce_cascades(merge, cascades).await;
     if cascade_errors > 0 {
@@ -903,6 +940,7 @@ async fn settle_reconcile_page(
         );
         return None;
     }
+    clock.mark(PageStage::CascadeProduce);
 
     let mut staged = StagedBatch::default();
     for (key, state) in &writes {
@@ -924,10 +962,11 @@ async fn settle_reconcile_page(
             return None;
         }
     }
+    clock.mark(PageStage::Commit);
     // Count only durably-settled pages: membership produce, cascade produce, and commit have all
     // succeeded here. Any earlier failure returns `None` above and retries the whole page, so
     // incrementing here keeps a retry from double-counting.
-    counter!(RECONCILE_ROWS_SCANNED_TOTAL).increment(page.len() as u64);
+    counter!(RECONCILE_ROWS_SCANNED_TOTAL).increment(diffs.len() as u64);
     if entered > 0 {
         counter!(RECONCILE_ROWS_EMITTED_TOTAL, "status" => "entered").increment(entered);
     }
@@ -942,7 +981,7 @@ async fn settle_reconcile_page(
     }
 
     Some(PageProgress {
-        rows_scanned: page.len() as u64,
+        rows_scanned: diffs.len() as u64,
         bits_fixed: fixed_entered + fixed_left,
     })
 }
@@ -2001,6 +2040,48 @@ mod tests {
 
         assert_eq!(sink.changes().len(), 1);
         assert!(shell.stage2_bit(alice));
+        shell.tick().await;
+        assert_eq!(shell.markers.markers().len(), 1);
+        assert_eq!(shell.committable(), Some(6));
+    }
+
+    /// A page wider than one read section still settles as one unit: the produce sees the whole
+    /// page, and a failure re-reads every row rather than resuming from the sections already read.
+    #[tokio::test]
+    async fn a_page_spanning_read_sections_retries_as_one_unit_after_a_membership_failure() {
+        let sink = CaptureSink::failing_first(1);
+        let rows = MAX_ROWS + 1;
+        let mut shell =
+            DrainShell::new(true, Arc::new(sink.clone()), CaptureCascadeSink::new(), 64);
+        let people: Vec<Uuid> = (1..=rows as u128).map(Uuid::from_u128).collect();
+        for &who in &people {
+            shell.write_current(who, true, false, false);
+        }
+        shell.enqueue(tile(TEAM, COHORT, 16), 5);
+
+        shell.tick().await;
+
+        assert_eq!(sink.produce_calls(), 1, "one produce for the whole page");
+        assert!(sink.changes().is_empty());
+        assert!(shell.markers.markers().is_empty());
+        assert!(
+            people.iter().all(|&who| !shell.stage2_bit(who)),
+            "no row of a failed page commits",
+        );
+        assert!(matches!(
+            shell.queue.front().map(|job| &job.phase),
+            Some(ScanPhase::Scanning { cursor: None }),
+        ));
+        assert_eq!(shell.committable(), Some(5));
+
+        shell.tick().await;
+
+        assert_eq!(
+            sink.changes().len(),
+            rows,
+            "the whole page was emitted again"
+        );
+        assert!(people.iter().all(|&who| shell.stage2_bit(who)));
         shell.tick().await;
         assert_eq!(shell.markers.markers().len(), 1);
         assert_eq!(shell.committable(), Some(6));

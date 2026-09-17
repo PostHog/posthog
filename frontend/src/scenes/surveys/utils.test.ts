@@ -1,5 +1,6 @@
 import { getAppContext } from 'lib/utils/getAppContext'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
+import { urls } from 'scenes/urls'
 
 import {
     EventPropertyFilter,
@@ -706,6 +707,18 @@ describe('survey utils', () => {
 
             expect(result.conditions).toBeNull()
         })
+    })
+
+    it.each([undefined, 'test-1'])('keeps the linked flag and variant %s in display conditions', (variant) => {
+        const survey = {
+            linked_flag: { id: 123, key: 'survey-test-flag' },
+            conditions: { linkedFlagVariant: variant },
+        } as Survey
+
+        expect(getSurveyDisplayConditionsSummary(survey)).toEqual([
+            { type: 'flag', label: 'Feature flag', value: 'survey-test-flag', href: urls.featureFlag(123) },
+            ...(variant ? [{ type: 'flag_variant', label: 'Variant', value: variant }] : []),
+        ])
     })
 
     describe('audience targeting summaries', () => {

@@ -244,7 +244,7 @@ const WebAnalyticsBotRulesCreateSchema = () => {
 
 const webAnalyticsBotRulesCreate = (): ToolBase<
     ReturnType<typeof WebAnalyticsBotRulesCreateSchema>,
-    Schemas.CustomBotRule
+    Schemas.WebAnalyticsBotRule
 > => ({
     name: 'web-analytics-bot-rules-create',
     schema: WebAnalyticsBotRulesCreateSchema(),
@@ -254,19 +254,16 @@ const webAnalyticsBotRulesCreate = (): ToolBase<
         if (params.name !== undefined) {
             body['name'] = params.name
         }
-        if (params.key !== undefined) {
-            body['key'] = params.key
-        }
-        if (params.matcher !== undefined) {
-            body['matcher'] = params.matcher
-        }
-        if (params.pattern !== undefined) {
-            body['pattern'] = params.pattern
-        }
         if (params.category !== undefined) {
             body['category'] = params.category
         }
-        const result = await context.api.request<Schemas.CustomBotRule>({
+        if (params.combiner !== undefined) {
+            body['combiner'] = params.combiner
+        }
+        if (params.items !== undefined) {
+            body['items'] = params.items
+        }
+        const result = await context.api.request<Schemas.WebAnalyticsBotRule>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/`,
             body,
@@ -297,13 +294,13 @@ const WebAnalyticsBotRulesListSchema = () => z.object({})
 
 const webAnalyticsBotRulesList = (): ToolBase<
     ReturnType<typeof WebAnalyticsBotRulesListSchema>,
-    WithPostHogUrl<Schemas.CustomBotRule[]>
+    WithPostHogUrl<Schemas.WebAnalyticsBotRule[]>
 > => ({
     name: 'web-analytics-bot-rules-list',
     schema: WebAnalyticsBotRulesListSchema(),
     handler: async (context: Context, _params: z.infer<ReturnType<typeof WebAnalyticsBotRulesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.CustomBotRule[]>({
+        const result = await context.api.request<Schemas.WebAnalyticsBotRule[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/`,
         })
@@ -399,31 +396,6 @@ const CompareFilter = z.object({
 
 const integer = z.coerce.number().int()
 
-const ActionConversionGoal = z.object({
-    actionId: integer,
-})
-
-const CustomEventConversionGoal = z.object({
-    customEventName: z.string(),
-})
-
-const WebAnalyticsConversionGoal = z.union([ActionConversionGoal, CustomEventConversionGoal])
-
-const AssistantDateRange = z.object({
-    date_from: z.string().describe('ISO8601 date string.'),
-    date_to: z.string().nullable().describe('ISO8601 date string.').optional(),
-})
-
-const AssistantDurationRange = z.object({
-    date_from: z
-        .string()
-        .describe(
-            "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start."
-        ),
-})
-
-const AssistantDateRangeFilter = z.union([AssistantDateRange, AssistantDurationRange])
-
 const PropertyOperator = z.enum([
     'exact',
     'is_not',
@@ -510,6 +482,39 @@ const WebAnalyticsPropertyFilter = z.union([
 ])
 
 const WebAnalyticsPropertyFilters = z.array(WebAnalyticsPropertyFilter)
+
+const ActionConversionGoal = z.object({
+    actionId: integer,
+    properties: WebAnalyticsPropertyFilters.optional(),
+})
+
+const CustomEventConversionGoal = z.object({
+    customEventName: z.string(),
+    properties: WebAnalyticsPropertyFilters.optional(),
+})
+
+const WebAnalyticsConversionGoal = z.union([ActionConversionGoal, CustomEventConversionGoal])
+
+const AssistantDateRange = z.object({
+    date_from: z.string().describe('ISO8601 date string.'),
+    date_to: z
+        .string()
+        .nullable()
+        .describe(
+            'ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.'
+        )
+        .optional(),
+})
+
+const AssistantDurationRange = z.object({
+    date_from: z
+        .string()
+        .describe(
+            "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start."
+        ),
+})
+
+const AssistantDateRangeFilter = z.union([AssistantDateRange, AssistantDurationRange])
 
 const AssistantWebOverviewQuery = z.object({
     compareFilter: CompareFilter.describe(

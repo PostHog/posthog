@@ -514,6 +514,33 @@ class TestFleetQuerySelection(BaseTest):
         result = get_warmable_queries_op(dagster.build_op_context())
         self.assertEqual(result, [])
 
+    @patch(
+        "products.web_analytics.dags.cache_warming.get_sticky_warm_shapes",
+        return_value=[
+            {
+                "team_id": 42,
+                "recorded_at": 0,
+                "query": {"kind": "WebOverviewQuery", "dateRange": {"date_from": "-7d"}, "properties": []},
+            }
+        ],
+    )
+    @patch("products.web_analytics.dags.cache_warming._read_cached_warmable_queries", return_value=[])
+    def test_op_unions_sticky_shapes_into_selection(self, _mock_read: MagicMock, _mock_sticky: MagicMock) -> None:
+        # A check-missed shape recorded between selection rotations must reach the
+        # warm pass without waiting out the selection cache's TTL, and it must
+        # carry the full query_info contract (the warm pass indexes these keys).
+        result = get_warmable_queries_op(dagster.build_op_context())
+
+        self.assertEqual(len(result), 1)
+        entry = result[0]
+        self.assertEqual(entry["team_id"], 42)
+        self.assertEqual(entry["query_json"]["kind"], "WebOverviewQuery")
+        self.assertEqual(entry["observed_date_froms"], ["-7d"])
+        # Below the raw-replay demand bar, so a shape whose eligibility changed
+        # can never be amplified into raw background scans.
+        self.assertLess(entry["representative_query_count"], cache_warming.RAW_REPLAY_MIN_QUERY_COUNT)
+        self.assertIsInstance(entry["normalized_query_hash"], int)
+
 
 class _FakeObjectStorage:
     def __init__(self) -> None:

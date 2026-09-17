@@ -3,6 +3,7 @@ import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { HogFunctionTemplate, NativeTemplate } from '../types'
 import { template as accoilTemplate } from './_destinations/accoil/accoil.template'
 import { template as appcuesTemplate } from './_destinations/appcues/appcues.template'
+import { template as beehiivTemplate } from './_destinations/beehiiv/beehiiv.template'
 import { template as clickupTemplate } from './_destinations/clickup/clickup.template'
 import { template as closeTemplate } from './_destinations/close/close.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
@@ -26,6 +27,7 @@ import { template as posthogUpdatePersonPropertiesTemplate } from './_destinatio
 import { template as posthogGetTicketTemplate } from './_destinations/posthog_conversations/posthog-get-ticket.template'
 import { template as posthogUpdateTicketTemplate } from './_destinations/posthog_conversations/posthog-update-ticket.template'
 import { template as posthogCreateAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-create-account.template'
+import { template as posthogCreateCustomerTaskTemplate } from './_destinations/posthog_customer_analytics/posthog-create-customer-task.template'
 import { template as posthogGetAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-get-account.template'
 import { template as posthogTagAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-tag-account.template'
 import { template as posthogUpdateAccountPropertyTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account-property.template'
@@ -93,6 +95,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     googleTagManagerTemplate,
     emailTemplate,
     pushTemplate,
+    beehiivTemplate,
     clickupTemplate,
     posthogCaptureTemplate,
     posthogGroupIdentifyTemplate,
@@ -103,6 +106,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogCreateTaskTemplate,
     posthogRunScoutTemplate,
     posthogCreateAccountTemplate,
+    posthogCreateCustomerTaskTemplate,
     posthogGetAccountTemplate,
     posthogTagAccountTemplate,
     posthogUpdateAccountRelationshipsTemplate,

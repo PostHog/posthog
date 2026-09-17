@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.render.ren
     _unwrap_item,
     get_rows,
     render_source,
+    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.settings import (
     RENDER_ENDPOINTS,
@@ -466,3 +467,28 @@ class TestRenderSourceResponse:
         assert response.partition_keys == expected_partition_keys
         # Render documents no list ordering, so the watermark must only persist at job end.
         assert response.sort_mode == "desc"
+
+
+class TestValidateCredentials:
+    @parameterized.expand(
+        [
+            (200, (True, None)),
+            (401, (False, render.KEY_REJECTED_MESSAGE)),
+            (403, (False, render.KEY_FORBIDDEN_MESSAGE)),
+            # A Render-side failure leaves the key unjudged, so it must not be blamed on the key.
+            (500, (False, render.PROBE_FAILED_MESSAGE)),
+        ]
+    )
+    def test_maps_status_to_message(self, status: int, expected: tuple[bool, str | None]) -> None:
+        session = MagicMock()
+        session.get.return_value = _response({}, status=status)
+
+        with patch.object(render, "make_tracked_session", return_value=session):
+            assert validate_credentials("rnd_test") == expected
+
+    def test_does_not_blame_the_key_when_render_is_unreachable(self) -> None:
+        session = MagicMock()
+        session.get.side_effect = requests.ConnectionError("boom")
+
+        with patch.object(render, "make_tracked_session", return_value=session):
+            assert validate_credentials("rnd_test") == (False, render.PROBE_FAILED_MESSAGE)

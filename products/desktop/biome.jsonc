@@ -79,6 +79,7 @@
         "!apps/code/src/main/index.ts",
         "!apps/code/src/main/window.ts",
         "!apps/code/src/main/quick-ask.ts",
+        "!apps/code/src/main/quick-ask-trpc.test.ts",
         "!apps/code/src/main/quick-ask-capture.ts",
         "!apps/code/src/main/external-links.ts",
         "!apps/code/src/main/menu.ts",
@@ -120,6 +121,18 @@
       "linter": {
         "enabled": false
       },
+      "formatter": {
+        "enabled": false
+      }
+    },
+    {
+      // Object-tag kind registry generated from posthog/object_tags/kinds.py; the
+      // generator's byte-stable output is what `hogli build:object-tags --check`
+      // compares against, so no formatter may touch it.
+      "includes": [
+        "packages/core/src/inbox/objectKinds.generated.ts",
+        "packages/shared/src/objectTagKinds.generated.ts"
+      ],
       "formatter": {
         "enabled": false
       }

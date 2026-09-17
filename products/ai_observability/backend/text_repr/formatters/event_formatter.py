@@ -13,6 +13,7 @@ from typing import Any
 
 from .constants import SEPARATOR
 from .message_formatter import (
+    FormatterLines,
     FormatterOptions,
     add_line_numbers,
     format_input_messages,
@@ -103,7 +104,7 @@ def format_generation_text_repr(event: dict[str, Any], options: FormatterOptions
 
     Displays sections in natural flow order: Tools → Input → Output → Error
     """
-    lines: list[str] = []
+    lines = FormatterLines(options)
     props = event.get("properties", {})
 
     # Tools (if available)
@@ -149,7 +150,7 @@ def format_embedding_text_repr(event: dict[str, Any], options: FormatterOptions 
     Generate text representation of an embedding event.
     Embeddings only have input text and metadata - no output vector is stored.
     """
-    lines: list[str] = []
+    lines = FormatterLines(options)
     props = event.get("properties", {})
 
     # Input text being embedded
@@ -188,7 +189,7 @@ def format_evaluation_text_repr(event: dict[str, Any], options: FormatterOptions
     Generate text representation of an evaluation event.
     Shows the evaluation name, result (true/false/N/A), and reasoning.
     """
-    lines: list[str] = []
+    lines = FormatterLines(options)
     props = event.get("properties", {})
 
     eval_name = props.get("$ai_evaluation_name", "Unknown evaluation")

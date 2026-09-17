@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -175,7 +173,7 @@ class TestRunStateSnapshotPaths(TestCase):
         assert RunState.model_validate(state).resume_snapshot_carry_state() == expected
 
 
-class TestGetSandboxMcpConfigs(TestCase):
+class TestGetSandboxMcpConfigs(SimpleTestCase):
     TOKEN = "phx_test_token"
     PROJECT_ID = 42
 
@@ -352,18 +350,30 @@ class TestGetSandboxMcpConfigs(TestCase):
 
     @parameterized.expand(
         [
-            (None, False, "posthog-code"),
-            ("", False, "posthog-code"),
-            ("posthog-code", False, "posthog-code"),
-            ("some-other-origin", False, "posthog-code"),
-            ("slack", False, "slack"),
-            ("workflow", True, "slack"),
-            ("posthog_ai", False, "posthog_ai"),
-            ("eval", False, "eval"),
+            (None, False, None, "posthog-code"),
+            ("", False, None, "posthog-code"),
+            ("posthog-code", False, None, "posthog-code"),
+            ("some-other-origin", False, None, "posthog-code"),
+            ("slack", False, None, "slack"),
+            ("workflow", True, None, "slack"),
+            ("posthog_ai", False, None, "posthog_ai"),
+            ("eval", False, None, "eval"),
+            (None, False, "posthog_ai", "posthog_ai"),
+            ("", False, "posthog_ai", "posthog_ai"),
+            (None, True, "posthog_ai", "slack"),
+            ("slack", False, "posthog_ai", "slack"),
+            ("eval", False, "posthog_ai", "eval"),
+            ("posthog-code", False, "posthog_ai", "posthog-code"),
+            ("some-other-origin", False, "posthog_ai", "posthog-code"),
+            (None, False, "signals_scout", "posthog-code"),
         ]
     )
     def test_consumer_header_reflects_reply_context(
-        self, interaction_origin: str | None, slack_reply_context: bool, expected_consumer: str
+        self,
+        interaction_origin: str | None,
+        slack_reply_context: bool,
+        origin_product: str | None,
+        expected_consumer: str,
     ) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
@@ -373,13 +383,17 @@ class TestGetSandboxMcpConfigs(TestCase):
                 self.PROJECT_ID,
                 interaction_origin=interaction_origin,
                 slack_reply_context=slack_reply_context,
+                origin_product=origin_product,
             )
             assert configs == [
                 McpServerConfig(
                     type="http",
                     name="posthog",
                     url="https://mcp.posthog.com/mcp",
-                    headers=self._expected_headers(consumer=expected_consumer),
+                    headers=[
+                        *self._expected_headers(consumer=expected_consumer),
+                        *([{"name": "X-PostHog-Task-Origin", "value": origin_product}] if origin_product else []),
+                    ],
                     description=POSTHOG_MCP_DESCRIPTION,
                 )
             ]
@@ -421,7 +435,7 @@ class TestMcpServerConfigToDict(TestCase):
         }
 
 
-class TestFetchUserMcpServerConfigs(TestCase):
+class TestFetchUserMcpServerConfigs(SimpleTestCase):
     TOKEN = "phx_test_token"
     TEAM_ID = 42
     USER_ID = 7
@@ -520,12 +534,13 @@ class TestFetchUserMcpServerConfigs(TestCase):
 
     @parameterized.expand(
         [
-            ("slack", False, "slack"),
-            ("workflow", True, "slack"),
-            ("posthog_ai", False, "posthog_ai"),
-            ("eval", False, "eval"),
-            ("posthog_code", False, "posthog-code"),
-            (None, False, "posthog-code"),
+            ("slack", False, None, "slack"),
+            ("workflow", True, None, "slack"),
+            ("posthog_ai", False, None, "posthog_ai"),
+            ("eval", False, None, "eval"),
+            ("posthog_code", False, None, "posthog-code"),
+            (None, False, None, "posthog-code"),
+            (None, False, "posthog_ai", "posthog_ai"),
         ]
     )
     @patch(MOCK_API_URL)
@@ -534,6 +549,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
         self,
         interaction_origin: str | None,
         slack_reply_context: bool,
+        origin_product: str | None,
         expected_consumer: str,
         mock_facade,
         mock_api_url,
@@ -547,6 +563,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             self.USER_ID,
             interaction_origin=interaction_origin,
             slack_reply_context=slack_reply_context,
+            origin_product=origin_product,
         )
 
         assert configs[0].headers == self._expected_user_headers(consumer=expected_consumer)
@@ -1516,24 +1533,36 @@ class TestIsBotAuthorshipFallback(_AuthorshipFixture):
 class TestMcpExecSkillsEnvVars(SimpleTestCase):
     @parameterized.expand(
         [
-            ("web_phai_flag_on", "posthog_ai", True, True),
-            ("slack_flag_on", "slack", True, True),
-            ("eval_flag_on", "eval", True, True),
-            ("desktop_keeps_bundled_skills_even_with_flag_on", None, True, False),
-            ("web_phai_flag_off", "posthog_ai", False, False),
+            ("web_phai_flag_on", "posthog_ai", None, True, True),
+            ("slack_flag_on", "slack", None, True, True),
+            ("eval_flag_on", "eval", None, True, True),
+            ("desktop_keeps_bundled_skills_even_with_flag_on", None, None, True, False),
+            ("web_phai_flag_off", "posthog_ai", None, False, False),
+            ("web_phai_task_without_interaction_origin_flag_on", None, "posthog_ai", True, True),
+            ("web_phai_task_without_interaction_origin_flag_off", None, "posthog_ai", False, False),
         ]
     )
     def test_strips_bundled_skills_only_for_learn_capable_runs_with_the_flag_on(
-        self, _name: str, interaction_origin: str | None, flag_enabled: bool, expect_stripped: bool
+        self,
+        _name: str,
+        interaction_origin: str | None,
+        origin_product: str | None,
+        flag_enabled: bool,
+        expect_stripped: bool,
     ) -> None:
-        ctx = SimpleNamespace(interaction_origin=interaction_origin, organization_id="org-1", distinct_id="user-1")
+        ctx = MagicMock(
+            interaction_origin=interaction_origin,
+            origin_product=origin_product,
+            organization_id="org-1",
+            distinct_id="user-1",
+        )
         with patch(
             "products.tasks.backend.temporal.process_task.utils.is_mcp_exec_skills_enabled", return_value=flag_enabled
         ) as flag_check:
             env = mcp_exec_skills_env_vars(ctx)
 
         assert env == ({"POSTHOG_CODE_DISABLE_BUNDLED_SKILLS": "1"} if expect_stripped else {})
-        if interaction_origin is None:
+        if interaction_origin is None and origin_product is None:
             flag_check.assert_not_called()
         else:
             flag_check.assert_called_once_with("org-1", "user-1")

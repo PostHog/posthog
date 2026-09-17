@@ -10,6 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing
@@ -64,6 +65,7 @@ def create_hogql_context_for_batch_export(team: "Team", values: dict[str, typing
         enable_select_queries=True,
         limit_top_select=False,
         values=values if values is not None else {},
+        modifiers=create_default_modifiers_for_team(team),
     )
     context.database = Database.create_for(team=team, modifiers=context.modifiers)
     return context

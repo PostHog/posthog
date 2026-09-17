@@ -12,13 +12,14 @@ from products.data_modeling.backend.facade.models import DataModelingJob, DataMo
 LOGGER = get_logger(__name__)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class CreateDataModelingJobInputs:
     team_id: int
     node_id: str
     dag_id: str
     engine: str = DataModelingJobEngine.CLICKHOUSE
     parent_workflow_id: str | None = None
+    manually_triggered_by_id: int | None = None
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -66,6 +67,7 @@ def _create_data_modeling_job(
         workflow_run_id=workflow_run_id,
         parent_workflow_id=inputs.parent_workflow_id,
         created_by_id=node.saved_query.created_by_id if node.saved_query else None,
+        manually_triggered_by_id=inputs.manually_triggered_by_id,
     )
     return CreatedDataModelingJob(
         job_id=str(job.id),
@@ -112,13 +114,13 @@ def _subject(names: list[str], total: int) -> str:
 def _skip_reason(*, failed: list[str], failed_total: int, suspended: list[str], suspended_total: int) -> str:
     if failed_total and suspended_total:
         subject = _subject(failed + suspended, failed_total + suspended_total)
-        return f"Skipped because {subject} are failing or paused."
+        return f"Skipped because {subject} are failing or suspended."
     if failed_total:
         verb = "is" if failed_total == 1 else "are"
         return f"Skipped because {_subject(failed, failed_total)} {verb} failing."
     if suspended_total:
         verb = "was" if suspended_total == 1 else "were"
-        return f"Skipped because {_subject(suspended, suspended_total)} {verb} paused after repeated failures."
+        return f"Skipped because {_subject(suspended, suspended_total)} {verb} suspended after repeated failures."
     return "Skipped because an upstream view failed."
 
 

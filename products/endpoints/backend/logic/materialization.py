@@ -34,6 +34,7 @@ from products.data_modeling.backend.facade.api import (
     delete_node_from_dag,
     is_materialization_fresh,
     latest_saved_query_materialization_job,
+    link_endpoint_nodes,
     saved_query_materialized_at,
     sync_saved_query_to_dag,
 )
@@ -250,6 +251,12 @@ class EndpointMaterializationService:
             sync_error: Exception | None = None
             try:
                 sync_saved_query_to_dag(saved_query)
+                link_endpoint_nodes(
+                    team_id=saved_query.team_id,
+                    saved_query_id=saved_query.id,
+                    endpoint_name=endpoint.name,
+                    version=version.version,
+                )
             except Exception as e:
                 sync_error = e
                 logger.exception(
@@ -272,7 +279,9 @@ class EndpointMaterializationService:
             # trigger_immediate_run mirrors that on v2: first run only for a newly created saved
             # query (deferred to on_commit, so it sees the version link above).
             try:
-                saved_query.schedule_materialization(trigger_immediate_run=newly_materialized)
+                saved_query.schedule_materialization(
+                    trigger_immediate_run=newly_materialized, triggered_by_id=self.user.pk
+                )
             except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
                 # The chosen data freshness can't be honored (e.g. finer than an upstream import
                 # delivers) — a request problem, not a server one.

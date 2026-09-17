@@ -55,6 +55,7 @@ class MarketingEventGenerator:
         self.now = now
         self.result = GenerationResult()
         self._person_counter = 0
+        self._visitors: list[tuple[str, uuid.UUID]] = []
 
     def generate(self) -> GenerationResult:
         for day_offset in range(self.days_past, 0, -1):
@@ -71,7 +72,7 @@ class MarketingEventGenerator:
 
     def _generate_campaign_day(self, campaign: DemoCampaign, day: dt.datetime) -> None:
         for _ in range(self._daily_volume(campaign.daily_sessions, day)):
-            distinct_id, person_uuid = self._new_person()
+            distinct_id, person_uuid = self._traffic_visitor()
             ts = self._time_in_day(day)
             utm_source = self._pick_variant(campaign.utm_source, campaign.utm_source_variants)
             utm_campaign = self._pick_variant(
@@ -86,7 +87,7 @@ class MarketingEventGenerator:
             }
             if campaign.click_id_property:
                 properties[campaign.click_id_property] = uuid.uuid5(PERSON_NAMESPACE, f"click-{distinct_id}").hex
-            session_id = self._pageview(distinct_id, person_uuid, ts, properties)
+            session_id = self._browse_session(distinct_id, person_uuid, ts, properties)
             self._maybe_convert(
                 distinct_id,
                 person_uuid,
@@ -100,7 +101,7 @@ class MarketingEventGenerator:
 
     def _generate_free_channel_day(self, channel: DemoFreeChannel, day: dt.datetime) -> None:
         for _ in range(self._daily_volume(channel.daily_sessions, day)):
-            distinct_id, person_uuid = self._new_person()
+            distinct_id, person_uuid = self._traffic_visitor()
             ts = self._time_in_day(day)
             properties: dict = {"$referring_domain": channel.referring_domain}
             utm_source = self._pick_variant(channel.utm_source, channel.utm_source_variants)
@@ -113,7 +114,7 @@ class MarketingEventGenerator:
             if channel.click_id_property:
                 properties[channel.click_id_property] = uuid.uuid5(PERSON_NAMESPACE, f"click-{distinct_id}").hex
             properties.update(channel.extra_properties)
-            session_id = self._pageview(distinct_id, person_uuid, ts, properties)
+            session_id = self._browse_session(distinct_id, person_uuid, ts, properties)
             self._maybe_convert(
                 distinct_id,
                 person_uuid,
@@ -285,6 +286,30 @@ class MarketingEventGenerator:
         return day.replace(hour=0, minute=0, second=0, microsecond=0) + dt.timedelta(
             seconds=self.rng.randint(6 * 3600, 22 * 3600)
         )
+
+    def _traffic_visitor(self) -> tuple[str, uuid.UUID]:
+        if self._visitors and self.rng.random() < 0.35:
+            return self.rng.choice(self._visitors)
+        visitor = self._new_person()
+        self._visitors.append(visitor)
+        return visitor
+
+    def _browse_session(self, distinct_id: str, person_uuid: uuid.UUID, ts: dt.datetime, properties: dict) -> str:
+        session_id = self._pageview(distinct_id, person_uuid, ts, properties)
+        if self.rng.random() < 0.4:
+            return session_id
+        elapsed = 0
+        for pathname in self.rng.sample(["/features", "/pricing", "/docs", "/customers"], self.rng.randint(1, 4)):
+            elapsed += self.rng.randint(15, 150)
+            self._emit(
+                distinct_id,
+                person_uuid,
+                EVENT_PAGEVIEW,
+                ts + dt.timedelta(seconds=elapsed),
+                {**properties, "$current_url": SITE_URL + pathname, "$pathname": pathname},
+                session_id=session_id,
+            )
+        return session_id
 
     def _new_person(self) -> tuple[str, uuid.UUID]:
         self._person_counter += 1

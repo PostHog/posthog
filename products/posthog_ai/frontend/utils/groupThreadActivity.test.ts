@@ -85,17 +85,13 @@ describe('thread activity grouping', () => {
         expect(groups.flat()).toEqual(items)
     })
 
-    it.each([0, 1, 10, 11, 300])('makes every item reachable in bounded pages for %i activities', (count) => {
+    it.each([0, 1, 10, 11, 300])('shows every one of %i activities with at most one click', (count) => {
         const items = Array.from({ length: count }, (_, i) => i)
-        const collapsed = activityWindow(items, null)
+        const collapsed = activityWindow(items, false)
         expect(collapsed.first.length + collapsed.last.length).toBeLessThanOrEqual(10)
-        const seen = [...collapsed.first]
-        for (let page = 0; page < collapsed.pageCount; page++) {
-            const window = activityWindow(items, page)
-            expect(window.first.length + window.middle.length + window.last.length).toBeLessThanOrEqual(15)
-            seen.push(...window.middle)
-        }
-        seen.push(...collapsed.last)
-        expect(seen).toEqual(items)
+        expect(collapsed.middle).toEqual([])
+        expect(collapsed.hiddenCount).toBe(count > 10 ? count - 5 : 0)
+        const open = activityWindow(items, true)
+        expect([...open.first, ...open.middle, ...open.last]).toEqual(items)
     })
 })
