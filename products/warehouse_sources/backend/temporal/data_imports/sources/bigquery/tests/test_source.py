@@ -862,7 +862,8 @@ def test_bigquery_invalid_resource_name_is_non_retryable(observed_error):
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     matching = [key for key in non_retryable_errors if key in observed_error]
     assert matching, "Invalid resource name error should be recognised as non-retryable"
-    assert all(non_retryable_errors[key] is not None for key in matching)
+    # Must map to the actionable identifier guidance, not just any non-null message.
+    assert all(non_retryable_errors[key] == BIGQUERY_INVALID_IDENTIFIER_ERROR for key in matching)
 
 
 @pytest.mark.parametrize(
