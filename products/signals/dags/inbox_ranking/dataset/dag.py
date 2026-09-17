@@ -602,6 +602,9 @@ def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
     # Ordering only, not data: the title snapshot is a leaf that nothing joins. It holds a vector
     # per live report, the same width as inbox_report_embeddings, and inbox_report_model_data holds
     # a full set of vectors while it joins. Running last keeps those peaks apart in the one run pod.
+    # The cost of the edge: a failed join, or a run that hits the job's runtime cap, skips this
+    # asset for the day, and the schedule never revisits a day. A single-asset backfill inside the
+    # source TTL repairs the gap.
     deps=[MODEL_DATA_TABLE],
     **COMMON_ASSET_KWARGS,
 )
