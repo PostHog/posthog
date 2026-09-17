@@ -107,6 +107,11 @@ export interface DataQualityCheckEditorLogicProps {
     onClosed?: () => void
 }
 
+/** A cleared number input reads as NaN, which means no window rather than a window of no length. */
+function isWindow(hours: number | null): hours is number {
+    return hours !== null && Number.isFinite(hours)
+}
+
 function formToConfig(form: CheckFormValues): Record<string, unknown> {
     switch (form.checkType) {
         case CheckTypeEnumApi.AcceptedValues:
@@ -116,7 +121,7 @@ function formToConfig(form: CheckFormValues): Record<string, unknown> {
                 to_subject_type: form.toSubjectType,
                 to_subject_uuid: form.toSubjectUuid,
                 to_column: form.toColumn,
-                ...(form.toLookbackHours !== null ? { to_lookback_hours: form.toLookbackHours } : {}),
+                ...(isWindow(form.toLookbackHours) ? { to_lookback_hours: form.toLookbackHours } : {}),
             }
         case CheckTypeEnumApi.RowCount: {
             const min = form.rowCountMin ?? null
@@ -134,7 +139,7 @@ function formToConfig(form: CheckFormValues): Record<string, unknown> {
 
 /** Only the selected type's configuration, so switching type cannot leave stale values behind. */
 function definitionPayload(form: CheckFormValues, requiresColumn: boolean): CheckDefinitionPayload {
-    const windowed = form.lookbackHours !== null && form.checkType !== CheckTypeEnumApi.CustomSql
+    const windowed = isWindow(form.lookbackHours) && form.checkType !== CheckTypeEnumApi.CustomSql
     return {
         check_type: form.checkType,
         column_name: requiresColumn ? form.columnName : '',
@@ -205,6 +210,13 @@ export function checkToForm(check: DataQualityCheckApi): CheckFormValues {
         lookbackHours: (config.lookback_hours as number) ?? null,
         toLookbackHours: (config.to_lookback_hours as number) ?? null,
     }
+}
+
+function lookbackHoursError(hours: number | null): string | undefined {
+    if (!isWindow(hours)) {
+        return undefined
+    }
+    return Number.isInteger(hours) && hours >= 1 ? undefined : 'Set a whole number of hours, at least one.'
 }
 
 /** Which form field a config-level server error belongs beside, per check type. */
@@ -874,6 +886,16 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                     maxAgeMinutes:
                         form.checkType === CheckTypeEnumApi.Freshness && (form.maxAgeMinutes ?? 0) < 1
                             ? 'Set an age of at least one minute.'
+                            : undefined,
+                    // Gated on what the payload builders actually send, so nothing reaches the
+                    // request unvalidated and no message lands on a field the form drops.
+                    lookbackHours:
+                        form.checkType !== CheckTypeEnumApi.CustomSql
+                            ? lookbackHoursError(form.lookbackHours)
+                            : undefined,
+                    toLookbackHours:
+                        form.checkType === CheckTypeEnumApi.Relationships
+                            ? lookbackHoursError(form.toLookbackHours)
                             : undefined,
                     customSql:
                         form.checkType === CheckTypeEnumApi.CustomSql

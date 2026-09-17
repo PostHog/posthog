@@ -462,6 +462,52 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(logic.values.isOpen).toBe(true)
     })
 
+    it.each<[string, Record<string, unknown>, 'lookbackHours' | 'toLookbackHours']>([
+        [
+            'a window of zero hours',
+            { checkType: 'not_null', columnName: 'customer_id', lookbackHours: 0 },
+            'lookbackHours',
+        ],
+        [
+            'a window of half an hour',
+            { checkType: 'not_null', columnName: 'customer_id', lookbackHours: 0.5 },
+            'lookbackHours',
+        ],
+        [
+            'a target window of zero hours',
+            {
+                checkType: 'relationships',
+                columnName: 'customer_id',
+                toSubjectUuid: 'table-9',
+                toColumn: 'customer_id',
+                toLookbackHours: 0,
+            },
+            'toLookbackHours',
+        ],
+    ])('refuses to submit %s and says so beside that window', async (_case, formValues, field) => {
+        await mountLogic()
+        await openWith(null, formValues)
+
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataQualityChecksCreate).not.toHaveBeenCalled()
+        expect(logic.values.checkFormErrors[field as 'name']).toEqual('Set a whole number of hours, at least one.')
+    })
+
+    it('reads a cleared window as no window rather than a bad one', async () => {
+        ;(dataQualityChecksCreate as jest.Mock).mockResolvedValue(buildCheck())
+        await mountLogic()
+        // What the number input emits once its content is deleted.
+        await openWith(null, { checkType: 'not_null', columnName: 'customer_id', lookbackHours: NaN })
+
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checkFormErrors.lookbackHours).toBeUndefined()
+        expect(dataQualityChecksCreate).toHaveBeenCalledWith('1', expect.objectContaining({ config: {} }))
+    })
+
     it('creates the check once when the form is submitted twice', async () => {
         // Enter submits the form even while the save button is disabled by its loading state.
         ;(dataQualityChecksCreate as jest.Mock).mockResolvedValue(buildCheck({ id: 'check-new' }))
