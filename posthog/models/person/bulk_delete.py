@@ -288,6 +288,58 @@ def process_queued_person_deletion(
     return PersonProfileDeletionResult(deleted_count=deleted_count, failures=failures)
 
 
+# After this many consecutive per-person failures the fallback stops and marks the rest failed,
+# so a systemic outage costs a handful of calls per attempt rather than one per person.
+_TRAINING_DELETION_FALLBACK_FAILURE_LIMIT = 3
+
+
+def _queue_training_deletion_isolating_failures(
+    team_id: int,
+    persons: builtins.list[Person],
+    failures: builtins.list[PersonDeletionFailure],
+) -> builtins.list[Person]:
+    """Queue training deletion for ``persons`` and return the ones it succeeded for.
+
+    Each call scans replay events for the distinct IDs it is given, so the batch goes out as one
+    flattened call. Only when that raises are the persons retried one at a time, which pins the
+    failure on the person that causes it instead of blocking the whole batch.
+    """
+    try:
+        queue_person_training_deletion(
+            team_id, [distinct_id for person in persons for distinct_id in person.distinct_ids]
+        )
+        return persons
+    except Exception:
+        logger.warning(
+            "person_deletion.training_deletion_batch_failed",
+            team_id=team_id,
+            person_count=len(persons),
+            reason="retrying per person to isolate the failure",
+        )
+
+    queued: builtins.list[Person] = []
+    consecutive_failures = 0
+    for index, person in enumerate(persons):
+        try:
+            queue_person_training_deletion(team_id, person.distinct_ids)
+        except Exception as exc:
+            consecutive_failures += 1
+            gave_up = consecutive_failures >= _TRAINING_DELETION_FALLBACK_FAILURE_LIMIT
+            _record_step_failure(
+                failures,
+                step=PersonDeletionStep.QUEUE_TRAINING_DELETION,
+                team_id=team_id,
+                exc=exc,
+                person_uuids=[p.uuid for p in (persons[index:] if gave_up else [person])],
+            )
+            if gave_up:
+                break
+            continue
+        consecutive_failures = 0
+        queued.append(person)
+    return queued
+
+
 def _run_queued_deletion_steps(
     team_id: int,
     persons: builtins.list[Person],
@@ -298,26 +350,11 @@ def _run_queued_deletion_steps(
     """Run the requested steps for persons whose distinct IDs are loaded; returns how many were deleted.
 
     A person that fails a step is left out of every later step, so a retry redoes that person
-    alone. Training deletion is queued per person for that reason: one person whose session
-    lookup keeps failing must not block the profile delete of everyone else in the batch.
+    alone.
     """
     eligible = list(persons)
     if options.delete_profile or options.delete_recordings:
-        queued: builtins.list[Person] = []
-        for person in eligible:
-            try:
-                queue_person_training_deletion(team_id, person.distinct_ids)
-            except Exception as exc:
-                _record_step_failure(
-                    failures,
-                    step=PersonDeletionStep.QUEUE_TRAINING_DELETION,
-                    team_id=team_id,
-                    exc=exc,
-                    person_uuids=[person.uuid],
-                )
-                continue
-            queued.append(person)
-        eligible = queued
+        eligible = _queue_training_deletion_isolating_failures(team_id, eligible, failures)
     if options.delete_recordings and eligible:
         try:
             queue_person_recording_deletion(team_id, eligible, actor=options.actor, queue_ai_training_deletion=False)

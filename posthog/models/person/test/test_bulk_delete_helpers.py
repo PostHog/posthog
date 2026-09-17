@@ -374,16 +374,40 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
             )
         assert result.deleted_count == 3
         assert result.failures == []
-        # p1 and p2 fill the cap together; p3 runs in a second, smaller batch. Training deletion is per person.
+        # p1 and p2 fill the cap together; p3 runs in a second, smaller batch. Training deletion is one call per batch.
         assert [[person.uuid for person in call.args[1]] for call in pg_delete.call_args_list] == [
             [p1.uuid, p2.uuid],
             [p3.uuid],
         ]
         assert [sorted(call.args[1]) for call in training.call_args_list] == [
-            ["a1", "a2", "a3"],
-            ["b1", "b2", "b3"],
+            ["a1", "a2", "a3", "b1", "b2", "b3"],
             ["c1"],
         ]
+
+    def test_stops_isolating_training_failures_after_repeated_failures(self):
+        persons = [create_person(team=self.team, distinct_ids=[f"d{i}"], properties={}) for i in range(5)]
+        with (
+            patch(
+                "posthog.models.person.bulk_delete.queue_person_training_deletion", side_effect=RuntimeError("down")
+            ) as training,
+            patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
+            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
+        ):
+            result = process_queued_person_deletion(
+                self.team.pk,
+                [str(p.uuid) for p in persons],
+                delete_profile=True,
+                delete_recordings=False,
+                actor=self.user,
+                was_impersonated=False,
+                organization_id=self.organization.id,
+            )
+        # One flattened call, then per-person calls until the breaker trips; nobody is deleted.
+        assert training.call_count == 1 + 3
+        assert sorted(f.person_uuid for f in result.failures) == sorted(p.uuid for p in persons)
+        assert {f.step for f in result.failures} == {PersonDeletionStep.QUEUE_TRAINING_DELETION}
+        ch_delete.assert_not_called()
+        pg_delete.assert_not_called()
 
     def test_failed_training_deletion_for_one_person_does_not_block_the_others(self):
         p1 = create_person(team=self.team, distinct_ids=["bad"], properties={})
