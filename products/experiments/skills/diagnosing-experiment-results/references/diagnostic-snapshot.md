@@ -131,7 +131,7 @@ Two cautions:
   reporting "many metrics failing"; jumping straight to "prune metrics / overloaded refresh" from one
   snapshot is a known false positive.
 - **Backend results health ≠ the user's in-app loading experience.** `experiment-results-get` computing
-  cleanly (even on force-refresh) does not prove the results _page_ loads for the user — a browser
+  cleanly does not prove the results _page_ loads for the user — a browser
   rendering many metrics on demand can still time out client-side. If the complaint is "results won't
   load" but the API computes fine, the issue is front-end / on-demand-render, not the metric queries;
   don't report it as a query failure.
