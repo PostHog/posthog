@@ -28,12 +28,17 @@ import {
 // A session's gate markers only need to outlive the session itself.
 const SESSION_CACHE_TTL_SECONDS = 24 * 60 * 60
 
+type AnalyticsIdentity = {
+    distinctId: string
+    isImpersonated: boolean
+}
+
 export class RequestContext {
     private tokenCacheInstance: RedisCache<State> | undefined
     private userCacheInstance: RedisCache<State> | undefined
     private apiInstance: ApiClient | undefined
     private sessionManagerInstance: SessionManager | undefined
-    private distinctIdPromise: Promise<string> | undefined
+    private analyticsIdentityPromise: Promise<AnalyticsIdentity> | undefined
     private readonly redis: RedisLike
     private readonly env: Env
     private readonly props: RequestProperties
@@ -145,25 +150,39 @@ export class RequestContext {
         return this.getSessionUuid(requestContext.sessionId ?? requestContext.mcpSessionId)
     }
 
-    getDistinctId(): Promise<string> {
-        if (!this.distinctIdPromise) {
-            this.distinctIdPromise = this.resolveDistinctId()
+    private getAnalyticsIdentity(): Promise<AnalyticsIdentity> {
+        if (!this.analyticsIdentityPromise) {
+            this.analyticsIdentityPromise = this.resolveAnalyticsIdentity()
         }
-        return this.distinctIdPromise
+        return this.analyticsIdentityPromise
     }
 
-    private async resolveDistinctId(): Promise<string> {
-        const cached = await this.tokenCache.get('distinctId')
-        if (cached) {
-            return cached
+    private async resolveAnalyticsIdentity(): Promise<AnalyticsIdentity> {
+        const [distinctId, isImpersonated] = await Promise.all([
+            this.tokenCache.get('distinctId'),
+            this.tokenCache.get('isImpersonated'),
+        ])
+        if (distinctId && typeof isImpersonated === 'boolean') {
+            return { distinctId, isImpersonated }
         }
         const userResult = await (await this.api()).users().me()
         if (!userResult.success) {
             throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
         }
-        const distinctId = userResult.data.distinct_id as string
-        await this.tokenCache.set('distinctId', distinctId)
-        return distinctId
+        const identity = {
+            distinctId: userResult.data.distinct_id,
+            isImpersonated: userResult.data.is_impersonated === true,
+        }
+        await this.tokenCache.setMany(identity)
+        return identity
+    }
+
+    async getDistinctId(): Promise<string> {
+        return (await this.getAnalyticsIdentity()).distinctId
+    }
+
+    async isImpersonated(): Promise<boolean> {
+        return (await this.getAnalyticsIdentity()).isImpersonated
     }
 
     async getContext(): Promise<Context> {

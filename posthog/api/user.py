@@ -431,7 +431,7 @@ class UserSerializer(serializers.ModelSerializer):
     def get_is_impersonated(self, _) -> Optional[bool]:
         if "request" not in self.context:
             return None
-        return is_impersonated_session(self.context["request"])
+        return is_impersonated(self.context["request"])
 
     def get_is_impersonated_until(self, _) -> Optional[str]:
         if "request" not in self.context or not is_impersonated_session(self.context["request"]):

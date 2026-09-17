@@ -23,6 +23,7 @@ export type State = {
     projectId: string | undefined
     orgId: string | undefined
     distinctId: string | undefined
+    isImpersonated: boolean | undefined
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
     clientName: string | undefined

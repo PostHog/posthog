@@ -210,38 +210,59 @@ describe('RequestContext', () => {
     })
 
     describe('getDistinctId', () => {
-        it('deduplicates concurrent calls into a single API request', async () => {
-            mockMe.mockResolvedValue({ success: true, data: { distinct_id: 'user-123' } })
+        it('deduplicates identity and impersonation checks into a single API request', async () => {
+            mockMe.mockResolvedValue({ success: true, data: { distinct_id: 'user-123', is_impersonated: true } })
             const ctx = new RequestContext(fakeRedis(), env, makeProps())
 
-            const [a, b, c] = await Promise.all([ctx.getDistinctId(), ctx.getDistinctId(), ctx.getDistinctId()])
+            const [a, b, c] = await Promise.all([ctx.getDistinctId(), ctx.getDistinctId(), ctx.isImpersonated()])
 
             expect(a).toBe('user-123')
             expect(b).toBe('user-123')
-            expect(c).toBe('user-123')
+            expect(c).toBe(true)
             expect(mockMe).toHaveBeenCalledTimes(1)
         })
 
-        it('returns cached distinctId without calling API', async () => {
+        it.each([true, false])(
+            'returns cached identity with impersonation %s without calling API',
+            async (impersonated) => {
+                const redis = fakeRedis()
+                await redis.set('mcp:token:test-user:distinctId', JSON.stringify('cached-id'))
+                await redis.set('mcp:token:test-user:isImpersonated', JSON.stringify(impersonated))
+                mockMe.mockClear()
+
+                const ctx = new RequestContext(redis, env, makeProps())
+                const result = await ctx.getDistinctId()
+
+                expect(result).toBe('cached-id')
+                expect(await ctx.isImpersonated()).toBe(impersonated)
+                expect(mockMe).not.toHaveBeenCalled()
+            }
+        )
+
+        it('refreshes cached identities that have no impersonation status', async () => {
+            mockMe.mockResolvedValueOnce({ success: true, data: { distinct_id: 'fresh-id', is_impersonated: true } })
             const redis = fakeRedis()
-            await redis.set('mcp:token:test-user:distinctId', JSON.stringify('cached-id'))
-            mockMe.mockClear()
-
-            const ctx = new RequestContext(redis, env, makeProps())
-            const result = await ctx.getDistinctId()
-
-            expect(result).toBe('cached-id')
-            expect(mockMe).not.toHaveBeenCalled()
-        })
-
-        it('caches the resolved distinctId for subsequent calls', async () => {
-            mockMe.mockResolvedValueOnce({ success: true, data: { distinct_id: 'fresh-id' } })
-            const redis = fakeRedis()
+            await redis.set('mcp:token:test-user:distinctId', JSON.stringify('fresh-id'))
             const ctx = new RequestContext(redis, env, makeProps())
 
             await ctx.getDistinctId()
-            const cached = await redis.get('mcp:token:test-user:distinctId')
-            expect(JSON.parse(cached!)).toBe('fresh-id')
+            const nextRequest = new RequestContext(redis, env, makeProps())
+            expect(await nextRequest.getDistinctId()).toBe('fresh-id')
+            expect(await nextRequest.isImpersonated()).toBe(true)
+        })
+
+        it('keeps impersonation status separate for tokens belonging to the same user', async () => {
+            const redis = fakeRedis()
+            mockMe.mockResolvedValueOnce({ success: true, data: { distinct_id: 'user-123', is_impersonated: true } })
+            const supportRequest = new RequestContext(redis, env, makeProps({ userHash: 'support-token' }))
+            expect(await supportRequest.isImpersonated()).toBe(true)
+
+            mockMe.mockResolvedValueOnce({ success: true, data: { distinct_id: 'user-123', is_impersonated: false } })
+            const userRequest = new RequestContext(redis, env, makeProps({ userHash: 'user-token' }))
+            expect(await userRequest.isImpersonated()).toBe(false)
+            expect(
+                await new RequestContext(redis, env, makeProps({ userHash: 'support-token' })).isImpersonated()
+            ).toBe(true)
         })
 
         it('throws when API returns an error', async () => {
