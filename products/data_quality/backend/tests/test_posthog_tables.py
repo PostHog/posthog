@@ -25,15 +25,15 @@ class TestPostHogTableRegistry:
         assert by_id("not-a-uuid") is None
         assert by_name("orders") is None
 
-    def test_columns_include_the_joined_relations_a_check_can_reach_through(self) -> None:
+    def test_columns_leave_out_the_joins_a_check_cannot_select(self) -> None:
         events = by_name("events")
         persons = by_name("persons")
         assert events is not None and persons is not None
 
         assert events.columns["timestamp"] == "datetime"
-        assert events.columns["person"] == "field_traverser"
-        assert events.columns["pdi"] == "lazy_table"
         assert persons.columns["properties"] == "json"
+        for join in ("person", "pdi", "poe", "goe_0", "session"):
+            assert join not in events.columns
 
     def test_an_id_the_registry_does_not_know_resolves_to_a_missing_subject(self) -> None:
         missing = resolve_subject(1, SubjectType.POSTHOG_TABLE, uuid4())
