@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
@@ -182,23 +183,34 @@ export function WorkflowsTable(): JSX.Element {
                         <span className="font-semibold text-sm text-muted">{item.name}</span>
                     </Tooltip>
                 ) : (
-                    <div className="flex items-center gap-2">
-                        <LemonTableLink
-                            to={urls.workflow(item.id, 'workflow')}
-                            title={item.name}
-                            description={item.description}
-                            truncateDescription
-                        />
-                        {selfOptimisingEnabled && !!item.pending_suggestions && (
-                            <Link to={urls.workflow(item.id, 'suggestions')} data-attr="workflow-list-suggestions">
-                                <LemonTag type="completion">
-                                    {item.pending_suggestions === 1
-                                        ? '1 suggestion'
-                                        : `${item.pending_suggestions} suggestions`}
-                                </LemonTag>
-                            </Link>
-                        )}
-                    </div>
+                    <LemonTableLink
+                        to={urls.workflow(item.id, 'workflow')}
+                        title={
+                            <span className="flex items-center gap-2 flex-wrap">
+                                {item.name}
+                                {selfOptimisingEnabled &&
+                                    !!item.pending_suggestions && (
+                                        // Inside the title so it sits next to the name whatever the description's width.
+                                        // A tag with its own click rather than a link: the row is already a link.
+                                        <LemonTag
+                                            type="completion"
+                                            data-attr="workflow-list-suggestions"
+                                            onClick={(event) => {
+                                                event.preventDefault()
+                                                event.stopPropagation()
+                                                router.actions.push(urls.workflow(item.id, 'suggestions'))
+                                            }}
+                                        >
+                                            {item.pending_suggestions === 1
+                                                ? '1 suggestion'
+                                                : `${item.pending_suggestions} suggestions`}
+                                        </LemonTag>
+                                    )}
+                            </span>
+                        }
+                        description={item.description}
+                        truncateDescription
+                    />
                 )
             },
         },
