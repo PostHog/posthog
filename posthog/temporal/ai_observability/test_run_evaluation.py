@@ -19,7 +19,6 @@ from posthog.api.capture import CaptureInternalError
 from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
-from posthog.temporal.common.errors import NonReportableError
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
@@ -43,7 +42,7 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from .evaluation_llm_judge import JUDGE_EVENT_MAX_CHARS, _execute_llm_judge_activity
+from .evaluation_llm_judge import JUDGE_EVENT_MAX_CHARS, TransientJudgeError, _execute_llm_judge_activity
 from .evaluation_workflow_activities import LocalEvaluationOutcome, backfill_verdict_timestamp
 from .run_evaluation import (
     BooleanEvalResult,
@@ -1752,19 +1751,18 @@ class TestRunEvaluationWorkflow:
             mock_logger.exception.assert_not_called()
 
     @pytest.mark.parametrize(
-        "raised_exception, expected_raised, expect_captured",
+        "raised_exception, expected_raised",
         [
-            pytest.param(ProviderConnectionError("connection reset"), NonReportableError, False, id="connection_error"),
-            pytest.param(CancelledError("Cancelled"), CancelledError, False, id="cancellation"),
-            pytest.param(RuntimeError("boom"), RuntimeError, True, id="unhandled_error"),
+            pytest.param(ProviderConnectionError("connection reset"), TransientJudgeError, id="connection_error"),
+            pytest.param(CancelledError("Cancelled"), CancelledError, id="cancellation"),
+            pytest.param(RuntimeError("boom"), RuntimeError, id="unhandled_error"),
         ],
     )
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_reports_only_actionable_errors(
+    def test_execute_llm_judge_activity_leaves_error_capture_to_the_interceptor(
         self,
         raised_exception: Exception,
         expected_raised: type[Exception],
-        expect_captured: bool,
         setup_data,
         active_key_config,
     ):
@@ -1795,7 +1793,7 @@ class TestRunEvaluationWorkflow:
             with pytest.raises(expected_raised):
                 execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
-            assert mock_capture_exception.called is expect_captured
+            mock_capture_exception.assert_not_called()
 
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_terminal_team_requires_provider_key(self, setup_data):

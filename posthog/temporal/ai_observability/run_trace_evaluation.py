@@ -46,7 +46,6 @@ from posthog.temporal.ai_observability.evaluation_hog import (
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
     LLM_JUDGE_RETRY_POLICY,
     call_llm_judge,
-    capture_judge_exceptions,
     get_output_type_config,
 )
 from posthog.temporal.ai_observability.evaluation_payload import (
@@ -552,8 +551,9 @@ def build_trace_hog_globals(trace: LLMTrace, trace_id: str, *, bytecode: list[An
 
 @temporalio.activity.defn
 @close_db_connections
+# capture_exceptions=False: the worker interceptor reports judge failures, and its capture carries
+# the team and evaluation ids. A capture inside the activity wins the SDK's dedupe and loses them.
 @posthoganalytics.scoped(capture_exceptions=False)
-@capture_judge_exceptions
 def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> EvaluationActivityResult:
     """Fetch the whole trace and run the LLM judge over its transcript.
 
