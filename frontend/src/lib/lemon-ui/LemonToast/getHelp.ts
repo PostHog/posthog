@@ -4,11 +4,11 @@ export type GetHelpAction = () => void
  * Where people without in-app support end up: self-hosted instances, the toolbar, the exporter.
  * The docs page lists the channels open to each plan; posthog.com/support sells the support product.
  */
-export const openSupportOptions: GetHelpAction = () => {
+export function openSupportOptions(utmCampaign: string = 'error-toast'): void {
     // `noopener` because window.open, unlike an <a target="_blank">, leaves window.opener reachable
     // by the opened page.
     window.open(
-        'https://posthog.com/docs/support-options?utm_medium=in-product&utm_campaign=error-toast',
+        `https://posthog.com/docs/support-options?utm_medium=in-product&utm_campaign=${utmCampaign}`,
         '_blank',
         'noopener'
     )
