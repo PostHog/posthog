@@ -114,6 +114,27 @@ class DeletePersonsProfileTests(BaseTest):
         assert ch_delete.call_args.kwargs["distinct_ids"] is None
         pg_delete.assert_called_once_with(self.team.pk, [p])
 
+    def test_reports_a_failed_postgres_delete_per_person_instead_of_raising(self):
+        p1 = create_person(team=self.team, distinct_ids=["a"], properties={})
+        p2 = create_person(team=self.team, distinct_ids=["b"], properties={})
+        with (
+            patch("posthog.models.person.bulk_delete.delete_person"),
+            patch(
+                "posthog.models.person.bulk_delete.delete_persons_from_postgres",
+                side_effect=RuntimeError("personhog down"),
+            ),
+        ):
+            result = delete_persons_profile(
+                self.team.pk, [p1, p2], actor=self.user, organization_id=self.organization.id
+            )
+        assert result.deleted_count == 0
+        assert [(f.step, f.person_uuid) for f in result.failures] == [
+            (PersonDeletionStep.DELETE_POSTGRES, p1.uuid),
+            (PersonDeletionStep.DELETE_POSTGRES, p2.uuid),
+        ]
+        assert result.errors == [p1.uuid, p2.uuid]
+        assert not ActivityLog.objects.filter(team_id=self.team.pk, scope="Person").exists()
+
     def test_collects_errors_and_skips_failed_persons_in_pg_batch(self):
         p1 = create_person(team=self.team, distinct_ids=["a"], properties={})
         p2 = create_person(team=self.team, distinct_ids=["b"], properties={})
