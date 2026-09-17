@@ -3,7 +3,12 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { registerCliConfirmedActionRuntime, STATE_DIR_ENV_VAR } from '@/cli/confirmed-action'
+import {
+    HOME_ENV_VAR,
+    registerCliConfirmedActionRuntime,
+    resolveCliStateDir,
+    STATE_DIR_ENV_VAR,
+} from '@/cli/confirmed-action'
 import { getConfirmedActionRuntime, setConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
     CONFIRMATION_HASH_ARG,
@@ -114,5 +119,26 @@ describe('CLI confirmed-action runtime', () => {
         expect(() => getConfirmedActionRuntime()).not.toThrowError(
             expect.objectContaining({ message: expect.stringContaining('MCP_SIGNED_STATE_KEY') })
         )
+    })
+
+    it('keeps its files under a redirected POSTHOG_HOME', async () => {
+        const home = path.join(stateDir, 'posthog-home')
+        setConfirmedActionRuntime(undefined)
+        registerCliConfirmedActionRuntime({ [HOME_ENV_VAR]: home } as NodeJS.ProcessEnv)
+
+        getConfirmedActionRuntime()
+
+        expect(await fs.readdir(path.join(home, 'cli'))).toEqual(
+            expect.arrayContaining(['confirmed-action-key', 'confirmed-actions'])
+        )
+    })
+
+    it('prefers the explicit state directory over POSTHOG_HOME', () => {
+        const resolved = resolveCliStateDir({
+            [STATE_DIR_ENV_VAR]: stateDir,
+            [HOME_ENV_VAR]: path.join(stateDir, 'posthog-home'),
+        } as NodeJS.ProcessEnv)
+
+        expect(resolved).toBe(stateDir)
     })
 })

@@ -32,12 +32,25 @@ import { type ConfirmedActionRuntime, setConfirmedActionRuntimeProvider } from '
 import { errorCode } from './utils'
 
 export const STATE_DIR_ENV_VAR = 'POSTHOG_CLI_STATE_DIR'
+export const HOME_ENV_VAR = 'POSTHOG_HOME'
 
 const KEY_FILE_NAME = 'confirmed-action-key'
 const STORE_DIR_NAME = 'confirmed-actions'
 
+/**
+ * `POSTHOG_HOME` is the CLI's existing home contract. The Rust wrapper keeps
+ * the credentials and the API bundle under it, and falls back to `~/.posthog`
+ * (`cli/src/utils/homedir.rs`). It also tells a user whose home directory
+ * refuses writes to point that variable at a writable directory, so the
+ * confirmation state must follow it instead of staying under the real home
+ * directory.
+ */
 export function resolveCliStateDir(env: NodeJS.ProcessEnv = process.env): string {
-    return env[STATE_DIR_ENV_VAR] || path.join(os.homedir(), '.posthog', 'cli')
+    const explicit = env[STATE_DIR_ENV_VAR]
+    if (explicit) {
+        return explicit
+    }
+    return path.join(env[HOME_ENV_VAR] || path.join(os.homedir(), '.posthog'), 'cli')
 }
 
 /**
