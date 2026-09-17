@@ -1504,6 +1504,37 @@ describe('Hog Executor', () => {
             expect(result.invocation.queueScheduledAt).toBeUndefined()
         })
 
+        // A destination shedding load reports when it expects to be back. The extra attempts stay
+        // reserved for a rate limit, so only the schedule changes here.
+        it('waits the interval a destination shedding load asked for, on the general budget', async () => {
+            mockRequest.mockImplementation((req: any, res: any) => {
+                res.writeHead(503, { 'Content-Type': 'text/plain', 'Retry-After': '120' })
+                res.end('Service unavailable')
+            })
+
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'POST',
+                body: 'test body',
+            })
+
+            let result = await executor.executeFetch(invocation)
+
+            // 120s from the destination rather than the 1s first backoff step, plus jitter
+            expect(result.invocation.queueScheduledAt?.toISO()).toMatchInlineSnapshot(`"2025-01-01T00:02:15.000Z"`)
+
+            const maxRetries = executor['config'].fetchRetries
+
+            for (let attempt = 1; attempt < maxRetries; attempt++) {
+                expect(result.error).toBeUndefined()
+                expect(result.invocation.state.attempts).toBe(attempt)
+                result = await executor.executeFetch(result.invocation)
+            }
+
+            expect(result.error.message).toContain(`HTTP fetch failed on attempt ${maxRetries}`)
+            expect(result.invocation.queueScheduledAt).toBeUndefined()
+        })
+
         it('sets result.error after retries are exhausted', async () => {
             mockRequest.mockImplementation((req: any, res: any) => {
                 res.writeHead(500, { 'Content-Type': 'text/plain' })

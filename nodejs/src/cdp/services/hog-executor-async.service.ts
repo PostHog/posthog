@@ -528,9 +528,12 @@ export class HogExecutorAsyncService {
 
             // A rate-limited provider keeps refusing until its window rolls over, so the few
             // general-purpose attempts all land inside that same window and the delivery is lost.
-            // Wait as long as the provider asked, and give it more attempts to get through.
+            // Wait as long as the provider asked, and give it more attempts to get through. A
+            // destination shedding load answers 503 with the same header, so honor the interval
+            // there too, on the general budget the extra attempts were not raised for.
             const isRateLimited = fetchResponse?.status === 429
-            const retryAfterMs = isRateLimited ? parseRetryAfterMs(fetchResponse) : undefined
+            const honorsRetryAfter = isRateLimited || fetchResponse?.status === 503
+            const retryAfterMs = honorsRetryAfter ? parseRetryAfterMs(fetchResponse) : undefined
             const retryAt = getNextRetryTime(
                 this.config.fetchBackoffBaseMs,
                 this.config.fetchBackoffMaxMs,
