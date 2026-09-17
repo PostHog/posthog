@@ -1549,16 +1549,16 @@ def fork_canvas(
         forked_from_canvas_id=source.id,
         forked_from_version_id=version.id,
     )
-    key, digest, size = upload_source_project(team_id, fork.id, project)
+    source_upload = upload_source_project(team_id, fork.id, project)
 
     with transaction.atomic(), team_scope(team_id):
         fork = _claim_canvas_head(fork, has_expected_version=False, expected_version_id=None)
         fork_version = CanvasSourceVersion.objects.create(
             team_id=team_id,
             canvas=fork,
-            source_hash=digest,
-            source_object_key=key,
-            source_size=size,
+            source_hash=source_upload.digest,
+            source_object_key=source_upload.key,
+            source_size=source_upload.size,
             prompt="Copied from a shared canvas",
             created_by=created_by,
             capabilities=capabilities,

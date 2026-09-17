@@ -830,7 +830,7 @@ class SharingConfigurationViewSet(
 
         canvas = cast(Canvas | None, context.get("canvas"))
         if canvas is not None and request.data.get("enabled"):
-            if not canvas_is_shareable(canvas):
+            if not canvas_is_shareable(kind=canvas.kind, deleted=canvas.deleted):
                 raise ValidationError("This kind of canvas can't be shared publicly yet.")
             # A public link is a capture of a published build, so there has to be one to capture.
             if not canvas_has_ready_build(canvas):
@@ -1373,7 +1373,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         team_id=resource.team_id, user_id=viewer.id, canvas_id=resource.canvas_id
                     )
                 ):
-                    open_path = canvas_app_path(resource.canvas)
+                    open_path = canvas_app_path(channel_id=resource.canvas.channel_id, canvas_id=resource.canvas.id)
                     if access_level_satisfied_for_resource("canvas", access_level, "editor"):
                         sharing_api_path = f"/api/projects/{resource.team_id}/canvases/{resource.canvas_id}/sharing"
             elif resource.task_artifact is not None:
@@ -1944,7 +1944,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             # Inline cohorts referenced by any saved insights embedded in the notebook so the
             # shared viewer doesn't need to hit /api/cohorts/ (which it can't authenticate against).
             exported_data.update({"cohorts": _collect_cohorts_for_sharing(referenced_insights, resource.team)})
-        elif isinstance(resource, SharingConfiguration) and resource.canvas and canvas_is_shareable(resource.canvas):
+        elif (
+            isinstance(resource, SharingConfiguration)
+            and resource.canvas
+            and canvas_is_shareable(kind=resource.canvas.kind, deleted=resource.canvas.deleted)
+        ):
             asset_title = resource.canvas.name or "Canvas"
             asset_description = resource.canvas.description or ""
             # The payload carries a freshly signed artifact URL, so it is only built here, after

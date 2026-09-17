@@ -5,6 +5,9 @@ other surface that reads canvases has to apply the same rule: a canvas denied on
 API must not leak its history, its discussion, or its contract through a side door.
 """
 
+from collections.abc import Collection
+from uuid import UUID
+
 from django.db.models import QuerySet
 
 from posthog.models.team import Team
@@ -34,3 +37,15 @@ def filter_canvases_by_access_level_for_user_id(
     """`filter_canvases_by_access_level` for callers that carry a user id rather than a user."""
     user = User.objects.filter(id=user_id).first() if user_id is not None else None
     return filter_canvases_by_access_level(canvases, team_id, user)
+
+
+def readable_canvas_ids(canvas_ids: Collection[UUID | str], team_id: int, user_id: int | None) -> set[str]:
+    """The ids in `canvas_ids` the user's per-object rules let them read, as strings.
+
+    Ids in and ids out, so a caller across a product boundary never holds a canvas row.
+    """
+    if not canvas_ids:
+        return set()
+    canvases = Canvas.objects.for_team(team_id).filter(id__in=canvas_ids)
+    readable = filter_canvases_by_access_level_for_user_id(canvases, team_id, user_id)
+    return {str(canvas_id) for canvas_id in readable.values_list("id", flat=True)}
