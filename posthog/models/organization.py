@@ -673,17 +673,28 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
 
 
 @receiver(models.signals.pre_save, sender=Organization)
-def remember_organization_is_active_change(sender, instance: Organization, **kwargs):
+def remember_organization_field_changes(sender, instance: Organization, **kwargs):
     instance._is_active_changed = False
+    instance._has_active_subscription_changed = False
     if instance._state.adding:
         return
 
+    tracked_fields = {"is_active", "has_active_subscription"}
     update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "is_active" not in update_fields:
-        return
+    if update_fields is not None:
+        tracked_fields &= set(update_fields)
+        if not tracked_fields:
+            return
 
-    previous_is_active = sender.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
-    instance._is_active_changed = previous_is_active != instance.is_active
+    previous = sender.objects.filter(pk=instance.pk).values("is_active", "has_active_subscription").first()
+    if previous is None:
+        return
+    if "is_active" in tracked_fields:
+        instance._is_active_changed = previous["is_active"] != instance.is_active
+    if "has_active_subscription" in tracked_fields:
+        instance._has_active_subscription_changed = (
+            previous["has_active_subscription"] != instance.has_active_subscription
+        )
 
 
 @receiver(post_save, sender=Organization)

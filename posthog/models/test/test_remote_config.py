@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -179,6 +179,39 @@ class TestRemoteConfig(_RemoteConfigBase):
             "urlAllowlist": ["https://example.com/pricing"],
             "urlAllowlistEnforced": True,
         }
+
+    def test_heatmaps_config_clamps_downgraded_org_to_allowlist(self):
+        from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
+
+        self.team.heatmaps_opt_in = True
+        self.team.save()
+        TeamHeatmapConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"capture_mode": "all", "capture_url_allowlist": [f"https://example.com/{i}" for i in range(4)]},
+        )
+        self.team.organization.has_active_subscription = False
+        self.team.organization.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["heatmaps"] == {
+            "captureMode": "url_allowlist",
+            "urlAllowlist": [],
+            "urlAllowlistEnforced": False,
+        }
+
+    def test_subscription_change_rebuilds_heatmaps_enabled_teams(self):
+        self.team.heatmaps_opt_in = True
+        self.team.save()
+        with patch("posthog.models.remote_config._update_team_remote_config") as mock_rebuild:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.organization.has_active_subscription = False
+                self.organization.save()
+            assert mock_rebuild.call_args_list == [call(self.team.id)]
+
+            mock_rebuild.reset_mock()
+            with self.captureOnCommitCallbacks(execute=True):
+                self.organization.name = "Renamed"
+                self.organization.save()
+            assert not mock_rebuild.called
 
     @parameterized.expand([("firebase", True), ("apns", True), ("slack", False)])
     def test_only_push_integrations_schedule_a_config_rebuild(self, kind, expects_rebuild):

@@ -36,13 +36,12 @@ export interface HeatmapCaptureSettingsApi {
      *
      * * `all` - All URLs
      * * `url_allowlist` - Only listed URLs */
-    capture_mode?: TeamHeatmapConfigCaptureModeEnumApi
+    capture_mode: TeamHeatmapConfigCaptureModeEnumApi
     /**
      * Full http(s) URLs that may send heatmap data. Use * to match any characters.
-     * @maxItems 100
      * @items.maxLength 2000
      */
-    url_allowlist?: string[]
+    url_allowlist: string[]
     /** Whether this installation enforces the URL allow-list for heatmap capture. */
     readonly enforcement_enabled: boolean
     /** Whether this organization's plan may capture heatmaps on every page. */

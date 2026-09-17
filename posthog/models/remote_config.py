@@ -603,6 +603,19 @@ def heatmap_config_saved(sender, instance, created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
+@receiver(post_save, sender="posthog.Organization")
+def organization_subscription_saved(sender, instance, created, **kwargs):
+    if created or not getattr(instance, "_has_active_subscription_changed", False):
+        return
+    team_ids = list(Team.objects.filter(organization_id=instance.pk, heatmaps_opt_in=True).values_list("id", flat=True))
+
+    def rebuild_heatmaps_enabled_teams() -> None:
+        for team_id in team_ids:
+            _update_team_remote_config(team_id)
+
+    transaction.on_commit(rebuild_heatmaps_enabled_teams)
+
+
 @receiver(post_save, sender="posthog.Integration")
 @receiver(post_delete, sender="posthog.Integration")
 def push_integration_changed(sender, instance, **kwargs):
