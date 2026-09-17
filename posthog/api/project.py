@@ -60,6 +60,7 @@ from posthog.api.team import (
 )
 from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
+from posthog.caching.organization_serializer_cache import invalidate_organization_serializer_cache
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
@@ -2182,6 +2183,11 @@ class ProjectViewSet(
                 )
 
             self._reconcile_current_project_of_affected_users(teams, target_organization)
+
+            # The cache receivers only bump the organization each saved row now belongs to, so
+            # without this the source organization keeps serving a payload that still lists the
+            # project it just lost.
+            invalidate_organization_serializer_cache(str(current_organization.id))
 
         report_user_action(
             user,

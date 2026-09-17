@@ -29578,6 +29578,21 @@ export namespace Schemas {
       push_count: number;
     }
 
+    export interface DepartedProject {
+      /** ID of the project that left this organization. */
+      project_id: number;
+      /** Current name of the project that left. */
+      project_name: string;
+      /** ID of the organization that now holds the project. */
+      target_organization_id: string;
+      /** Name of the organization that now holds the project. */
+      target_organization_name: string;
+      /** Whether the requesting user is a member of the organization that now holds the project. */
+      target_organization_accessible: boolean;
+      /** When the project left this organization. */
+      moved_at: string;
+    }
+
     export interface DependentFlag {
       /** Feature flag ID */
       id: number;

@@ -1,10 +1,12 @@
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from functools import cached_property
 from typing import Any, Literal, Union, cast
 
 from django.db import transaction
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
@@ -37,9 +39,11 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import validate_display_name
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, verified_domain_email_q
 from posthog.models import Organization, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.project import Project
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -482,6 +486,24 @@ class OrganizationDataFreshnessSerializer(serializers.Serializer):
     )
 
 
+# A departure is only worth reporting while the person who lost the project is still looking for it
+DEPARTED_PROJECTS_WINDOW = timedelta(days=30)
+DEPARTED_PROJECTS_LIMIT = 5
+# A project can move out several times in the window, so read more rows than we report
+DEPARTED_PROJECTS_SCAN_LIMIT = 20
+
+
+class DepartedProjectSerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(help_text="ID of the project that left this organization.")
+    project_name = serializers.CharField(help_text="Current name of the project that left.")
+    target_organization_id = serializers.UUIDField(help_text="ID of the organization that now holds the project.")
+    target_organization_name = serializers.CharField(help_text="Name of the organization that now holds the project.")
+    target_organization_accessible = serializers.BooleanField(
+        help_text="Whether the requesting user is a member of the organization that now holds the project."
+    )
+    moved_at = serializers.DateTimeField(help_text="When the project left this organization.")
+
+
 @extend_schema(extensions={"x-product": "platform_features"})
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
@@ -784,3 +806,67 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 }
             ).data
         )
+
+    @extend_schema(request=None, responses={200: DepartedProjectSerializer(many=True)})
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="departed_projects",
+        pagination_class=None,
+        # A scope is only derived for `list` and `retrieve`, so without this the action reaches
+        # APIScopePermission with no required scope and every personal API key is rejected.
+        required_scopes=["organization:read"],
+    )
+    def departed_projects(self, request: Request, **kwargs) -> Response:
+        """Projects that moved out of this organization recently, and where they are now.
+
+        An organization that just lost its last project shows no trace of the move, because activity
+        views sit behind a project route. This answers "where did it go?" from the organization the
+        project left.
+        """
+        organization = self.organization
+        user = cast(User, request.user)
+
+        entries = ActivityLog.objects.filter(
+            organization_id=organization.id,
+            team_id__isnull=True,
+            scope="Project",
+            activity="updated",
+            created_at__gte=timezone.now() - DEPARTED_PROJECTS_WINDOW,
+            # Matches the org-scoped partial indexes, which only cover rows that carry a detail object
+            detail__isnull=False,
+            detail__contains={"changes": [{"field": "organization_id", "before": str(organization.id)}]},
+        ).order_by("-created_at")[:DEPARTED_PROJECTS_SCAN_LIMIT]
+
+        moved_at_by_project_id: dict[int, datetime] = {}
+        for entry in entries:
+            if entry.item_id is None or not str(entry.item_id).isdigit():
+                continue
+            # Entries come newest first, so the first one seen is the most recent departure
+            moved_at_by_project_id.setdefault(int(entry.item_id), entry.created_at)
+
+        # Read the destination off the project itself rather than off the log entry, so a project
+        # that moved on again, or came back, reports where it actually is now
+        projects_by_id = {
+            project.id: project
+            for project in Project.objects.filter(id__in=moved_at_by_project_id)
+            .exclude(organization_id=organization.id)
+            .select_related("organization")
+        }
+        accessible_organization_ids = set(user.organizations.values_list("id", flat=True))
+
+        departures = [
+            {
+                "project_id": project_id,
+                "project_name": projects_by_id[project_id].name,
+                "target_organization_id": projects_by_id[project_id].organization_id,
+                "target_organization_name": projects_by_id[project_id].organization.name,
+                "target_organization_accessible": projects_by_id[project_id].organization_id
+                in accessible_organization_ids,
+                "moved_at": moved_at,
+            }
+            # `moved_at_by_project_id` is already newest first, so the response needs no sorting
+            for project_id, moved_at in list(moved_at_by_project_id.items())[:DEPARTED_PROJECTS_LIMIT]
+            if project_id in projects_by_id
+        ]
+        return Response(DepartedProjectSerializer(departures, many=True).data)

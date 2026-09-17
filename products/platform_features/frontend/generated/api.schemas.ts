@@ -262,6 +262,21 @@ export interface PatchedOrganizationApi {
     readonly is_pending_deletion?: boolean | null
 }
 
+export interface DepartedProjectApi {
+    /** ID of the project that left this organization. */
+    project_id: number
+    /** Current name of the project that left. */
+    project_name: string
+    /** ID of the organization that now holds the project. */
+    target_organization_id: string
+    /** Name of the organization that now holds the project. */
+    target_organization_name: string
+    /** Whether the requesting user is a member of the organization that now holds the project. */
+    target_organization_accessible: boolean
+    /** When the project left this organization. */
+    moved_at: string
+}
+
 export interface OrganizationRemoveBlockedMembersResponseApi {
     /** Whether verified-domain enforcement was turned on. */
     success: boolean

@@ -23,6 +23,7 @@ import type {
     CommentApi,
     CommentSlackThreadApi,
     CommentsListParams,
+    DepartedProjectApi,
     DiagnosticReportApi,
     ListParams,
     MembersListParams,
@@ -171,6 +172,24 @@ export const destroy = async (id: string, options?: RequestInit): Promise<void> 
     return apiMutator<void>(getDestroyUrl(id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getDepartedListUrl = (id: string) => {
+    return `/api/organizations/${id}/departed_projects/`
+}
+
+/**
+ * Projects that moved out of this organization recently, and where they are now.
+ *
+ * An organization that just lost its last project shows no trace of the move, because activity
+ * views sit behind a project route. This answers "where did it go?" from the organization the
+ * project left.
+ */
+export const departedList = async (id: string, options?: RequestInit): Promise<DepartedProjectApi[]> => {
+    return apiMutator<DepartedProjectApi[]>(getDepartedListUrl(id), {
+        ...options,
+        method: 'GET',
     })
 }
 

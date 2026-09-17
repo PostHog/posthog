@@ -20,7 +20,6 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
@@ -853,9 +852,9 @@ export const sceneLogic = kea<sceneLogicType>([
                                 console.warn(
                                     'Project not available and no other projects, redirecting to project creation'
                                 )
-                                lemonToast.error('You do not have access to any projects in this organization', {
-                                    toastId: 'no-projects',
-                                })
+                                // No toast here: an empty organization is often one whose project just moved
+                                // out, and an access error reads as if the organization itself were gone. The
+                                // create-project screen says what happened instead.
                                 router.actions.replace(urls.projectCreateFirst())
                                 return
                             }

@@ -1690,6 +1690,68 @@ def team_api_test_factory():
             # A no-op move must not write audit rows.
             assert ActivityLog.objects.count() == logs_before
 
+        def test_change_organization_refreshes_the_source_organization_payload(self):
+            source_org = self.organization
+            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            # Prime the organization serializer cache while the project is still here
+            assert self.client.get(f"/api/organizations/{source_org.id}/").json()["projects"]
+
+            assert (
+                self.client.post(
+                    f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+                ).status_code
+                == status.HTTP_200_OK
+            )
+
+            # The losing organization must stop listing a project it can no longer reach.
+            res = self.client.get(f"/api/organizations/{source_org.id}/")
+            assert res.json()["projects"] == []
+            assert res.json()["teams"] == []
+
+        def test_departed_projects_tells_the_source_organization_where_the_project_went(self):
+            source_org = self.organization
+            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            assert (
+                self.client.post(
+                    f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+                ).status_code
+                == status.HTTP_200_OK
+            )
+
+            res = self.client.get(f"/api/organizations/{source_org.id}/departed_projects/")
+            assert res.status_code == status.HTTP_200_OK, res.json()
+            assert len(res.json()) == 1
+            departure = res.json()[0]
+            assert departure["project_id"] == self.project.id
+            assert departure["project_name"] == self.project.name
+            assert departure["target_organization_id"] == str(other_org.id)
+            assert departure["target_organization_name"] == other_org.name
+            assert departure["target_organization_accessible"] is True
+
+        def test_departed_projects_is_empty_once_the_project_comes_back(self):
+            source_org = self.organization
+            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            for target_org in (other_org, source_org):
+                assert (
+                    self.client.post(
+                        f"/api/projects/{self.team.project.id}/change_organization/",
+                        {"organization_id": target_org.id},
+                    ).status_code
+                    == status.HTTP_200_OK
+                )
+
+            res = self.client.get(f"/api/organizations/{source_org.id}/departed_projects/")
+            assert res.status_code == status.HTTP_200_OK, res.json()
+            assert res.json() == []
+
         def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
             return self._assert_config_is("session_replay_config", expected)
 
