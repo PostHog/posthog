@@ -7,9 +7,13 @@ person deletion — extracted from test_person.py.
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
+from django.test import override_settings
+
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.person.util import get_person_by_uuid
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
@@ -387,6 +391,7 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         data = resp.json()
         assert data["persons_found"] == 2
         assert data["persons_deleted"] == 2
+        assert data["persons_queued_for_deletion"] == 0
         assert data["deletion_errors"] == []
         assert data["events_queued_for_deletion"] is False
         assert data["recordings_queued_for_deletion"] is False
@@ -395,6 +400,98 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         if calls:
             assert calls[0].request.team_id == self.team.pk
             assert set(calls[0].request.person_uuids) == {str(p1.uuid), str(p2.uuid)}
+
+    @parameterized.expand([("by_ids",), ("by_distinct_ids",)])
+    @override_settings(PERSON_BULK_DELETE_ASYNC=True)
+    def test_bulk_delete_async_queues_persons_and_deletes_in_background(self, lookup):
+        p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
+        p2 = self._seed_person(team=self.team, distinct_ids=["did-2"])
+        payload = {"ids": [str(p1.uuid), str(p2.uuid)]} if lookup == "by_ids" else {"distinct_ids": ["did-1", "did-2"]}
+
+        resp = self.client.post("/api/person/bulk_delete/", payload)
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        data = resp.json()
+        assert data["persons_found"] == 2
+        assert data["persons_deleted"] == 0
+        assert data["persons_queued_for_deletion"] == 2
+        assert data["deletion_errors"] == []
+
+        # The request must not batch-fetch distinct IDs; only the task pages through them.
+        self._assert_personhog_not_called("get_distinct_ids_for_persons")
+        self._assert_personhog_called("get_distinct_ids_for_person")
+        # Celery runs eagerly in tests, so the queued task has already deleted the persons.
+        calls = self._assert_personhog_called("delete_persons")
+        if calls:
+            assert set(calls[0].request.person_uuids) == {str(p1.uuid), str(p2.uuid)}
+        assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is None
+        assert get_person_by_uuid(self.team.pk, str(p2.uuid)) is None
+        # The task rebuilds the actor and organization from serialized ids; the log row proves it did.
+        logs = ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", activity="deleted")
+        assert {log.item_id for log in logs} == {str(p1.pk), str(p2.pk)}
+        assert {(log.user_id, log.organization_id) for log in logs} == {(self.user.pk, self.organization.id)}
+
+    @override_settings(PERSON_BULK_DELETE_ASYNC=True)
+    @mock.patch("posthog.api.person.queue_person_deletion")
+    def test_single_person_delete_stays_synchronous_under_the_flag(self, queue_deletion):
+        p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
+
+        resp = self.client.delete(f"/api/person/{p1.uuid}/")
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        queue_deletion.assert_not_called()
+        self._assert_personhog_called("delete_persons")
+        assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is None
+
+    @override_settings(PERSON_BULK_DELETE_ASYNC=True)
+    @mock.patch("posthog.models.person.bulk_delete.queue_person_training_deletion")
+    @mock.patch("posthog.api.person.queue_person_training_deletion")
+    def test_bulk_delete_async_queues_training_deletion_once_per_distinct_id(self, request_side, task_side):
+        p1 = self._seed_person(team=self.team, distinct_ids=["did-1", "did-2"])
+
+        resp = self.client.post("/api/person/bulk_delete/", {"distinct_ids": ["did-1", "ghost"]})
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        assert resp.json()["persons_found"] == 1
+        # Nothing runs the replay session lookup in the request. The task queues the person's full
+        # set once and the requested ID that matched no person once.
+        request_side.assert_not_called()
+        assert sorted(sorted(call.args[1]) for call in task_side.call_args_list) == [["did-1", "did-2"], ["ghost"]]
+        assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is None
+
+    @override_settings(PERSON_BULK_DELETE_ASYNC=True)
+    @mock.patch("posthog.models.person.bulk_delete.queue_person_training_deletion")
+    def test_bulk_delete_async_queues_training_deletion_when_no_person_matches(self, task_side):
+        resp = self.client.post("/api/person/bulk_delete/", {"distinct_ids": ["ghost"]})
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        assert resp.json()["persons_found"] == 0
+        task_side.assert_called_once_with(self.team.pk, ["ghost"])
+
+    @override_settings(PERSON_BULK_DELETE_ASYNC=True)
+    def test_bulk_delete_async_keep_person_with_recordings(self):
+        p1 = self._seed_person(team=self.team, distinct_ids=["did-1", "did-2"])
+        # Snapshot at call time: the task releases each person's IDs once its batch has run.
+        started: list[list[str]] = []
+
+        with mock.patch(
+            "posthog.models.person.bulk_delete._start_recording_workflows",
+            side_effect=lambda _t, persons, *_a: started.extend(sorted(p.distinct_ids) for p in persons),
+        ):
+            resp = self.client.post(
+                "/api/person/bulk_delete/",
+                {"ids": [str(p1.uuid)], "keep_person": True, "delete_recordings": True},
+            )
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        data = resp.json()
+        assert data["persons_found"] == 1
+        assert data["persons_queued_for_deletion"] == 0
+        assert data["recordings_queued_for_deletion"] is True
+        self._assert_personhog_not_called("get_distinct_ids_for_persons")
+        assert started == [["did-1", "did-2"]]
+        assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is not None
+        self._assert_personhog_not_called("delete_persons")
 
     def test_bulk_delete_by_distinct_ids(self):
         p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
@@ -474,8 +571,7 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         data = resp.json()
         assert data["persons_found"] == 2
         assert data["persons_deleted"] == 1
-        assert len(data["deletion_errors"]) == 1
-        assert data["deletion_errors"][0]["person_uuid"] == str(p1.uuid)
+        assert data["deletion_errors"] == [{"person_uuid": str(p1.uuid), "step": "tombstone_clickhouse"}]
 
         calls = self._assert_personhog_called("delete_persons")
         if calls:

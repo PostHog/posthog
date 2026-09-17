@@ -31,7 +31,7 @@ class TestAITrainingDeletionOutbox(TestCase):
     ) -> None:
         person = Person(id=1, uuid=UUID("00000000-0000-0000-0000-000000000007"))
         person._distinct_ids = ["known", "alias"]
-        view = MagicMock(team_id=7)
+        view = MagicMock(team_id=7, organization=MagicMock(id=UUID("00000000-0000-0000-0000-00000000000a")))
         request = MagicMock(user=None)
         temporal = MagicMock()
         temporal.start_workflow = AsyncMock()

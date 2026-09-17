@@ -70,6 +70,21 @@ pub fn uuid_v7_from_datetime<Tz: TimeZone>(datetime: DateTime<Tz>) -> Uuid {
     uuid_v7(datetime.timestamp_millis().max(0) as u64)
 }
 
+/// The high 48 bits of a UUIDv7 hold the Unix-millisecond timestamp.
+pub fn uuid_time_millis(uuid: Uuid) -> u128 {
+    uuid.as_u128() >> 80
+}
+
+/// The instant a UUIDv7 encodes, or `None` for any other version. Capture mints a
+/// UUIDv7 from the already-adjusted timestamp when the SDK sends none, so a caller
+/// that compares this against the stored timestamp must use only client-sent UUIDs.
+pub fn client_capture_millis(uuid: Uuid) -> Option<i64> {
+    if uuid.get_version_num() != 7 {
+        return None;
+    }
+    i64::try_from(uuid_time_millis(uuid)).ok()
+}
+
 // the compression hint can be tucked away any number of places depending on the SDK submitting the request...
 pub fn extract_compression(
     form: &EventFormData,
@@ -255,11 +270,6 @@ pub fn extract_token(events: &[RawEvent]) -> Result<String, CaptureError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // The high 48 bits of a UUIDv7 hold the Unix-millisecond timestamp.
-    fn uuid_time_millis(uuid: Uuid) -> u128 {
-        uuid.as_u128() >> 80
-    }
 
     #[test]
     fn uuid_v7_from_datetime_encodes_the_instant() {

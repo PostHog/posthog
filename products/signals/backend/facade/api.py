@@ -36,7 +36,7 @@ from products.signals.backend.scout_harness.workflow_runs import (
     # rule, the workflow cooldown, single-flight, dispatch) happens here.
     start_workflow_scout_run as start_workflow_scout_run,
 )
-from products.signals.backend.signal_metadata import fetch_signal_stats_for_source_slice
+from products.signals.backend.signal_metadata import SourceSliceSignalStats, fetch_signal_stats_for_source_slice
 
 # Re-exported for external products (tasks presentation catches it around facade create_task).
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
@@ -782,6 +782,47 @@ class SignalSourceSliceOutcomes:
     merged_pr_count: int
 
 
+@frozen
+class SignalSourceSliceReport:
+    """One inbox report a source slice's signals were grouped into."""
+
+    id: str
+    title: str | None
+    status: str
+    created_at: datetime
+
+
+def _live_reports_for_signal_source_slice(
+    team: Team, *, source_product: str, source_type: str, extra_equals: dict[str, str]
+) -> tuple[SourceSliceSignalStats, list[SignalSourceSliceReport]]:
+    """The slice's signal stats, plus its reports newest first.
+
+    CH metadata is not authoritative, so only report ids that parse and still exist for this team
+    survive.
+    """
+    stats = fetch_signal_stats_for_source_slice(
+        team, source_product=source_product, source_type=source_type, extra_equals=extra_equals
+    )
+    candidate_ids = []
+    for report_id in stats.report_ids:
+        try:
+            candidate_ids.append(uuid.UUID(report_id))
+        except ValueError:
+            continue
+    if not candidate_ids:
+        return stats, []
+    reports = [
+        SignalSourceSliceReport(
+            id=str(row["id"]), title=row["title"], status=row["status"], created_at=row["created_at"]
+        )
+        for row in SignalReport.objects.filter(team=team, id__in=candidate_ids)
+        .exclude(status=SignalReport.Status.DELETED)
+        .order_by("-created_at")
+        .values("id", "title", "status", "created_at")
+    ]
+    return stats, reports
+
+
 def get_outcomes_for_signal_source_slice(
     *, team: Team, source_product: str, source_type: str, extra_equals: dict[str, str]
 ) -> SignalSourceSliceOutcomes:
@@ -797,22 +838,10 @@ def get_outcomes_for_signal_source_slice(
         fetch_implementation_prs_for_reports,
     )
 
-    stats = fetch_signal_stats_for_source_slice(
+    stats, reports = _live_reports_for_signal_source_slice(
         team, source_product=source_product, source_type=source_type, extra_equals=extra_equals
     )
-    # CH metadata is not authoritative — keep only report ids that parse and still exist for this team.
-    candidate_ids = []
-    for report_id in stats.report_ids:
-        try:
-            candidate_ids.append(uuid.UUID(report_id))
-        except ValueError:
-            continue
-    report_ids = [
-        str(rid)
-        for rid in SignalReport.objects.filter(team=team, id__in=candidate_ids)
-        .exclude(status=SignalReport.Status.DELETED)
-        .values_list("id", flat=True)
-    ]
+    report_ids = [report.id for report in reports]
     prs = fetch_implementation_prs_for_reports(report_ids, team_id=team.id)
     pr_urls = {pr.url for report_prs in prs.values() for pr in report_prs}
     merged_pr_urls = {pr.url for report_prs in prs.values() for pr in report_prs if pr.merged}
@@ -822,6 +851,20 @@ def get_outcomes_for_signal_source_slice(
         pr_count=len(pr_urls),
         merged_pr_count=len(merged_pr_urls),
     )
+
+
+def get_reports_for_signal_source_slice(
+    *, team: Team, source_product: str, source_type: str, extra_equals: dict[str, str]
+) -> list[SignalSourceSliceReport]:
+    """The same slice as `get_outcomes_for_signal_source_slice`, hydrated instead of counted, newest first.
+
+    Grouping runs after the emitting caller returns, so an empty list means "not grouped yet" as
+    much as "never grouped".
+    """
+    _, reports = _live_reports_for_signal_source_slice(
+        team, source_product=source_product, source_type=source_type, extra_equals=extra_equals
+    )
+    return reports
 
 
 @frozen
