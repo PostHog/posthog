@@ -50,9 +50,11 @@ export function tracingUrlForService(serviceName: string, { dateRange }: { dateR
 export const TRACING_DOCS_URL = 'https://posthog.com/docs/tracing'
 
 /** The window a `ts`-hinted cold load queries: ±1h is generous for any single trace's spans. */
+export const TRACE_LOOKUP_WINDOW_HOURS = 1
+
 export function traceLookupDateRange(ts: string): { date_from: string; date_to: string } {
     return {
-        date_from: dayjs(ts).subtract(1, 'hour').toISOString(),
-        date_to: dayjs(ts).add(1, 'hour').toISOString(),
+        date_from: dayjs(ts).subtract(TRACE_LOOKUP_WINDOW_HOURS, 'hour').toISOString(),
+        date_to: dayjs(ts).add(TRACE_LOOKUP_WINDOW_HOURS, 'hour').toISOString(),
     }
 }

@@ -1,6 +1,7 @@
 import { MakeLogicType, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { chunk } from 'lib/utils/arrays'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sessionErrorsWindow, traceErrorsWindow, usableId } from './errorCorrelation'
@@ -35,6 +36,8 @@ export interface SpanErrorCounts {
     span: Record<string, number>
     session: Record<string, number>
 }
+
+type ExactCounts = Pick<SpanErrorCounts, 'trace' | 'span'>
 
 export interface SpanErrorsLogicProps {
     id: string
@@ -124,26 +127,156 @@ export type spanErrorsLogicType = MakeLogicType<
 
 const EMPTY_COUNTS: SpanErrorCounts = { trace: {}, span: {}, session: {} }
 
-// hasOwn, not `in`, because `in` walks the prototype chain, so an id that collides with an Object
-// member would read as answered.
-function unanswered(ids: Iterable<string>, known: Record<string, number>): string[] {
-    return Array.from(new Set(ids)).filter((id) => !Object.hasOwn(known, id))
+function distinct(ids: (string | null)[]): string[] {
+    return Array.from(new Set(ids.filter((id): id is string => !!id)))
 }
 
+// hasOwn, not `in`, because `in` walks the prototype chain, so an id that collides with an Object
+// member would read as answered.
+function unanswered(ids: (string | null)[], known: Record<string, number>): string[] {
+    return distinct(ids).filter((id) => !Object.hasOwn(known, id))
+}
+
+// Every id looked up lands a count even when it is zero, which is what stops the next page asking
+// about it again.
 function seedZeros(ids: string[]): Record<string, number> {
     return Object.fromEntries(ids.map((id) => [id, 0]))
 }
 
-function chunked<T>(items: T[]): T[][] {
-    const chunks: T[][] = []
-    for (let start = 0; start < items.length; start += MAX_IDS_PER_LOOKUP) {
-        chunks.push(items.slice(start, start + MAX_IDS_PER_LOOKUP))
+function exactCountsFor(span: Span, counts: ExactCounts): { spanCount: number; traceCount: number } {
+    const spanId = usableId(span.span_id)
+    const traceId = usableId(span.trace_id)
+    return {
+        spanCount: spanId ? (counts.span[spanId] ?? 0) : 0,
+        traceCount: traceId ? (counts.trace[traceId] ?? 0) : 0,
     }
-    return chunks
 }
 
-function distinct(ids: (string | null)[]): string[] {
-    return Array.from(new Set(ids.filter((id): id is string => !!id)))
+/** Counts keyed on the ids the rows carry, which name the span or the request that threw. */
+async function lookUpExactCounts(rows: Span[], known: SpanErrorCounts, teamId: number): Promise<ExactCounts> {
+    const exact: ExactCounts = { trace: { ...known.trace }, span: { ...known.span } }
+    // A row needs the lookup while either of its ids is unanswered. Chunking by row rather than by
+    // id keeps a span and the trace it belongs to in the same request, which the endpoint requires:
+    // a span id is only unique in its trace.
+    const exactRows = rows.filter((span) => {
+        const spanId = usableId(span.span_id)
+        const traceId = usableId(span.trace_id)
+        return (!!spanId && !Object.hasOwn(known.span, spanId)) || (!!traceId && !Object.hasOwn(known.trace, traceId))
+    })
+    if (exactRows.length === 0) {
+        return exact
+    }
+    // Only the rows this query asks about set the range. Taking every loaded row instead would
+    // widen it with each page and re-scan the time the earlier pages already covered.
+    const range = traceErrorsWindow(exactRows.map((span) => span.timestamp))
+    if (!range) {
+        return exact
+    }
+
+    // The endpoint, not a HogQL query from here, because it checks the caller's Error Tracking
+    // access before it answers.
+    const asks = chunk(exactRows, MAX_IDS_PER_LOOKUP).map((rowChunk) => ({
+        traceIds: distinct(rowChunk.map((span) => usableId(span.trace_id))),
+        spanIds: distinct(rowChunk.map((span) => usableId(span.span_id))),
+    }))
+    const responses = await Promise.all(
+        asks.map((ask) =>
+            ask.traceIds.length === 0
+                ? null
+                : tracingSpansErrorCountsCreate(String(teamId), {
+                      ...ask,
+                      dateFrom: range.date_from,
+                      dateTo: range.date_to,
+                  }).catch(() => null)
+        )
+    )
+
+    asks.forEach((ask, index) => {
+        const response = responses[index]
+        if (!response) {
+            return
+        }
+        // Only the ids this run had no answer for. The rest rode along to scope the span match, and
+        // their counts were measured over their own page's window, so this narrower one must not
+        // overwrite them.
+        const freshTraces = new Set(unanswered(ask.traceIds, known.trace))
+        const freshSpans = new Set(unanswered(ask.spanIds, known.span))
+        Object.assign(exact.trace, seedZeros([...freshTraces]))
+        Object.assign(exact.span, seedZeros([...freshSpans]))
+        for (const { trace_id, exceptions } of response.traceResults) {
+            if (freshTraces.has(trace_id)) {
+                exact.trace[trace_id] = exceptions
+            }
+        }
+        for (const { span_id, exceptions } of response.spanResults) {
+            if (freshSpans.has(span_id)) {
+                exact.span[span_id] = exceptions
+            }
+        }
+    })
+    return exact
+}
+
+/**
+ * Counts for the sessions of rows the exact lookup left blank. An exception an SDK stamped with a
+ * trace id is already counted there, so re-counting its session would say the same thing less
+ * precisely, over a window twelve times as wide.
+ */
+async function lookUpSessionCounts(
+    rows: Span[],
+    exact: ExactCounts,
+    known: SpanErrorCounts,
+    sessionIdByRow: Map<string, string>,
+    teamId: number
+): Promise<Record<string, number>> {
+    const unexplained = rows.filter((span) => {
+        const { spanCount, traceCount } = exactCountsFor(span, exact)
+        return spanCount === 0 && traceCount === 0
+    })
+    const askSessionIds = unanswered(
+        unexplained.map((span) => sessionIdByRow.get(span.uuid) ?? null),
+        known.session
+    )
+    if (askSessionIds.length === 0) {
+        return {}
+    }
+    const asked = new Set(askSessionIds)
+    const range = sessionErrorsWindow(
+        unexplained
+            .filter((span) => {
+                const sessionId = sessionIdByRow.get(span.uuid)
+                return !!sessionId && asked.has(sessionId)
+            })
+            .map((span) => span.timestamp)
+    )
+    if (!range) {
+        return {}
+    }
+
+    // One request per cap-sized chunk, all in flight together, so a page with more sessions than
+    // one request allows is answered in one run rather than one chunk per debounce.
+    const responses = await Promise.all(
+        chunk(askSessionIds, MAX_IDS_PER_LOOKUP).map((idChunk) =>
+            tracingSpansErrorCountsCreate(String(teamId), {
+                sessionIds: idChunk,
+                dateFrom: range.date_from,
+                dateTo: range.date_to,
+            }).catch(() => null)
+        )
+    )
+
+    const counts = seedZeros(askSessionIds)
+    for (const response of responses) {
+        if (!response) {
+            continue
+        }
+        for (const { session_id, exceptions } of response.sessionResults) {
+            if (Object.hasOwn(counts, session_id)) {
+                counts[session_id] = exceptions
+            }
+        }
+    }
+    return counts
 }
 
 // Three joins, in falling order of confidence. An exception from an SDK that propagated the trace
@@ -194,134 +327,16 @@ export const spanErrorsLogic = kea<spanErrorsLogicType>([
                     }
                     const rows = values.listRows
 
-                    // A row needs the exact lookup while either of its ids is unanswered. Chunking
-                    // by row rather than by id keeps a span and the trace it belongs to in the same
-                    // request, which the endpoint requires: a span id is only unique in its trace.
-                    const exactRows = rows.filter((span) => {
-                        const spanId = usableId(span.span_id)
-                        const traceId = usableId(span.trace_id)
-                        return (
-                            (!!spanId && !Object.hasOwn(known.span, spanId)) ||
-                            (!!traceId && !Object.hasOwn(known.trace, traceId))
-                        )
-                    })
-
-                    const exact = { trace: { ...known.trace }, span: { ...known.span } }
-                    if (exactRows.length > 0) {
-                        // Only the rows this query asks about set the range. Taking every loaded
-                        // row instead would widen it with each page and re-scan the time the
-                        // earlier pages already covered.
-                        const range = traceErrorsWindow(exactRows.map((span) => span.timestamp))
-                        if (range) {
-                            // The endpoint, not a HogQL query from here, because it checks the
-                            // caller's Error Tracking access before it answers.
-                            const asks = chunked(exactRows).map((chunk) => ({
-                                traceIds: distinct(chunk.map((span) => usableId(span.trace_id))),
-                                spanIds: distinct(chunk.map((span) => usableId(span.span_id))),
-                            }))
-                            // A failure is swallowed because the badge is decoration on a list
-                            // that stays useful without it, and a toast would repeat on every
-                            // page. The ids stay unanswered, so the next page asks again.
-                            const responses = await Promise.all(
-                                asks.map((ask) =>
-                                    ask.traceIds.length === 0
-                                        ? null
-                                        : tracingSpansErrorCountsCreate(String(teamId), {
-                                              ...ask,
-                                              dateFrom: range.date_from,
-                                              dateTo: range.date_to,
-                                          }).catch(() => null)
-                                )
-                            )
-                            asks.forEach((ask, index) => {
-                                const response = responses[index]
-                                if (!response) {
-                                    return
-                                }
-                                // Only the ids this run had no answer for. The rest rode along to
-                                // scope the span match, and their counts were measured over their
-                                // own page's window, so this narrower one must not overwrite them.
-                                // Each of them lands a count even when it is zero, which is what
-                                // stops the next page asking about it again.
-                                const freshTraces = new Set(unanswered(ask.traceIds, known.trace))
-                                const freshSpans = new Set(unanswered(ask.spanIds, known.span))
-                                for (const traceId of freshTraces) {
-                                    exact.trace[traceId] = 0
-                                }
-                                for (const spanId of freshSpans) {
-                                    exact.span[spanId] = 0
-                                }
-                                for (const { trace_id, exceptions } of response.traceResults) {
-                                    if (freshTraces.has(trace_id)) {
-                                        exact.trace[trace_id] = exceptions
-                                    }
-                                }
-                                for (const { span_id, exceptions } of response.spanResults) {
-                                    if (freshSpans.has(span_id)) {
-                                        exact.span[span_id] = exceptions
-                                    }
-                                }
-                            })
-                        }
-                    }
+                    const exact = await lookUpExactCounts(rows, known, teamId)
                     breakpoint()
 
-                    // The session join only answers rows the exact one left blank. An exception an
-                    // SDK stamped with a trace id is already counted above, so re-counting its
-                    // session would say the same thing less precisely.
-                    const sessionIdByRow = values.sessionIdByRow
-                    const unexplained = rows.filter((span) => {
-                        const spanId = usableId(span.span_id)
-                        const traceId = usableId(span.trace_id)
-                        const spanCount = spanId ? (exact.span[spanId] ?? 0) : 0
-                        const traceCount = traceId ? (exact.trace[traceId] ?? 0) : 0
-                        return spanCount === 0 && traceCount === 0
-                    })
-                    const askSessionIds = unanswered(
-                        distinct(unexplained.map((span) => sessionIdByRow.get(span.uuid) ?? null)),
-                        known.session
-                    )
-                    if (askSessionIds.length === 0) {
-                        return { ...known, ...exact }
-                    }
-                    const asked = new Set(askSessionIds)
-                    const sessionRange = sessionErrorsWindow(
-                        unexplained
-                            .filter((span) => {
-                                const sessionId = sessionIdByRow.get(span.uuid)
-                                return !!sessionId && asked.has(sessionId)
-                            })
-                            .map((span) => span.timestamp)
-                    )
-                    if (!sessionRange) {
-                        return { ...known, ...exact }
-                    }
-                    // One request per cap-sized chunk, all in flight together, so a page with more
-                    // sessions than one request allows is answered in one run rather than one chunk
-                    // per debounce.
-                    const sessionResponses = await Promise.all(
-                        chunked(askSessionIds).map((chunk) =>
-                            tracingSpansErrorCountsCreate(String(teamId), {
-                                sessionIds: chunk,
-                                dateFrom: sessionRange.date_from,
-                                dateTo: sessionRange.date_to,
-                            }).catch(() => null)
-                        )
-                    )
+                    // A failure in either phase is swallowed because the badge is decoration on a
+                    // list that stays useful without it, and a toast would repeat on every page.
+                    // The ids stay unanswered, so the next page asks again.
+                    const session = await lookUpSessionCounts(rows, exact, known, values.sessionIdByRow, teamId)
                     breakpoint()
 
-                    const sessionCounts = seedZeros(askSessionIds)
-                    for (const response of sessionResponses) {
-                        if (!response) {
-                            continue
-                        }
-                        for (const { session_id, exceptions } of response.sessionResults) {
-                            if (Object.hasOwn(sessionCounts, session_id)) {
-                                sessionCounts[session_id] = exceptions
-                            }
-                        }
-                    }
-                    return { ...known, ...exact, session: { ...known.session, ...sessionCounts } }
+                    return { ...known, ...exact, session: { ...known.session, ...session } }
                 },
             },
         ],
@@ -374,11 +389,8 @@ export const spanErrorsLogic = kea<spanErrorsLogicType>([
             ): Map<string, SpanErrorBadge> => {
                 const byRow = new Map<string, SpanErrorBadge>()
                 for (const span of listRows) {
-                    const spanId = usableId(span.span_id)
-                    const traceId = usableId(span.trace_id)
+                    const { spanCount, traceCount } = exactCountsFor(span, errorCounts)
                     const sessionId = sessionIdByRow.get(span.uuid)
-                    const spanCount = spanId ? (errorCounts.span[spanId] ?? 0) : 0
-                    const traceCount = traceId ? (errorCounts.trace[traceId] ?? 0) : 0
                     const sessionCount = sessionId ? (errorCounts.session[sessionId] ?? 0) : 0
                     if (spanCount > 0) {
                         byRow.set(span.uuid, { tier: 'span', count: spanCount })

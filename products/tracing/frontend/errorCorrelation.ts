@@ -1,13 +1,11 @@
 import { dayjs } from 'lib/dayjs'
 
+import { TRACE_LOOKUP_WINDOW_HOURS } from './traceLinks'
+
 // How far from a span an exception in the same session can sit and still count as related. It
 // matches the window the Logs product's Related errors surface uses, so the same session reads
 // the same way in both products.
 export const SESSION_ERRORS_WINDOW_HOURS = 6
-
-// An exception that carries a trace id happened inside that trace, so the window only has to
-// cover the trace itself. It matches the window a cold trace load already scans.
-export const TRACE_ERRORS_WINDOW_HOURS = 1
 
 export interface ErrorsWindow {
     date_from: string
@@ -51,8 +49,10 @@ export function sessionErrorsWindow(timestamps: (string | null)[]): ErrorsWindow
     return errorsWindow(timestamps, SESSION_ERRORS_WINDOW_HOURS)
 }
 
+// An exception that carries a trace id happened inside that trace, so the window only has to cover
+// the trace itself. `traceLookupDateRange` is the same window for a single timestamp.
 export function traceErrorsWindow(timestamps: (string | null)[]): ErrorsWindow | null {
-    return errorsWindow(timestamps, TRACE_ERRORS_WINDOW_HOURS)
+    return errorsWindow(timestamps, TRACE_LOOKUP_WINDOW_HOURS)
 }
 
 /**

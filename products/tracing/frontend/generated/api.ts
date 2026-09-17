@@ -207,8 +207,7 @@ export const getTracingSpansErrorCountsCreateUrl = (projectId: string) => {
  * Count the exceptions the spans in view hit, by trace, by span and by session, for the
  * span list's error badges.
  *
- * A caller asks about the id kinds it has. Each kind is a separate lookup, so an empty list
- * costs nothing.
+ * A caller asks about the id kinds it has, and each kind is a separate lookup.
  */
 export const tracingSpansErrorCountsCreate = async (
     projectId: string,

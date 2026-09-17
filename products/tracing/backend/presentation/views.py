@@ -331,6 +331,10 @@ class _TracingServiceNamesQuerySerializer(serializers.Serializer):
     )
 
 
+def _error_count_rows(counts: dict[str, int], key: str) -> list[dict[str, object]]:
+    return [{key: value, "exceptions": count} for value, count in counts.items()]
+
+
 class _TracingErrorCountsRequestSerializer(serializers.Serializer):
     traceIds = serializers.ListField(
         child=serializers.CharField(),
@@ -371,25 +375,22 @@ class _TracingErrorCountsRequestSerializer(serializers.Serializer):
         return attrs
 
 
-class _TracingTraceErrorCountSerializer(serializers.Serializer):
+class _TracingErrorCountSerializer(serializers.Serializer):
+    exceptions = serializers.IntegerField(
+        help_text="Exception events in the window that error tracking linked to an issue."
+    )
+
+
+class _TracingTraceErrorCountSerializer(_TracingErrorCountSerializer):
     trace_id = serializers.CharField(help_text="The trace the exceptions belong to, lowercase hex.")
-    exceptions = serializers.IntegerField(
-        help_text="Exception events in the window that error tracking linked to an issue."
-    )
 
 
-class _TracingSpanErrorCountSerializer(serializers.Serializer):
+class _TracingSpanErrorCountSerializer(_TracingErrorCountSerializer):
     span_id = serializers.CharField(help_text="The span the exceptions belong to, lowercase hex.")
-    exceptions = serializers.IntegerField(
-        help_text="Exception events in the window that error tracking linked to an issue."
-    )
 
 
-class _TracingSessionErrorCountSerializer(serializers.Serializer):
+class _TracingSessionErrorCountSerializer(_TracingErrorCountSerializer):
     session_id = serializers.CharField(help_text="The session the exceptions belong to.")
-    exceptions = serializers.IntegerField(
-        help_text="Exception events in the window that error tracking linked to an issue."
-    )
 
 
 class _TracingErrorCountsResponseSerializer(serializers.Serializer):
@@ -883,8 +884,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         """Count the exceptions the spans in view hit, by trace, by span and by session, for the
         span list's error badges.
 
-        A caller asks about the id kinds it has. Each kind is a separate lookup, so an empty list
-        costs nothing.
+        A caller asks about the id kinds it has, and each kind is a separate lookup.
         """
         if not self.user_access_control.check_access_level_for_resource("error_tracking", "viewer"):
             raise PermissionDenied("You do not have access to error tracking.")
@@ -894,38 +894,22 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         trace_ids = data.get("traceIds") or []
         span_ids = data.get("spanIds") or []
         session_ids = data.get("sessionIds") or []
-        date_from = data["dateFrom"]
-        date_to = data["dateTo"]
+        window = {"date_from": data["dateFrom"], "date_to": data["dateTo"]}
 
-        trace_counts = (
-            count_trace_exceptions(team=self.team, trace_ids=trace_ids, date_from=date_from, date_to=date_to)
-            if trace_ids
-            else {}
+        return Response(
+            {
+                "traceResults": _error_count_rows(
+                    count_trace_exceptions(team=self.team, trace_ids=trace_ids, **window), "trace_id"
+                ),
+                "spanResults": _error_count_rows(
+                    count_span_exceptions(team=self.team, span_ids=span_ids, trace_ids=trace_ids, **window), "span_id"
+                ),
+                "sessionResults": _error_count_rows(
+                    count_session_exceptions(team=self.team, session_ids=session_ids, **window), "session_id"
+                ),
+            },
+            status=status.HTTP_200_OK,
         )
-        span_counts = (
-            count_span_exceptions(
-                team=self.team, span_ids=span_ids, trace_ids=trace_ids, date_from=date_from, date_to=date_to
-            )
-            if span_ids
-            else {}
-        )
-        session_counts = (
-            count_session_exceptions(team=self.team, session_ids=session_ids, date_from=date_from, date_to=date_to)
-            if session_ids
-            else {}
-        )
-        response = _TracingErrorCountsResponseSerializer(
-            instance={
-                "traceResults": [
-                    {"trace_id": trace_id, "exceptions": count} for trace_id, count in trace_counts.items()
-                ],
-                "spanResults": [{"span_id": span_id, "exceptions": count} for span_id, count in span_counts.items()],
-                "sessionResults": [
-                    {"session_id": session_id, "exceptions": count} for session_id, count in session_counts.items()
-                ],
-            }
-        )
-        return Response(response.data, status=status.HTTP_200_OK)
 
     @extend_schema(parameters=[_TracingServiceNamesQuerySerializer])
     @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])

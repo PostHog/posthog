@@ -219,7 +219,8 @@ export const traceErrorsLogic = kea<traceErrorsLogicType>([
             },
         ],
 
-        // A scope the user picked survives until the trace stops offering it.
+        // The ids are all in the logic's key, so the available set never changes under a mounted
+        // instance. The membership check only guards a `setScope` caller that is not the control.
         effectiveScope: [
             (s) => [s.availableScopes, s.selectedScope],
             (availableScopes: TraceErrorsScope[], selectedScope: TraceErrorsScope | null): TraceErrorsScope | null =>

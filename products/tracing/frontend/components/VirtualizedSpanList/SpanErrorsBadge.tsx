@@ -12,30 +12,21 @@ export interface SpanErrorsBadgeProps {
 }
 
 // A session count is only co-occurring evidence, so it reads as a warning rather than as this
-// span's own failure.
-const TIER_ICON_CLASS: Record<SpanErrorTier, string> = {
-    span: 'text-danger',
-    trace: 'text-danger',
-    session: 'text-warning',
-}
-
-function tierLabel(tier: SpanErrorTier, errorCount: number): string {
-    if (tier === 'span') {
-        return `${pluralize(errorCount, 'error')} in this span`
-    }
-    if (tier === 'trace') {
-        return `${pluralize(errorCount, 'error')} in this trace`
-    }
-    return `${pluralize(errorCount, 'error occurrence')} in this session`
+// span's own failure, and its noun stays vaguer.
+const TIERS: Record<SpanErrorTier, { iconClass: string; noun: string; where: string }> = {
+    span: { iconClass: 'text-danger', noun: 'error', where: 'in this span' },
+    trace: { iconClass: 'text-danger', noun: 'error', where: 'in this trace' },
+    session: { iconClass: 'text-warning', noun: 'error occurrence', where: 'in this session' },
 }
 
 export function SpanErrorsBadge({ tier, errorCount, onClick }: SpanErrorsBadgeProps): JSX.Element {
-    const label = tierLabel(tier, errorCount)
+    const { iconClass, noun, where } = TIERS[tier]
+    const label = `${pluralize(errorCount, noun)} ${where}`
 
     return (
         <LemonButton
             size="xsmall"
-            icon={<IconWarning className={TIER_ICON_CLASS[tier]} />}
+            icon={<IconWarning className={iconClass} />}
             tooltip={`${label}. Click to see them.`}
             aria-label={label}
             data-attr="tracing-row-errors"

@@ -97733,24 +97733,24 @@ export namespace Schemas {
     }
 
     export interface _TracingTraceErrorCount {
-      /** The trace the exceptions belong to, lowercase hex. */
-      trace_id: string;
       /** Exception events in the window that error tracking linked to an issue. */
       exceptions: number;
+      /** The trace the exceptions belong to, lowercase hex. */
+      trace_id: string;
     }
 
     export interface _TracingSpanErrorCount {
-      /** The span the exceptions belong to, lowercase hex. */
-      span_id: string;
       /** Exception events in the window that error tracking linked to an issue. */
       exceptions: number;
+      /** The span the exceptions belong to, lowercase hex. */
+      span_id: string;
     }
 
     export interface _TracingSessionErrorCount {
-      /** The session the exceptions belong to. */
-      session_id: string;
       /** Exception events in the window that error tracking linked to an issue. */
       exceptions: number;
+      /** The session the exceptions belong to. */
+      session_id: string;
     }
 
     export interface _TracingErrorCountsResponse {

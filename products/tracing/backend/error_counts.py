@@ -36,6 +36,8 @@ def count_trace_exceptions(
     Keys come back lowercased. A trace with no such exceptions is absent from the result rather
     than present with a zero.
     """
+    if not trace_ids:
+        return {}
     query = parse_select(
         """
         SELECT lower(properties.$trace_id) AS trace_id, count() AS exceptions
@@ -66,6 +68,8 @@ def count_span_exceptions(
     A span id is only unique within its trace, so the traces the spans belong to bound the match
     as well. Keys come back lowercased.
     """
+    if not span_ids or not trace_ids:
+        return {}
     query = parse_select(
         """
         SELECT lower(properties.$span_id) AS span_id, count() AS exceptions
@@ -95,6 +99,8 @@ def count_session_exceptions(
 
     A session with no such exceptions is absent from the result rather than present with a zero.
     """
+    if not session_ids:
+        return {}
     query = parse_select(
         """
         SELECT properties.$session_id AS session_id, count() AS exceptions

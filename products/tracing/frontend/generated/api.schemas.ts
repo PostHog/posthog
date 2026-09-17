@@ -373,24 +373,24 @@ export interface _TracingErrorCountsRequestApi {
 }
 
 export interface _TracingTraceErrorCountApi {
-    /** The trace the exceptions belong to, lowercase hex. */
-    trace_id: string
     /** Exception events in the window that error tracking linked to an issue. */
     exceptions: number
+    /** The trace the exceptions belong to, lowercase hex. */
+    trace_id: string
 }
 
 export interface _TracingSpanErrorCountApi {
-    /** The span the exceptions belong to, lowercase hex. */
-    span_id: string
     /** Exception events in the window that error tracking linked to an issue. */
     exceptions: number
+    /** The span the exceptions belong to, lowercase hex. */
+    span_id: string
 }
 
 export interface _TracingSessionErrorCountApi {
-    /** The session the exceptions belong to. */
-    session_id: string
     /** Exception events in the window that error tracking linked to an issue. */
     exceptions: number
+    /** The session the exceptions belong to. */
+    session_id: string
 }
 
 export interface _TracingErrorCountsResponseApi {

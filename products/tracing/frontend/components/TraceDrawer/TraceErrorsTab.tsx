@@ -13,24 +13,25 @@ import { SESSION_ERRORS_WINDOW_HOURS } from '../../errorCorrelation'
 import { TRACING_DOCS_URL } from '../../traceLinks'
 import { TraceErrorsLogicProps, TraceErrorsScope, traceErrorsLogic } from './traceErrorsLogic'
 
-const SCOPE_LABELS: Record<TraceErrorsScope, string> = {
-    span: 'This span',
-    trace: 'This trace',
-    session: 'This session',
-}
-
-const SCOPE_EMPTY_STATES: Record<TraceErrorsScope, { title: string; description: string }> = {
+// Every string a scope needs, so adding one is a single entry and the Record keeps it exhaustive.
+const SCOPES: Record<TraceErrorsScope, { label: string; where: string; emptyTitle: string; emptyBody: string }> = {
     span: {
-        title: 'No errors in this span',
-        description: 'No exceptions reported this span as the place they were thrown.',
+        label: 'This span',
+        where: 'in this span',
+        emptyTitle: 'No errors in this span',
+        emptyBody: 'No exceptions reported this span as the place they were thrown.',
     },
     trace: {
-        title: 'No errors in this trace',
-        description: 'No exceptions reported this trace as the request they happened in.',
+        label: 'This trace',
+        where: 'in this trace',
+        emptyTitle: 'No errors in this trace',
+        emptyBody: 'No exceptions reported this trace as the request they happened in.',
     },
     session: {
-        title: 'No errors in this session',
-        description: `No exceptions were found in this session within ${SESSION_ERRORS_WINDOW_HOURS} hours of this trace.`,
+        label: 'This session',
+        where: 'in this session',
+        emptyTitle: 'No errors in this session',
+        emptyBody: `No exceptions were found in this session within ${SESSION_ERRORS_WINDOW_HOURS} hours of this trace.`,
     },
 }
 
@@ -91,7 +92,7 @@ function TraceErrorsTabContent(): JSX.Element {
                         onChange={(scope) => setScope(scope as TraceErrorsScope)}
                         options={availableScopes.map((scope) => ({
                             value: scope,
-                            label: SCOPE_LABELS[scope],
+                            label: SCOPES[scope].label,
                             'data-attr': `tracing-trace-errors-scope-${scope}`,
                         }))}
                     />
@@ -134,20 +135,19 @@ function TraceErrorsList({
     }
 
     if (issues.length === 0) {
-        const emptyState = SCOPE_EMPTY_STATES[scope]
         return (
             <div className="flex justify-center w-full py-8">
-                <EmptyMessage title={emptyState.title} description={emptyState.description} size="small" />
+                <EmptyMessage title={SCOPES[scope].emptyTitle} description={SCOPES[scope].emptyBody} size="small" />
             </div>
         )
     }
 
     const totalOccurrences = issues.reduce((sum, issue) => sum + issue.occurrences, 0)
-    const where = scope === 'session' ? 'in this session' : scope === 'trace' ? 'in this trace' : 'in this span'
     return (
         <div className="flex flex-col">
             <p className="text-muted text-sm mb-2">
-                {pluralize(issues.length, 'issue')} with {pluralize(totalOccurrences, 'occurrence')} {where}
+                {pluralize(issues.length, 'issue')} with {pluralize(totalOccurrences, 'occurrence')}{' '}
+                {SCOPES[scope].where}
             </p>
             {issues.map((issue) => (
                 <ErrorTrackingIssueCard key={issue.id} issue={issue} showUserCount={false} />
