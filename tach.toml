@@ -890,6 +890,7 @@ depends_on = [
     "posthog",
     "products.cdp",
     "products.conversations",
+    "products.data_modeling",
     "products.data_warehouse",
     "products.notebooks",
     "products.notifications",
