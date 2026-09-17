@@ -45,7 +45,12 @@ export interface GoalTarget {
 
 /** How a goal's current value is read. */
 export type GoalMeasure =
-  | { kind: "hogql"; sql: string }
+  | {
+      kind: "hogql";
+      sql: string;
+      /** One row per period, period first and value last; drawn as a sparkline. */
+      trendSql?: string;
+    }
   | { kind: "insight"; shortId: string; url: string; name: string };
 
 export interface ContextGoal {
@@ -182,28 +187,35 @@ function parseMeasureLine(line: string): GoalMeasure | null {
 function parseGoals(lines: string[]): ContextGoal[] {
   const goals: ContextGoal[] = [];
   let current: ContextGoal | null = null;
-  let inSql = false;
+  let fence: "measure" | "trend" | null = null;
   const sqlLines: string[] = [];
+  const trendLines: string[] = [];
   const whyLines: string[] = [];
 
   const flush = () => {
     if (!current) return;
     current.why = whyLines.join("\n").trim();
     const sql = sqlLines.join("\n").trim();
-    if (!current.measure && sql) current.measure = { kind: "hogql", sql };
+    const trendSql = trendLines.join("\n").trim();
+    if (!current.measure && sql) {
+      current.measure = trendSql
+        ? { kind: "hogql", sql, trendSql }
+        : { kind: "hogql", sql };
+    }
     goals.push(current);
     current = null;
     sqlLines.length = 0;
+    trendLines.length = 0;
     whyLines.length = 0;
   };
 
   for (const line of lines) {
-    if (inSql) {
+    if (fence) {
       if (/^\s*```/.test(line)) {
-        inSql = false;
+        fence = null;
         continue;
       }
-      sqlLines.push(line);
+      (fence === "trend" ? trendLines : sqlLines).push(line);
       continue;
     }
     const heading = /^###\s+(.+?)\s*$/.exec(line);
@@ -213,8 +225,12 @@ function parseGoals(lines: string[]): ContextGoal[] {
       continue;
     }
     if (!current) continue;
+    if (/^\s*```(sql|hogql)\s+trend\s*$/i.test(line)) {
+      fence = "trend";
+      continue;
+    }
     if (/^\s*```(sql|hogql)?\s*$/i.test(line)) {
-      inSql = true;
+      fence = "measure";
       continue;
     }
     const target = parseTargetLine(line);
@@ -331,6 +347,9 @@ export function serializeContextDocument(doc: ContextDocument): string {
         );
       } else if (goal.measure?.kind === "hogql" && goal.measure.sql.trim()) {
         lines.push("", "```sql", goal.measure.sql.trim(), "```");
+        if (goal.measure.trendSql?.trim()) {
+          lines.push("", "```sql trend", goal.measure.trendSql.trim(), "```");
+        }
       }
       return lines.join("\n");
     });

@@ -9,7 +9,6 @@ import {
   formatNumber,
   type GoalStatus,
   type GoalTarget,
-  goalProgress,
   goalStatus,
 } from "@posthog/core/canvas/contextDocument";
 import {
@@ -22,9 +21,13 @@ import {
   DialogTitle,
   Text,
 } from "@posthog/quill";
+import { Sparkline, useChartTheme } from "@posthog/quill-charts";
 import type { GoalMeasureTask } from "@posthog/ui/features/canvas/goalMeasureTasks";
 import { goalValueSuffix } from "@posthog/ui/features/canvas/goalUnits";
-import { useGoalMeasure } from "@posthog/ui/features/canvas/hooks/useGoalMeasure";
+import {
+  useGoalMeasure,
+  useGoalTrend,
+} from "@posthog/ui/features/canvas/hooks/useGoalMeasure";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
 import { GoalComposer } from "./GoalComposer";
@@ -43,10 +46,8 @@ interface GoalsListProps {
 
 type Editing = { index: number | null } | null;
 
-const GOAL_GRID = "grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3";
-
 /**
- * The numbers this space moves, as tiles at the top of the document. A tile
+ * The numbers this space moves, as rows at the top of the document. A row
  * opens the goal in a dialog, where removal lives too, so the list never
  * changes shape while someone is writing.
  */
@@ -100,37 +101,35 @@ export function GoalsList({
       />
 
       {goals.length > 0 ? (
-        <ul className={GOAL_GRID}>
+        <ul className="flex flex-col divide-y divide-border border-border border-y">
           {goals.map((goal, index) => (
-            <li key={`${goal.name}-${index}`} className="min-w-0">
-              <GoalTile
+            <li key={`${goal.name}-${index}`}>
+              <GoalRow
                 goal={goal}
                 selected={editing?.index === index}
                 measureTask={measureTasks.get(goal.name) ?? null}
+                onOpen={() => setEditing({ index })}
                 onOpenTask={onOpenMeasureTask}
                 onRetry={() => onAskAgentForMeasure(goal)}
-                onOpen={() => setEditing({ index })}
                 disabled={isSaving}
               />
             </li>
           ))}
         </ul>
       ) : (
-        <div className={GOAL_GRID}>
-          <button
-            type="button"
-            onClick={() => setEditing({ index: null })}
-            disabled={isSaving}
-            className="flex flex-col items-start gap-1 rounded-lg border border-border border-dashed p-4 text-left transition-colors hover:bg-fill-hover"
-          >
-            <Text size="sm" weight="medium">
-              No goals yet.
-            </Text>
-            <Text size="xs" variant="muted">
-              Say one in a sentence. The query and the target follow.
-            </Text>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setEditing({ index: null })}
+          disabled={isSaving}
+          className="flex items-baseline gap-2 border-border border-y py-4 text-left transition-colors hover:bg-fill-hover"
+        >
+          <Text size="sm" weight="medium">
+            No goals yet.
+          </Text>
+          <Text size="xs" variant="muted">
+            Say one in a sentence. An agent writes the query.
+          </Text>
+        </button>
       )}
 
       {editing ? (
@@ -207,7 +206,7 @@ function formatDueDate(iso: string): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function GoalTile({
+function GoalRow({
   goal,
   selected,
   measureTask,
@@ -225,23 +224,23 @@ function GoalTile({
   disabled: boolean;
 }) {
   const measure = useGoalMeasure(goal.measure);
+  const trend = useGoalTrend(goal.measure);
+  const theme = useChartTheme();
   const current = measure.data ?? null;
   const status = goalStatus(current, goal.target);
   const measured = current !== null;
-  const progress =
-    goal.target && measured ? goalProgress(current, goal.target) : 0;
-  const showsBar = Boolean(goal.target) && measured;
   const detail = goal.target
     ? `${STATUS_LABEL[status]} · ${describeTarget(goal.target)}`
     : STATUS_LABEL[status];
   const agentRunning =
     goal.measure === null && measureTask?.state === "running";
   const agentEnded = goal.measure === null && measureTask?.state === "ended";
+  const points = trend.data ?? [];
 
   return (
     <div
       className={cn(
-        "flex h-full min-w-0 flex-col rounded-lg border border-border",
+        "-mx-3 flex w-[calc(100%+1.5rem)] items-center gap-3 rounded-md px-3 transition-colors hover:bg-fill-hover",
         selected && "bg-fill-selected",
       )}
     >
@@ -250,10 +249,7 @@ function GoalTile({
         onClick={onOpen}
         disabled={disabled}
         aria-pressed={selected}
-        className={cn(
-          "flex min-h-0 w-full min-w-0 flex-1 flex-col gap-4 p-4 text-left transition-colors hover:bg-fill-hover",
-          agentEnded ? "rounded-t-lg" : "rounded-lg",
-        )}
+        className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_10rem_minmax(9rem,auto)] items-center gap-6 py-3 text-left"
       >
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="flex items-center gap-1.5 font-medium text-foreground text-sm">
@@ -266,14 +262,19 @@ function GoalTile({
             <span className="truncate">{goal.name}</span>
           </span>
           {goal.why ? (
-            <span className="line-clamp-1 text-muted-foreground text-xs">
+            <span className="truncate text-muted-foreground text-xs">
               {goal.why}
             </span>
           ) : null}
         </span>
-        <span className="mt-auto flex min-w-0 flex-col gap-2">
+        <span className="h-7 min-w-0">
+          {points.length > 1 ? (
+            <Sparkline data={points} theme={theme} height={28} />
+          ) : null}
+        </span>
+        <span className="flex min-w-0 flex-col items-end gap-1">
           {measured ? (
-            <span className="font-semibold text-2xl text-foreground tabular-nums leading-none">
+            <span className="font-semibold text-base text-foreground tabular-nums leading-none">
               {formatNumber(current)}
               {goalValueSuffix(goal.name)}
             </span>
@@ -281,7 +282,7 @@ function GoalTile({
             <Spinner size="xs" aria-hidden="true" />
           ) : null}
           {goal.measure === null ? (
-            <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+            <span className="flex items-center gap-1.5 whitespace-nowrap text-muted-foreground text-xs">
               {agentRunning ? (
                 <Spinner size="xs" aria-hidden="true" />
               ) : agentEnded ? (
@@ -299,41 +300,25 @@ function GoalTile({
                   : "Waiting for a measure"}
             </span>
           ) : measure.error ? (
-            <span className="flex items-center gap-1.5 text-warning-foreground text-xs">
+            <span className="flex items-center gap-1.5 whitespace-nowrap text-warning-foreground text-xs">
               <WarningCircleIcon size={13} className="shrink-0" />
               Query failed
             </span>
           ) : (
-            <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+            <span className="flex items-center gap-1.5 whitespace-nowrap text-muted-foreground text-xs">
               <span
                 className={cn(
                   "size-1.5 shrink-0 rounded-full",
                   STATUS_DOT[status],
                 )}
               />
-              <span className="truncate">{detail}</span>
+              {detail}
             </span>
           )}
-          {showsBar ? (
-            <span
-              className="h-1 w-full overflow-hidden rounded-full bg-border"
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={Math.round(progress * 100)}
-            >
-              <span
-                className={cn("block h-full rounded-full", STATUS_DOT[status])}
-                style={{
-                  width: `${progress > 0 ? Math.max(2, Math.round(progress * 100)) : 0}%`,
-                }}
-              />
-            </span>
-          ) : null}
         </span>
       </button>
       {agentEnded && measureTask ? (
-        <div className="flex items-center gap-1 border-border border-t px-3 py-1.5">
+        <span className="flex shrink-0 items-center gap-1">
           <Button
             variant="link-muted"
             size="xs"
@@ -349,7 +334,7 @@ function GoalTile({
           >
             Try again
           </Button>
-        </div>
+        </span>
       ) : null}
     </div>
   );

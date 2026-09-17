@@ -168,6 +168,10 @@ The goal already exists in the CONTEXT.md of this space under "## Goals" as
 3. Write one HogQL query that returns exactly one row with one numeric cell:
    the current value of the goal. Run it to check it executes and returns a
    number. If the goal reads as a rate, return it in percent.
+   Then write a second query for the trend: one row per day for the last 30
+   days, or one row per week for the last 12 weeks when the goal is weekly.
+   Put the period start in the first column and that period's value in the
+   second, ordered by period ascending. Run it too.
 4. Edit CONTEXT.md under "### ${goalName}":
    - Correct the heading when it needs it: fix typos and make it a clear
      metric name in sentence case. Keep its meaning.
@@ -178,6 +182,10 @@ The goal already exists in the CONTEXT.md of this space under "## Goals" as
    - Add the query as a fenced block:
    \`\`\`sql
    <your query>
+   \`\`\`
+   - Add the trend query as a second fenced block marked as the trend:
+   \`\`\`sql trend
+   <your trend query>
    \`\`\`
    Do not change anything else in the document.
 

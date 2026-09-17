@@ -277,7 +277,13 @@ export function GoalComposer({
             ) : (
               <MeasureReview
                 measure={measure}
-                onChange={(sql) => setMeasure({ kind: "hogql", sql })}
+                onChange={(sql) =>
+                  setMeasure((prev) =>
+                    prev?.kind === "hogql" && prev.trendSql
+                      ? { kind: "hogql", sql, trendSql: prev.trendSql }
+                      : { kind: "hogql", sql },
+                  )
+                }
                 onRun={(sql) => runMutate(sql)}
                 value={run.data?.value ?? null}
                 rows={run.data?.rows ?? null}

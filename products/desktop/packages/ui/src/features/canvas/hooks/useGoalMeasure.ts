@@ -42,3 +42,38 @@ export function useGoalMeasure(measure: GoalMeasure | null) {
     },
   );
 }
+
+export const goalTrendQueryKey = (measure: GoalMeasure | null) =>
+  [
+    "context-goal-trend",
+    measure?.kind === "hogql" ? (measure.trendSql ?? "") : "",
+  ] as const;
+
+function lastNumericCell(row: unknown[]): number | null {
+  for (let index = row.length - 1; index >= 0; index -= 1) {
+    const cell = row[index];
+    if (typeof cell === "number" && Number.isFinite(cell)) return cell;
+    if (typeof cell === "string" && cell.trim() !== "") {
+      const parsed = Number(cell);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
+/** Reads a goal's trend as one value per period, oldest first. */
+export function useGoalTrend(measure: GoalMeasure | null) {
+  const trendSql =
+    measure?.kind === "hogql" ? (measure.trendSql ?? "").trim() : "";
+  return useAuthenticatedQuery<number[]>(
+    goalTrendQueryKey(measure),
+    async (client) => {
+      if (!trendSql) return [];
+      const grid = await client.runHogQLQuery(trendSql);
+      return grid.results
+        .map(lastNumericCell)
+        .filter((value): value is number => value !== null);
+    },
+    { enabled: trendSql.length > 0, staleTime: 5 * 60_000, retry: false },
+  );
+}
