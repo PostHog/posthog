@@ -276,29 +276,84 @@ describe('workflowLogic external edits', () => {
         expect(logic.values.externallyEdited).toBe(false)
     })
 
-    it('adopts the latest server baseline (and keeps edits) when the user chooses Keep mine', async () => {
-        logic.actions.setAutoSaveEnabled(false)
-        logic.actions.setWorkflowValue('name', 'My local edit')
-        resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
-        await expectLogic(logic).toDispatchActions(['setExternallyEdited'])
-        expect(logic.values.externallyEdited).toBe(true)
+    const renameExit = (workflow: HogFlow, name: string): HogFlow['actions'] =>
+        workflow.actions.map((action) => (action.id === 'exit_node' ? { ...action, name } : action))
 
-        // The server copy has advanced; Keep mine adopts that timestamp so the user's next save wins.
+    it.each([
+        {
+            scenario: 'a workflow without a draft',
+            loaded: makeWorkflow(),
+            latest: makeWorkflow({ updated_at: NEWER }),
+            expected: { base_updated_at: NEWER, base_live_updated_at: undefined },
+        },
+        {
+            scenario: 'a disabled workflow whose draft is older than the live row',
+            loaded: makeWorkflow({ draft: { edges: makeWorkflow().edges }, draft_updated_at: OLDER }),
+            latest: makeWorkflow({
+                updated_at: NEWER,
+                draft: { edges: makeWorkflow().edges },
+                draft_updated_at: OLDER,
+            }),
+            expected: { base_updated_at: NEWER, base_live_updated_at: undefined },
+        },
+        {
+            scenario: 'an active workflow whose live row changed elsewhere',
+            loaded: makeWorkflow({
+                status: 'active',
+                draft: { edges: makeWorkflow().edges },
+                draft_updated_at: LOADED_AT,
+            }),
+            latest: makeWorkflow({
+                status: 'active',
+                updated_at: NEWER,
+                draft: { edges: makeWorkflow().edges },
+                draft_updated_at: LOADED_AT,
+            }),
+            expected: { base_updated_at: LOADED_AT, base_live_updated_at: NEWER },
+        },
+    ])('Keep mine lets the next save pass the server fences for $scenario', async ({ loaded, latest, expected }) => {
+        const patchBodies: Record<string, any>[] = []
         useMocks({
             get: {
-                '/api/environments/:team_id/hog_flows/:id/': () => [200, makeWorkflow({ updated_at: NEWER })],
+                '/api/environments/:team_id/hog_flows/:id/': () => [200, loaded],
+                '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+            },
+            patch: {
+                '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
+                    patchBodies.push(body)
+                    return [200, { ...latest, ...body }]
+                },
+            },
+        })
+        logic.unmount()
+        logic = workflowLogic({ id: WORKFLOW_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        logic.actions.setAutoSaveEnabled(false)
+        logic.actions.setWorkflowValue('actions', renameExit(logic.values.workflow, 'My local edit'))
+        logic.actions.setExternallyEdited(true)
+
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': () => [200, latest],
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
         })
-
         await expectLogic(logic, () => {
             logic.actions.keepMyWorkflowVersion()
-        }).toDispatchActions(['setSaveBaseUpdatedAt', 'setExternallyEdited'])
-
+        }).toFinishAllListeners()
         expect(logic.values.externallyEdited).toBe(false)
-        expect(logic.values.saveBaseUpdatedAt).toBe(NEWER)
-        // The local edit is preserved — the canvas was not reloaded.
-        expect(logic.values.workflow.name).toBe('My local edit')
+        expect(logic.values.workflow.actions.find((a) => a.id === 'exit_node')?.name).toBe('My local edit')
+
+        await expectLogic(logic, () => {
+            logic.actions.saveWorkflow(logic.values.workflow)
+        }).toDispatchActions(['saveWorkflowSuccess'])
+
+        expect(patchBodies).toHaveLength(1)
+        expect(patchBodies[0].base_updated_at).toBe(expected.base_updated_at)
+        expect(patchBodies[0].base_live_updated_at).toBe(expected.base_live_updated_at)
     })
 
     it('shows the banner when a manual save is rejected as stale (409 backstop)', async () => {
