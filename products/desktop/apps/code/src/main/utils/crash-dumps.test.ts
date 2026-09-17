@@ -98,7 +98,9 @@ describe("crash dumps", () => {
       type: "native-crash",
       dumpFileName: "crash.dmp",
       dumpProcess: "unknown",
-      dumpCount: "1",
+      dumpCount: 1,
+      dumpSizeBytes: expect.any(Number),
+      dumpAgeSeconds: expect.any(Number),
       $exception_fingerprint: `native-crash:${process.platform}`,
     });
     expect(readdirSync(path.join(crashDumpsDir, "pending"))).toHaveLength(0);

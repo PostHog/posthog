@@ -103,9 +103,9 @@ export function reportCrashDumps(
         dumpProcess: "unknown",
         dumpFileName: dump.fileName,
         dumpWrittenAt: new Date(dump.writtenAtMs).toISOString(),
-        dumpAgeSeconds: String(Math.round(ageMs / 1000)),
-        dumpSizeBytes: String(dump.sizeBytes),
-        dumpCount: String(dumps.length),
+        dumpAgeSeconds: Math.round(ageMs / 1000),
+        dumpSizeBytes: dump.sizeBytes,
+        dumpCount: dumps.length,
         // Ingestion rejects the whole property bag if this is not a string,
         // which leaves the event with no issue at all.
         $exception_fingerprint: `native-crash:${process.platform}`,
