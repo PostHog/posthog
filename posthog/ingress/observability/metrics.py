@@ -4,9 +4,10 @@ from typing import Literal
 
 from prometheus_client import Counter, Histogram
 
-# outcome: what the transport answered, never what a consumer decided. `accepted` means the
-# delivery was verified, parsed and handed to the dispatcher -- consumer failures are counted
-# on their own metric below, because a failing consumer still gets a 2xx receipt.
+# outcome: what the transport answered, never what a consumer returned. `accepted` means the
+# delivery was verified, parsed and taken by every consumer it was handed to. `retry_requested`
+# means it was not, on a provider that redelivers on a non-2xx; on a provider that does not, the
+# same delivery is still `accepted` and only the consumer metric below records the failure.
 DeliveryOutcome = Literal[
     "accepted",
     "method_not_allowed",
@@ -15,11 +16,14 @@ DeliveryOutcome = Literal[
     "invalid_signature",
     "invalid_payload",
     "forward_failed",
+    "retry_requested",
 ]
 
 # budget_exceeded means the delivery ran out of wall clock before this consumer started. It is
-# not marked in dedup, so the provider's redelivery reaches it.
-ConsumerOutcome = Literal["succeeded", "failed", "deduped", "budget_exceeded"]
+# not marked in dedup, so the provider's redelivery reaches it. in_flight means another run of the
+# same consumer for the same delivery had not settled yet, so this one did nothing and does not
+# count as accepted.
+ConsumerOutcome = Literal["succeeded", "failed", "deduped", "budget_exceeded", "in_flight"]
 
 # What a consumer answered when asked which region owns the delivery's resource; `failed` is the
 # lookup raising, which counts as undecided.
