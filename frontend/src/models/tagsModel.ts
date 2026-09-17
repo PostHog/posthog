@@ -7,11 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 const tagsByProject = new Map<number, string[]>()
 const tagsRequests = new Map<number, Promise<string[]>>()
 
-async function loadProjectTags(projectId: number): Promise<string[]> {
-    const cachedTags = tagsByProject.get(projectId)
-    if (cachedTags) {
-        return cachedTags
-    }
+async function fetchProjectTags(projectId: number): Promise<string[]> {
     const existingRequest = tagsRequests.get(projectId)
     if (existingRequest) {
         return await existingRequest
@@ -77,12 +73,17 @@ export const tagsModel = kea<tagsModelType>([
             __default: [] as string[],
             loadTags: async () => {
                 const projectId = teamLogic.values.currentTeamId
-                return projectId === null ? [] : await loadProjectTags(projectId)
+                return projectId === null ? [] : await fetchProjectTags(projectId)
             },
         },
     })),
     listeners(({ actions }) => ({
         loadTagsIfNeeded: () => {
+            const projectId = teamLogic.values.currentTeamId
+            if (projectId === null || tagsByProject.has(projectId)) {
+                return
+            }
+
             actions.loadTags()
         },
         refreshTags: () => {
