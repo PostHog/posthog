@@ -6,7 +6,8 @@ every self-driving pull request opens with no assignee. Two rules add assignees:
 - A suggested reviewer who opted in through `SignalUserAutonomyConfig.github_assign_on_pull_request`
   is always added.
 - A pull request that still has no assignee after that gets exactly one directly responsible
-  individual (DRI): the person who claimed the report, else the most relevant suggested reviewer.
+  individual (DRI): the person who claimed the report, else a random member of the GitHub team that
+  owns the changed files (see `pr_owning_team.py`), else the most relevant suggested reviewer.
   A pull request that everybody could pick up is a pull request nobody picks up, and a wrong
   owner costs one reassignment. The `signals-pr-dri-assignee` flag rolls this rule out per
   organization.
@@ -36,6 +37,7 @@ from products.signals.backend.models import (
     SignalReportAssignment,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.pr_owning_team import OwningTeamCandidates
 from products.signals.backend.report_claims import get_active_claim, responsible_user
 from products.signals.backend.report_generation.resolve_reviewers import (
     _normalized_reviewer_user_uuid,
@@ -48,8 +50,8 @@ logger = structlog.get_logger(__name__)
 
 PR_DRI_FEATURE_FLAG = "signals-pr-dri-assignee"
 
-# Each DRI candidate costs one GitHub read. This covers the claimant and three suggested reviewers,
-# and stops a long scout reviewer list from turning one pull request into ten reads.
+# Each DRI candidate costs one GitHub read. This covers the claimant and three other candidates,
+# and stops a large team or a long scout reviewer list from turning one pull request into ten reads.
 MAX_DRI_CHECKS = 4
 
 # Assign only while the pull request can still be reviewed. UNKNOWN is included because a PR whose
@@ -157,30 +159,32 @@ def _pr_dri_enabled(team_id: int) -> bool:
         return False
 
 
-def dri_candidate_logins(*, team_id: int, report_id: str) -> list[str]:
-    """GitHub logins that can own the report's pull request, the most responsible first.
+def claimant_login(*, team_id: int, report_id: str) -> str | None:
+    """The GitHub login of the person who claimed the report, when that person can be assigned."""
+    claim = get_active_claim(team_id=team_id, report_id=report_id)
+    claimant = responsible_user(claim) if claim is not None else None
+    if claimant is None:
+        return None
+    return get_org_member_github_logins_by_user_uuid(team_id, [str(claimant.uuid)]).get(str(claimant.uuid))
 
-    The claimant comes first, because to claim a report is to take the work on. The suggested
-    reviewers follow in their relevance order. A candidate must be a member of the organization
-    with a connected GitHub account, so a login from commit history that belongs to nobody in the
-    organization is never assigned.
+
+def ranked_reviewer_logins(*, team_id: int, report_id: str) -> list[str]:
+    """GitHub logins of the report's suggested reviewers, in their relevance order.
+
+    A reviewer must be a member of the organization with a connected GitHub account, so a login
+    from commit history that belongs to nobody in the organization is never assigned.
     """
     rows_with_uuid = [
         (row, _normalized_reviewer_user_uuid(row.get("user_uuid"))) for row in _latest_reviewer_rows(report_id)
     ]
-    claim = get_active_claim(team_id=team_id, report_id=report_id)
-    claimant = responsible_user(claim) if claim is not None else None
-    claimant_uuid = str(claimant.uuid) if claimant is not None else None
-
-    wanted_uuids = [uuid for uuid in (claimant_uuid, *(uuid for _, uuid in rows_with_uuid)) if uuid]
-    login_by_uuid = get_org_member_github_logins_by_user_uuid(team_id, wanted_uuids)
+    login_by_uuid = get_org_member_github_logins_by_user_uuid(team_id, [uuid for _, uuid in rows_with_uuid if uuid])
     # A row stored by uuid names the reviewer by that uuid, so its login is only read for a row without one.
     member_logins = resolve_org_github_login_to_users(
         team_id,
         normalized_github_logins_from_reviewer_payloads(row for row, uuid in rows_with_uuid if uuid is None),
     )
 
-    candidates = [login_by_uuid.get(claimant_uuid)] if claimant_uuid else []
+    candidates: list[str | None] = []
     for row, uuid in rows_with_uuid:
         if uuid is not None:
             candidates.append(login_by_uuid.get(uuid))
@@ -305,6 +309,38 @@ def _first_assignable_login(
     return None
 
 
+def _owning_team_logins(
+    github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef
+) -> list[str]:
+    try:
+        return OwningTeamCandidates(github, team_id=team_id, report_id=report_id, parsed=parsed).logins()
+    except Exception:
+        logger.exception(
+            "signals.reviewer_pr_assignment.owning_team_failed",
+            team_id=team_id,
+            report_id=report_id,
+            repository=parsed.repository,
+            pr_number=parsed.number,
+        )
+        return []
+
+
+def dri_candidate_logins(
+    github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef
+) -> list[str]:
+    """GitHub logins that can own the report's pull request, the most responsible first.
+
+    The claimant comes first, because to claim a report is to take the work on. Next come the
+    members of the GitHub team that owns the changed files, when the repository declares its
+    ownership in `owners.yaml`. The suggested reviewers take their place when there is no such team.
+    """
+    claimant = claimant_login(team_id=team_id, report_id=report_id)
+    others = _owning_team_logins(github, team_id=team_id, report_id=report_id, parsed=parsed) or (
+        ranked_reviewer_logins(team_id=team_id, report_id=report_id)
+    )
+    return list(dict.fromkeys(login for login in (claimant, *others) if login))
+
+
 def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: str) -> list[str]:
     """Put the report's opted-in reviewers, or else one DRI, on its pull request.
 
@@ -317,8 +353,8 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
         return []
 
     logins = opted_in_reviewer_logins(team_id=team_id, report_id=report_id)
-    dri_candidates = dri_candidate_logins(team_id=team_id, report_id=report_id) if _pr_dri_enabled(team_id) else []
-    if not logins and not dri_candidates:
+    dri_enabled = _pr_dri_enabled(team_id)
+    if not logins and not dri_enabled:
         return []
 
     parsed = GitHubIntegration.parse_pull_request_url(pr_url)
@@ -336,14 +372,13 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
     assigned = (
         _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=logins) if logins else []
     )
-    if assigned or pr.get("assignees"):
+    if not dri_enabled or assigned or pr.get("assignees"):
         return assigned
 
     # One owner rather than every candidate, because each person on a shared assignment reads the
     # pull request as somebody else's job.
-    dri = _first_assignable_login(
-        github, team_id=team_id, report_id=report_id, parsed=parsed, candidates=dri_candidates
-    )
+    candidates = dri_candidate_logins(github, team_id=team_id, report_id=report_id, parsed=parsed)
+    dri = _first_assignable_login(github, team_id=team_id, report_id=report_id, parsed=parsed, candidates=candidates)
     if dri is None:
         return []
     return _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=[dri])

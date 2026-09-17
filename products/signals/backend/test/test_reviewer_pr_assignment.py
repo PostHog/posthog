@@ -8,6 +8,7 @@ from social_django.models import UserSocialAuth
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
+from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import (
     SignalReport,
@@ -389,6 +390,14 @@ class TestDirectlyResponsibleIndividual:
     def _flag_on(self, dri_flag):
         dri_flag.return_value = True
 
+    @pytest.fixture(autouse=True)
+    def ownership(self):
+        with patch(
+            "products.signals.backend.pr_owning_team.resolve_path_owners",
+            return_value=PathOwnership(team_by_path={}, registry={}, resolved=False),
+        ) as resolve:
+            yield resolve
+
     def _setup(self, org, team, reviewers: list[str], *, opted_in: tuple[str, ...] = ()) -> tuple[SignalReport, dict]:
         users = {
             login: _make_reviewer(org, login, opted_in=login in opted_in) for login in ("alice", "bob", "carol", "dave")
@@ -428,6 +437,7 @@ class TestDirectlyResponsibleIndividual:
             "success": True,
             "assignable": assignable is None or login in assignable,
         }
+        github.list_pull_request_files.return_value = {"success": True, "paths": ["posthog/api/a.py"]}
         return github
 
     @pytest.mark.django_db
@@ -513,3 +523,56 @@ class TestDirectlyResponsibleIndividual:
 
         assert self._assign(team, report, github) == []
         assert github.is_assignable.call_count == 1
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        ("team_by_path", "members", "claimant", "expected_owner"),
+        [
+            ({"a.py": "team-x", "b.py": "team-x", "c.py": "team-y"}, {"success": True}, False, "dave"),
+            ({"a.py": "team-x"}, {"success": True}, True, "carol"),
+            (None, {"success": True}, False, "alice"),
+            ({"a.py": UNOWNED_TEAM}, {"success": True}, False, "alice"),
+            ({"a.py": "team-x"}, {"success": False, "status_code": 403}, False, "alice"),
+            ({"a.py": "team-y"}, {"success": True}, False, "alice"),
+        ],
+        ids=[
+            "random_member_of_the_majority_team",
+            "claimant_before_the_team",
+            "no_owners_files_uses_reviewers",
+            "unowned_files_use_reviewers",
+            "unreadable_team_uses_reviewers",
+            "team_without_org_members_uses_reviewers",
+        ],
+    )
+    def test_the_owning_team_supplies_the_owner(
+        self,
+        org_and_team,
+        ownership,
+        team_by_path: dict[str, str] | None,
+        members: dict,
+        claimant: bool,
+        expected_owner: str,
+    ):
+        org, team = org_and_team
+        report, users = self._setup(org, team, ["alice"])
+        if claimant:
+            claim_report(
+                report=report,
+                actor=ArtefactAttribution.from_user(users["carol"].id),
+                user=users["carol"],
+                was_impersonated=False,
+            )
+        if team_by_path is not None:
+            ownership.return_value = PathOwnership(team_by_path=team_by_path, registry={}, resolved=True)
+        github = self._github(existing_assignees=[], assignable=None)
+        github.list_pull_request_files.return_value = {"success": True, "paths": list(team_by_path or ["a.py"])}
+        logins_by_team = {"team-x": ["bob", "dave", "stranger"], "team-y": ["stranger"]}
+        github.list_team_members.side_effect = lambda _org, slug: {**members, "logins": logins_by_team[slug]}
+
+        with patch(
+            "products.signals.backend.pr_owning_team.random.shuffle",
+            side_effect=lambda logins: logins.sort(reverse=True),
+        ):
+            calls = self._assign(team, report, github)
+
+        assert calls == [[expected_owner]]

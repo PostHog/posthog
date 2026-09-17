@@ -1352,6 +1352,69 @@ class GitHubIntegrationBase:
             "status_code": response.status_code,
         }
 
+    def list_pull_request_files(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """The paths of the first page of files a pull request changes, at most 100.
+
+        One page only, so a very large pull request costs one read. Callers that need every path
+        must not use this.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/files",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/files",
+            params={"per_page": 100},
+        )
+        if response is None:
+            return {"success": False, "error": "Network error listing pull request files"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to list pull request files: {response.text}",
+                "status_code": response.status_code,
+            }
+        try:
+            files = response.json()
+        except Exception:
+            return {"success": False, "error": "Failed to parse pull request files JSON"}
+        paths = [
+            entry["filename"]
+            for entry in (files if isinstance(files, list) else [])
+            if isinstance(entry, dict) and isinstance(entry.get("filename"), str)
+        ]
+        return {"success": True, "paths": paths}
+
+    def list_team_members(self, org: str, team_slug: str) -> dict[str, Any]:
+        """The logins of every member of a GitHub team, including members of its child teams.
+
+        Needs the app's organization members read permission. Without it GitHub answers 403, which
+        comes back as a failure.
+        """
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/orgs/{org}/teams/{team_slug}/members",
+            endpoint="/orgs/{org}/teams/{team_slug}/members",
+            params={"per_page": 100},
+        )
+        if not complete:
+            last = responses[-1] if responses else None
+            return {
+                "success": False,
+                "error": f"Failed to list team members: {last.text if last is not None else 'network error'}",
+                "status_code": last.status_code if last is not None else None,
+            }
+        logins: list[str] = []
+        for response in responses:
+            try:
+                members = response.json()
+            except Exception:
+                return {"success": False, "error": "Failed to parse team members JSON"}
+            logins.extend(
+                entry["login"]
+                for entry in (members if isinstance(members, list) else [])
+                if isinstance(entry, dict) and isinstance(entry.get("login"), str)
+            )
+        return {"success": True, "logins": logins}
+
     def add_pull_request_assignees_from_url(self, pr_url: str, assignees: Iterable[str]) -> dict[str, Any]:
         """Add assignees to a pull request by its HTML URL."""
         parsed = self.parse_pull_request_url(pr_url)

@@ -965,6 +965,27 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["success"] is False
         assert result["status_code"] == 403
 
+    @parameterized.expand(
+        [
+            ("every_page_read", True, {"success": True, "logins": ["alice", "bob"]}),
+            # A partial member list would make a random pick skip part of the team.
+            ("a_page_failed", False, {"success": False}),
+        ]
+    )
+    def test_list_team_members_needs_every_page(self, _name: str, complete: bool, expected: dict):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        first = MagicMock(status_code=200)
+        first.json.return_value = [{"login": "alice"}]
+        second = MagicMock(status_code=200 if complete else 403, text="Resource not accessible by integration")
+        second.json.return_value = [{"login": "bob"}]
+        with patch.object(
+            github, "_installation_authenticated_get_pages", return_value=([first, second], complete)
+        ) as mock_pages:
+            result = github.list_team_members("PostHog", "team-devex")
+        assert {key: result[key] for key in expected} == expected
+        assert mock_pages.call_args.args[0] == "https://api.github.com/orgs/PostHog/teams/team-devex/members"
+
     def test_add_pull_request_assignees_from_url_parses_and_posts(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
