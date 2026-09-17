@@ -27,6 +27,7 @@ from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
     DedupResult,
+    FetchPRDataInput,
     GenerateSchemasInput,
     LoadBlindSpotsInput,
     LoadedBlindSpotsSkillDTO,
@@ -146,12 +147,20 @@ async def _run_full_review_pr_workflow(
     # snapshot; input_resolve_comments is the per-run override on the workflow input.
     StubResolvePRWorkflow.dispatches.clear()
 
+    # The mode every consumer received, keyed by stage: the arms, the prefix, and the events all key
+    # off it, so a stage that drops it silently runs (or labels) a flash turn as a full one.
+    mode_calls: dict[str, set[str]] = {}
+
+    def _saw_mode(stage: str, mode: str) -> None:
+        mode_calls.setdefault(stage, set()).add(mode)
+
     @activity.defn(name="validate_github_integration_activity")
     async def validate_integration(input) -> None:
         return None
 
     @activity.defn(name="fetch_pr_data_activity")
-    async def fetch(input) -> ReviewMeta:
+    async def fetch(input: FetchPRDataInput) -> ReviewMeta:
+        _saw_mode("fetch", input.review_mode)
         return ReviewMeta(
             report_id="rep-1",
             head_sha="sha1",
@@ -215,13 +224,6 @@ async def _run_full_review_pr_workflow(
     async def load_blind_spots(input: LoadBlindSpotsInput) -> LoadedBlindSpotsSkillDTO:
         load_user_ids.append(input.acting_user_id)
         return LoadedBlindSpotsSkillDTO(skill_name="s-blind", version=1)
-
-    # The mode every consumer received, keyed by stage: the arms, the prefix, and the events all key
-    # off it, so a stage that drops it silently runs (or labels) a flash turn as a full one.
-    mode_calls: dict[str, set[str]] = {}
-
-    def _saw_mode(stage: str, mode: str) -> None:
-        mode_calls.setdefault(stage, set()).add(mode)
 
     @activity.defn(name="review_chunk_activity")
     async def review(input: ReviewChunkInput) -> bool:
@@ -564,7 +566,7 @@ async def test_review_pr_workflow_flash_turn_threads_its_mode_and_never_chains_r
     assert recorded["publish"] == [7]
     assert recorded["resolve_dispatches"] == []
     assert recorded["modes"] == {
-        stage: {"flash"} for stage in ("select", "review", "validate", "publish", "status", "track")
+        stage: {"flash"} for stage in ("fetch", "select", "review", "validate", "publish", "status", "track")
     }
 
 

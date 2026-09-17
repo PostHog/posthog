@@ -201,10 +201,13 @@ The shared `FLASH_ARM` in `products/review_hog/backend/reviewer/constants.py` pi
 Flash uses the existing `review_hog` model allowance and inlines the pinned review skills into its prompts.
 Custom skills with bundled files include a file manifest so the agent can fetch each file at the pinned skill version.
 Choose **Review in Flash mode** from the Code review page's review menu to run it for one turn without changing the PR's full-review configuration.
+Flash requests preserve an existing report's review tier, including when they join a running review.
 Flash labels its GitHub messages with `FLASH MODE` and never starts comment resolution.
 If a review fails, the next attempt keeps cached reviewer results for the same commit and model.
 Deduplication retires superseded findings from the unfinished turn and reuses a verdict only when its finding, commit, review mode, and model configurations are unchanged.
 Completed turns remain in the report history.
+When recovering a failed Flash publish with `python manage.py publish_review`, pass `--review-mode flash` to preserve the Flash labels.
+The recovery command defaults to Full and does not infer the mode from the stored report.
 
 ### Agent run telemetry (optional)
 

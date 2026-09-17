@@ -635,8 +635,9 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
     because the sandbox clones the **base** repo and checks out the head branch **by name**
     (`get_sandbox_for_repository`, owned by `products/tasks`), so a **fork** PR fails at the checkout step. Until
     the sandbox learns to fetch `refs/pull/N/head`, test against origin-branch PRs.
-- **Publish a computed review without recomputing:** `python manage.py publish_review --pr-url <url> --team-id <id>`
-  publishes the latest completed turn at its reviewed `head_sha` (DB-driven; no Temporal, no sandbox).
+- **Publish a computed review without recomputing:** `python manage.py publish_review --pr-url <url> --team-id <id>`.
+  This publishes the latest completed turn at its reviewed `head_sha` (DB-driven; no Temporal, no sandbox).
+  Add `--review-mode flash` when the stored review came from Flash; the command defaults to Full.
 - **Reset local state:** `DEBUG=1 python manage.py reset_review_hog [--dry-run] [--yes]` wipes all ReviewHog rows
   across every team (DEBUG-only; GitHub comments untouched).
 - **Turn a per-user toggle on or off in bulk:** `python manage.py {enable,disable}_inbox_reviews --team-id <id>

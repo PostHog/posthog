@@ -9,6 +9,8 @@ from rest_framework import status
 from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.reviewer.constants import REVIEW_ARMS_BY_TIER, ReviewTier
+from products.review_hog.backend.reviewer.persistence import load_review_arm
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 
 _START = "products.review_hog.backend.api.reviews.start_review_pr_workflow"
@@ -164,20 +166,26 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (run_mode, the tier + effort the report keeps for its later normal turns)
-            (None, ("human", "xhigh")),
-            ("flash", ("agent_p2", "medium")),
+            ("full", None, ReviewTier.HUMAN),
+            ("review_only", "review_only", ReviewTier.HUMAN),
+            ("flash", "flash", ReviewTier.AGENT_P2),
         ]
     )
     @patch(_META, return_value=_pr_meta())
     @patch(_ACCESS, return_value=object())
     @patch(_START, return_value="wf-ui-1")
-    def test_trigger_during_a_running_cheaper_review_lifts_the_tier_unless_it_is_flash(
-        self, run_mode, expected_routing, mock_start, _mock_access, _mock_meta
-    ):
-        # Same join as the label path: the requester's source never reaches the fetch upsert, so the
-        # lift is written here and the UI is told no new run started. Flash is held back — the lift
-        # rewrites the persisted arm, so the cheapest request would raise what later turns cost.
+    def test_joined_trigger_lifts_cheaper_tier_only_for_full_reviews(
+        self,
+        _name: str,
+        run_mode: str | None,
+        expected_tier: ReviewTier,
+        mock_start: MagicMock,
+        _mock_access: MagicMock,
+        _mock_meta: MagicMock,
+    ) -> None:
+        # Joined starts retain their original inputs, so Full requests need an explicit tier lift
+        # while Flash must preserve the stored arm. The response still reports the shared join.
+        original_arm = REVIEW_ARMS_BY_TIER[ReviewTier.AGENT_P2]
         report = ReviewReport.objects.for_team(self.team.id).create(
             team=self.team,
             repository="posthog/posthog.com",
@@ -186,7 +194,10 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             head_branch="fix",
             base_branch="master",
             review_tier="agent_p2",
-            review_reasoning_effort="medium",
+            review_runtime_adapter=original_arm.runtime_adapter.value,
+            review_model=original_arm.model,
+            review_reasoning_effort=original_arm.reasoning_effort.value,
+            review_initial_permission_mode=original_arm.initial_permission_mode,
         )
         self.mock_busy.side_effect = lambda workflow_id: workflow_id.startswith("review-pr:")
         with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
@@ -196,7 +207,10 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         self.assertEqual(resp.json(), {"workflow_id": "wf-ui-1", "status": "joined_running_review"})
         mock_start.assert_called_once()
         report.refresh_from_db()
-        self.assertEqual((report.review_tier, report.review_reasoning_effort), expected_routing)
+        self.assertEqual(report.review_tier, expected_tier.value)
+        self.assertEqual(
+            load_review_arm(team_id=self.team.id, report_id=str(report.id)), REVIEW_ARMS_BY_TIER[expected_tier]
+        )
 
     @patch(_ACCESS, return_value=object())
     @patch(_START_RESOLUTION)

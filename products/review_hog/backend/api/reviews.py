@@ -279,8 +279,9 @@ class ReviewTriggerResponseSerializer(serializers.Serializer):
     status = serializers.CharField(
         help_text="Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the "
         "pull request's current commit already has a published review (no new run starts), "
-        "'joined_running_review' when a review was already in flight (no new run starts; a report in a "
-        "cheaper tier is lifted to human strength for the rest of that review and every later one)."
+        "'joined_running_review' when a review was already in flight (no new run starts and its mode "
+        "stays unchanged; requests for Full mode lift a cheaper stored tier for later Full reviews, "
+        "while Flash requests leave the tier unchanged)."
     )
 
 
