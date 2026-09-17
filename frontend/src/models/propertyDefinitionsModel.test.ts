@@ -226,6 +226,41 @@ describe('the property definitions model', () => {
                 })
         })
 
+        it('drops a definitions response that arrives after the logic is gone', async () => {
+            let releaseRequest: (() => void) | undefined
+            let requestStarted: () => void
+            const inFlight = new Promise<void>((resolve) => (requestStarted = resolve))
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/property_definitions/': async () => {
+                        requestStarted()
+                        await new Promise<void>((release) => (releaseRequest = release))
+                        return [200, { count: 0, results: [], next: undefined }]
+                    },
+                },
+            })
+
+            const unhandledRejections: unknown[] = []
+            const captureRejection = (reason: unknown): void => {
+                unhandledRejections.push(reason)
+            }
+            process.on('unhandledRejection', captureRejection)
+            try {
+                logic.actions.loadPropertyDefinitions(['a string'], PropertyDefinitionType.Event)
+                await inFlight
+                // permanentlyMount() holds a reference of its own, so one unmount leaves it mounted.
+                while (propertyDefinitionsModel.findMounted()) {
+                    logic.unmount()
+                }
+                releaseRequest?.()
+                await new Promise((resolve) => setTimeout(resolve, 50))
+            } finally {
+                process.off('unhandledRejection', captureRejection)
+            }
+
+            expect(unhandledRejections).toEqual([])
+        })
+
         it('handles local definitions', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadPropertyDefinitions(['$session_duration'], PropertyDefinitionType.Event)
