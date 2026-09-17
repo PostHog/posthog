@@ -7657,12 +7657,14 @@ def run_task(
     is_pi_task = task.runtime == Task.Runtime.PI
     previous_run: TaskRun | None = None
     previous_state = None
+    previous_is_import_run = False
     if resume_from_run_id:
         previous_run = task.runs.filter(id=resume_from_run_id).first()
         if previous_run is None:
             return contracts.TaskRunResult(
                 error=contracts.TaskValidationError(kind="detail", detail="Invalid resume_from_run_id")
             )
+        previous_is_import_run = "imported_from" in (previous_run.state or {})
         if not previous_run.matches_task_ownership(task):
             return contracts.TaskRunResult(
                 error=contracts.TaskValidationError(
@@ -7696,10 +7698,11 @@ def run_task(
             team_id, task.repositories[0] if task.repositories else task.repository
         )
 
-    if not resume_from_run_id:
+    if not resume_from_run_id or previous_is_import_run:
         # Fill team/user default AI run preferences before warm matching: a warm run
         # provisioned under the default triple must still match a submit that pinned
-        # nothing. Resumes instead carry the previous run's selection (below).
+        # nothing. Resumes instead carry the previous run's selection (below), except from
+        # an import run, which never ran and so pins no selection to carry.
         validated_data = _with_ai_run_defaults(
             validated_data,
             team_id=task.team_id,
@@ -7855,6 +7858,8 @@ def run_task(
         if not is_pi_task:
             extra_state["resume_from_run_id"] = str(resume_from_run_id)
             extra_state.update(prev_state.resume_snapshot_carry_state())
+            if previous_is_import_run:
+                extra_state["resume_from_import_run"] = True
 
         # The resumed agent still pushes the head branch baked into the original prompt, so the
         # PR webhook must be able to match this run, not the terminal predecessor.

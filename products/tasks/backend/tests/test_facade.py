@@ -770,6 +770,25 @@ class TestFacadeReadsAndMappers(TestCase):
         trigger.assert_not_called()
         assert not task.runs.exists()
 
+    def test_run_task_resumed_from_an_import_run_marks_the_new_run(self):
+        task = self._make_task()
+        import_run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, state={"imported_from": "conversation"}
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(import_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=import_run.id).get()
+        assert new_run.state["resume_from_import_run"] is True
+        assert "imported_from" not in new_run.state
+
     def test_run_task_resume_exposes_pending_prompt_to_agent(self):
         task = self._make_task()
         previous_run = TaskRun.objects.create(
