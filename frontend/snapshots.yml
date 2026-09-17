@@ -9028,14 +9028,18 @@ snapshots:
         hash: v1.k794b7964.e0e79a77be55d932e351dd624093d0107d0fc1737ad2377ff59625f8c9d2919f.RmzBOXeIfu6YtXX5xWbtQ-LBgX6Vffw7nsiC9tqy6Nk
     scenes-app-logs-sessionerrorsbadge--several-errors--light:
         hash: v1.k794b7964.b816e38267a9feb005f365b0826180703192d0d7e1775020b201aa4b9c4a1832.cBNgS9GhMzI2LlBJ1nlaPLzWNdYY5Xr1P9FhiLoYbFw
+    scenes-app-logs-settings-logssourcessection--connect-step--dark:
+        hash: v1.k794b7964.bdf990f7d86286085d84ce36c9c14eb040a3d8d1ef16fd50f35e348574818e4c.H0xNy2Qe5B9GyZWexGFhrMbbYxrfZIqDGZe-2j2N4O0
+    scenes-app-logs-settings-logssourcessection--connect-step--light:
+        hash: v1.k794b7964.c539eb876a03e67412d039e2059de1e25da0942c9b38405651317bb9fbff21ab.C70egr9yBV1Uc2JXGRMVTOxr43UPVMdImjEfKNeBpQY
     scenes-app-logs-settings-logssourcessection--empty--dark:
         hash: v1.k794b7964.7a4e1cf81b98b4b1733ef91e225c314d6816b084fe829a555e78f096821c74e3.1nt1NAhcrJGcZu0Bbw0WDsWJSOf97X9WuiphfD3Z9Fo
     scenes-app-logs-settings-logssourcessection--empty--light:
         hash: v1.k794b7964.b6d6d594c96d227aec83c6222b651c2b0ab12ed6687b5c56075dc5f8ce700f83.oNfN7IyftucSMz-Ukbtq6nhZa34P-ODCc0g4G8jNq3E
     scenes-app-logs-settings-logssourcessection--with-sources--dark:
-        hash: v1.k794b7964.593b66f9453c7335a9816ad2f8b8a9a5917db5921e51a3a65150c64bbc7db5a2.QtlTMeSDxrhwfPMXXkszoY_OuKHgaem4nz0JI8mVfj0
+        hash: v1.k794b7964.40528107d0ffc28f1d86237a75d0102d6b7ed4b7be8e79c0425225499d27ffd6.MyPA_zcE4arFQ9uzaQOwRocWGyjrRvS1zUdSBhH4K8s
     scenes-app-logs-settings-logssourcessection--with-sources--light:
-        hash: v1.k794b7964.431403d7e0dedf2cac6f72db9edc85e4369621d14aa610591bffbcb753ae0834.-muB_b1Mn8PTRawGbZo-sUxh6mXX-keJmkdk890KbLU
+        hash: v1.k794b7964.a93acee111bfb0cfef095f9485dd6085fa5db597098ef02d2bb9401c2e259133.dfFBwGElJXtBj6YS-L179jbwX9AqP7S1E9Wt6ZRlTao
     scenes-app-logs-sparkline--volume-by-severity--dark:
         hash: v1.k794b7964.0342a42ad3e96fb82282914a3c60aedb873de9f8dfc94c850b22b3f7f17d56a0.c_sYZ1aNex35E-5hGq0aHwwV1MQCROpZBvMfAznRPoY
     scenes-app-logs-sparkline--volume-by-severity--light:
