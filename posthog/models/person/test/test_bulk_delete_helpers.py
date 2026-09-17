@@ -426,7 +426,7 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
             )
         # One flattened call, then per-person calls until the breaker trips; nobody is deleted.
         assert training.call_count == 1 + 3
-        assert sorted(f.person_uuid for f in result.failures) == sorted(p.uuid for p in persons)
+        assert {f.person_uuid for f in result.failures} == {p.uuid for p in persons}
         assert {f.step for f in result.failures} == {PersonDeletionStep.QUEUE_TRAINING_DELETION}
         ch_delete.assert_not_called()
         pg_delete.assert_not_called()
