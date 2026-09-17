@@ -177,6 +177,52 @@ class TestSlackIntegration:
         mock_counter.labels.return_value.inc.assert_called_once()
 
     @patch("posthog.models.integration.slack.WebClient")
+    def test_list_channels_keeps_its_pages_when_slack_rate_limits_mid_walk(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # These endpoints are rate limited per workspace and the client does not retry. Raising
+        # would hand the caller no channels at all, which is worse than the short list it used to
+        # get, and nothing is cached to fall back on.
+        first_page = {
+            "channels": [{"id": "C1", "name": "a_channel", "is_private": False, "is_ext_shared": False}],
+            "response_metadata": {"next_cursor": "1"},
+        }
+        rate_limited = SlackApiError("ratelimited", {"ok": False, "error": "ratelimited"})
+        mock_client.conversations_list.side_effect = [first_page, rate_limited]
+        mock_client.users_conversations.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
+
+        channels = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+
+        assert [channel["id"] for channel in channels] == ["C1"]
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_get_channel_by_id_keeps_the_channel_when_membership_cannot_be_proven(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # An unfinished member scan means membership is unproven, not disproven. Hiding the channel
+        # here is the same silent empty result this change exists to remove.
+        mock_client.conversations_info.return_value = {
+            "channel": {
+                "id": "C123",
+                "name": "huge_channel",
+                "is_private": False,
+                "is_ext_shared": False,
+                "num_members": 50000,
+            }
+        }
+        mock_client.conversations_members.return_value = {
+            "members": ["U1"],
+            "response_metadata": {"next_cursor": "keep-going"},
+        }
+
+        channel = SlackIntegration(self.integration).get_channel_by_id("C123", True, "test_user_id")
+
+        assert channel is not None
+        assert channel["id"] == "C123"
+
+    @patch("posthog.models.integration.slack.WebClient")
     def test_get_channel_by_id_finds_a_member_past_the_first_page(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client

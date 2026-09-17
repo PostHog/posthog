@@ -44,6 +44,19 @@ class SlackIntegrationError(Exception):
     pass
 
 
+class SlackMembershipUnknown(SlackIntegrationError):
+    """A membership check ran out of budget or hit a rate limit before it could answer.
+
+    Distinct from "not a member": the caller must not turn this into an empty result, because a
+    channel that resolves to nothing reads to the user as "the app is not in that channel".
+    """
+
+
+def _is_rate_limited(error: SlackApiError) -> bool:
+    response = getattr(error, "response", None)
+    return bool(response) and response.get("error") == "ratelimited"
+
+
 SLACK_INTEGRATION_KINDS: tuple[str, ...] = ("slack",)
 
 SLACK_CHANNELS_PAGE_SIZE = 1000
@@ -134,7 +147,15 @@ class SlackIntegration:
 
         while requests < SLACK_MEMBERS_MAX_REQUESTS:
             requests += 1
-            res = self.client.conversations_members(channel=channel_id, limit=SLACK_MEMBERS_PAGE_SIZE, cursor=cursor)
+            try:
+                res = self.client.conversations_members(
+                    channel=channel_id, limit=SLACK_MEMBERS_PAGE_SIZE, cursor=cursor
+                )
+            except SlackApiError as e:
+                if not _is_rate_limited(e):
+                    raise
+                self._record_truncation("channel_members_rate_limited", collected=seen, requests=requests)
+                raise SlackMembershipUnknown() from e
             members = res["members"]
             seen += len(members)
             if authed_user in members:
@@ -144,7 +165,7 @@ class SlackIntegration:
                 return False
 
         self._record_truncation("channel_members", collected=seen, requests=requests)
-        return False
+        raise SlackMembershipUnknown()
 
     def get_channel_by_id(
         self, channel_id: str, should_include_private_channels: bool = False, authed_user: str | None = None
@@ -153,7 +174,14 @@ class SlackIntegration:
             response = self.client.conversations_info(channel=channel_id, include_num_members=True)
             channel = response["channel"]
 
-            if not self._is_channel_member(channel_id, authed_user):
+            try:
+                is_member = self._is_channel_member(channel_id, authed_user)
+            except SlackMembershipUnknown:
+                # The scan could not finish, so membership is unproven rather than disproven. Return
+                # the channel: the picker shows it and flags that the app may not be in it, which is
+                # recoverable, while hiding it is the silent empty result this change exists to stop.
+                is_member = True
+            if not is_member:
                 return None
 
             isPrivateWithoutAccess = channel["is_private"] and not should_include_private_channels
@@ -180,7 +208,13 @@ class SlackIntegration:
 
         while requests < SLACK_LISTING_MAX_REQUESTS:
             requests += 1
-            res = self.client.users_list(limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor)
+            try:
+                res = self.client.users_list(limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor)
+            except SlackApiError as e:
+                if not _is_rate_limited(e):
+                    raise
+                self._record_truncation("users_rate_limited", collected=fetched, requests=requests)
+                return users
             fetched += len(res["members"])
             users.extend(
                 member
@@ -250,19 +284,30 @@ class SlackIntegration:
 
         while requests < SLACK_LISTING_MAX_REQUESTS:
             requests += 1
-            if type == "public_channel":
-                res = self.client.conversations_list(
-                    exclude_archived=True, types=type, limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor
-                )
-            else:
-                res = self.client.users_conversations(
-                    exclude_archived=True,
-                    types=type,
-                    limit=SLACK_CHANNELS_PAGE_SIZE,
-                    cursor=cursor,
-                    user=authed_user,
-                )
+            try:
+                if type == "public_channel":
+                    res = self.client.conversations_list(
+                        exclude_archived=True, types=type, limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor
+                    )
+                else:
+                    res = self.client.users_conversations(
+                        exclude_archived=True,
+                        types=type,
+                        limit=SLACK_CHANNELS_PAGE_SIZE,
+                        cursor=cursor,
+                        user=authed_user,
+                    )
+            except SlackApiError as e:
+                # These endpoints are rate limited per workspace and the client does not retry, so a
+                # long walk can run into a 429 part way. Keep the pages already collected: a short
+                # list is what the caller got before this change, while raising here would replace it
+                # with no channels at all, and nothing is cached to fall back on.
+                if not _is_rate_limited(e):
+                    raise
+                self._record_truncation(f"channels_{type}_rate_limited", collected=len(channels), requests=requests)
+                return channels
 
+            if type != "public_channel":
                 for channel in res["channels"]:
                     if channel["is_private"] and not should_include_private_channels:
                         channel["name"] = PRIVATE_CHANNEL_WITHOUT_ACCESS
