@@ -59,7 +59,22 @@ function setup(
     { read: () => snapshot, apply },
     files,
   );
-  return { service, files, apply, read: () => snapshot, saved: () => saved };
+  const rename = (from: string, to: string) => {
+    snapshot = {
+      ...snapshot,
+      sounds: snapshot.sounds.map((sound) =>
+        sound.name === from ? { ...sound, name: to } : sound,
+      ),
+    };
+  };
+  return {
+    service,
+    files,
+    apply,
+    rename,
+    read: () => snapshot,
+    saved: () => saved,
+  };
 }
 
 describe("SettingsBackupService", () => {
@@ -106,6 +121,14 @@ describe("SettingsBackupService", () => {
     );
     expect(await target.service.importBackup(review, "all")).toBe(0);
     expect(target.read().sounds).toHaveLength(2);
+    // A rename keeps the clip's audio, so a later import of the same file
+    // must still recognize the clip and keep the destination name.
+    target.rename("My chime", "My ding");
+    expect(await target.service.importBackup(review, "all")).toBe(0);
+    expect(target.read().sounds.map((sound) => sound.name)).toEqual([
+      "Keep this clip",
+      "My ding",
+    ]);
   });
 
   it("exports only allowed preferences and keeps sounds-only transfers independent of other settings", async () => {

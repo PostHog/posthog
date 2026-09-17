@@ -59,9 +59,11 @@ export function mergeSettingsBackupSounds(
   const sounds = [...currentSounds];
   const remappedIds = new Map<string, string>();
   for (const sound of importedSounds) {
+    // The audio identifies a clip. A rename on either machine keeps the same
+    // audio, so comparing names here would import a clip the library already
+    // holds a second time.
     const existing = sounds.find(
-      (candidate) =>
-        candidate.dataUrl === sound.dataUrl && candidate.name === sound.name,
+      (candidate) => candidate.dataUrl === sound.dataUrl,
     );
     if (existing) {
       remappedIds.set(sound.id, existing.id);
