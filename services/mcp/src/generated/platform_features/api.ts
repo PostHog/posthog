@@ -180,6 +180,9 @@ export const AdvancedActivityLogsListParams = () => zod.object({
 
 export const advancedActivityLogsListQueryActivitiesDefault = []
 export const advancedActivityLogsListQueryClientsDefault = []
+export const advancedActivityLogsListQueryExcludeClientsDefault = []
+export const advancedActivityLogsListQueryExcludeIpAddressesDefault = []
+export const advancedActivityLogsListQueryExcludeUsersDefault = []
 export const advancedActivityLogsListQueryFollowDefault = false
 export const advancedActivityLogsListQueryIncludeValuesDefault = false
 export const advancedActivityLogsListQueryIpAddressesDefault = []
@@ -208,12 +211,30 @@ export const AdvancedActivityLogsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.'
+            'JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in, not_in. Use not_in to hide matching entries; entries without the field are kept.'
         ),
     end_date: zod.iso
         .datetime({ offset: true })
         .optional()
         .describe('Upper bound on `created_at` (inclusive), ISO-8601.'),
+    exclude_clients: zod
+        .array(zod.string())
+        .default(advancedActivityLogsListQueryExcludeClientsDefault)
+        .describe(
+            "Hide activity from these API clients (the x-posthog-client header, or 'scout:<skill_name>' for a scout run). Entries with no client are kept."
+        ),
+    exclude_ip_addresses: zod
+        .array(zod.string())
+        .default(advancedActivityLogsListQueryExcludeIpAddressesDefault)
+        .describe(
+            'Hide activity from these client IP addresses. Accepts exact IPv4\/IPv6 values or wildcard patterns using `\*` (e.g. `203.0.113.\*`). Entries with no IP address are kept.'
+        ),
+    exclude_users: zod
+        .array(zod.string())
+        .default(advancedActivityLogsListQueryExcludeUsersDefault)
+        .describe(
+            'Hide activity performed by these users (user UUIDs). Entries with no user, such as system activity, are kept.'
+        ),
     follow: zod
         .boolean()
         .default(advancedActivityLogsListQueryFollowDefault)
