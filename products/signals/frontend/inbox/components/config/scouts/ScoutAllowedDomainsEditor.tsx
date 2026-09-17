@@ -15,6 +15,7 @@ import {
     withScoutDomainRemoved,
     withScoutDomainsAdded,
 } from '../../../utils/scoutAllowedDomains'
+import { scoutListInputKeyDown } from '../../../utils/scoutListInput'
 
 /**
  * The domain list a scout on custom network access may reach, on top of the trusted defaults.
@@ -100,15 +101,11 @@ export function ScoutAllowedDomainsEditor({
                         setError(null)
                     }}
                     onBlur={commitDraft}
-                    onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ',') {
-                            event.preventDefault()
-                            commitDraft()
-                        } else if (event.key === 'Backspace' && draft === '' && domains.length > 0) {
-                            event.preventDefault()
-                            removeDomain(domains[domains.length - 1])
-                        }
-                    }}
+                    onKeyDown={scoutListInputKeyDown(
+                        draft,
+                        commitDraft,
+                        domains.length > 0 ? () => removeDomain(domains[domains.length - 1]) : undefined
+                    )}
                     size="xsmall"
                     placeholder={atCap ? `${MAX_SCOUT_ALLOWED_DOMAINS} domain limit` : 'Add domain'}
                     aria-label={`${config.skill_name} allowed domains`}
