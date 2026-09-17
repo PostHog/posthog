@@ -297,7 +297,15 @@ export const OutOfTheMergeQueue: Story = {
                 'api/projects/:team_id/engineering_analytics/pr_runs/': KICKED_RUNS,
                 'api/projects/:team_id/engineering_analytics/pull_request_timelines/': timelines(KICKED),
                 'api/projects/:team_id/engineering_analytics/workflow_jobs/': FAILED_GATE_JOBS,
-                'api/projects/:team_id/engineering_analytics/delivery_comparison/': comparison(null),
+                // Jane's two teams tie, and the smaller one has too few other authors to show a median.
+                'api/projects/:team_id/engineering_analytics/delivery_comparison/': {
+                    ...comparison(null),
+                    team_basis: 'review_requests',
+                    teams: [
+                        { github_team: 'team-replay', medians: medians(88, 12, 4, 4.5) },
+                        { github_team: 'team-web-analytics', medians: null },
+                    ],
+                },
             },
         }),
     ],

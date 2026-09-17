@@ -21,6 +21,7 @@ export function DeliverySections({
     scopeLabel,
     sourceId,
     comparison = null,
+    comparisonFailed = false,
 }: {
     /** An author or a GitHub team; the summary endpoint rejects a single pull request. */
     scope: DeliveryScope
@@ -29,6 +30,7 @@ export function DeliverySections({
     sourceId: string | null
     /** An author's comparison with their own team, which adds the team's row to the ready-to-merge card. */
     comparison?: DeliveryComparisonApi | null
+    comparisonFailed?: boolean
 }): JSX.Element {
     const summaryLogic = deliverySummaryLogic({ scope, sourceId })
     const { summary, summaryLoading, summaryFailed } = useValues(summaryLogic)
@@ -101,7 +103,15 @@ export function DeliverySections({
                     <div className="grid grid-cols-1 gap-2 @min-[36rem]:grid-cols-2 @min-[64rem]:grid-cols-4">
                         <div className="@min-[36rem]:col-span-2">
                             <ReadyToMergeCard
-                                rows={summary ? summaryRows(summary, scopeLabel, teamRows(comparison)) : []}
+                                rows={
+                                    summary
+                                        ? summaryRows(
+                                              summary,
+                                              scopeLabel,
+                                              teamRows(comparisonFailed ? null : comparison)
+                                          )
+                                        : []
+                                }
                                 reviewsSynced={!!summary?.review_data_available}
                                 loading={summaryPending}
                                 emptyText={
@@ -109,7 +119,7 @@ export function DeliverySections({
                                         ? 'Ready time appears once the issue events table on this GitHub source is synced.'
                                         : 'No merged pull requests with a known ready time in the window.'
                                 }
-                                footnote={missingTeamText(comparison)}
+                                footnote={missingTeamText(comparison, comparisonFailed)}
                             />
                         </div>
                         <ScopeComparisonCard

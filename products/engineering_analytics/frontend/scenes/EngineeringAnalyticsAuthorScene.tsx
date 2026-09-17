@@ -39,7 +39,9 @@ export const scene: SceneExport<AuthorLogicProps> = {
 export function EngineeringAnalyticsAuthorScene(): JSX.Element {
     const { handle, sourceId, deliveryScope, workflowCosts, workflowCostsLoading } = useValues(authorLogic)
     const { summary, summaryLoading } = useValues(deliverySummaryLogic({ scope: deliveryScope, sourceId }))
-    const { comparison, comparisonLoading } = useValues(deliveryComparisonLogic({ author: handle, sourceId }))
+    const { comparison, comparisonLoading, comparisonFailed } = useValues(
+        deliveryComparisonLogic({ author: handle, sourceId })
+    )
     const timelinesLogic = pullRequestTimelinesLogic({ scope: deliveryScope, sourceId })
     const {
         timelines,
@@ -107,6 +109,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                     scopeLabel="This author"
                     sourceId={sourceId}
                     comparison={comparison}
+                    comparisonFailed={comparisonFailed}
                 />
 
                 <Section id="delivery-pull-requests" title="Pull requests">

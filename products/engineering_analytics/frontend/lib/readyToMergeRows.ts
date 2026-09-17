@@ -65,16 +65,25 @@ export function teamRows(comparison: DeliveryComparisonApi | null): ReadyToMerge
     if (!comparison) {
         return []
     }
-    return comparison.teams.map(({ github_team, medians }) =>
-        mediansRow(github_team, github_team, medians, teamTooltip(comparison, github_team))
+    return comparison.teams.flatMap(({ github_team, medians }) =>
+        medians ? [mediansRow(github_team, github_team, medians, teamTooltip(comparison, github_team))] : []
     )
 }
 
-export function missingTeamText(comparison: DeliveryComparisonApi | null): string | null {
-    if (!comparison || comparison.teams.length > 0) {
+export function missingTeamText(comparison: DeliveryComparisonApi | null, failed: boolean): string | null {
+    if (failed) {
+        return "Couldn't load the team comparison. Reload the page to try again."
+    }
+    if (!comparison) {
         return null
     }
-    return comparison.has_membership_data
-        ? `No team row: ${comparison.author} isn't in a team that owns code.`
-        : "Sync the team members table on this GitHub source to compare with the author's team."
+    if (comparison.teams.length === 0) {
+        return comparison.has_membership_data
+            ? `No team row: ${comparison.author} isn't in a team that owns code.`
+            : "Sync the team members table on this GitHub source to compare with the author's team."
+    }
+    const hidden = comparison.teams.filter((team) => !team.medians).map((team) => team.github_team)
+    return hidden.length
+        ? `No row for ${hidden.join(', ')}: fewer than three other authors merged there in the window, so a median would show a teammate's time.`
+        : null
 }

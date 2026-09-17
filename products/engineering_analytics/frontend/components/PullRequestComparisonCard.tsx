@@ -19,7 +19,8 @@ function pullRequestRow(pr: PRTimelineApi, comparison: DeliveryComparisonApi): R
         label: pr.merged_at ? 'This PR' : 'This PR so far',
         shortLabel: 'this PR',
         // An open pull request's timeline starts at its last ready for review, the medians' measure so far.
-        seconds: split?.ready_to_merge_seconds ?? timeInStates(pr).wholeSeconds,
+        // A merged one keeps the read's own measure, which is null when its ready time was not observed.
+        seconds: pr.merged_at ? (split?.ready_to_merge_seconds ?? null) : timeInStates(pr).wholeSeconds,
         p90Seconds: null,
         beforeShare: split?.before_first_approval_share ?? null,
         beforeApprovalSeconds: split?.ready_to_first_approval_seconds ?? null,
@@ -66,9 +67,9 @@ export function PullRequestComparisonCard({
             emptyText={
                 comparisonFailed
                     ? "Couldn't load the comparison. Reload the page to try again."
-                    : 'No comparison for this pull request.'
+                    : "This pull request's ready for review time isn't known, so there is nothing to compare."
             }
-            footnote={missingTeamText(comparison)}
+            footnote={missingTeamText(comparison, false)}
             dataAttr="engineering-analytics-pr-comparison"
         />
     )
