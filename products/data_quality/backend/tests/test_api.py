@@ -2125,6 +2125,23 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "lookback_hours" in response.json()["detail"]
 
+    def test_a_target_window_is_refused_on_a_target_with_no_time_column(self) -> None:
+        response = self.client.post(
+            f"{self.url}/",
+            self._payload(
+                check_type=CheckType.RELATIONSHIPS,
+                config={
+                    "to_subject_type": SubjectType.VIEW,
+                    "to_subject_uuid": str(self.view.id),
+                    "to_column": "id",
+                    "to_lookback_hours": 24,
+                },
+            ),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "to_lookback_hours" in response.json()["detail"]
+
     def test_the_check_type_catalog_needs_no_access_to_any_subject(self) -> None:
         self._deny_the_view()
 

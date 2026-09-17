@@ -120,8 +120,17 @@ def validate_check(
     parsed = spec.coerce_to_column(parsed, subject_column_type(team.id, subject_type, subject_uuid, column_name))
 
     related = related_subject_ref(check_type, config)
-    if related and not resolve_subject(team.id, *related).exists:
-        raise SubjectUnresolvableError(f"The referenced {related[0]} {related[1]} does not exist.")
+    if related:
+        related_subject = resolve_subject(team.id, *related)
+        if not related_subject.exists:
+            raise SubjectUnresolvableError(f"The referenced {related[0]} {related[1]} does not exist.")
+        # Same rule as the subject's own window above, on the second subject a relationships check
+        # reads. ``build`` keeps its own guard, so this is refused at authoring time rather than on
+        # every run.
+        if getattr(parsed, "to_lookback_hours", None) is not None and not related_subject.time_column:
+            raise CheckConfigError(
+                f"The referenced {related[0]} has no time column, so it cannot take a to_lookback_hours window."
+            )
 
     return parsed
 
