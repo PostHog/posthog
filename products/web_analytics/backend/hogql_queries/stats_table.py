@@ -283,7 +283,10 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         direction: Literal["ASC", "DESC"] = "DESC"
         if self.query.orderBy:
             field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
-            direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1]).value
+            # The schema does not bound orderBy's length, so an API caller can send
+            # just the field; a missing direction defaults to DESC everywhere.
+            if len(self.query.orderBy) > 1:
+                direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1]).value
 
             if field == WebAnalyticsOrderByFields.VISITORS:
                 column = "context.columns.visitors"
@@ -752,8 +755,9 @@ WHERE and(
         field = "visitors"
         if self.query.orderBy:
             order_field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
-            order_dir = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1])
-            direction = cast(Literal["ASC", "DESC"], order_dir.value)
+            if len(self.query.orderBy) > 1:
+                order_dir = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1])
+                direction = cast(Literal["ASC", "DESC"], order_dir.value)
             if order_field == WebAnalyticsOrderByFields.VISITORS:
                 field = "visitors"
             elif order_field == WebAnalyticsOrderByFields.VIEWS:

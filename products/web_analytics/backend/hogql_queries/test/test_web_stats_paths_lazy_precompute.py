@@ -715,6 +715,16 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             self._run(self._build_query(order_by=[field, WebAnalyticsOrderByDirection.DESC]))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_single_element_orderby_defaults_direction(self) -> None:
+        # The schema does not bound orderBy's length, so an API caller can send just
+        # the field. The query must complete with DESC defaulted, not IndexError on
+        # the missing direction — on the lazy sort resolution and the raw path alike.
+        self._seed_two_sessions()
+        with self._enable_lazy():
+            response = self._run(self._build_query(order_by=[WebAnalyticsOrderByFields.VISITORS]))
+        assert response.results is not None
+
     @parameterized.expand(
         [
             ("visitors_asc", WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.ASC),
