@@ -55,6 +55,7 @@ env:
     # One place to update when the Depot workflow or its gate job is renamed.
     DEPOT_APP_ID: '219785'
     DEPOT_GATE_CHECK: Backend CI on Depot / Django Tests Pass on Depot
+    DEPOT_WAIT_CHECK: Backend CI on Depot / Wait for GitHub Actions to hand off backend tests
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
@@ -3996,12 +3997,12 @@ jobs:
         steps:
             # Relay mode: the tests ran on Depot CI, so this required check mirrors the
             # conclusion of Depot's gate for the same commit. Only `success` passes; a
-            # skipped, failed, cancelled or missing Depot gate fails closed. Depot creates
-            # its check runs when it queues the run, so a gate still absent well past the
-            # hand-off wait means Depot never picked the event up. A `no-ci` draft marked
-            # ready keeps its SHA and its earlier skipped gate, so only a check that
-            # started after this event counts. 304 responses are free, so the poll stays
-            # off the rate limit.
+            # skipped, failed, cancelled or missing Depot gate fails closed. Depot posts a
+            # job's check run when the job starts, so the gate stays absent while the matrix
+            # runs; the wait job starts first and tells a run Depot never picked up from one
+            # that declined the hand-off. A `no-ci` draft marked ready keeps its SHA and its
+            # earlier skipped checks, so only a check that started after this event counts.
+            # 304 responses are free, so the poll stays off the rate limit.
             - name: Relay the Depot verdict
               if: needs.changes.outputs.engine == 'depot'
               env:
@@ -4014,42 +4015,61 @@ jobs:
                   deadline=$((SECONDS + 5400))
                   absent_deadline=$((SECONDS + 900))
                   refusals=0
-                  verdict=""
-                  url="https://api.github.com/repos/$REPO/commits/$SHA/check-runs?check_name=$(jq -rn --arg n "$DEPOT_GATE_CHECK" '$n | @uri')&app_id=$DEPOT_APP_ID"
-                  while [ "$SECONDS" -lt "$deadline" ]; do
+                  code=""
+                  gate=""
+                  wait_job=""
+                  api="https://api.github.com/repos/$REPO/commits/$SHA/check-runs?app_id=$DEPOT_APP_ID&check_name="
+                  # Reads one Depot check run into $state: absent, a status, or a conclusion.
+                  # A 304 leaves $state as it was. Refusals count across reads until the gate read answers.
+                  read_check() {
+                      local name=$1 tag=$2
                       # curl rewrites the saved ETag empty on a 304, so promote it only after a 200.
-                      code=$(curl -s -o /tmp/relay-body -w '%{http_code}' --max-time 30 --etag-compare /tmp/relay-etag --etag-save /tmp/relay-etag.new \
-                          -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$url")
+                      code=$(curl -s -o "/tmp/relay-$tag" -w '%{http_code}' --max-time 30 --etag-compare "/tmp/relay-$tag.etag" --etag-save "/tmp/relay-$tag.etag.new" \
+                          -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$api$(jq -rn --arg n "$name" '$n | @uri')")
                       case "$code" in
                           200)
-                              refusals=0
-                              mv /tmp/relay-etag.new /tmp/relay-etag
-                              verdict=$(jq -r --arg since "$EVENT_AT" '[.check_runs[] | select((.started_at // "") >= $since)] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/relay-body)
-                              echo "Depot gate: $verdict"
+                              mv "/tmp/relay-$tag.etag.new" "/tmp/relay-$tag.etag"
+                              state=$(jq -r --arg since "$EVENT_AT" '[.check_runs[] | select((.started_at // "") >= $since)] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' "/tmp/relay-$tag")
                               ;;
-                          304) refusals=0 ;;
+                          304) ;;
                           # 403 also covers a secondary rate limit, which does clear, so spend a
                           # few retries before calling the credential broken.
                           401|403)
                               refusals=$((refusals + 1))
                               echo "::warning::check-runs API returned $code ($refusals in a row)"
                               if [ "$refusals" -ge 5 ]; then
-                                  echo "::error::Cannot read Depot's gate check for $SHA; this job cannot relay a verdict"
+                                  echo "::error::Cannot read Depot's checks for $SHA; this job cannot relay a verdict"
                                   exit 1
                               fi
                               ;;
                           *) echo "::warning::check-runs API returned $code" ;;
                       esac
-                      case "$verdict" in
+                  }
+                  while [ "$SECONDS" -lt "$deadline" ]; do
+                      state=$gate
+                      read_check "$DEPOT_GATE_CHECK" gate
+                      gate=$state
+                      case "$code" in 200|304) refusals=0 ;; esac
+                      echo "Depot gate: ${gate:-unread}"
+                      case "$gate" in
                           success) exit 0 ;;
-                          absent)
-                              if [ "$SECONDS" -ge "$absent_deadline" ]; then
-                                  echo "::error::Depot CI never started for $SHA: no gate check after 15 minutes"
-                                  exit 1
-                              fi
+                          ""|absent)
+                              state=$wait_job
+                              read_check "$DEPOT_WAIT_CHECK" wait
+                              wait_job=$state
+                              case "$wait_job" in
+                                  success|queued|in_progress|pending|waiting|requested) ;;
+                                  ""|absent)
+                                      if [ "$SECONDS" -ge "$absent_deadline" ]; then
+                                          echo "::error::Depot CI never started for $SHA: no wait job after 15 minutes"
+                                          exit 1
+                                      fi
+                                      ;;
+                                  *) echo "::error::Depot declined the hand-off for $SHA (wait job: $wait_job)"; exit 1 ;;
+                              esac
                               ;;
-                          ""|queued|in_progress|pending|waiting|requested) ;;
-                          *) echo "::error::Depot gate concluded $verdict for $SHA"; exit 1 ;;
+                          queued|in_progress|pending|waiting|requested) ;;
+                          *) echo "::error::Depot gate concluded $gate for $SHA"; exit 1 ;;
                       esac
                       sleep 30
                   done
