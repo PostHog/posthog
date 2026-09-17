@@ -19,6 +19,7 @@ from rest_framework.test import APIClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
+from posthog.ingress.dispatch.dedup import DeliveryDedup
 from posthog.models.integration import SlackIntegrationError
 from posthog.models.organization import OrganizationMembership
 
@@ -140,9 +141,26 @@ class TestSupportSlackEventsAPI(BaseTest):
 
         assert first.status_code == 202
         assert second.status_code == 202
+        # The redelivery reaches the consumer now, and the unique receipt absorbs it into one row.
         assert ConversationInboundEvent.objects.for_team(self.team.id).count() == 1
-        # Ingress drops the second delivery of the same event id before the consumer runs.
-        assert mock_wake.call_count == 1
+        assert mock_wake.call_count == 2
+
+    @patch(WAKE_INBOUND_EVENT)
+    def test_a_redelivery_reaches_the_handler_past_a_dedup_mark_a_dead_run_left(self, mock_wake: MagicMock):
+        # A run that exits between the dedup claim and the receipt commit leaves the mark behind.
+        payload = {
+            "type": "event_callback",
+            "event_id": "Ev_abandoned",
+            "team_id": "T123",
+            "event": {"type": "message", "channel": "C1"},
+        }
+        DeliveryDedup().claim(provider="slack", consumer="conversations_slack", delivery_id="Ev_abandoned")
+
+        response = self._post_committed(payload)
+
+        assert response.status_code == 202
+        mock_wake.assert_called_once()
+        assert self._event_row().source_id == "Ev_abandoned"
 
     # Spelled out rather than read from the provider, so dropping a type there fails here.
     @parameterized.expand(

@@ -40,6 +40,8 @@ WEBHOOK_CONSUMERS = (
         app="supporthog",
         event_types=SLACK_EVENT_TYPES,
         handler=_run_slack_events,
+        # The unique inbound receipt row is the idempotency here, so a redelivery must reach it.
+        dedup=False,
         ownership=_slack_ownership,
     ),
 )

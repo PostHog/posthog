@@ -41,4 +41,6 @@ The other status codes are the defaults.
 It declares `ownership`, so a delivery about a workspace the other region holds is forwarded there.
 A lookup that does not answer, the bounded statement timeout included, forwards nothing and takes `retry_status`:
 a lookup that never finished is no evidence that the other region owns the workspace, and the delivery carries the workspace's support messages.
+It also sets `dedup=False`, because its receipt row is unique per Slack event id and already absorbs a redelivery.
+A dedup mark would only add a way to lose one: a run that exits between the claim and the receipt commit leaves the mark behind with nothing durable written, and every redelivery then takes `retry_status` until Slack gives up.
 See the [Endpoints table](../README.md#endpoints).
