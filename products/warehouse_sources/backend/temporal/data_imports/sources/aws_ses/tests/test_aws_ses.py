@@ -220,39 +220,21 @@ class TestErrorClassification:
     # A zero-member exception model constrains the members, not the wire body, so SES can answer
     # with an empty JSON object or with no bytes at all.
     @pytest.mark.parametrize("content", [b"{}", b"", b"  \n "])
-    def test_a_bodyless_bad_request_is_explained_instead_of_trailing_off_after_the_dash(self, content: bytes) -> None:
+    def test_a_bodyless_bad_request_names_the_region_without_claiming_the_cause(self, content: bytes) -> None:
+        # AWS gives no discriminator between a region that has no such table and a request it
+        # faulted, so the region is named and the cause stays a possibility.
         message = str(
             error_for_response(bodyless_bad_request(content), "email_identities", "/v2/email/identities/x", "eu-west-2")
         )
 
-        assert f"BadRequestException - {aws_ses._BAD_REQUEST_EXPLANATION}" in message
+        assert "BadRequestException - Amazon SES rejected this request and gave no reason." in message
+        assert "might not be available in AWS region eu-west-2" in message
         assert message.endswith("(table email_identities, GET /v2/email/identities/x)")
-
-    @pytest.mark.parametrize("content", [b"{}", b"", b"  \n "])
-    def test_a_bodyless_bad_request_on_a_faultless_request_names_the_region(self, content: bytes) -> None:
-        # PageSize is the only input such a request carries and SESv2 range-checks it, so the
-        # 400 can only mean the region has no such table. Say that, and say which region.
-        message = str(
-            error_for_response(
-                bodyless_bad_request(content),
-                "multi_region_endpoints",
-                "/v2/email/multi-region-endpoints",
-                "eu-west-2",
-                fixed_inputs_only=True,
-            )
-        )
-
-        assert "does not serve this table in AWS region eu-west-2" in message
-        assert message.endswith("(table multi_region_endpoints, GET /v2/email/multi-region-endpoints)")
 
     def test_an_aws_message_still_wins_over_the_region_explanation(self) -> None:
         response = make_response(400, {"message": "Pool name describes a shared pool."})
 
-        message = str(
-            error_for_response(
-                response, "dedicated_ip_pools", "/v2/email/dedicated-ip-pools/p", "eu-west-2", fixed_inputs_only=True
-            )
-        )
+        message = str(error_for_response(response, "dedicated_ip_pools", "/v2/email/dedicated-ip-pools/p", "eu-west-2"))
 
         assert "Pool name describes a shared pool." in message
         assert "eu-west-2" not in message
@@ -434,34 +416,6 @@ class TestGetRows:
                 endpoint="multi_region_endpoints",
             )
 
-    @pytest.mark.parametrize(
-        "endpoint,responses,manager,expected",
-        [
-            ("multi_region_endpoints", [{"MultiRegionEndpoints": []}], None, [True]),
-            ("account", [{"SendingEnabled": True}], None, [True]),
-            (
-                "multi_region_endpoints",
-                [{"MultiRegionEndpoints": [], "NextToken": "p2"}, {"MultiRegionEndpoints": []}],
-                None,
-                [True, False],
-            ),
-            (
-                "multi_region_endpoints",
-                [{"MultiRegionEndpoints": []}],
-                FakeResumeManager(AwsSesResumeConfig(next_token="saved")),
-                [False],
-            ),
-        ],
-    )
-    def test_only_a_request_aws_cannot_fault_earns_the_region_wording(
-        self, endpoint: str, responses: list[Any], manager: Optional[FakeResumeManager], expected: list[bool]
-    ) -> None:
-        # A page token or a path name is an input AWS can legitimately reject, so a 400 on one
-        # of those must not be read as the region missing the table.
-        _, send, _ = self._run(responses, manager=manager, endpoint=endpoint)
-
-        assert [call[1].get("fixed_inputs_only", False) for call in send.call_args_list] == expected
-
     def test_an_incremental_run_asks_aws_only_for_updates_since_the_watermark(self) -> None:
         _, send, _ = self._run(
             [suppression_page([])],
@@ -470,8 +424,6 @@ class TestGetRows:
         )
 
         assert send.call_args[0][5]["StartDate"] == "2026-08-06T12:00:00Z"
-        # A date filter is an input AWS can reject, so this request keeps the hedged wording.
-        assert send.call_args[1].get("fixed_inputs_only", False) is False
 
     def test_a_full_refresh_walks_the_list_unbounded(self) -> None:
         _, send, _ = self._run([suppression_page([])])
@@ -906,8 +858,8 @@ class TestEndpointPermissions:
     def test_a_table_the_region_cannot_serve_is_reported_instead_of_staying_selectable(
         self, requests_mock: Any
     ) -> None:
-        # SESv2 answers an operation the region does not support with a bodyless 400. The probe
-        # sends only PageSize, so the reason can name the region instead of hedging.
+        # SESv2 answers an operation the region does not support with a bodyless 400, so the
+        # picker reports the region in the reason and the table is not selectable.
         requests_mock.get(
             "https://email.eu-west-2.amazonaws.com/v2/email/multi-region-endpoints",
             status_code=400,
@@ -917,15 +869,15 @@ class TestEndpointPermissions:
 
         reasons = probe_endpoint_permissions("key", "secret", None, "eu-west-2", ["multi_region_endpoints"])
 
-        assert reasons == {"multi_region_endpoints": aws_ses._region_missing_table_explanation("eu-west-2")}
+        assert reasons == {"multi_region_endpoints": aws_ses._bad_request_explanation("eu-west-2")}
 
     @pytest.mark.parametrize(
         "pool_name,code,status_code,expected_reason",
         [
             ("ses-shared-pool", "BadRequestException", 400, None),
             ("ses-default-dedicated-pool", "BadRequestException", 400, None),
-            ("marketing-pool", "BadRequestException", 400, aws_ses._BAD_REQUEST_EXPLANATION),
-            ("ses-shared-pool-custom", "BadRequestException", 400, aws_ses._BAD_REQUEST_EXPLANATION),
+            ("marketing-pool", "BadRequestException", 400, aws_ses._bad_request_explanation("us-east-1")),
+            ("ses-shared-pool-custom", "BadRequestException", 400, aws_ses._bad_request_explanation("us-east-1")),
             (
                 "ses-shared-pool",
                 "AccessDeniedException",
@@ -960,9 +912,9 @@ class TestEndpointPermissions:
         )
 
         assert probe_endpoint_permissions("key", "secret", None, "us-east-1", ["dedicated_ip_pools"]) == {
-            "dedicated_ip_pools": aws_ses._region_missing_table_explanation("us-east-1")
+            "dedicated_ip_pools": aws_ses._bad_request_explanation("us-east-1")
         }
         assert validate_credentials("key", "secret", None, "us-east-1", schema_name="dedicated_ip_pools") == (
             False,
-            aws_ses._region_missing_table_explanation("us-east-1"),
+            aws_ses._bad_request_explanation("us-east-1"),
         )

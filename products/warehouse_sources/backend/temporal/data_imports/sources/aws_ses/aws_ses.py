@@ -43,12 +43,6 @@ _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 _IAM_ACTION_PATTERN = re.compile(r"ses:[A-Za-z0-9]+")
 
-# SESv2 declares BadRequestException with zero members, so the response carries no `message`.
-_BAD_REQUEST_EXPLANATION = (
-    "Amazon SES rejected the request and gave no reason. "
-    "This table might not be available in the AWS region this source is connected to."
-)
-
 # Codes AWS can answer with when a saved pagination token is no longer accepted. Only
 # ListSuppressedDestinations models InvalidNextTokenException; the other list operations report
 # a rejected NextToken as BadRequestException, the same code a region that cannot serve the
@@ -65,18 +59,23 @@ _CREDENTIAL_ERROR_CODES = (
 )
 
 
-def _region_missing_table_explanation(region: str) -> str:
-    """Wording for a bodyless 400 on a request whose only input is `PageSize`.
+def _bad_request_explanation(region: str) -> str:
+    """Wording for a bodyless 400.
 
-    SESv2 range-checks `PageSize` against its own model, so nothing in such a request can be
-    invalid and the 400 can only mean the region does not serve the operation. SES gates some
-    tables by region: `multi_region_endpoints` lists global endpoints, which a region either
-    offers or does not.
+    SES gates some tables by region: `multi_region_endpoints` lists global endpoints, which a
+    region either offers or does not. A region that does not serve an operation answers 400.
+
+    The response cannot say that it is that case. SESv2 declares `BadRequestException` with zero
+    members, so the body carries no `message`, and the list operations declare no
+    `NotFoundException`. The request cannot say so either: `PageSize` is the shape `MaxItems`,
+    which declares no `min` and no `max`, on every operation this source calls except
+    `ListMultiRegionEndpoints`, so AWS can reject the page size the connector chose. Name the
+    region, and leave the cause open.
     """
     return (
-        f"Amazon SES does not serve this table in AWS region {region}. The request sent no "
-        "inputs AWS could reject, so the operation itself is unavailable there. Deselect the "
-        "table, or connect a source in a region that offers it."
+        "Amazon SES rejected this request and gave no reason. This table might not be available "
+        f"in AWS region {region}. Check whether Amazon SES offers it there, or connect a source "
+        "in a region that does."
     )
 
 
@@ -171,21 +170,16 @@ def _error_code(response: requests.Response, body: dict[str, Any]) -> str:
     return str(raw).split("#")[-1]
 
 
-def _error_message(
-    response: requests.Response, body: dict[str, Any], code: str, region: str, fixed_inputs_only: bool
-) -> str:
+def _error_message(response: requests.Response, body: dict[str, Any], code: str, region: str) -> str:
     message = body.get("message") or body.get("Message") or ""
     if message:
         return str(message)[:500]
     if code == "BadRequestException":
-        return _region_missing_table_explanation(region) if fixed_inputs_only else _BAD_REQUEST_EXPLANATION
+        return _bad_request_explanation(region)
     return f"Amazon SES returned HTTP {response.status_code} with no message."
 
 
-def error_for_response(
-    response: requests.Response, endpoint: str, path: str, region: str, fixed_inputs_only: bool = False
-) -> AwsSesError:
-    """Build the error for a 4xx/5xx. `fixed_inputs_only` marks a request AWS cannot fault."""
+def error_for_response(response: requests.Response, endpoint: str, path: str, region: str) -> AwsSesError:
     try:
         parsed = response.json()
     except ValueError:
@@ -198,7 +192,7 @@ def error_for_response(
     text = "" if isinstance(parsed, dict) else response.text.strip()
     if text:
         return AwsSesError(code, text[:500], endpoint, path)
-    return AwsSesError(code, _error_message(response, body, code, region, fixed_inputs_only), endpoint, path)
+    return AwsSesError(code, _error_message(response, body, code, region), endpoint, path)
 
 
 def make_session(secret_access_key: str, session_token: Optional[str]) -> requests.Session:
@@ -213,13 +207,8 @@ def send_request(
     endpoint: str,
     path: str,
     params: Optional[dict[str, Any]] = None,
-    fixed_inputs_only: bool = False,
 ) -> dict[str, Any]:
-    """Sign one SESv2 GET with SigV4 and send it over the tracked session.
-
-    Set `fixed_inputs_only` when the request carries nothing the account chose: no name in the
-    path, no saved page token, no date filter. It decides how a bodyless 400 is explained.
-    """
+    """Sign one SESv2 GET with SigV4 and send it over the tracked session."""
     url = SES_ENDPOINT_TEMPLATE.format(region=region) + path
     if params:
         # Encoded exactly like the SigV4 canonical query string (RFC 3986, sorted keys), so the
@@ -231,7 +220,7 @@ def send_request(
 
     response = session.get(url, headers=dict(aws_request.headers.items()), timeout=REQUEST_TIMEOUT_SECONDS)
     if response.status_code >= 400:
-        raise error_for_response(response, endpoint, path, region, fixed_inputs_only)
+        raise error_for_response(response, endpoint, path, region)
     return response.json()
 
 
@@ -330,7 +319,6 @@ def _walk_pages(
                 endpoint_config.name,
                 endpoint_config.path,
                 page_params,
-                fixed_inputs_only=set(page_params) <= {"PageSize"},
             )
         except AwsSesError as error:
             # A token saved by a previous attempt can expire; restart the walk instead of
@@ -380,9 +368,7 @@ def get_rows(
         yield [
             normalize_row(
                 endpoint_config,
-                send_request(
-                    session, credentials, region, endpoint_config.name, endpoint_config.path, fixed_inputs_only=True
-                ),
+                send_request(session, credentials, region, endpoint_config.name, endpoint_config.path),
             )
         ]
         return
@@ -432,9 +418,7 @@ def endpoint_permission_reason(
     """
     try:
         if endpoint_config.page_size is None:
-            send_request(
-                session, credentials, region, endpoint_config.name, endpoint_config.path, fixed_inputs_only=True
-            )
+            send_request(session, credentials, region, endpoint_config.name, endpoint_config.path)
             return None
 
         body = send_request(
@@ -444,7 +428,6 @@ def endpoint_permission_reason(
             endpoint_config.name,
             endpoint_config.path,
             {"PageSize": 1},
-            fixed_inputs_only=True,
         )
         if endpoint_config.detail_path:
             for item in (body.get(endpoint_config.result_key or "") or [])[:1]:
@@ -508,7 +491,7 @@ def validate_credentials(
 
     try:
         account = AWS_SES_ENDPOINTS["account"]
-        send_request(session, credentials, region, account.name, account.path, fixed_inputs_only=True)
+        send_request(session, credentials, region, account.name, account.path)
     except AwsSesError as error:
         # A denied GetAccount still proves the key is genuine; per-table access is reported in
         # the schema picker instead of blocking source creation.

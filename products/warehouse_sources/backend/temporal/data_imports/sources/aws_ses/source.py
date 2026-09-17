@@ -57,11 +57,10 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
             "Amazon SES request failed: InvalidSignatureException": "AWS rejected the request signature. If you are using temporary credentials, the session token has expired.",
             "Amazon SES request failed: ExpiredTokenException": "The AWS session token has expired. Please reconnect with fresh credentials.",
             "Amazon SES request failed: AccessDeniedException": "These AWS credentials are missing SES read permissions. Grant ses:GetAccount, ses:ListConfigurationSets, ses:GetConfigurationSet, ses:ListEmailIdentities, ses:GetEmailIdentity, ses:ListSuppressedDestinations, ses:ListEmailTemplates, ses:GetEmailTemplate, ses:ListContactLists, ses:GetContactList, ses:ListDedicatedIpPools, ses:GetDedicatedIpPool, ses:GetDedicatedIps, ses:ListCustomVerificationEmailTemplates, ses:GetCustomVerificationEmailTemplate and ses:ListMultiRegionEndpoints to the IAM user or role.",
-            # No retry turns a 400 into rows. `None` keeps the raised message, which names the
-            # table and, where the request carried nothing AWS could fault, the region that has
-            # no such table; a fixed string here could say neither. A stale pagination token
-            # also surfaces as a 400, so the walk restarts itself once before one can reach
-            # this map.
+            # No retry turns a 400 into rows. `None` keeps the raised message, which carries
+            # AWS's own text when there is one and otherwise names the table and the region; a
+            # fixed string here could say neither. A stale pagination token also surfaces as a
+            # 400, so the walk restarts itself once before one can reach this map.
             "Amazon SES request failed: BadRequestException": None,
             "Invalid AWS region": "Enter a valid AWS region code like us-east-1.",
             "AWS access key ID and secret access key are required": "Enter both an AWS access key ID and a secret access key.",
