@@ -1,8 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useValues } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/frontend/dashboard/NewMarketingAnalyticsDashboard'
 
 jest.mock('scenes/marketing-analytics/Setup/sectionRouting', () => ({ suggestionsForSection: () => [] }))
@@ -56,7 +54,10 @@ jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketin
 jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/shared', () => ({
     MarketingAnalyticsCell: () => null,
 }))
-jest.mock('scenes/web-analytics/tiles/WebAnalyticsTile', () => ({ webAnalyticsDataTableQueryContext: {} }))
+jest.mock('scenes/web-analytics/tiles/WebAnalyticsTile', () => ({
+    VariationCell: () => () => null,
+    webAnalyticsDataTableQueryContext: {},
+}))
 jest.mock('~/queries/nodes/DataNode/dataNodeLogic', () => ({ dataNodeLogic: () => ({}) }))
 jest.mock('~/queries/nodes/OverviewGrid/OverviewMetricCardGrid', () => ({ OverviewMetricCardGrid: () => null }))
 jest.mock('~/queries/nodes/WebOverview/WebOverview', () => ({ labelFromKey: () => '' }))
@@ -84,17 +85,8 @@ jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/components/Ret
 describe('NewMarketingAnalyticsDashboard', () => {
     afterEach(cleanup)
 
-    it.each([
-        [false, false],
-        [true, false],
-        [false, true],
-        [true, true],
-    ])('keeps conversion (%s) and retention (%s) independently gated alongside traffic', (conversion, retention) => {
+    it('shows every section without per-section flags', () => {
         jest.mocked(useValues).mockReturnValue({
-            featureFlags: {
-                [FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION]: conversion,
-                [FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION]: retention,
-            },
             dateFilter: { dateFrom: '-30d', dateTo: null },
             compareFilter: { compare: false },
             shouldFilterTestAccounts: false,
@@ -134,26 +126,16 @@ describe('NewMarketingAnalyticsDashboard', () => {
         })
         expect(screen.queryByLabelText('Acquisition')).toBeNull()
         expect(screen.getByLabelText('Engagement')).not.toBeNull()
-        expect(screen.queryByText('Conversion') !== null).toBe(conversion)
-        expect(screen.queryByText('Retention') !== null).toBe(retention)
-        expect(screen.queryByText('Revenue') !== null).toBe(conversion)
-        if (conversion) {
-            fireEvent.click(screen.getByText('Conversion'))
-        }
-        expect(screen.queryByText('Attribution explorer') !== null).toBe(conversion)
-        expect(screen.queryByLabelText('Engagement') !== null).toBe(!conversion)
-        if (conversion) {
-            fireEvent.click(screen.getByText('Revenue'))
-        }
+        fireEvent.click(screen.getByText('Conversion'))
+        expect(screen.getByText('Attribution explorer')).not.toBeNull()
+        expect(screen.queryByLabelText('Engagement')).toBeNull()
+        fireEvent.click(screen.getByText('Revenue'))
         expect(screen.queryByText('Attribution explorer')).toBeNull()
-        expect(screen.queryByLabelText('Revenue') !== null).toBe(conversion)
-        if (retention) {
-            fireEvent.click(screen.getByText('Retention'))
-        }
-        expect(screen.queryByText('Retention explorer') !== null).toBe(retention)
-        expect(screen.queryByText('Compare periods') !== null).toBe(!conversion && !retention)
-        expect(screen.queryByText('Reload summary') !== null).toBe(!conversion && !retention)
-        expect(screen.queryByText('Attribution explorer')).toBeNull()
+        expect(screen.getByLabelText('Revenue')).not.toBeNull()
+        fireEvent.click(screen.getByText('Retention'))
+        expect(screen.getByText('Retention explorer')).not.toBeNull()
+        expect(screen.queryByText('Compare periods')).toBeNull()
+        expect(screen.queryByText('Reload summary')).toBeNull()
         fireEvent.click(screen.getByText('Acquisition'))
         expect(screen.getByLabelText('Acquisition')).not.toBeNull()
         expect(screen.queryByText('Compare periods')).not.toBeNull()

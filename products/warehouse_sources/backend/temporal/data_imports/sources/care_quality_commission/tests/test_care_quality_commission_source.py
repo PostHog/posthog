@@ -40,15 +40,39 @@ class TestSourceConfig:
 
 
 class TestGetSchemas:
-    def test_returns_both_streams_as_full_refresh(self) -> None:
+    def test_returns_every_stream_as_full_refresh(self) -> None:
         schemas = {s.name: s for s in CareQualityCommissionSource().get_schemas(MagicMock(), team_id=1)}
-        assert set(schemas) == {"providers", "locations"}
+        assert set(schemas) == {
+            "providers",
+            "locations",
+            "inspection_areas",
+            "provider_inspection_areas",
+            "location_inspection_areas",
+        }
         for schema in schemas.values():
             assert schema.supports_incremental is False
             assert schema.supports_append is False
             assert schema.incremental_fields == []
 
-    @parameterized.expand([("providers", ["providerId"]), ("locations", ["locationId"])])
+    def test_per_organisation_fan_outs_are_not_selected_by_default(self) -> None:
+        # The per-organisation inspection-area streams cost one request per registered
+        # organisation, so they must not be pre-ticked in the wizard.
+        schemas = CareQualityCommissionSource().get_schemas(MagicMock(), team_id=1)
+        assert {s.name for s in schemas if s.should_sync_default} == {
+            "providers",
+            "locations",
+            "inspection_areas",
+        }
+
+    @parameterized.expand(
+        [
+            ("providers", ["providerId"]),
+            ("locations", ["locationId"]),
+            ("inspection_areas", ["inspectionAreaId"]),
+            ("provider_inspection_areas", ["providerId", "inspectionAreaId"]),
+            ("location_inspection_areas", ["locationId", "inspectionAreaId"]),
+        ]
+    )
     def test_primary_keys(self, endpoint: str, expected_keys: list[str]) -> None:
         schemas = {s.name: s for s in CareQualityCommissionSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas[endpoint].detected_primary_keys == expected_keys
@@ -65,10 +89,20 @@ class TestDocumentedTables:
 
     def test_documented_tables_carry_descriptions_and_keys(self) -> None:
         tables = {t["name"]: t for t in CareQualityCommissionSource().get_documented_tables()}
-        assert set(tables) == {"providers", "locations"}
+        assert set(tables) == {
+            "providers",
+            "locations",
+            "inspection_areas",
+            "provider_inspection_areas",
+            "location_inspection_areas",
+        }
         assert tables["providers"]["primary_keys"] == ["providerId"]
         assert tables["providers"]["sync_methods"] == ["Full refresh"]
-        assert tables["providers"]["description"]
+        assert tables["location_inspection_areas"]["primary_keys"] == ["locationId", "inspectionAreaId"]
+        # Curated descriptions are keyed by schema name — a mismatch silently empties the
+        # published table catalog.
+        for table in tables.values():
+            assert table["description"]
 
 
 class TestValidateCredentials:

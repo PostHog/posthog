@@ -191,7 +191,9 @@ class TestValidateCredentials:
     def test_status_code_maps_to_validity(self, _name: str, status: int, expected: bool, MockSession) -> None:
         MockSession.return_value.get.return_value = mock.MagicMock(status_code=status)
 
-        assert validate_credentials("e2b_test") is expected
+        ok, error = validate_credentials("e2b_test")
+        assert ok is expected
+        assert (error is None) is expected
         # The key rides in the X-API-Key header, which the generic scrubber's denylist doesn't cover, so
         # the probe must redact it, pin redirects off to stop it replaying elsewhere, and disable capture
         # so the sandbox response body never reaches sample storage.
@@ -200,6 +202,24 @@ class TestValidateCredentials:
             "allow_redirects": False,
             "capture": False,
         }
+
+    # A key scoped to another team has to be re-scoped, not replaced, so a 403 must not read as a
+    # revoked key and send someone off to generate another one that fails the same way.
+    @parameterized.expand(
+        [
+            (401, "invalid or has been revoked"),
+            (403, "does not have access to this data"),
+        ]
+    )
+    @mock.patch(E2B_SESSION_PATCH)
+    def test_a_revoked_key_and_a_key_without_access_read_differently(
+        self, status: int, expected: str, MockSession
+    ) -> None:
+        MockSession.return_value.get.return_value = mock.MagicMock(status_code=status)
+
+        ok, error = validate_credentials("e2b_test")
+        assert ok is False
+        assert expected in (error or "")
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
     @mock.patch(E2B_SESSION_PATCH)

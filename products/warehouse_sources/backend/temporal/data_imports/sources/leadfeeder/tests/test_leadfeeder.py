@@ -8,6 +8,7 @@ from unittest import mock
 
 from parameterized import parameterized
 from requests import Response
+from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
@@ -17,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder
     LeadfeederResumeConfig,
     _default_start_date,
     _flatten_item,
+    _is_offset_exceeded,
     _to_date_str,
     _unified_client_config,
     _unified_headers,
@@ -369,6 +371,29 @@ class TestUnifiedClientConfig:
         assert _unified_headers("key123")["X-Api-Key"] == "key123"
 
 
+def _http_error(status_code: int, body: dict[str, Any] | None) -> HTTPError:
+    resp = Response()
+    resp.status_code = status_code
+    if body is not None:
+        resp._content = json.dumps(body).encode()
+    return HTTPError(response=resp)
+
+
+class TestIsOffsetExceeded:
+    def test_matches_416_with_offset_exceeded_code(self) -> None:
+        assert _is_offset_exceeded(_http_error(416, {"code": "offset_exceeded"})) is True
+
+    @parameterized.expand(
+        [
+            ("different_code_on_416", 416, {"code": "unauthorized"}),
+            ("offset_exceeded_code_on_other_status", 404, {"code": "offset_exceeded"}),
+            ("no_body", 416, None),
+        ]
+    )
+    def test_does_not_match(self, _name: str, status_code: int, body: dict[str, Any] | None) -> None:
+        assert _is_offset_exceeded(_http_error(status_code, body)) is False
+
+
 class TestUnifiedRequests:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_accounts_hits_v1_path_with_page_params(self, MockSession) -> None:
@@ -440,6 +465,36 @@ class TestUnifiedRequests:
         assert visit_reqs[0]["method"] == "POST"
         assert visit_reqs[0]["json"] == {"start_date": "2024-01-01", "end_date": "2026-07-02"}
         assert visit_reqs[0]["params"]["account_id"] == "1"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    @time_machine.travel("2026-07-02", tick=False)
+    def test_leads_fan_out_skips_account_past_offset_exceeded(self, MockSession) -> None:
+        # A busy account can have more rows in the sync window than the vendor's search depth
+        # limit allows paging through; the vendor 416s with `offset_exceeded` on the page past that
+        # limit instead of returning an empty page. That must end the account's pagination, not the
+        # whole sync — the next account's rows still need to land.
+        session = MockSession.return_value
+        offset_exceeded = Response()
+        offset_exceeded.status_code = 416
+        offset_exceeded._content = json.dumps({"code": "offset_exceeded"}).encode()
+        _wire_full(
+            session,
+            [
+                _unified_response([_item("1", "account"), _item("2", "account")]),
+                _unified_response([_item("100", "company_location")], page_count=2),
+                offset_exceeded,
+                _unified_response([_item("200", "company_location")]),
+            ],
+        )
+
+        rows = _rows(
+            _source("leads", _make_manager(), start_date_config="2024-01-01", api_version=LEADFEEDER_API_2026_08_07)
+        )
+
+        assert rows == [
+            {"id": "100", "type": "company_location", "account_id": "1"},
+            {"id": "200", "type": "company_location", "account_id": "2"},
+        ]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_legacy_pin_still_uses_token_api_paths(self, MockSession) -> None:
