@@ -146,10 +146,10 @@ export interface verifiedDomainsLogicValues {
     >
     identityProviderConfigs: IdentityProviderConfigApi[]
     identityProviderConfigsLoading: boolean
+    isAutomaticProvisioningAvailable: boolean
     isIdJagConfigSubmitting: boolean
     isIdJagConfigValid: boolean
     isOIDCAvailable: boolean
-    isAutomaticProvisioningAvailable: boolean
     isSAMLAvailable: boolean
     isSCIMAvailable: boolean
     isSSOEnforcementAvailable: boolean
