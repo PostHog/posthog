@@ -9,6 +9,7 @@ import {
     IconListTree,
     IconPin,
     IconPinFilled,
+    IconPulse,
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -170,6 +171,9 @@ export function LogRowFAB({
                     dateFrom={serviceMetricsWindow.date_from}
                     dateTo={serviceMetricsWindow.date_to}
                     size="xsmall"
+                    // Pulse, not the default graph icon: IconGraph just above is "create log-based
+                    // metric", and two identical graph icons with opposite intent read as a bug.
+                    icon={<IconPulse />}
                     iconOnly
                     noPadding
                     className="text-muted"
