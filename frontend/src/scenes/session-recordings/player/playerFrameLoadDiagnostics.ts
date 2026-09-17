@@ -22,20 +22,25 @@ function responseStatus(src: string): number | null {
 
 // Describes what the frame loaded in place of the shell document, so a report can tell a network
 // error page, an HTTP error, and a redirect apart.
-export function getPlayerFrameLoadDiagnostics(iframe: HTMLIFrameElement | null): PlayerFrameLoadDiagnostics {
+export function getPlayerFrameLoadDiagnostics(iframe: HTMLIFrameElement | null): Partial<PlayerFrameLoadDiagnostics> {
     // A browser error page or a redirect to another origin makes the frame cross-origin, which hides its document.
     const frameDocument = iframe?.contentDocument ?? null
-    return {
-        frameDocumentReadable: frameDocument !== null,
-        // The path alone, because a query string can carry a token. A document that lost its browsing
-        // context, which a detached frame has, keeps a null location, so the read must not assume one.
-        frameUrlPath: frameDocument?.location?.pathname ?? null,
-        frameDocumentTitle: frameDocument ? frameDocument.title.slice(0, MAX_TITLE_LENGTH) : null,
-        frameContentType: frameDocument?.contentType ?? null,
-        frameReadyState: frameDocument?.readyState ?? null,
-        frameResponseStatus: iframe ? responseStatus(iframe.src) : null,
-        browserOnline: navigator.onLine,
-        pageVisibility: document.visibilityState,
-        msSincePageLoad: Math.round(performance.now()),
+    try {
+        return {
+            frameDocumentReadable: frameDocument !== null,
+            // The path alone, because a query string can carry a token. A document with no browsing
+            // context has a null location.
+            frameUrlPath: frameDocument?.location?.pathname ?? null,
+            frameDocumentTitle: frameDocument ? frameDocument.title.slice(0, MAX_TITLE_LENGTH) : null,
+            frameContentType: frameDocument?.contentType ?? null,
+            frameReadyState: frameDocument?.readyState ?? null,
+            frameResponseStatus: iframe ? responseStatus(iframe.src) : null,
+            browserOnline: navigator.onLine,
+            pageVisibility: document.visibilityState,
+            msSincePageLoad: Math.round(performance.now()),
+        }
+    } catch {
+        // The retry runs after this report, so a read that throws must not stop it.
+        return { frameDocumentReadable: frameDocument !== null }
     }
 }

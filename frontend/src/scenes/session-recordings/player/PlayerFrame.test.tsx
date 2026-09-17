@@ -109,28 +109,38 @@ describe('PlayerFrame', () => {
         }
     })
 
-    // A frame that lost its browsing context still answers contentDocument with a document, but that
-    // document reports no location. Reading the path through it used to throw inside the failure
-    // listener, above the retry, so the viewer kept a dead player instead of a reloaded frame.
-    it('retries the frame when the timed-out frame has no browsing context', () => {
+    it.each([
+        {
+            state: 'no browsing context',
+            // jsdom gives a document made this way no browsing context, the same as a browser does.
+            frameDocument: (): Document => document.implementation.createHTMLDocument(),
+            report: { attempt: 1, frameUrlPath: null },
+        },
+        {
+            state: 'a read that throws',
+            frameDocument: (): Document => {
+                const frameDocument = document.implementation.createHTMLDocument()
+                Object.defineProperty(frameDocument, 'title', {
+                    get: () => {
+                        throw new Error('read failed')
+                    },
+                })
+                return frameDocument
+            },
+            report: { attempt: 1, frameDocumentReadable: true },
+        },
+    ])('retries the frame when the timed-out frame has $state', ({ frameDocument, report }) => {
         jest.useFakeTimers()
         try {
             const captureSpy = jest.spyOn(posthog, 'capture')
             const { container, iframe } = renderPlayerFrame()
-            // jsdom gives a document made this way no browsing context, the same as a browser does.
-            Object.defineProperty(iframe, 'contentDocument', {
-                value: document.implementation.createHTMLDocument(),
-                configurable: true,
-            })
+            Object.defineProperty(iframe, 'contentDocument', { value: frameDocument(), configurable: true })
 
             act(() => {
                 jest.advanceTimersByTime(10000)
             })
 
-            expect(captureSpy).toHaveBeenCalledWith(
-                'replay player frame load retried',
-                expect.objectContaining({ attempt: 1, frameUrlPath: null })
-            )
+            expect(captureSpy).toHaveBeenCalledWith('replay player frame load retried', expect.objectContaining(report))
             act(() => {
                 jest.advanceTimersByTime(1000)
             })
