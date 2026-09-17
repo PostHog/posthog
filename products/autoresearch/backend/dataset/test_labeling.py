@@ -55,6 +55,9 @@ class TestStripSqlComments(BaseTest):
             ("backslash_quote_inside_string", "SELECT 'it\\'s -- fine' AS x FROM t"),
             ("block_comment_markers_inside_string", "SELECT '/* not a comment */' AS x FROM t"),
             ("double_dash_inside_backtick_identifier", "SELECT `weird--name` FROM t"),
+            # An unbalanced quote runs to the end of the text. Stripping the rest as a comment
+            # would replace the parse error the author needs to see with a different one.
+            ("unterminated_string_literal", "SELECT 'oops -- x"),
         ]
     )
     def test_preserves_literals(self, _name: str, sql: str) -> None:
@@ -136,6 +139,18 @@ class TestPopulationFilterCompilation(SimpleTestCase):
                 {"pop_0_0": "%pro%", "pop_0_1": "%enterprise%"},
             ),
             (
+                "exact_list_is_an_in_clause",
+                {"operator": "exact", "value": ["pro", "enterprise"]},
+                "person.properties[{pop_k_0}] IN ({pop_0_0}, {pop_0_1})",
+                {"pop_0_0": "pro", "pop_0_1": "enterprise"},
+            ),
+            (
+                "is_not_list_is_a_not_in_clause",
+                {"operator": "is_not", "value": ["pro", "enterprise"]},
+                "person.properties[{pop_k_0}] NOT IN ({pop_0_0}, {pop_0_1})",
+                {"pop_0_0": "pro", "pop_0_1": "enterprise"},
+            ),
+            (
                 "string_threshold_is_bound_as_a_number",
                 {"operator": "gte", "value": "13"},
                 "toFloat64OrNull(person.properties[{pop_k_0}]) >= {pop_0}",
@@ -158,17 +173,19 @@ class TestPopulationFilterCompilation(SimpleTestCase):
         self.assertNotIn(hostile_key, parts[0])
         self.assertEqual(values["pop_k_0"], hostile_key)
 
-    def test_empty_allowlist_matches_nobody(self) -> None:
+    @parameterized.expand(
+        [
+            ("empty_allowlist_matches_nobody", "exact", ["1 = 0"]),
+            ("empty_denylist_excludes_nobody", "is_not", []),
+            ("empty_substring_allowlist_matches_nobody", "icontains", ["1 = 0"]),
+            ("empty_substring_denylist_excludes_nobody", "not_icontains", []),
+        ]
+    )
+    def test_empty_value_list(self, _name: str, operator: str, expected_parts: list[str]) -> None:
         parts, _values = _build_population_conditions(
-            [{"key": "plan", "type": "person", "operator": "exact", "value": []}]
+            [{"key": "plan", "type": "person", "operator": operator, "value": []}]
         )
-        self.assertEqual(parts, ["1 = 0"])
-
-    def test_empty_denylist_excludes_nobody(self) -> None:
-        parts, _values = _build_population_conditions(
-            [{"key": "plan", "type": "person", "operator": "is_not", "value": []}]
-        )
-        self.assertEqual(parts, [])
+        self.assertEqual(parts, expected_parts)
 
 
 class TestPopulationKindCompilation(SimpleTestCase):
