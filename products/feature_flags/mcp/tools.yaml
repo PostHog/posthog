@@ -67,8 +67,8 @@ tools:
             evaluation_runtime:
                 description: >
                     Filters which SDKs receive this flag, based on the runtime the caller reports: `server` (server SDKs
-                    only), `client` (client SDKs only), or `all` (both). Defaults to `all`. This is a delivery filter and
-                    not an access control: any caller with the project's public API key can still request any flag.
+                    only), `client` (client SDKs only), or `all` (both). Defaults to `all`. This is a delivery filter
+                    and not an access control: any caller with the project's public API key can still request any flag.
             bucketing_identifier:
                 description:
                     Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the
@@ -787,8 +787,8 @@ tools:
             evaluation_runtime:
                 description: >
                     Filters which SDKs receive this flag, based on the runtime the caller reports: `server` (server SDKs
-                    only), `client` (client SDKs only), or `all` (both). Defaults to `all`. This is a delivery filter and
-                    not an access control: any caller with the project's public API key can still request any flag.
+                    only), `client` (client SDKs only), or `all` (both). Defaults to `all`. This is a delivery filter
+                    and not an access control: any caller with the project's public API key can still request any flag.
             bucketing_identifier:
                 description:
                     Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the
