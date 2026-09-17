@@ -1,23 +1,10 @@
-from collections.abc import (
-    Iterable as _Iterable,
-    Mapping as _Mapping,
-)
-from typing import (
-    ClassVar as _ClassVar,
-    Optional as _Optional,
-    Union as _Union,
-)
-
-from google.protobuf import (
-    descriptor as _descriptor,
-    message as _message,
-)
-from google.protobuf.internal import (
-    containers as _containers,
-    enum_type_wrapper as _enum_type_wrapper,
-)
-
 from personhog.types.v1 import common_pb2 as _common_pb2
+from google.protobuf.internal import containers as _containers
+from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
+from google.protobuf import descriptor as _descriptor
+from google.protobuf import message as _message
+from collections.abc import Iterable as _Iterable, Mapping as _Mapping
+from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
@@ -32,7 +19,6 @@ class ReleaseOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     RELEASE_OUTCOME_UNSPECIFIED: _ClassVar[ReleaseOutcome]
     RELEASE_OUTCOME_COMMITTED: _ClassVar[ReleaseOutcome]
     RELEASE_OUTCOME_ABORTED: _ClassVar[ReleaseOutcome]
-
 LIFECYCLE_OP_TYPE_UNSPECIFIED: LifecycleOpType
 LIFECYCLE_OP_TYPE_DELETE: LifecycleOpType
 LIFECYCLE_OP_TYPE_MERGE: LifecycleOpType
@@ -41,20 +27,7 @@ RELEASE_OUTCOME_COMMITTED: ReleaseOutcome
 RELEASE_OUTCOME_ABORTED: ReleaseOutcome
 
 class Person(_message.Message):
-    __slots__ = (
-        "id",
-        "uuid",
-        "team_id",
-        "properties",
-        "properties_last_updated_at",
-        "properties_last_operation",
-        "created_at",
-        "version",
-        "is_identified",
-        "is_user_id",
-        "last_seen_at",
-        "is_deleted",
-    )
+    __slots__ = ("id", "uuid", "team_id", "properties", "properties_last_updated_at", "properties_last_operation", "created_at", "version", "is_identified", "is_user_id", "last_seen_at", "is_deleted")
     ID_FIELD_NUMBER: _ClassVar[int]
     UUID_FIELD_NUMBER: _ClassVar[int]
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
@@ -79,29 +52,17 @@ class Person(_message.Message):
     is_user_id: bool
     last_seen_at: int
     is_deleted: bool
-    def __init__(
-        self,
-        id: _Optional[int] = ...,
-        uuid: _Optional[str] = ...,
-        team_id: _Optional[int] = ...,
-        properties: _Optional[bytes] = ...,
-        properties_last_updated_at: _Optional[bytes] = ...,
-        properties_last_operation: _Optional[bytes] = ...,
-        created_at: _Optional[int] = ...,
-        version: _Optional[int] = ...,
-        is_identified: bool = ...,
-        is_user_id: bool = ...,
-        last_seen_at: _Optional[int] = ...,
-        is_deleted: bool = ...,
-    ) -> None: ...
+    def __init__(self, id: _Optional[int] = ..., uuid: _Optional[str] = ..., team_id: _Optional[int] = ..., properties: _Optional[bytes] = ..., properties_last_updated_at: _Optional[bytes] = ..., properties_last_operation: _Optional[bytes] = ..., created_at: _Optional[int] = ..., version: _Optional[int] = ..., is_identified: bool = ..., is_user_id: bool = ..., last_seen_at: _Optional[int] = ..., is_deleted: bool = ...) -> None: ...
 
 class DistinctIdWithVersion(_message.Message):
-    __slots__ = ("distinct_id", "version")
+    __slots__ = ("distinct_id", "version", "id")
     DISTINCT_ID_FIELD_NUMBER: _ClassVar[int]
     VERSION_FIELD_NUMBER: _ClassVar[int]
+    ID_FIELD_NUMBER: _ClassVar[int]
     distinct_id: str
     version: int
-    def __init__(self, distinct_id: _Optional[str] = ..., version: _Optional[int] = ...) -> None: ...
+    id: int
+    def __init__(self, distinct_id: _Optional[str] = ..., version: _Optional[int] = ..., id: _Optional[int] = ...) -> None: ...
 
 class PersonWithDistinctIds(_message.Message):
     __slots__ = ("distinct_id", "person")
@@ -109,9 +70,7 @@ class PersonWithDistinctIds(_message.Message):
     PERSON_FIELD_NUMBER: _ClassVar[int]
     distinct_id: str
     person: Person
-    def __init__(
-        self, distinct_id: _Optional[str] = ..., person: _Optional[_Union[Person, _Mapping]] = ...
-    ) -> None: ...
+    def __init__(self, distinct_id: _Optional[str] = ..., person: _Optional[_Union[Person, _Mapping]] = ...) -> None: ...
 
 class PersonDistinctIds(_message.Message):
     __slots__ = ("person_id", "distinct_ids")
@@ -119,11 +78,7 @@ class PersonDistinctIds(_message.Message):
     DISTINCT_IDS_FIELD_NUMBER: _ClassVar[int]
     person_id: int
     distinct_ids: _containers.RepeatedCompositeFieldContainer[DistinctIdWithVersion]
-    def __init__(
-        self,
-        person_id: _Optional[int] = ...,
-        distinct_ids: _Optional[_Iterable[_Union[DistinctIdWithVersion, _Mapping]]] = ...,
-    ) -> None: ...
+    def __init__(self, person_id: _Optional[int] = ..., distinct_ids: _Optional[_Iterable[_Union[DistinctIdWithVersion, _Mapping]]] = ...) -> None: ...
 
 class PersonWithTeamDistinctId(_message.Message):
     __slots__ = ("key", "person")
@@ -131,11 +86,7 @@ class PersonWithTeamDistinctId(_message.Message):
     PERSON_FIELD_NUMBER: _ClassVar[int]
     key: _common_pb2.TeamDistinctId
     person: Person
-    def __init__(
-        self,
-        key: _Optional[_Union[_common_pb2.TeamDistinctId, _Mapping]] = ...,
-        person: _Optional[_Union[Person, _Mapping]] = ...,
-    ) -> None: ...
+    def __init__(self, key: _Optional[_Union[_common_pb2.TeamDistinctId, _Mapping]] = ..., person: _Optional[_Union[Person, _Mapping]] = ...) -> None: ...
 
 class GetPersonRequest(_message.Message):
     __slots__ = ("team_id", "person_id", "read_options")
@@ -145,12 +96,7 @@ class GetPersonRequest(_message.Message):
     team_id: int
     person_id: int
     read_options: _common_pb2.ReadOptions
-    def __init__(
-        self,
-        team_id: _Optional[int] = ...,
-        person_id: _Optional[int] = ...,
-        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
-    ) -> None: ...
+    def __init__(self, team_id: _Optional[int] = ..., person_id: _Optional[int] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
 
 class GetPersonResponse(_message.Message):
     __slots__ = ("person",)
@@ -166,12 +112,7 @@ class GetPersonsRequest(_message.Message):
     team_id: int
     person_ids: _containers.RepeatedScalarFieldContainer[int]
     read_options: _common_pb2.ReadOptions
-    def __init__(
-        self,
-        team_id: _Optional[int] = ...,
-        person_ids: _Optional[_Iterable[int]] = ...,
-        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
-    ) -> None: ...
+    def __init__(self, team_id: _Optional[int] = ..., person_ids: _Optional[_Iterable[int]] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
 
 class PersonsResponse(_message.Message):
     __slots__ = ("persons", "missing_ids")
@@ -179,11 +120,7 @@ class PersonsResponse(_message.Message):
     MISSING_IDS_FIELD_NUMBER: _ClassVar[int]
     persons: _containers.RepeatedCompositeFieldContainer[Person]
     missing_ids: _containers.RepeatedScalarFieldContainer[int]
-    def __init__(
-        self,
-        persons: _Optional[_Iterable[_Union[Person, _Mapping]]] = ...,
-        missing_ids: _Optional[_Iterable[int]] = ...,
-    ) -> None: ...
+    def __init__(self, persons: _Optional[_Iterable[_Union[Person, _Mapping]]] = ..., missing_ids: _Optional[_Iterable[int]] = ...) -> None: ...
 
 class GetPersonByUuidRequest(_message.Message):
     __slots__ = ("team_id", "uuid", "read_options")
@@ -193,12 +130,7 @@ class GetPersonByUuidRequest(_message.Message):
     team_id: int
     uuid: str
     read_options: _common_pb2.ReadOptions
-    def __init__(
-        self,
-        team_id: _Optional[int] = ...,
-        uuid: _Optional[str] = ...,
-        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
-    ) -> None: ...
+    def __init__(self, team_id: _Optional[int] = ..., uuid: _Optional[str] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
 
 class GetPersonsByUuidsRequest(_message.Message):
     __slots__ = ("team_id", "uuids", "read_options")
@@ -208,12 +140,7 @@ class GetPersonsByUuidsRequest(_message.Message):
     team_id: int
     uuids: _containers.RepeatedScalarFieldContainer[str]
     read_options: _common_pb2.ReadOptions
-    def __init__(
-        self,
-        team_id: _Optional[int] = ...,
-        uuids: _Optional[_Iterable[str]] = ...,
-        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
-    ) -> None: ...
+    def __init__(self, team_id: _Optional[int] = ..., uuids: _Optional[_Iterable[str]] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
 
 class GetPersonByDistinctIdRequest(_message.Message):
     __slots__ = ("team_id", "distinct_id", "read_options")
@@ -223,12 +150,7 @@ class GetPersonByDistinctIdRequest(_message.Message):
     team_id: int
     distinct_id: str
     read_options: _common_pb2.ReadOptions
-    def __init__(
-        self,
-        team_id: _Optional[int] = ...,
-        distinct_id: _Optional[str] = ...,
-        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
-    ) -> None: ...
+    def __init__(self, team_id: _Optional[int] = ..., distinct_id: _Optional[str] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
 
 class GetPersonsByDistinctIdsInTeamRequest(_message.Message):
     __slots__ = ("team_id", "distinct_ids", "read_options")
@@ -238,12 +160,7 @@ class GetPersonsByDistinctIdsInTeamRequest(_message.Message):
     team_id: int
     distinct_ids: _containers.RepeatedScalarFieldContainer[str]
     read_options: _common_pb2.ReadOptions
-    def __init__(
-        self,
-        team_id: _Optional[int] = ...,
-        distinct_ids: _Optional[_Iterable[str]] = ...,
-        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
-    ) -> None: ...
+    def __init__(self, team_id: _Optional[int] = ..., distinct_ids: _Optional[_Iterable[str]] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
 
 class PersonsByDistinctIdsInTeamResponse(_message.Message):
     __slots__ = ("results",)
@@ -257,11 +174,7 @@ class GetPersonsByDistinctIdsRequest(_message.Message):
     READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     team_distinct_ids: _containers.RepeatedCompositeFieldContainer[_common_pb2.TeamDistinctId]
     read_options: _common_pb2.ReadOptions
-    def __init__(
-        self,
-        team_distinct_ids: _Optional[_Iterable[_Union[_common_pb2.TeamDistinctId, _Mapping]]] = ...,
-        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
-    ) -> None: ...
+    def __init__(self, team_distinct_ids: _Optional[_Iterable[_Union[_common_pb2.TeamDistinctId, _Mapping]]] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
 
 class PersonsByDistinctIdsResponse(_message.Message):
     __slots__ = ("results",)
@@ -270,28 +183,26 @@ class PersonsByDistinctIdsResponse(_message.Message):
     def __init__(self, results: _Optional[_Iterable[_Union[PersonWithTeamDistinctId, _Mapping]]] = ...) -> None: ...
 
 class GetDistinctIdsForPersonRequest(_message.Message):
-    __slots__ = ("team_id", "person_id", "read_options", "limit")
+    __slots__ = ("team_id", "person_id", "read_options", "limit", "cursor_id")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     PERSON_ID_FIELD_NUMBER: _ClassVar[int]
     READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     LIMIT_FIELD_NUMBER: _ClassVar[int]
+    CURSOR_ID_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     person_id: int
     read_options: _common_pb2.ReadOptions
     limit: int
-    def __init__(
-        self,
-        team_id: _Optional[int] = ...,
-        person_id: _Optional[int] = ...,
-        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
-        limit: _Optional[int] = ...,
-    ) -> None: ...
+    cursor_id: int
+    def __init__(self, team_id: _Optional[int] = ..., person_id: _Optional[int] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ..., limit: _Optional[int] = ..., cursor_id: _Optional[int] = ...) -> None: ...
 
 class GetDistinctIdsForPersonResponse(_message.Message):
-    __slots__ = ("distinct_ids",)
+    __slots__ = ("distinct_ids", "next_cursor_id")
     DISTINCT_IDS_FIELD_NUMBER: _ClassVar[int]
+    NEXT_CURSOR_ID_FIELD_NUMBER: _ClassVar[int]
     distinct_ids: _containers.RepeatedCompositeFieldContainer[DistinctIdWithVersion]
-    def __init__(self, distinct_ids: _Optional[_Iterable[_Union[DistinctIdWithVersion, _Mapping]]] = ...) -> None: ...
+    next_cursor_id: int
+    def __init__(self, distinct_ids: _Optional[_Iterable[_Union[DistinctIdWithVersion, _Mapping]]] = ..., next_cursor_id: _Optional[int] = ...) -> None: ...
 
 class GetDistinctIdsForPersonsRequest(_message.Message):
     __slots__ = ("team_id", "person_ids", "read_options", "limit_per_person")
@@ -303,34 +214,16 @@ class GetDistinctIdsForPersonsRequest(_message.Message):
     person_ids: _containers.RepeatedScalarFieldContainer[int]
     read_options: _common_pb2.ReadOptions
     limit_per_person: int
-    def __init__(
-        self,
-        team_id: _Optional[int] = ...,
-        person_ids: _Optional[_Iterable[int]] = ...,
-        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
-        limit_per_person: _Optional[int] = ...,
-    ) -> None: ...
+    def __init__(self, team_id: _Optional[int] = ..., person_ids: _Optional[_Iterable[int]] = ..., read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ..., limit_per_person: _Optional[int] = ...) -> None: ...
 
 class GetDistinctIdsForPersonsResponse(_message.Message):
     __slots__ = ("person_distinct_ids",)
     PERSON_DISTINCT_IDS_FIELD_NUMBER: _ClassVar[int]
     person_distinct_ids: _containers.RepeatedCompositeFieldContainer[PersonDistinctIds]
-    def __init__(
-        self, person_distinct_ids: _Optional[_Iterable[_Union[PersonDistinctIds, _Mapping]]] = ...
-    ) -> None: ...
+    def __init__(self, person_distinct_ids: _Optional[_Iterable[_Union[PersonDistinctIds, _Mapping]]] = ...) -> None: ...
 
 class UpdatePersonPropertiesRequest(_message.Message):
-    __slots__ = (
-        "team_id",
-        "person_id",
-        "event_name",
-        "set_properties",
-        "set_once_properties",
-        "unset_properties",
-        "is_identified",
-        "last_seen_at",
-        "force_update",
-    )
+    __slots__ = ("team_id", "person_id", "event_name", "set_properties", "set_once_properties", "unset_properties", "is_identified", "last_seen_at", "force_update")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     PERSON_ID_FIELD_NUMBER: _ClassVar[int]
     EVENT_NAME_FIELD_NUMBER: _ClassVar[int]
@@ -349,18 +242,7 @@ class UpdatePersonPropertiesRequest(_message.Message):
     is_identified: bool
     last_seen_at: int
     force_update: bool
-    def __init__(
-        self,
-        team_id: _Optional[int] = ...,
-        person_id: _Optional[int] = ...,
-        event_name: _Optional[str] = ...,
-        set_properties: _Optional[bytes] = ...,
-        set_once_properties: _Optional[bytes] = ...,
-        unset_properties: _Optional[_Iterable[str]] = ...,
-        is_identified: bool = ...,
-        last_seen_at: _Optional[int] = ...,
-        force_update: bool = ...,
-    ) -> None: ...
+    def __init__(self, team_id: _Optional[int] = ..., person_id: _Optional[int] = ..., event_name: _Optional[str] = ..., set_properties: _Optional[bytes] = ..., set_once_properties: _Optional[bytes] = ..., unset_properties: _Optional[_Iterable[str]] = ..., is_identified: bool = ..., last_seen_at: _Optional[int] = ..., force_update: bool = ...) -> None: ...
 
 class UpdatePersonPropertiesResponse(_message.Message):
     __slots__ = ("person", "updated")
@@ -406,12 +288,7 @@ class DeleteTombstonedPersonsRequest(_message.Message):
     team_id: int
     person_uuids: _containers.RepeatedScalarFieldContainer[str]
     max_rows: int
-    def __init__(
-        self,
-        team_id: _Optional[int] = ...,
-        person_uuids: _Optional[_Iterable[str]] = ...,
-        max_rows: _Optional[int] = ...,
-    ) -> None: ...
+    def __init__(self, team_id: _Optional[int] = ..., person_uuids: _Optional[_Iterable[str]] = ..., max_rows: _Optional[int] = ...) -> None: ...
 
 class DeleteTombstonedPersonsResponse(_message.Message):
     __slots__ = ("deleted_count", "skipped_live_count", "blocked_person_uuids", "pending_person_uuids", "rows_deleted")
@@ -425,14 +302,7 @@ class DeleteTombstonedPersonsResponse(_message.Message):
     blocked_person_uuids: _containers.RepeatedScalarFieldContainer[str]
     pending_person_uuids: _containers.RepeatedScalarFieldContainer[str]
     rows_deleted: int
-    def __init__(
-        self,
-        deleted_count: _Optional[int] = ...,
-        skipped_live_count: _Optional[int] = ...,
-        blocked_person_uuids: _Optional[_Iterable[str]] = ...,
-        pending_person_uuids: _Optional[_Iterable[str]] = ...,
-        rows_deleted: _Optional[int] = ...,
-    ) -> None: ...
+    def __init__(self, deleted_count: _Optional[int] = ..., skipped_live_count: _Optional[int] = ..., blocked_person_uuids: _Optional[_Iterable[str]] = ..., pending_person_uuids: _Optional[_Iterable[str]] = ..., rows_deleted: _Optional[int] = ...) -> None: ...
 
 class SplitPersonRequest(_message.Message):
     __slots__ = ("team_id", "person_id", "distinct_ids_to_split")
@@ -442,12 +312,7 @@ class SplitPersonRequest(_message.Message):
     team_id: int
     person_id: int
     distinct_ids_to_split: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(
-        self,
-        team_id: _Optional[int] = ...,
-        person_id: _Optional[int] = ...,
-        distinct_ids_to_split: _Optional[_Iterable[str]] = ...,
-    ) -> None: ...
+    def __init__(self, team_id: _Optional[int] = ..., person_id: _Optional[int] = ..., distinct_ids_to_split: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class SplitResult(_message.Message):
     __slots__ = ("distinct_id", "new_person_uuid", "new_person_version", "pdi_version", "new_person_created_at_ms")
@@ -461,14 +326,7 @@ class SplitResult(_message.Message):
     new_person_version: int
     pdi_version: int
     new_person_created_at_ms: int
-    def __init__(
-        self,
-        distinct_id: _Optional[str] = ...,
-        new_person_uuid: _Optional[str] = ...,
-        new_person_version: _Optional[int] = ...,
-        pdi_version: _Optional[int] = ...,
-        new_person_created_at_ms: _Optional[int] = ...,
-    ) -> None: ...
+    def __init__(self, distinct_id: _Optional[str] = ..., new_person_uuid: _Optional[str] = ..., new_person_version: _Optional[int] = ..., pdi_version: _Optional[int] = ..., new_person_created_at_ms: _Optional[int] = ...) -> None: ...
 
 class SplitPersonResponse(_message.Message):
     __slots__ = ("splits",)
@@ -484,9 +342,7 @@ class SetPersonDistinctIdVersionFloorRequest(_message.Message):
     team_id: int
     distinct_id: str
     min_version: int
-    def __init__(
-        self, team_id: _Optional[int] = ..., distinct_id: _Optional[str] = ..., min_version: _Optional[int] = ...
-    ) -> None: ...
+    def __init__(self, team_id: _Optional[int] = ..., distinct_id: _Optional[str] = ..., min_version: _Optional[int] = ...) -> None: ...
 
 class SetPersonDistinctIdVersionFloorResponse(_message.Message):
     __slots__ = ("person",)
@@ -502,9 +358,7 @@ class SetPersonVersionFloorRequest(_message.Message):
     team_id: int
     person_id: int
     min_version: int
-    def __init__(
-        self, team_id: _Optional[int] = ..., person_id: _Optional[int] = ..., min_version: _Optional[int] = ...
-    ) -> None: ...
+    def __init__(self, team_id: _Optional[int] = ..., person_id: _Optional[int] = ..., min_version: _Optional[int] = ...) -> None: ...
 
 class SetPersonVersionFloorResponse(_message.Message):
     __slots__ = ("updated",)
@@ -522,13 +376,7 @@ class FencePersonRequest(_message.Message):
     person_id: int
     op_id: str
     op_type: LifecycleOpType
-    def __init__(
-        self,
-        team_id: _Optional[int] = ...,
-        person_id: _Optional[int] = ...,
-        op_id: _Optional[str] = ...,
-        op_type: _Optional[_Union[LifecycleOpType, str]] = ...,
-    ) -> None: ...
+    def __init__(self, team_id: _Optional[int] = ..., person_id: _Optional[int] = ..., op_id: _Optional[str] = ..., op_type: _Optional[_Union[LifecycleOpType, str]] = ...) -> None: ...
 
 class FencePersonResponse(_message.Message):
     __slots__ = ("sealed",)
@@ -546,13 +394,7 @@ class FencePersonsRequest(_message.Message):
     op_id: str
     op_type: LifecycleOpType
     person_ids: _containers.RepeatedScalarFieldContainer[int]
-    def __init__(
-        self,
-        team_id: _Optional[int] = ...,
-        op_id: _Optional[str] = ...,
-        op_type: _Optional[_Union[LifecycleOpType, str]] = ...,
-        person_ids: _Optional[_Iterable[int]] = ...,
-    ) -> None: ...
+    def __init__(self, team_id: _Optional[int] = ..., op_id: _Optional[str] = ..., op_type: _Optional[_Union[LifecycleOpType, str]] = ..., person_ids: _Optional[_Iterable[int]] = ...) -> None: ...
 
 class FencePersonsResponse(_message.Message):
     __slots__ = ("sealed", "not_found")
@@ -560,11 +402,7 @@ class FencePersonsResponse(_message.Message):
     NOT_FOUND_FIELD_NUMBER: _ClassVar[int]
     sealed: _containers.RepeatedCompositeFieldContainer[FencedPersonSeal]
     not_found: _containers.RepeatedScalarFieldContainer[int]
-    def __init__(
-        self,
-        sealed: _Optional[_Iterable[_Union[FencedPersonSeal, _Mapping]]] = ...,
-        not_found: _Optional[_Iterable[int]] = ...,
-    ) -> None: ...
+    def __init__(self, sealed: _Optional[_Iterable[_Union[FencedPersonSeal, _Mapping]]] = ..., not_found: _Optional[_Iterable[int]] = ...) -> None: ...
 
 class FencedPersonSeal(_message.Message):
     __slots__ = ("person_id", "version", "created_at")
@@ -574,9 +412,7 @@ class FencedPersonSeal(_message.Message):
     person_id: int
     version: int
     created_at: int
-    def __init__(
-        self, person_id: _Optional[int] = ..., version: _Optional[int] = ..., created_at: _Optional[int] = ...
-    ) -> None: ...
+    def __init__(self, person_id: _Optional[int] = ..., version: _Optional[int] = ..., created_at: _Optional[int] = ...) -> None: ...
 
 class ReleaseFenceRequest(_message.Message):
     __slots__ = ("team_id", "person_id", "person_uuid", "op_id", "outcome", "sealed_version", "created_at")
@@ -594,16 +430,7 @@ class ReleaseFenceRequest(_message.Message):
     outcome: ReleaseOutcome
     sealed_version: int
     created_at: int
-    def __init__(
-        self,
-        team_id: _Optional[int] = ...,
-        person_id: _Optional[int] = ...,
-        person_uuid: _Optional[str] = ...,
-        op_id: _Optional[str] = ...,
-        outcome: _Optional[_Union[ReleaseOutcome, str]] = ...,
-        sealed_version: _Optional[int] = ...,
-        created_at: _Optional[int] = ...,
-    ) -> None: ...
+    def __init__(self, team_id: _Optional[int] = ..., person_id: _Optional[int] = ..., person_uuid: _Optional[str] = ..., op_id: _Optional[str] = ..., outcome: _Optional[_Union[ReleaseOutcome, str]] = ..., sealed_version: _Optional[int] = ..., created_at: _Optional[int] = ...) -> None: ...
 
 class ReleaseFenceResponse(_message.Message):
     __slots__ = ()
@@ -619,13 +446,7 @@ class ReleaseFencesRequest(_message.Message):
     op_id: str
     outcome: ReleaseOutcome
     persons: _containers.RepeatedCompositeFieldContainer[ReleaseFenceItem]
-    def __init__(
-        self,
-        team_id: _Optional[int] = ...,
-        op_id: _Optional[str] = ...,
-        outcome: _Optional[_Union[ReleaseOutcome, str]] = ...,
-        persons: _Optional[_Iterable[_Union[ReleaseFenceItem, _Mapping]]] = ...,
-    ) -> None: ...
+    def __init__(self, team_id: _Optional[int] = ..., op_id: _Optional[str] = ..., outcome: _Optional[_Union[ReleaseOutcome, str]] = ..., persons: _Optional[_Iterable[_Union[ReleaseFenceItem, _Mapping]]] = ...) -> None: ...
 
 class ReleaseFenceItem(_message.Message):
     __slots__ = ("person_id", "person_uuid", "sealed_version", "created_at")
@@ -637,13 +458,7 @@ class ReleaseFenceItem(_message.Message):
     person_uuid: str
     sealed_version: int
     created_at: int
-    def __init__(
-        self,
-        person_id: _Optional[int] = ...,
-        person_uuid: _Optional[str] = ...,
-        sealed_version: _Optional[int] = ...,
-        created_at: _Optional[int] = ...,
-    ) -> None: ...
+    def __init__(self, person_id: _Optional[int] = ..., person_uuid: _Optional[str] = ..., sealed_version: _Optional[int] = ..., created_at: _Optional[int] = ...) -> None: ...
 
 class ReleaseFencesResponse(_message.Message):
     __slots__ = ()
@@ -671,15 +486,7 @@ class FoldPersonDocumentRequest(_message.Message):
     event_set: bytes
     event_set_once: bytes
     op_id: str
-    def __init__(
-        self,
-        team_id: _Optional[int] = ...,
-        person_id: _Optional[int] = ...,
-        sealed_snapshots: _Optional[_Iterable[_Union[SealedSourceSnapshot, _Mapping]]] = ...,
-        event_set: _Optional[bytes] = ...,
-        event_set_once: _Optional[bytes] = ...,
-        op_id: _Optional[str] = ...,
-    ) -> None: ...
+    def __init__(self, team_id: _Optional[int] = ..., person_id: _Optional[int] = ..., sealed_snapshots: _Optional[_Iterable[_Union[SealedSourceSnapshot, _Mapping]]] = ..., event_set: _Optional[bytes] = ..., event_set_once: _Optional[bytes] = ..., op_id: _Optional[str] = ...) -> None: ...
 
 class FoldPersonDocumentResponse(_message.Message):
     __slots__ = ("person",)

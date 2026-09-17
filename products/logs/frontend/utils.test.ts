@@ -233,6 +233,21 @@ describe('logs utils', () => {
         it('leaves the range alone without a timestamp', () => {
             expect(buildLogsSessionScope('sess-1')).toEqual({ sessionId: 'sess-1', initialFilters: undefined })
         })
+
+        it('narrows the range to a caller-supplied window', () => {
+            expect(buildLogsSessionScope('sess-1', '2026-03-24T12:00:00.000Z', 5).initialFilters).toEqual({
+                dateRange: { date_from: '2026-03-24T11:55:00.000Z', date_to: '2026-03-24T12:05:00.000Z' },
+            })
+        })
+
+        it('keeps the window when there is no session to scope to', () => {
+            expect(buildLogsSessionScope(undefined, '2026-03-24T12:00:00.000Z', 5)).toEqual({
+                sessionId: undefined,
+                initialFilters: {
+                    dateRange: { date_from: '2026-03-24T11:55:00.000Z', date_to: '2026-03-24T12:05:00.000Z' },
+                },
+            })
+        })
     })
 
     const filterGroup = (

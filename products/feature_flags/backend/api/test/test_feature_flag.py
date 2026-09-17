@@ -9479,6 +9479,30 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         cohort.refresh_from_db()
         self.assertEqual(cohort.count, 3)
 
+        # Every static population path records one row per attempt, so a flag-backed cohort's
+        # calculation history is not just its failures.
+        history = CohortCalculationHistory.objects.get(cohort=cohort)
+        self.assertIsNone(history.error)
+        self.assertEqual(history.count, 3)
+        self.assertIsNotNone(history.finished_at)
+
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_history_write_failure_does_not_fail_a_populated_cohort(self, mock_batch_evaluate):
+        self._create_flag()
+        person = _create_person(team=self.team, distinct_ids=["person1"], properties={"key": "value"}, immediate=True)
+        flush_persons_and_events()
+        cohort = self._create_static_cohort()
+
+        mock_batch_evaluate.return_value = self._page([str(person.uuid)])
+
+        with patch.object(CohortCalculationHistory.objects, "create", side_effect=IntegrityError("no row for you")):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.count, 1)
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 0)
+
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
     def test_non_advancing_cursor_fails_instead_of_looping(self, mock_batch_evaluate):
         self._create_flag()
@@ -9581,10 +9605,11 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(cohort.errors_calculating, 1)
         history = CohortCalculationHistory.objects.get(cohort=cohort)
         self.assertEqual(history.error_code, CohortErrorCode.FLAG_CHANGED)
-        self.assertEqual(
-            get_friendly_error_message(history.error_code),
-            "The feature flag changed while this cohort was being calculated. Please run the calculation again.",
-        )
+        # This path only populates static cohorts, whose banner has no Retry action, so the stored
+        # copy must not ask for a re-run.
+        assert history.error is not None
+        self.assertNotIn("run the calculation again", history.error)
+        self.assertEqual(history.error, get_friendly_error_message(history.error_code, will_retry=False))
 
     @patch("posthog.api.cohort.time.sleep")
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")

@@ -19,6 +19,7 @@ from django.utils import timezone
 
 import jwt
 import structlog
+import posthoganalytics
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import authentication
@@ -67,6 +68,7 @@ from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.auth import get_export_renderer_asset_context
+from products.signals.backend.facade.activity_client import resolve_scout_client_tag
 
 
 class WebAuthnAuthenticationResponse(TypedDict):
@@ -943,7 +945,13 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
 
             except AuthenticationFailed:
                 raise
-            except Exception:
+            except Exception as e:
+                # _validate_token converts its own failures, so anything reaching here is a
+                # bug in the authentication path, not a bad token. Record it before it is
+                # reported to the caller as one.
+                with posthoganalytics.new_context():
+                    posthoganalytics.set_capture_exception_code_variables_context(False)
+                    capture_exception(e)
                 raise AuthenticationFailed(detail="Invalid access token.")
 
     def _authenticate_access_token(
@@ -976,8 +984,33 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             if access_token.impersonated_by_id is not None:
                 activity_storage.set_was_impersonated(True)
             _record_agent_attribution(request, access_token)
+            self._set_scout_activity_client(access_token)
 
         return user, None
+
+    def _set_scout_activity_client(self, access_token: OAuthAccessToken) -> None:
+        """Name the scout behind a sandbox token's writes, in place of the self-reported client.
+
+        A scout acts as the person who owns its config, so the acting user alone cannot tell a
+        scout's edit from that person's own MCP edit. The task binding on the token is written
+        server-side at mint time, so it overrides the caller-settable `x-posthog-client` header
+        that `ActivityLoggingMiddleware` read earlier in the request.
+
+        The scout is looked up when an activity row first needs it, not here, because most
+        requests a sandbox token makes are reads that write no row.
+        """
+        if access_token.sandbox_task_id is None:
+            return
+        # Sandbox tokens are minted against exactly one team. Anything else cannot say which
+        # team's runs to look in, and attribution must not guess.
+        scoped_teams = access_token.scoped_teams or []
+        if len(scoped_teams) != 1:
+            return
+        sandbox_task_id = access_token.sandbox_task_id
+        team_id = scoped_teams[0]
+        activity_storage.set_client_resolver(
+            lambda: resolve_scout_client_tag(sandbox_task_id=sandbox_task_id, team_id=team_id)
+        )
 
     def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:
         if "authorization" in request.headers:

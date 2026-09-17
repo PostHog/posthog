@@ -5804,6 +5804,44 @@ email@example.org,
         self.assertIsNotNone(response.json()["last_error_message"])
         self.assertIn("taking too long", response.json()["last_error_message"].lower())
 
+    @parameterized.expand(
+        [
+            ("dynamic", False, True),
+            ("static", True, False),
+        ]
+    )
+    def test_cohort_last_error_message_promises_a_retry_only_when_one_will_run(
+        self, _name: str, is_static: bool, promises_retry: bool
+    ):
+        from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+        from products.cohorts.backend.models.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            is_static=is_static,
+            errors_calculating=1,
+        )
+
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            error="The system was busy when this cohort was scheduled to calculate.",
+            error_code=CohortErrorCode.CAPACITY,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        message = response.json()["last_error_message"].lower()
+        self.assertIn("system was busy", message)
+        # The periodic queue excludes static cohorts and the stuck sweeper only matches one still
+        # calculating, so a static cohort must not be told to wait for a retry that never comes.
+        self.assertEqual("automatically retry" in message, promises_retry)
+
     def test_cohort_last_error_message_in_list_view(self):
         """Test that list view includes last_error_message via annotation"""
         from products.cohorts.backend.models.calculation_history import CohortCalculationHistory

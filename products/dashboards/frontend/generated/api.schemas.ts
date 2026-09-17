@@ -640,6 +640,38 @@ export interface DashboardFiltersOpenApiApi {
     properties?: unknown
 }
 
+export interface _DashboardPatchTileLayoutBoxOpenApiApi {
+    /**
+     * Column position in the dashboard grid (0-indexed).
+     * @minimum 0
+     * @maximum 11
+     */
+    x: number
+    /**
+     * Row position in the dashboard grid (0-indexed).
+     * @minimum 0
+     */
+    y: number
+    /**
+     * Width in grid columns. The desktop grid is 12 columns wide.
+     * @minimum 1
+     * @maximum 12
+     */
+    w: number
+    /**
+     * Height in grid rows.
+     * @minimum 1
+     */
+    h: number
+}
+
+export interface _DashboardPatchTileLayoutsOpenApiApi {
+    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. A write replaces the tile's whole layout and the dashboard reads desktop placement from this box, so send it whenever you send layouts. */
+    sm: _DashboardPatchTileLayoutBoxOpenApiApi
+    /** Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders. */
+    xs?: _DashboardPatchTileLayoutBoxOpenApiApi
+}
+
 /**
  * * `activity_events_list` - activity_events_list
  * * `conversations_recent_tickets` - conversations_recent_tickets
@@ -1133,6 +1165,8 @@ export interface DashboardPatchWidgetOpenApiApi {
 export interface DashboardPatchTileOpenApiApi {
     /** Dashboard tile ID to update. */
     id?: number
+    /** Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request. */
+    layouts?: _DashboardPatchTileLayoutsOpenApiApi
     /** Nested widget row updates. */
     widget?: DashboardPatchWidgetOpenApiApi
 }
@@ -1188,7 +1222,7 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
-    /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
+    /** Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches. */
     tiles?: DashboardPatchTileOpenApiApi[]
     /** Template key to create the dashboard from a predefined template. */
     use_template?: string
@@ -9549,6 +9583,7 @@ export interface PatchedMoveTileRequestApi {
 /**
  * * `preserve` - preserve
  * * `two_column` - two_column
+ * * `three_column` - three_column
  * * `full_width` - full_width
  */
 export type LayoutEnumApi = (typeof LayoutEnumApi)[keyof typeof LayoutEnumApi]
@@ -9556,6 +9591,7 @@ export type LayoutEnumApi = (typeof LayoutEnumApi)[keyof typeof LayoutEnumApi]
 export const LayoutEnumApi = {
     Preserve: 'preserve',
     TwoColumn: 'two_column',
+    ThreeColumn: 'three_column',
     FullWidth: 'full_width',
 } as const
 
@@ -9565,10 +9601,11 @@ export interface ReorderTilesRequestApi {
      * @minItems 1
      */
     tile_order: number[]
-    /** How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.
+    /** How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. Use the other modes only when every tile should use the same size: 'two_column' makes every tile 6-wide × 5-tall, 'three_column' makes every tile 4-wide × 5-tall, and 'full_width' makes every tile 12-wide × 5-tall.
      *
      * * `preserve` - preserve
      * * `two_column` - two_column
+     * * `three_column` - three_column
      * * `full_width` - full_width */
     layout?: LayoutEnumApi
 }
@@ -9645,7 +9682,7 @@ export interface UpdateTextTileRequestApi {
     color?: string | null
 }
 
-export interface _WidgetTileLayoutBoxOpenApiApi {
+export interface _TileLayoutBoxOpenApiApi {
     /** Column position in the dashboard grid (0-indexed). */
     x?: number
     /** Row position in the dashboard grid (0-indexed). */
@@ -9656,11 +9693,11 @@ export interface _WidgetTileLayoutBoxOpenApiApi {
     h?: number
 }
 
-export interface _WidgetTileLayoutsOpenApiApi {
+export interface _TileLayoutsOpenApiApi {
     /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-    sm?: _WidgetTileLayoutBoxOpenApiApi
-    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-    xs?: _WidgetTileLayoutBoxOpenApiApi
+    sm?: _TileLayoutBoxOpenApiApi
+    /** Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders. */
+    xs?: _TileLayoutBoxOpenApiApi
 }
 
 export type ActivityEventsListWidgetAddRequestOpenApiApiWidgetType =
@@ -9680,7 +9717,7 @@ export interface ActivityEventsListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ActivityEventsListWidgetAddRequestOpenApiApiWidgetType
@@ -9705,7 +9742,7 @@ export interface ErrorTrackingListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType
@@ -9730,7 +9767,7 @@ export interface SessionReplayListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: SessionReplayListWidgetAddRequestOpenApiApiWidgetType
@@ -9755,7 +9792,7 @@ export interface ExperimentsListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ExperimentsListWidgetAddRequestOpenApiApiWidgetType
@@ -9780,7 +9817,7 @@ export interface ExperimentResultsWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ExperimentResultsWidgetAddRequestOpenApiApiWidgetType
@@ -9805,7 +9842,7 @@ export interface SurveyResultsWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: SurveyResultsWidgetAddRequestOpenApiApiWidgetType
@@ -9830,7 +9867,7 @@ export interface LogsListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: LogsListWidgetAddRequestOpenApiApiWidgetType
@@ -9855,7 +9892,7 @@ export interface ConversationsRecentTicketsWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType
@@ -10507,6 +10544,10 @@ export const DashboardTemplatesListScope = {
 
 export type DashboardsListParams = {
     /**
+     * Optional. Exclude dashboards that PostHog generated.
+     */
+    exclude_generated?: boolean
+    /**
      * Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included.
      */
     folder?: string
@@ -10519,6 +10560,10 @@ export type DashboardsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Optional. Return only pinned dashboards.
+     */
+    pinned?: boolean
     /**
      * Optional. Match against dashboard `name`, `description`, and tag names. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Results are then ordered by relevance, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
      */

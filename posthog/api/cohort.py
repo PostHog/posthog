@@ -761,10 +761,14 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 self.fields.pop(field_name, None)
 
     def get_last_error_message(self, cohort: Cohort) -> Optional[str]:
+        # A static cohort is populated once, and nothing re-runs it afterwards, so the messages
+        # that promise an automatic retry must not reach one.
+        will_retry = not cohort.is_static
+
         # Prefer the annotated last_error_code when available
         if hasattr(cohort, "last_error_code"):
             if cohort.last_error_code:
-                return get_friendly_error_message(cohort.last_error_code)
+                return get_friendly_error_message(cohort.last_error_code, will_retry=will_retry)
             return None
 
         # Fall back to querying calculation history.
@@ -778,7 +782,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             .first()
         )
         if last_failed_calculation:
-            return get_friendly_error_message(last_failed_calculation.error_code)
+            return get_friendly_error_message(last_failed_calculation.error_code, will_retry=will_retry)
         return None
 
     def validate_cohort_type(self, value):
@@ -2368,14 +2372,39 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         cohort._safe_save_cohort_state(team_id=team_id, processing_error=err)
         # The history `error` field is user-visible via the calculation history API, so
         # store the friendly message; raw exception details (internal URLs, instance
-        # config) stay in logs and error tracking only.
+        # config) stay in logs and error tracking only. This path only ever populates a
+        # static cohort, and nothing re-runs one, so the message must not ask for that.
         CohortCalculationHistory.objects.create(
             team_id=team_id,
             cohort=cohort,
             filters=cohort.filters or {},
             started_at=started_at,
             finished_at=timezone.now(),
-            error=get_friendly_error_message(error_code),
+            error=get_friendly_error_message(error_code, will_retry=False),
             error_code=error_code,
         )
         raise
+
+    # The flush above finalized cohort state, including the recomputed count. Recording the run
+    # here as well keeps every static population path writing one history row per attempt, so a
+    # flag-backed cohort's calculation history is not just its failures. The write stays outside
+    # the block above: the population is already committed, so a failure to record it must not
+    # report a finished run as a failed one.
+    try:
+        CohortCalculationHistory.objects.create(
+            team_id=team_id,
+            cohort=cohort,
+            filters=cohort.filters or {},
+            started_at=started_at,
+            finished_at=timezone.now(),
+            count=cohort.count,
+        )
+    except Exception as err:
+        logger.warning(
+            "cohort_from_feature_flag_history_write_failed",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            flag_key=feature_flag.key,
+            exc_info=True,
+        )
+        capture_exception(err, additional_properties={"cohort_id": cohort_id, "team_id": team_id})

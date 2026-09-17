@@ -108,6 +108,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/my-tickets': ['MyTickets', 'myTickets'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
     '/customer_analytics/accounts': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
+    '/customer_analytics/accounts/by-external-id/*': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
     '/customer_analytics/accounts/:accountId': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
     '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
     '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
@@ -1171,6 +1172,8 @@ export const productUrls = {
     customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
     customerAnalyticsAccount: (accountId: string, tab?: string): string =>
         `/customer_analytics/accounts/${accountId}${tab ? `/${tab}` : ''}`,
+    customerAnalyticsAccountByExternalId: (externalId: string, tab?: string): string =>
+        `/customer_analytics/accounts/by-external-id/${encodeURIComponent(externalId)}${tab ? `/${tab}` : ''}`,
     customerAnalyticsNotes: (): string => '/customer_analytics/notes',
     customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
     customerAnalyticsFeed: (): string => '/customer_analytics/feed',
