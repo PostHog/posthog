@@ -2462,19 +2462,19 @@ export interface eventUsageLogicActions {
         template_variable_count: number
     }
     reportWebDashboardCreationFromTemplateFailed: (payload: {
+        code: string | null
+        status: number | null
         template_id: string
         template_name: string
         template_scope: DashboardTemplateScope | null
         template_variable_count: number
-        status: number | null
-        code: string | null
     }) => {
+        code: string | null
+        status: number | null
         template_id: string
         template_name: string
         template_scope: DashboardTemplateScope | null
         template_variable_count: number
-        status: number | null
-        code: string | null
     }
     reportWizardSyncSessionDetected: (props: {
         runPhase: string
