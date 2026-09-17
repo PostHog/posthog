@@ -38,6 +38,9 @@ export function makePlaceholderElement(
                         backgroundRepeat: 'unset',
                         ...context.styleOverride,
                     }),
+                    // a url has no break opportunities, so it must break anywhere to keep the label
+                    // inside the wireframe, where the clip below would otherwise cut its start
+                    'overflow-wrap:anywhere',
                     // a label longer than the wireframe must not spill over the rest of the screen
                     'overflow:hidden',
                 ]),
