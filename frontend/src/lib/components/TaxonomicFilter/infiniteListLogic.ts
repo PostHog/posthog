@@ -849,8 +849,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         actions: [
             taxonomicFilterLogic(props),
             ['setSearchQuery', 'setActiveTab', 'selectItem', 'infiniteListResultsReceived', 'setIncludeStaleEvents'],
-            dashboardsModel,
-            ['loadDashboardsIfNeeded'],
+            ...(props.listGroupType === TaxonomicFilterGroupType.Dashboards
+                ? [dashboardsModel, ['loadDashboardsIfNeeded']]
+                : []),
         ],
     })),
     actions({
