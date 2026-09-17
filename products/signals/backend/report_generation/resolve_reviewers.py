@@ -180,7 +180,7 @@ def _prettify_scout_name(skill_name: str) -> str:
     return cleaned[:1].upper() + cleaned[1:] if cleaned else "Scout"
 
 
-def _bounded_reviewer_reason(reason: object) -> str | None:
+def bounded_reviewer_reason(reason: object) -> str | None:
     return reason if isinstance(reason, str) and len(reason) <= MAX_REVIEWER_REASON_LENGTH else None
 
 
@@ -198,14 +198,14 @@ def _with_reviewer_presentation(reviewer: dict, user: User | None, scout_display
     commits = reviewer.get("relevant_commits")
     commit_list: list[object] = commits if isinstance(commits, list) else []
     safe_commits = [
-        {**commit, "reason": _bounded_reviewer_reason(commit.get("reason")) or ""}
+        {**commit, "reason": bounded_reviewer_reason(commit.get("reason")) or ""}
         if isinstance(commit, dict)
         else commit
         for commit in commit_list
     ]
     source_skill = reviewer.get("source_skill")
     reason = reviewer.get("reason")
-    safe_reason = _bounded_reviewer_reason(reason)
+    safe_reason = bounded_reviewer_reason(reason)
     explanation: str | None
 
     if safe_commits:
