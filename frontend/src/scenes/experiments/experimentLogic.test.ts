@@ -2309,24 +2309,40 @@ describe('experimentLogic', () => {
             )
         })
 
-        it('sends no request when neither the split, the rollout nor the holdout changed', async () => {
-            api.update.mockResolvedValue(experiment)
+        // A null or absent saved rollout means a full rollout, which is the 100 the modal sends
+        // back, so none of these saves changed anything.
+        it.each([
+            ['an explicit 100', { properties: [], rollout_percentage: 100 }],
+            ['a null rollout', { properties: [], rollout_percentage: null }],
+            ['no rollout key', { properties: [] }],
+        ])(
+            'sends no request when neither the split, the rollout nor the holdout changed, with %s',
+            async (_, savedGroup) => {
+                api.update.mockResolvedValue(experiment)
 
-            logic.actions.setUnmodifiedExperiment(experiment)
-            logic.actions.setExperiment(experiment)
+                const saved = {
+                    ...experiment,
+                    feature_flag: {
+                        ...experiment.feature_flag,
+                        filters: { ...experiment.feature_flag?.filters, groups: [savedGroup] },
+                    },
+                } as Experiment
+                logic.actions.setUnmodifiedExperiment(saved)
+                logic.actions.setExperiment(saved)
 
-            await expectLogic(logic, () => {
-                logic.actions.updateDistribution(
-                    [
-                        { key: 'control', rollout_percentage: 50 },
-                        { key: 'test', rollout_percentage: 50 },
-                    ],
-                    100
-                )
-            }).toFinishAllListeners()
+                await expectLogic(logic, () => {
+                    logic.actions.updateDistribution(
+                        [
+                            { key: 'control', rollout_percentage: 50 },
+                            { key: 'test', rollout_percentage: 50 },
+                        ],
+                        100
+                    )
+                }).toFinishAllListeners()
 
-            expect(api.update).not.toHaveBeenCalled()
-        })
+                expect(api.update).not.toHaveBeenCalled()
+            }
+        )
 
         it('sends the request when only the overall rollout percentage changed', async () => {
             api.update.mockResolvedValue(experiment)

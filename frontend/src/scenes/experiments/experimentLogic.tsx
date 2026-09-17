@@ -2943,8 +2943,10 @@ export const experimentLogic = kea<experimentLogicType>([
             // `update_feature_flag_params` rewrites the linked flag, which needs editor access to
             // it, so an unchanged save must not send the request at all.
             const variantsInput = toFlagVariantsInput(variants)
+            // A null or absent rollout evaluates as a full rollout, and the modal seeds the same
+            // 100, so both sides need the same normalization to read as unchanged.
             const savedRolloutPercentage =
-                values.unmodifiedExperiment?.feature_flag?.filters?.groups?.[0]?.rollout_percentage
+                values.unmodifiedExperiment?.feature_flag?.filters?.groups?.[0]?.rollout_percentage ?? 100
             const distributionChanged =
                 !objectsEqual(variantsInput, toFlagVariantsInput(getExperimentVariants(values.unmodifiedExperiment))) ||
                 (rolloutPercentage !== undefined && rolloutPercentage !== savedRolloutPercentage)
