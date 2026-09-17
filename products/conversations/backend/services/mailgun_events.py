@@ -1,4 +1,4 @@
-"""Email webhook endpoints for Mailgun routes."""
+"""Mailgun email webhook endpoints, and the inbound and outbound handling behind them."""
 
 import re
 import json

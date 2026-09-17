@@ -72,7 +72,7 @@ def emit_ticket_created_event(sender, instance: Ticket, created: bool, **kwargs)
     being emitted uniformly for all sources.
 
     Deferred via `transaction.on_commit` so we don't emit phantom events for tickets
-    rolled back by the email duplicate-race `IntegrityError` in `email_events.py` (or
+    rolled back by the email duplicate-race `IntegrityError` in `mailgun_events.py` (or
     any future caller that wraps creation in `transaction.atomic`).
 
     Note: `Ticket.objects.bulk_create` does NOT trigger this signal. All current callers

@@ -17,13 +17,6 @@ from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
-from products.conversations.backend.api.email_events import (
-    MAX_FORWARDING_CHALLENGE_TOKENS,
-    MAX_RECIPIENTS,
-    _forwarding_challenge_tokens,
-    _parse_addresses,
-    _parse_sent_at,
-)
 from products.conversations.backend.models import (
     EMAIL_THREAD_COMMENT_SCOPE,
     EmailChannel,
@@ -42,6 +35,13 @@ from products.conversations.backend.services.email_channel_setup import (
     FORWARDING_CHALLENGE_HEADER,
     FORWARDING_CHALLENGE_MARKER,
     create_forwarding_challenge,
+)
+from products.conversations.backend.services.mailgun_events import (
+    MAX_FORWARDING_CHALLENGE_TOKENS,
+    MAX_RECIPIENTS,
+    _forwarding_challenge_tokens,
+    _parse_addresses,
+    _parse_sent_at,
 )
 from products.customer_analytics.backend.facade.email_matching import recalculate_email_thread_links
 
@@ -62,7 +62,7 @@ class TestCustomerEmailIngestion(BaseTest):
             connection_status=EmailChannelConnectionStatus.ACTIVE,
         )
         signature_patcher = patch(
-            "products.conversations.backend.api.email_events.validate_webhook_signature",
+            "products.conversations.backend.services.mailgun_events.validate_webhook_signature",
             return_value=True,
         )
         signature_patcher.start()
@@ -542,8 +542,8 @@ class TestCustomerEmailIngestion(BaseTest):
             ("secondary_error", 500, 502, False),
         ]
     )
-    @patch("products.conversations.backend.api.email_events.request_secondary_region_status")
-    @patch("products.conversations.backend.api.email_events.is_primary_region", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.request_secondary_region_status")
+    @patch("products.conversations.backend.services.mailgun_events.is_primary_region", return_value=True)
     def test_primary_region_checks_secondary_before_ingesting(
         self,
         _name: str,
@@ -675,7 +675,7 @@ class TestForwardingChallengeTokens(SimpleTestCase):
                 raise AssertionError("challenge extraction read beyond its limit")
 
         request = self.factory.post("/", {"message-headers": "[]"})
-        with patch("products.conversations.backend.api.email_events.json.loads", return_value=HeaderValues()):
+        with patch("products.conversations.backend.services.mailgun_events.json.loads", return_value=HeaderValues()):
             tokens = _forwarding_challenge_tokens(request)
 
         assert len(tokens) == MAX_FORWARDING_CHALLENGE_TOKENS

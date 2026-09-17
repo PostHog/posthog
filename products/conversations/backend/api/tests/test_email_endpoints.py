@@ -1493,9 +1493,9 @@ class TestEmailInboundRegionRouting(BaseTest):
     def _post(self, data: dict[str, str]):
         return self.client.post("/api/conversations/v1/email/inbound", data=data)
 
-    @patch("products.conversations.backend.api.email_events.proxy_to_secondary_region", return_value=True)
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    @patch("products.conversations.backend.api.email_events.is_primary_region", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.proxy_to_secondary_region", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.is_primary_region", return_value=True)
     def test_proxies_to_secondary_when_token_not_found_on_primary(
         self, _mock_region: MagicMock, _mock_sig: MagicMock, mock_proxy: MagicMock
     ):
@@ -1504,18 +1504,18 @@ class TestEmailInboundRegionRouting(BaseTest):
         assert response.status_code == 200
         mock_proxy.assert_called_once()
 
-    @patch("products.conversations.backend.api.email_events.proxy_to_secondary_region", return_value=False)
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    @patch("products.conversations.backend.api.email_events.is_primary_region", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.proxy_to_secondary_region", return_value=False)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.is_primary_region", return_value=True)
     def test_returns_502_when_proxy_fails(self, _mock_region: MagicMock, _mock_sig: MagicMock, mock_proxy: MagicMock):
         response = self._post({"recipient": "team-deadbeef@mg.posthog.com"})
 
         assert response.status_code == 502
         mock_proxy.assert_called_once()
 
-    @patch("products.conversations.backend.api.email_events.proxy_to_secondary_region")
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    @patch("products.conversations.backend.api.email_events.is_primary_region", return_value=False)
+    @patch("products.conversations.backend.services.mailgun_events.proxy_to_secondary_region")
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.is_primary_region", return_value=False)
     def test_returns_404_when_token_not_found_on_secondary(
         self, _mock_region: MagicMock, _mock_sig: MagicMock, mock_proxy: MagicMock
     ):
@@ -1596,7 +1596,7 @@ class TestEmailInboundMultiConfig(BaseTest):
             domain_verified=True,
         )
 
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_inbound_routes_to_correct_config(self, _mock_sig: MagicMock):
         config1 = self._create_config("support@example.com", "aaa111")
         self._create_config("billing@example.com", "bbb222")
@@ -1617,7 +1617,7 @@ class TestEmailInboundMultiConfig(BaseTest):
         assert ticket.email_config_id == config1.id
         assert ticket.email_from == "customer@test.com"
 
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_inbound_routes_to_second_config(self, _mock_sig: MagicMock):
         self._create_config("support@example.com", "aaa111")
         config2 = self._create_config("billing@example.com", "bbb222")
@@ -1684,7 +1684,7 @@ class TestEmailInboundContent(BaseTest):
             ),
         ]
     )
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_inbound_content_extraction(
         self, _name: str, body_fields: dict[str, str], expected_content: str, _mock_sig: MagicMock
     ):
@@ -1708,7 +1708,7 @@ class TestEmailInboundContent(BaseTest):
         assert item_context["has_full_email_content"] is False
         assert mapping.full_body_plain is None
 
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_reply_strips_quoted_thread(self, _mock_sig: MagicMock):
         base = {
             "recipient": "team-cc00dd11ee2233ff@mg.posthog.com",
@@ -1753,7 +1753,7 @@ class TestEmailInboundContent(BaseTest):
             ("line_endings_only", "Same reply\nSame details", "Same reply\r\nSame details", "", None),
         ]
     )
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_reply_full_body_preservation(
         self,
         _name: str,
@@ -2240,7 +2240,7 @@ class TestEmailInboundDmarcRewrite(BaseTest):
             ),
         ]
     )
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_dmarc_sender_recovery(self, _name, extra_headers, expected_email, expected_name, _mock_sig):
         data = self._base_data(f"<dmarc-{_name}@test.com>")
         data.update(extra_headers)
@@ -2251,7 +2251,7 @@ class TestEmailInboundDmarcRewrite(BaseTest):
         assert ticket.anonymous_traits["email"] == expected_email
         assert ticket.anonymous_traits["name"] == expected_name
 
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_recovered_sender_flows_to_comment_context(self, _mock_sig: MagicMock):
         data = self._base_data("<dmarc-ctx@test.com>")
         data["from"] = "'Alex Smith' via Merch <merch@posthog.com>"
@@ -2301,13 +2301,13 @@ class TestEmailInboundSelfAddressedAutoreply(BaseTest):
             ("x_autoreply", {"X-Autoreply": "yes"}),
         ]
     )
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_autoreply_from_the_inbox_itself_is_dropped(self, name, headers, _mock_sig):
         self._post(f"<loop-{name}@posthog.com>", {"from": "PostHog Security <security@posthog.com>", **headers})
 
         assert Ticket.objects.filter(team=self.team).count() == 0
 
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_autoreply_from_the_inbound_address_is_dropped(self, _mock_sig: MagicMock):
         self._post(
             "<loop-inbound-address@posthog.com>",
@@ -2316,7 +2316,7 @@ class TestEmailInboundSelfAddressedAutoreply(BaseTest):
 
         assert Ticket.objects.filter(team=self.team).count() == 0
 
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_auto_submitted_header_is_read_from_the_message_headers_blob(self, _mock_sig: MagicMock):
         self._post(
             "<loop-headers-blob@posthog.com>",
@@ -2339,13 +2339,13 @@ class TestEmailInboundSelfAddressedAutoreply(BaseTest):
             ("auto_submitted_no", {"from": "Alex Smith <security@posthog.com>", "Auto-Submitted": "no"}),
         ]
     )
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_self_addressed_human_mail_still_opens_a_ticket(self, name, headers, _mock_sig):
         self._post(f"<human-{name}@posthog.com>", headers)
 
         assert Ticket.objects.filter(team=self.team).count() == 1
 
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_external_automated_mail_still_opens_a_ticket(self, _mock_sig: MagicMock):
         # Teams route infrastructure alerts to support on purpose, so being machine-generated is
         # only half the test: the message also has to claim to come from the inbox itself.
@@ -2376,7 +2376,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
     def _post(self, data: dict[str, str]):
         return self.client.post("/api/conversations/v1/email/inbound", data)
 
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_team_member_reply_attribution_and_unread(self, _mock_sig: MagicMock):
         self._post(
             {
@@ -2417,7 +2417,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         ticket.refresh_from_db()
         assert ticket.unread_team_count == 1
 
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_team_member_inbound_stamps_from_email_and_no_outbox(self, _mock_sig: MagicMock):
         self._post(
             {
@@ -2447,7 +2447,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         assert support_comment.item_context["author_type"] == "support"
         assert EmailOutboxMessage.objects.filter(comment=support_comment).count() == 0
 
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_customer_inbound_stamps_from_email(self, _mock_sig: MagicMock):
         self._post(
             {
@@ -2472,7 +2472,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
             ("spf_pass_misaligned_domain", {"sender": "alice@evil.com", "X-Mailgun-Spf": "Pass"}, False),
         ]
     )
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_inbound_identity_verified_reflects_spf(
         self, _name: str, extra_fields: dict[str, str], expected_verified: bool, _mock_sig: MagicMock
     ):
@@ -2489,7 +2489,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         ticket = Ticket.objects.get(team=self.team)
         assert ticket.identity_verified is expected_verified
 
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_no_spf_treated_as_customer(self, _mock_sig: MagicMock):
         """From header matches a team member but no SPF pass → customer."""
         self._post(
@@ -2515,7 +2515,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         assert forged.item_context["author_type"] == "customer"
         assert forged.created_by is None
 
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_spf_pass_but_mismatched_envelope_treated_as_customer(self, _mock_sig: MagicMock):
         """SPF passes but envelope sender domain != From domain → customer."""
         self._post(
@@ -2552,7 +2552,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
             ("different_sender", "victim@external.com", "attacker@evil.com", False),
         ]
     )
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_promotion_requires_authenticated_sender_to_match_ticket_identity(
         self, _name: str, claimed_email: str, reply_sender: str, expected_verified: bool, _mock_sig: MagicMock
     ):
@@ -2630,7 +2630,7 @@ class TestEmailInboundCcParticipants(BaseTest):
             ("to_and_cc_merged", "auser@example.com", "dev@company.com", ["auser@example.com", "dev@company.com"]),
         ]
     )
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_new_ticket_participants(self, _name, to_header, cc_header, expected, _mock_sig):
         data = self._base_data(f"<cc-{_name}@test.com>")
         if to_header:
@@ -2642,7 +2642,7 @@ class TestEmailInboundCcParticipants(BaseTest):
         ticket = Ticket.objects.get(team=self.team)
         assert ticket.cc_participants == expected
 
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_reply_merges_cc_participants(self, _mock_sig: MagicMock):
         data1 = self._base_data("<cc2@test.com>")
         data1["Cc"] = "dev@company.com"
@@ -2697,7 +2697,7 @@ class TestEmailInboundAttachments(BaseTest):
         }
 
     @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_inbound_with_image_attachment(self, _mock_sig: MagicMock, mock_storage: MagicMock):
         attachment = SimpleUploadedFile("photo.png", _make_png_bytes(), content_type="image/png")
 
@@ -2720,7 +2720,7 @@ class TestEmailInboundAttachments(BaseTest):
         assert comment.item_context["email_attachments"][0]["content_type"] == "image/png"
 
     @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_inbound_with_non_image_attachment(self, _mock_sig: MagicMock, mock_storage: MagicMock):
         pdf = SimpleUploadedFile("invoice.pdf", b"%PDF-1.4 fake content", content_type="application/pdf")
 
@@ -2743,7 +2743,7 @@ class TestEmailInboundAttachments(BaseTest):
         assert len(link_nodes) == 1
 
     @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_inbound_with_multiple_attachments(self, _mock_sig: MagicMock, mock_storage: MagicMock):
         png = SimpleUploadedFile("photo.png", _make_png_bytes(), content_type="image/png")
         pdf = SimpleUploadedFile("doc.pdf", b"%PDF-1.4 content", content_type="application/pdf")
@@ -2765,8 +2765,8 @@ class TestEmailInboundAttachments(BaseTest):
         assert len(comment.item_context["email_attachments"]) == 2
 
     @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
-    @patch("products.conversations.backend.api.email_events.MAX_ATTACHMENT_SIZE", 100)
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.MAX_ATTACHMENT_SIZE", 100)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_inbound_attachment_too_large_is_skipped(self, _mock_sig: MagicMock, mock_storage: MagicMock):
         oversized = SimpleUploadedFile("big.bin", b"x" * 101, content_type="application/octet-stream")
 
@@ -2784,7 +2784,7 @@ class TestEmailInboundAttachments(BaseTest):
         assert comment.item_context.get("email_attachments") is None
 
     @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_inbound_without_object_storage_skips_attachments(self, _mock_sig: MagicMock, mock_storage: MagicMock):
         png = SimpleUploadedFile("photo.png", _make_png_bytes(), content_type="image/png")
 
@@ -2801,7 +2801,7 @@ class TestEmailInboundAttachments(BaseTest):
         assert comment.rich_content is None
 
     @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_inbound_invalid_image_is_rejected(self, _mock_sig: MagicMock, mock_storage: MagicMock):
         fake_image = SimpleUploadedFile("evil.png", b"<html>not an image</html>", content_type="image/png")
 
@@ -2818,7 +2818,7 @@ class TestEmailInboundAttachments(BaseTest):
         assert comment.rich_content is None
 
     @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.mailgun_events.validate_webhook_signature", return_value=True)
     def test_inbound_no_attachments_unchanged(self, _mock_sig: MagicMock, mock_storage: MagicMock):
         data = self._base_post_data("<plain@test.com>")
         with self.settings(OBJECT_STORAGE_ENABLED=True):

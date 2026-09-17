@@ -2,7 +2,12 @@
 
 from django.urls import path, re_path
 
-from .email_events import email_capture_handler, email_inbound_handler, email_outbound_handler
+from products.conversations.backend.services.mailgun_events import (
+    email_capture_handler,
+    email_inbound_handler,
+    email_outbound_handler,
+)
+
 from .email_settings import (
     EmailConfirmForwardingView,
     EmailConnectView,
