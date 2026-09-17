@@ -602,8 +602,10 @@ tools:
             predecessor PRs close only after the replacement completes with verified open PRs. More evidence for the
             same fix belongs in `append_note`. Free-form notes always stay in the work log. Set `corroboration_only`
             only for confirmations with no new information; the first four stay as entries and later confirmations raise
-            the corroboration count. Opt-in: only available to scouts that list `edit_report` in their skill's
-            `allowed_tools`.
+            the corroboration count. The response carries `ignored_fields`, the body fields this endpoint does not know
+            and therefore ignored: it is empty on a normal edit, and a name in it means this tool definition is ahead of
+            the endpoint, so the rest of the edit landed and that field did nothing. Opt-in: only available to scouts
+            that list `edit_report` in their skill's `allowed_tools`.
     scout-emit-report:
         operation: signals_scout_emit_report
         enabled: true

@@ -90,6 +90,7 @@ from products.signals.backend.scout_harness.run_gates import (
 from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS, scout_costs
 from products.signals.backend.scout_harness.scout_naming import SLUG_ALLOCATION_ATTEMPTS, allocate_scout_slug
 from products.signals.backend.scout_harness.serializers import (
+    IGNORED_EDIT_FIELDS_KEY,
     REPOSITORIES_REACHABILITY_CHECKED_CONTEXT_KEY,
     EditReportRequestSerializer,
     EditReportResponseSerializer,
@@ -1291,6 +1292,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "content_revision_count": result.content_revision_count,
                     "supersedes_implementation": result.supersedes_implementation,
                     "corroboration_collapsed": result.corroboration_collapsed,
+                    "ignored_fields": data[IGNORED_EDIT_FIELDS_KEY],
                 }
             ).data,
             status=status.HTTP_200_OK,
