@@ -19,7 +19,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
-import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -45,13 +44,13 @@ import {
 } from '~/layout/scenes/components/SceneMenuBar'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { notebooksModel } from '~/models/notebooksModel'
-import { tagsModel } from '~/models/tagsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat, SidePanelTab } from '~/types'
 
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
+import { DashboardMenuBarTags } from './DashboardMenuBarTags'
 import { dashboardTemplateModalLogic } from './dashboards/templates/dashboardTemplateModalLogic'
 
 const RESOURCE_TYPE = 'dashboard'
@@ -90,7 +89,6 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const { instanceId: metalyticsInstanceId } = useValues(metalyticsLogic)
 
     const { user } = useValues(userLogic)
-    const { tags } = useValues(tagsModel)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const hasDashboardColors = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]
@@ -333,26 +331,30 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                     dataAttr={`${RESOURCE_TYPE}-menubar-metadata`}
                     contentClassName="w-80 p-2 flex flex-col gap-2"
                 >
-                    <SceneTagsCombobox
-                        onSave={(t) => updateDashboardTags(t)}
-                        canEdit={canEditDashboard}
-                        tags={dashboard?.tags}
-                        tagsAvailable={tags.filter((t) => !dashboard?.tags?.includes(t))}
-                        dataAttrKey={RESOURCE_TYPE}
-                        loading={isSavingTags}
-                    />
-                    <SceneActivityIndicator at={dashboard?.created_at} by={dashboard?.created_by} prefix="Created" />
-                    {showMetalytics && (
-                        <Button
-                            type="button"
-                            left
-                            onClick={() => openSidePanel(SidePanelTab.Activity, 'metalytics')}
-                            data-attr={`${RESOURCE_TYPE}-menubar-metalytics`}
-                        >
-                            <IconPulse />
-                            View metalytics
-                        </Button>
-                    )}
+                    <>
+                        <DashboardMenuBarTags
+                            onSave={(t) => updateDashboardTags(t)}
+                            canEdit={canEditDashboard}
+                            tags={dashboard?.tags}
+                            loading={isSavingTags}
+                        />
+                        <SceneActivityIndicator
+                            at={dashboard?.created_at}
+                            by={dashboard?.created_by}
+                            prefix="Created"
+                        />
+                        {showMetalytics && (
+                            <Button
+                                type="button"
+                                left
+                                onClick={() => openSidePanel(SidePanelTab.Activity, 'metalytics')}
+                                data-attr={`${RESOURCE_TYPE}-menubar-metalytics`}
+                            >
+                                <IconPulse />
+                                View metalytics
+                            </Button>
+                        )}
+                    </>
                 </SceneMenuBarPopover>
             )}
         </SceneMenuBar>

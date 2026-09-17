@@ -15,6 +15,7 @@ type SceneTagsProps = SceneCanEditProps &
         tags?: string[]
         tagsAvailable?: string[]
         loading?: boolean
+        onEdit?: () => void
     }
 
 export const SceneTags = ({
@@ -24,6 +25,7 @@ export const SceneTags = ({
     dataAttrKey,
     canEdit = true,
     loading,
+    onEdit,
 }: SceneTagsProps): JSX.Element => {
     const [localTags, setLocalTags] = useState(tags)
     const [localIsEditing, setLocalIsEditing] = useState(false)
@@ -71,7 +73,12 @@ export const SceneTags = ({
             <ButtonPrimitive
                 className="hyphens-auto flex gap-1 items-center"
                 lang="en"
-                onClick={() => onSave && canEdit && setLocalIsEditing(true)}
+                onClick={() => {
+                    if (onSave && canEdit) {
+                        onEdit?.()
+                        setLocalIsEditing(true)
+                    }
+                }}
                 tooltip={canEdit ? 'Edit tags' : 'Tags are read-only'}
                 autoHeight
                 menuItem

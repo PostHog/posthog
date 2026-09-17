@@ -16,6 +16,7 @@ export function InsightPanelInfo({ insightLogicProps }: { insightLogicProps: Ins
     const { canEditInsight, insight, isSavingTags } = useValues(theInsightLogic)
     const { setInsightMetadata } = useActions(theInsightLogic)
     const { tags: allExistingTags } = useValues(tagsModel)
+    const { loadTagsIfNeeded } = useActions(tagsModel)
 
     return (
         <ScenePanelInfoSection>
@@ -26,6 +27,7 @@ export function InsightPanelInfo({ insightLogicProps }: { insightLogicProps: Ins
                 dataAttrKey={RESOURCE_TYPE}
                 canEdit={canEditInsight}
                 loading={isSavingTags}
+                onEdit={loadTagsIfNeeded}
             />
             <SceneFile dataAttrKey={RESOURCE_TYPE} />
             <SceneActivityIndicator
