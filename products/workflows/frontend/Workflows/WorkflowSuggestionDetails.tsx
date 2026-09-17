@@ -81,7 +81,7 @@ export function WorkflowSuggestionDetails({
                                 </pre>
                                 {proposal.source_id && (
                                     <div>
-                                        <span className="font-semibold">Source: </span>
+                                        <span className="font-semibold">Scout run: </span>
                                         {proposal.source_id}
                                     </div>
                                 )}

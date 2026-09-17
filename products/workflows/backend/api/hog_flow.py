@@ -3799,6 +3799,8 @@ WORKFLOW_PROPOSAL_EVIDENCE_SCHEMA = {
         "string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; "
         "`n`, the denominator that value was computed over; and `guardrails`, a list of "
         "{metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. "
+        "PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores "
+        "them under `measured`; the page shows that reading and flags a disagreement with yours. "
         "Also conventional: target_value, window, query, app_source_id. A rate with no denominator "
         "lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change "
         "that lifts one number by harming another, and a number under a key of your own reads to a "
@@ -5528,12 +5530,19 @@ class HogFlowViewSet(
                     }
                 )
 
+        # The producer's numbers are its own claim. The page shows PostHog's reading of the same
+        # step at the same version instead, and a person sees when the two disagree.
+        evidence = dict(params.get("evidence") or {})
+        measured = self._measure_evidence(instance, params["base_version"], params.get("step_id") or None, evidence)
+        if measured is not None:
+            evidence["measured"] = measured
+
         proposal = WorkflowProposal(
             hog_flow=instance,
             title=params["title"],
             rationale=params["rationale"],
             content=content,
-            evidence=params.get("evidence") or {},
+            evidence=evidence,
             step_id=params.get("step_id") or None,
             base_version=params["base_version"],
             source_id=source_id,
@@ -5690,6 +5699,28 @@ class HogFlowViewSet(
                 }
             ).data
         )
+
+    def _measure_evidence(
+        self, hog_flow: HogFlow, base_version: int, step_id: Optional[str], evidence: dict
+    ) -> Optional[dict]:
+        """PostHog's own reading of the metrics a suggestion is about, taken when it is filed.
+
+        Same read as the outcome's "before" side, over the producer's window when it names a
+        relative one. A read that fails leaves the suggestion filed with the producer's numbers
+        only, which the page labels as unverified."""
+        window = evidence.get("window") if isinstance(evidence.get("window"), str) else None
+        if not window or not re.fullmatch(r"-\d+[dh]", window):
+            window = "-7d"
+        try:
+            after_date, _, _ = relative_date_parse_with_delta_mapping(window, self.team.timezone_info)
+            tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+            reading = self._version_outcome(hog_flow, base_version, after_date, step_id)
+        except Exception:
+            logger.exception("workflow_proposal: could not measure evidence", extra={"hog_flow_id": str(hog_flow.id)})
+            return None
+        if reading is None:
+            return None
+        return {**reading, "window": window}
 
     def _version_outcome(
         self, hog_flow: HogFlow, version: Optional[int], after: Any, step_id: Optional[str] = None

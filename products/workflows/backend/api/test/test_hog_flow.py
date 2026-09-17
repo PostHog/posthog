@@ -4899,6 +4899,51 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         assert version_two.json()["totals"] == {"success": 5}
         assert whole.json()["totals"] == {"success": 7}
 
+    @patch("products.workflows.backend.api.hog_flow.posthoganalytics.feature_enabled", return_value=True)
+    def test_a_suggestion_carries_what_posthog_measured_next_to_what_it_claimed(self, _mock_flag):
+        # The producer's numbers are its own claim; the reading stored beside them is PostHog's, from
+        # the same per-version, per-step series the outcome card reads.
+        opted_in = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/optimisation", {"enabled": True}, format="json"
+        )
+        assert opted_in.status_code == 200, opted_in.json()
+        for name, count in (("email_sent", 100), ("email_opened", 10), ("email_bounced", 2)):
+            create_app_metric2(
+                team_id=self.team.id,
+                app_source="hog_flow_version",
+                app_source_id=f"{self.flow.id}/1",
+                instance_id="email_1",
+                metric_kind="email",
+                metric_name=name,
+                count=count,
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/proposals/",
+            {
+                "title": "Shorten the subject",
+                "rationale": "Opens are low.",
+                "content": {"exit_condition": "exit_only_at_end"},
+                "step_id": "email_1",
+                "base_version": 1,
+                "evidence": {"metric": "email_opened", "current_value": 0.5, "unit": "rate", "n": 9, "guardrails": []},
+            },
+            format="json",
+        )
+
+        assert response.status_code == 201, response.json()
+        evidence = response.json()["evidence"]
+        assert evidence["current_value"] == 0.5
+        measured = evidence["measured"]
+        assert measured["version"] == 1
+        assert measured["target"] == {
+            "metric": "email open rate",
+            "value": 0.1,
+            "n": 100,
+            "below_minimum_sample": False,
+        }
+        assert {g["metric"]: g["value"] for g in measured["guardrails"]}["bounce rate"] == 0.02
+
     def test_a_version_is_refused_where_nothing_records_one(self):
         # Hog functions have no per-version mirror. Answering from the empty series would read as
         # "no failures" to a caller comparing versions.

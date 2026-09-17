@@ -8,7 +8,7 @@ import type {
     WorkflowProposalOutcomeApi,
     WorkflowProposalVersionOutcomeApi,
 } from '../generated/api.schemas'
-import { MIN_EVIDENCE_SAMPLE, formatValue } from './suggestionEvidence'
+import { MIN_EVIDENCE_SAMPLE, describeWindow, formatValue } from './suggestionEvidence'
 
 /** The API names each rate; the table names the thing counted, because "Emails sent" heads it. */
 const ROW_LABELS: Record<string, string> = {
@@ -28,16 +28,6 @@ type OutcomeRow =
           before: WorkflowProposalMetricApi | null
           after: WorkflowProposalMetricApi | null
       }
-
-/** The API echoes the relative window it read, e.g. `-7d`; a person reads it as a span of days. */
-function describeWindow(window: string): string {
-    const match = /^-(\d+)([dh])$/.exec(window)
-    if (!match) {
-        return window
-    }
-    const unit = match[2] === 'd' ? 'day' : 'hour'
-    return `the last ${match[1]} ${unit}${match[1] === '1' ? '' : 's'}`
-}
 
 function readings(side: WorkflowProposalVersionOutcomeApi | null): WorkflowProposalMetricApi[] {
     return side ? [side.target, side.click_through, ...side.guardrails] : []
