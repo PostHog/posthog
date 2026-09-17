@@ -989,9 +989,16 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(with_trailing_slashes.results, baseline.results)
 
-    def test_paths_strip_query_string(self) -> None:
+    @parameterized.expand(
+        [
+            ("plain_target", "/products"),
+            ("target_with_query_string", "/products/?color=blue"),
+        ]
+    )
+    def test_paths_strip_query_string(self, _name: str, start_point: str) -> None:
         # Query strings must be cut before the trailing slash strip, so that
         # `/products/?color=red` merges with `/products` and not only with `/products/`.
+        # The start point gets the same treatment, because the selector offers raw URLs.
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person_2"])
 
@@ -1005,14 +1012,14 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
                 )
 
         separate = PathsQueryRunner(
-            query={"kind": "PathsQuery", "pathsFilter": {"startPoint": "/products"}},
+            query={"kind": "PathsQuery", "pathsFilter": {"startPoint": start_point}},
             team=self.team,
         ).run()
         assert isinstance(separate, CachedPathsQueryResponse)
         self.assertEqual(separate.results, [])
 
         merged = PathsQueryRunner(
-            query={"kind": "PathsQuery", "pathsFilter": {"startPoint": "/products", "stripQueryString": True}},
+            query={"kind": "PathsQuery", "pathsFilter": {"startPoint": start_point, "stripQueryString": True}},
             team=self.team,
         ).run()
         assert isinstance(merged, CachedPathsQueryResponse)

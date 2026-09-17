@@ -135,7 +135,7 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                 </div>
             </div>
 
-            {featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_STRIP_QUERY_STRING] && (
+            {(featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_STRIP_QUERY_STRING] || stripQueryString) && (
                 <div>
                     <LemonSwitch
                         checked={!!stripQueryString}

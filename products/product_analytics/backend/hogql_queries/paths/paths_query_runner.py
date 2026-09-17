@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from math import ceil
 from re import escape
 from typing import Any, Literal, Optional, cast
+from urllib.parse import urlsplit, urlunsplit
 
 from posthog.schema import (
     CachedPathsQueryResponse,
@@ -118,11 +119,14 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
         return event in (self.query.pathsFilter.includeEventTypes or [])
 
-    @staticmethod
-    def _strip_trailing_slash(url: Optional[str]) -> Optional[str]:
-        # Mirrors the `(.)/$` regex applied to event URLs in `construct_event_hogql`,
-        # so that startPoint/endPoint values match the normalized values stored in
-        # `compact_path` / `start_filtered_path`. The bare "/" URL is preserved.
+    def _normalize_target(self, url: Optional[str]) -> Optional[str]:
+        # Mirrors the normalization applied to event URLs in `construct_event_hogql`,
+        # so that startPoint/endPoint values match the values stored in
+        # `compact_path` / `start_filtered_path`: the query string is cut first when
+        # `stripQueryString` is set, then one trailing slash. The bare "/" URL is preserved.
+        if url and self.query.pathsFilter.stripQueryString:
+            parts = urlsplit(url)
+            url = urlunsplit((parts.scheme, parts.netloc, parts.path, "", parts.fragment))
         if url and len(url) > 1 and url.endswith("/"):
             return url[:-1]
         return url
@@ -541,8 +545,8 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
     def get_target_clause(self) -> list[ast.Expr]:
         if self.query.pathsFilter.startPoint and self.query.pathsFilter.endPoint:
-            start_point = self._strip_trailing_slash(self.query.pathsFilter.startPoint)
-            end_point = self._strip_trailing_slash(self.query.pathsFilter.endPoint)
+            start_point = self._normalize_target(self.query.pathsFilter.startPoint)
+            end_point = self._normalize_target(self.query.pathsFilter.endPoint)
             clauses: list[ast.Expr] = [
                 ast.Alias(
                     alias=f"start_target_index",
@@ -597,7 +601,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         )
 
     def paths_per_person_query(self) -> ast.SelectQuery:
-        target_point = self._strip_trailing_slash(self.query.pathsFilter.endPoint or self.query.pathsFilter.startPoint)
+        target_point = self._normalize_target(self.query.pathsFilter.endPoint or self.query.pathsFilter.startPoint)
 
         path_tuples_expr = ast.Call(
             name="arrayZip",
