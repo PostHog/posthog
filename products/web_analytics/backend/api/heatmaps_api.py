@@ -1,5 +1,5 @@
 import re
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from io import BytesIO
 from json import JSONDecodeError, dumps, loads
 from typing import Any, List, Literal, cast, get_args  # noqa: UP035
@@ -799,9 +799,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         date_from: date = request_serializer.validated_data["date_from"]
         date_to: date | None = request_serializer.validated_data.get("date_to", None)
-        capture_allowlist_predicate = self._capture_allowlist_predicate()
-        if capture_allowlist_predicate is not None:
-            exprs.append(capture_allowlist_predicate)
+        exprs.extend(self._capture_allowlist_predicates(date_from, date_to))
         if request_serializer.validated_data.get("filter_test_accounts") is True:
             exprs.append(self._build_test_accounts_filter(date_from, date_to))
         exprs.extend(
@@ -835,17 +833,25 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         fold = self._compute_fold_summary(exprs)
         return self._return_heatmap_coordinates_response(results, fold, has_more)
 
-    def _capture_allowlist_predicate(self) -> ast.Expr | None:
+    def _capture_allowlist_predicates(self, date_from: date, date_to: date | None) -> List[ast.Expr]:  # noqa: UP006
         if not settings.HEATMAP_URL_ALLOWLIST_ENFORCEMENT_ENABLED:
-            return None
+            return []
         config = TeamHeatmapConfig.objects.filter(team_id=self.team.pk).first()
         if config is None or config.capture_enforcement_started_at is None:
-            return None
+            return []
+
+        range_start = datetime.combine(date_from - timedelta(days=1), time.min, tzinfo=UTC)
+        versions = HeatmapCaptureConfigVersion.objects.for_team(self.team.pk).filter(
+            Q(effective_to__isnull=True) | Q(effective_to__gt=range_start)
+        )
+        if date_to is not None:
+            range_end = datetime.combine(date_to + timedelta(days=2), time.min, tzinfo=UTC)
+            versions = versions.filter(effective_from__lt=range_end)
 
         or_terms: list[ast.Expr] = [
             parse_expr("timestamp < {started}", {"started": Constant(value=config.capture_enforcement_started_at)})
         ]
-        for version in HeatmapCaptureConfigVersion.objects.filter(team_id=self.team.pk).order_by("effective_from"):
+        for version in versions.order_by("effective_from"):
             window: list[ast.Expr] = [parse_expr("timestamp >= {ef}", {"ef": Constant(value=version.effective_from)})]
             if version.effective_to is not None:
                 window.append(parse_expr("timestamp < {et}", {"et": Constant(value=version.effective_to)}))
@@ -861,7 +867,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ]
                 window.append(ast.Or(exprs=url_terms) if len(url_terms) > 1 else url_terms[0])
             or_terms.append(ast.And(exprs=window) if len(window) > 1 else window[0])
-        return ast.Or(exprs=or_terms) if len(or_terms) > 1 else or_terms[0]
+        return [ast.Or(exprs=or_terms) if len(or_terms) > 1 else or_terms[0]]
 
     def _compute_fold_summary(self, exprs: List[ast.Expr]) -> dict[str, Any]:  # noqa: UP006
         stmt = parse_select(FOLD_SUMMARY_QUERY, {"predicates": ast.And(exprs=exprs)})
@@ -1108,6 +1114,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         date_from: date = validated_data["date_from"]
         date_to: date | None = validated_data.get("date_to", None)
+        exprs.extend(self._capture_allowlist_predicates(date_from, date_to))
         if validated_data.get("filter_test_accounts") is True:
             exprs.append(self._build_test_accounts_filter(date_from, date_to))
         exprs.extend(self._build_event_filters(date_from, date_to, validated_data.get("events") or []))
