@@ -269,6 +269,13 @@ const productEvents: ActivityLogItem[] = [
 ]
 
 export const AcrossProducts: Story = {
+    parameters: {
+        testOptions: {
+            // Anonymous actors keep their unknown lettermark, which the runner otherwise treats as a loader.
+            waitForLoadersToDisappear: false,
+            waitForSelector: '.ActivityLogRow-wrapper:nth-child(6) .ActivityLogRow__summary',
+        },
+    },
     render: () => (
         <div className="max-w-3xl space-y-2">
             {humanize(productEvents, describerFor).map((logItem) => (
