@@ -11,12 +11,10 @@ from products.replay_vision.backend.temporal.network_capture import (
 
 
 def _line(event: dict[str, Any], window_id: str = "w1") -> str:
-    """One recording-block line: `[window_id, event]`, the shape recording-api serves."""
     return json.dumps([window_id, event])
 
 
 def _api_line(*events: dict[str, Any], window_id: str = "w1") -> str:
-    """The snapshots API wrapper around the same events, which the decoder also reads."""
     return json.dumps({"window_id": window_id, "data": list(events)})
 
 
@@ -177,9 +175,9 @@ class TestParseNetworkPayload:
         assert captured_but_clean.captured
         assert captured_but_clean.requests == []
 
-    def test_a_bare_pair_of_events_keeps_both(self) -> None:
-        # A two-event list looks like a [window_id, event] pair by length alone. Reading it as one would
-        # drop the first event, which may carry the only failure on that line.
+    def test_an_unrecognized_array_is_ignored_not_misread(self) -> None:
+        # A two-event list matches a [window_id, event] pair by length. Reading it as one would keep the
+        # second event and silently drop the first, inventing a request the line never described.
         both = json.dumps(
             [
                 _rrweb_event(1000, {"name": "https://app.test/first", "status": 500}),
@@ -187,10 +185,8 @@ class TestParseNetworkPayload:
             ]
         )
         payload = parse_network_payload([both])
-        assert [request.url for request in payload.requests] == [
-            "https://app.test/first",
-            "https://app.test/second",
-        ]
+        assert payload.requests == []
+        assert payload.captured is False
 
     def test_reads_the_api_wrapper_shape_too(self) -> None:
         payload = parse_network_payload(
