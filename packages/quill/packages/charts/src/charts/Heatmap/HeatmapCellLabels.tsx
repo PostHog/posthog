@@ -14,12 +14,14 @@ const LABEL_FONT = `500 ${LABEL_FONT_SIZE}px ${FONT_FAMILY}`
 const LABEL_PADDING_X = 4
 // Under this the text touches the cell edges and reads as one smear across rows.
 const MIN_CELL_HEIGHT = LABEL_FONT_SIZE + 4
-// A cell fill this light keeps dark text; above it the fill is dark enough for white text.
+// Below this the fill is dark enough for white text; at or above it, dark text stays readable.
 const DARK_FILL_LUMINANCE = 0.55
 
 const LABEL_STYLE_BASE: React.CSSProperties = {
     position: 'absolute',
     transform: 'translate(-50%, -50%)',
+    // Render in the font the fit check measures with, so a host font can't overflow a cell.
+    fontFamily: FONT_FAMILY,
     fontSize: LABEL_FONT_SIZE,
     fontWeight: 500,
     lineHeight: 1,
@@ -61,12 +63,12 @@ export function HeatmapCellLabels({
 
     const placed = useMemo<PlacedLabel[]>(() => {
         const layout = computeHeatmapLayout(dimensions, xLabels.length, yLabels.length)
-        if (layout.rowHeight < MIN_CELL_HEIGHT || layout.colWidth <= 0) {
+        const maxTextWidth = layout.colWidth - LABEL_PADDING_X * 2
+        if (layout.rowHeight < MIN_CELL_HEIGHT || maxTextWidth <= 0) {
             return []
         }
         const background = theme.backgroundColor ?? '#ffffff'
         const darkText = theme.axisColor ?? '#111111'
-        const maxTextWidth = layout.colWidth - LABEL_PADDING_X * 2
         const out: PlacedLabel[] = []
         for (let row = 0; row < layout.rows; row++) {
             for (let col = 0; col < layout.cols; col++) {
