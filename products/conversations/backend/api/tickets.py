@@ -1318,7 +1318,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 deleted=False,
             )
             .select_related("created_by")
-            .order_by("created_at")
+            # id breaks ties so separate page queries agree on the order of
+            # messages that share a created_at.
+            .order_by("created_at", "id")
         )
 
         page = self.paginate_queryset(comments)

@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from decimal import Decimal
 from threading import Barrier, Event
+from uuid import UUID
 
 from posthog.test.base import (
     APIBaseTest,
@@ -2695,15 +2696,25 @@ class TestTicketMessagesAPI(APIBaseTest):
 
     def test_messages_pagination(self, mock_on_commit):
         base = timezone.now()
-        for i in range(5):
-            comment = Comment.objects.create(
+        # msg-2 and msg-3 tie on created_at, and msg-3 holds the lower id. The ids are
+        # explicit so the row order in the table contradicts the expected order.
+        rows = [
+            ("msg-0", UUID("00000000-0000-7000-8000-000000000001"), 0),
+            ("msg-1", UUID("00000000-0000-7000-8000-000000000002"), 1),
+            ("msg-2", UUID("00000000-0000-7000-8000-000000000009"), 2),
+            ("msg-3", UUID("00000000-0000-7000-8000-000000000003"), 2),
+            ("msg-4", UUID("00000000-0000-7000-8000-000000000004"), 3),
+        ]
+        for content, comment_id, offset in rows:
+            Comment.objects.create(
+                id=comment_id,
                 team=self.team,
                 scope="conversations_ticket",
                 item_id=str(self.ticket.id),
-                content=f"msg-{i}",
+                content=content,
                 item_context={"author_type": "customer"},
             )
-            Comment.objects.filter(id=comment.id).update(created_at=base + timedelta(seconds=i))
+            Comment.objects.filter(id=comment_id).update(created_at=base + timedelta(seconds=offset))
 
         response = self.client.get(self.url, {"limit": 2})
         assert response.status_code == status.HTTP_200_OK
@@ -2717,6 +2728,15 @@ class TestTicketMessagesAPI(APIBaseTest):
         body = response.json()
         assert len(body["results"]) == 1
         assert body["results"][0]["content"] == "msg-4"
+
+        # Walk every page. Tied rows must keep one stable position, so no message is
+        # lost between pages and none appears twice.
+        walked = []
+        for offset in range(0, len(rows), 2):
+            page = self.client.get(self.url, {"limit": 2, "offset": offset}).json()
+            walked.extend(message["id"] for message in page["results"])
+
+        assert walked == [str(comment_id) for _, comment_id, _ in sorted(rows, key=lambda row: (row[2], row[1]))]
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
