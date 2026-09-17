@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { EnrichedReviewer } from '../../types'
-import { getReviewerExplanation, getReviewerSourceLabel, SuggestedReviewerPerson } from './SuggestedReviewerPerson'
+import { getReviewerExplanation, SuggestedReviewerPerson } from './SuggestedReviewerPerson'
 import { SuggestedReviewerReasonGroup } from './SuggestedReviewerReasonGroup'
 
 const MAX_VISIBLE_SUGGESTIONS = 5
@@ -19,7 +19,6 @@ interface ReviewerReasonGroupItem {
     key: string
     reason: string
     reviewers: EnrichedReviewer[]
-    sourceLabels: string[]
 }
 
 type ReviewerItem = ReviewerPersonItem | ReviewerReasonGroupItem
@@ -51,20 +50,15 @@ export function buildReviewerItems(reviewers: EnrichedReviewer[]): ReviewerItem[
             continue
         }
 
-        const sourceLabel = getReviewerSourceLabel(reviewer)
         const existing = reasonGroups.get(reason)
         if (existing) {
             existing.reviewers.push(reviewer)
-            if (!existing.sourceLabels.includes(sourceLabel)) {
-                existing.sourceLabels.push(sourceLabel)
-            }
         } else {
             const item: ReviewerReasonGroupItem = {
                 kind: 'reason-group',
                 key: JSON.stringify(['reason-group', reason]),
                 reason,
                 reviewers: [reviewer],
-                sourceLabels: [sourceLabel],
             }
             reasonGroups.set(reason, item)
             items.push(item)
@@ -95,7 +89,6 @@ export function SuggestedReviewersList({
                         key={item.key}
                         reviewers={item.reviewers}
                         reason={item.reason}
-                        sourceLabels={item.sourceLabels}
                         disabled={disabled}
                         onRemove={(reviewer) => onRemove([reviewer])}
                     />

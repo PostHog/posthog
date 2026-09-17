@@ -32,7 +32,6 @@ describe('buildReviewerItems', () => {
                     reviewer('avery', sharedReason, 'Runtime ownership scout'),
                     reviewer('jordan', sharedReason, 'Code history'),
                 ],
-                sourceLabels: ['Runtime ownership scout', 'Code history'],
             },
             {
                 kind: 'person',

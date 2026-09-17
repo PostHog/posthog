@@ -42,6 +42,7 @@ const sharedReasonSuggestions: EnrichedReviewer[] = [
     ['devon', 'Devon Clark'],
 ].map(([id, name]) =>
     reviewer(id, name, `${id}@example.com`, {
+        source_skill: 'signals-scout-runtime-ownership',
         source_label: 'Runtime ownership scout',
         explanation: sharedReason,
         reason: sharedReason,
@@ -107,6 +108,7 @@ export const NarrowPanel: Story = {
                     'Changed example.com/services/request-processing/a-very-long-path-without-spaces/or-identifiers.',
             }),
             reviewer('solo', 'Solo Scout', 'solo@example.com', {
+                source_skill: 'signals-scout-infrastructure-reliability',
                 source_label: 'Infrastructure reliability and request processing ownership scout',
                 explanation: 'Maintains the request path.',
             }),
@@ -123,6 +125,11 @@ export const NarrowPanelMixedSources: Story = {
     args: {
         suggestions: sharedReasonSuggestions.slice(0, 3).map((suggestion, index) => ({
             ...suggestion,
+            source_skill: [
+                'signals-scout-infrastructure-reliability',
+                'signals-scout-application-request-lifecycle',
+                'signals-scout-platform-runtime-observability',
+            ][index],
             source_label: [
                 'Infrastructure reliability and request processing ownership scout',
                 'Application request lifecycle and transport ownership scout',
@@ -137,6 +144,7 @@ export const NarrowPanelLongReason: Story = {
     args: {
         suggestions: [
             reviewer('casey', 'Casey Morgan', 'casey@example.com', {
+                source_skill: 'signals-scout-agent-feedback',
                 source_label: 'Agent feedback scout',
                 explanation:
                     'Recently maintained the request parser and retry handling. Review the long configuration path before release because it affects several report views.',
