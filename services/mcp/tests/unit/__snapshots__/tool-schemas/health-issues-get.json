@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "id": {
-            "description": "A UUID string identifying this health issue.",
+            "description": "The health issue's UUID, as returned in the `id` field of each health-issues-list result. Example call: `{\"id\": \"018f3c2a-7b1e-7000-9c4d-5e6f7a8b9c0d\"}`.",
             "type": "string"
         }
     },
