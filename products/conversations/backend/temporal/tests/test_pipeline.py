@@ -111,7 +111,7 @@ PIPELINE_MODULE = "products.conversations.backend.temporal.pipeline"
 @pytest.mark.asyncio
 @patch(f"{PERSIST_KNOWLEDGE_GAP_MODULE}._persist_sync")
 @patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
-@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput())
 @patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
 @patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
@@ -194,7 +194,7 @@ async def test_workflow_persists_on_high_score(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 @patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
-@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput())
 @patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
 @patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
@@ -350,8 +350,8 @@ def _patch_workflow_activities(fn: Callable[..., Any]) -> Callable[..., Any]:
     fn = patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)(fn)
     fn = patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)(fn)
     fn = patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)(fn)
-    fn = patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")(fn)
-    fn = patch(f"{CLARIFY_MODULE}._clarify_sync")(fn)
+    fn = patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput())(fn)
+    fn = patch(f"{CLARIFY_MODULE}._clarify_sync", return_value=ClarifyOutput())(fn)
     fn = patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")(fn)
     return fn
 
@@ -446,7 +446,7 @@ def _patch_workflow_activities(fn: Callable[..., Any]) -> Callable[..., Any]:
     ],
 )
 @patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
-@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput())
 @patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
 @patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
@@ -819,7 +819,7 @@ async def test_unsafe_clarifying_question_falls_to_findings(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 @patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
-@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput())
 @patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
 @patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
@@ -896,7 +896,7 @@ async def test_workflow_replays_pre_tiered_clarify_as_findings(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 @patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
-@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput())
 @patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
 @patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
@@ -977,7 +977,7 @@ async def test_findings_review_withholds_sensitive_notes(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 @patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
-@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput())
 @patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
 @patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
@@ -1090,7 +1090,7 @@ class TestFormatFindingsComment(SimpleTestCase):
 @pytest.mark.asyncio
 @patch(f"{PERSIST_KNOWLEDGE_GAP_MODULE}._persist_sync")
 @patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
-@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput())
 @patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
 @patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
@@ -1176,7 +1176,7 @@ async def test_workflow_replays_pre_patch_gap_persistence(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 @patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
-@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput())
 @patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
 @patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
@@ -2227,7 +2227,7 @@ class TestSafetyFilterActivity:
             patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock) as mock_draft,
             patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock) as mock_validate,
             patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock) as mock_review,
-            patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync") as mock_persist,
+            patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput()) as mock_persist,
             patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync"),
         ):
             async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -2345,7 +2345,7 @@ class TestReviewReplyActivity:
                 new_callable=AsyncMock,
                 return_value=ReviewReplyOutput(safe=False, reason="reply dumps raw emails"),
             ),
-            patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync") as mock_persist,
+            patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput()) as mock_persist,
             patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync") as mock_record_triage,
         ):
             async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -2603,7 +2603,7 @@ class TestValidateActivity:
 @pytest.mark.django_db
 @pytest.mark.asyncio
 @patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
-@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput())
 @patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
 @patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
@@ -2668,7 +2668,7 @@ async def test_workflow_short_circuits_unactionable(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("diagnostics_allowed,expected_needs_diagnostics", [(True, True), (False, False)])
 @patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
-@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput())
 @patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
 @patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
@@ -2945,7 +2945,7 @@ class TestRecordTriageActivity:
                 new_callable=AsyncMock,
                 return_value=review_output or ReviewReplyOutput(safe=True),
             ),
-            patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync"),
+            patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput()),
             patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync") as mock_record_triage,
         ):
             async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -3058,7 +3058,7 @@ class TestRecordTriageActivity:
                 new_callable=AsyncMock,
                 return_value=ReviewReplyOutput(safe=True),
             ),
-            patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync"),
+            patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput()),
             patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync") as mock_record_triage,
         ):
             async with await WorkflowEnvironment.start_time_skipping() as env:
