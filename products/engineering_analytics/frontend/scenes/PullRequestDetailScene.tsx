@@ -22,6 +22,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
 import { GroupedJobsTable } from '../components/GroupedJobsTable'
@@ -58,13 +59,13 @@ export const scene: SceneExport<PullRequestDetailLogicProps> = {
     }),
 }
 
-// Stable per-row key — re-runs share a runId, so start time disambiguates attempts. Used for rowKey and
+// Stable per-row key: re-runs share a runId, so start time disambiguates attempts. Used for rowKey and
 // the expand-state set, so expanding one attempt doesn't open the others.
 function runRowKey(run: WorkflowRun): string {
     return `${run.workflow}@${run.startedAt ?? run.finishedAt ?? run.runId ?? ''}`
 }
 
-/** The runs of one workflow on this PR, one row per push × attempt — jobs live on the run page. */
+/** The runs of one workflow on this PR, one row per push × attempt. Jobs live on the run page. */
 function PerPushRunsTable({
     runs,
     runCostByKey,
@@ -257,7 +258,7 @@ function PrWorkflowsTable({
         const latest = latestByWorkflow.get(workflowName)
         return latest?.conclusion != null && !isPassingConclusion(latest.conclusion)
     }
-    // Failing workflows first — the order a reviewer triages in — then alphabetical.
+    // Failing workflows first, because that is the order a reviewer triages in, then alphabetical.
     const orderedRows = [...rows].sort(
         (a, b) =>
             Number(isWorkflowFailing(b.workflowName)) - Number(isWorkflowFailing(a.workflowName)) ||
@@ -379,7 +380,6 @@ function PrWorkflowsTable({
                 ),
             }}
             pagination={{ pageSize: 10 }}
-            emptyState="No CI runs match."
             nouns={['workflow', 'workflows']}
         />
     )
@@ -417,7 +417,7 @@ export function PullRequestDetailScene(): JSX.Element {
         timelinesFailed,
         timeline,
     } = useValues(pullRequestDetailLogic)
-    const { loadLifecycle, loadPrRuns, loadTimelines, setWorkflowFilter, setRunExpanded } =
+    const { loadLifecycle, loadPrRuns, loadTimelines, loadFailureLogs, setWorkflowFilter, setRunExpanded } =
         useActions(pullRequestDetailLogic)
 
     const pullRequest = lifecycle?.pull_request
@@ -435,14 +435,12 @@ export function PullRequestDetailScene(): JSX.Element {
         return (
             <SceneContent className="pb-16">
                 <SceneTitleSection name="Pull request" resourceType={{ type: 'health' }} />
-                <div className="flex items-center gap-3">
-                    <span className="text-secondary">
-                        Couldn't load this pull request. It may not exist in the connected GitHub source.
-                    </span>
-                    <LemonButton type="secondary" size="small" onClick={loadLifecycle} loading={lifecycleLoading}>
-                        Retry
-                    </LemonButton>
-                </div>
+                <CIAnalyticsLoadError
+                    title="Couldn't load this pull request"
+                    description="It may not exist in the connected GitHub source. Retry, or check the source's sync status."
+                    onRetry={loadLifecycle}
+                    loading={lifecycleLoading}
+                />
             </SceneContent>
         )
     }
@@ -560,7 +558,7 @@ export function PullRequestDetailScene(): JSX.Element {
                         <MetricTile
                             label="Pushes"
                             tooltip="Commits that triggered CI on this pull request."
-                            value={`${pushes}`}
+                            value={prRunsFailed ? '—' : `${pushes}`}
                             sub={
                                 rerunCycles > 0 ? (
                                     <span className="font-semibold text-warning-dark">+{rerunCycles} re-runs</span>
@@ -599,14 +597,11 @@ export function PullRequestDetailScene(): JSX.Element {
 
             <Section id="pr-timeline" title="Lifecycle">
                 {timelinesFailed ? (
-                    <div className="flex items-center gap-3">
-                        <span className="text-sm text-secondary">
-                            Couldn't load the timeline for this pull request.
-                        </span>
-                        <LemonButton type="secondary" size="small" onClick={loadTimelines} loading={timelinesLoading}>
-                            Retry
-                        </LemonButton>
-                    </div>
+                    <CIAnalyticsLoadError
+                        title="Couldn't load the timeline for this pull request"
+                        onRetry={loadTimelines}
+                        loading={timelinesLoading}
+                    />
                 ) : !timelines ? (
                     <LemonSkeleton className="h-40 w-full" />
                 ) : timeline ? (
@@ -654,12 +649,11 @@ export function PullRequestDetailScene(): JSX.Element {
                 {prRunsLoading && commitGroups.length === 0 ? (
                     <LemonSkeleton className="h-24 w-full" />
                 ) : prRunsFailed ? (
-                    <div className="flex items-center gap-3">
-                        <span className="text-sm text-secondary">Couldn't load CI runs for this pull request.</span>
-                        <LemonButton type="secondary" size="small" onClick={loadPrRuns} loading={prRunsLoading}>
-                            Retry
-                        </LemonButton>
-                    </div>
+                    <CIAnalyticsLoadError
+                        title="Couldn't load CI runs for this pull request"
+                        onRetry={loadPrRuns}
+                        loading={prRunsLoading}
+                    />
                 ) : commitGroups.length === 0 ? (
                     <div className="text-sm text-secondary">No CI runs attributed to this pull request yet.</div>
                 ) : filteredPrWorkflowRows.length === 0 ? (
@@ -685,11 +679,9 @@ export function PullRequestDetailScene(): JSX.Element {
 
             {failed > 0 && (
                 <Section id="pr-failures" title="Failures">
-                    <FailureLogGroups logs={failureLogs} loading={failureLogsLoading} />
+                    <FailureLogGroups logs={failureLogs} loading={failureLogsLoading} onRetry={loadFailureLogs} />
                 </Section>
             )}
-
-            <div className="text-xs text-tertiary">Review and comment activity isn't tracked yet.</div>
         </SceneContent>
     )
 }

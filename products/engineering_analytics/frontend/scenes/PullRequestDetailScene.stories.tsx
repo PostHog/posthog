@@ -317,3 +317,16 @@ export const OutOfTheMergeQueue: Story = {
         }),
     ],
 }
+
+export const SectionLoadErrors: Story = {
+    render: () => <App />,
+    parameters: { testOptions: { waitForSelector: '#ea-section-pr-runs' } },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/pr_runs/': () => [500, null],
+                'api/projects/:team_id/engineering_analytics/pull_request_timelines/': () => [500, null],
+            },
+        }),
+    ],
+}
