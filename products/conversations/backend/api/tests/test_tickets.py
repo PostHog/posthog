@@ -2731,7 +2731,7 @@ class TestTicketMessagesAPI(APIBaseTest):
 
         # Walk every page. Tied rows must keep one stable position, so no message is
         # lost between pages and none appears twice.
-        walked = []
+        walked: list[str] = []
         for offset in range(0, len(rows), 2):
             page = self.client.get(self.url, {"limit": 2, "offset": offset}).json()
             walked.extend(message["id"] for message in page["results"])
