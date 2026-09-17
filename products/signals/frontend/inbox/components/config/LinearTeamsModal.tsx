@@ -26,10 +26,12 @@ export interface LinearTeamsModalProps {
 
 function LinearTeamsSelect({
     integrationId,
+    disabled,
     value,
     onChange,
 }: {
     integrationId: number
+    disabled?: boolean
     value?: string[]
     onChange?: (value: string[]) => void
 }): JSX.Element {
@@ -41,6 +43,7 @@ function LinearTeamsSelect({
             onChange={onChange}
             options={options}
             loading={loading}
+            disabled={disabled}
             placeholder="Select teams"
             data-attr="select-linear-teams"
         />
@@ -71,6 +74,11 @@ export function LinearTeamsModal({
 
     const scopeError =
         typeof linearTeamsValidationErrors.scope === 'string' ? linearTeamsValidationErrors.scope : undefined
+
+    // A radio group disables per option, so the saving reason goes on each one.
+    const scopeOptions = isLinearIssuesToggling
+        ? SCOPE_OPTIONS.map((option) => ({ ...option, disabledReason: 'Saving' }))
+        : SCOPE_OPTIONS
 
     return (
         <LemonModal
@@ -108,7 +116,7 @@ export function LinearTeamsModal({
                             <LemonRadio
                                 value={value}
                                 onChange={onChange}
-                                options={SCOPE_OPTIONS}
+                                options={scopeOptions}
                                 aria-label="Which Linear teams to read"
                             />
                         )}
@@ -119,7 +127,7 @@ export function LinearTeamsModal({
                                 name="teamIds"
                                 help="Applies from the next sync. Reports already in your inbox stay."
                             >
-                                <LinearTeamsSelect integrationId={integration.id} />
+                                <LinearTeamsSelect integrationId={integration.id} disabled={isLinearIssuesToggling} />
                             </LemonField>
                         ) : (
                             <LemonBanner type="warning">
