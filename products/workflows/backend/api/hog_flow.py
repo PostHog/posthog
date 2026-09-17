@@ -830,13 +830,7 @@ def _normalize_slack_channel_filters(filters: dict) -> None:
             prop["value"] = [item.split("|")[0] if isinstance(item, str) else item for item in value]
 
 
-def _normalize_github_repository_filters(filters: dict) -> None:
-    """Lowercase a `repository` filter value in place, to match the lowercased delivery property.
-
-    GitHub treats "PostHog/posthog" and "posthog/posthog" as the same repository, but the exact
-    filter does not, so a name typed in the wrong case compiles to a trigger that never fires.
-    """
-    properties = filters.get("properties")
+def _lowercase_repository_properties(properties: object) -> None:
     if not isinstance(properties, list):
         return
     for prop in properties:
@@ -847,6 +841,21 @@ def _normalize_github_repository_filters(filters: dict) -> None:
             prop["value"] = value.lower()
         elif isinstance(value, list):
             prop["value"] = [item.lower() if isinstance(item, str) else item for item in value]
+
+
+def _normalize_github_repository_filters(filters: dict) -> None:
+    """Lowercase every `repository` filter value in place, to match the lowercased delivery property.
+
+    GitHub treats "PostHog/posthog" and "posthog/posthog" as the same repository, but the exact
+    filter does not, so a name typed in the wrong case compiles to a trigger that never fires.
+    The compiler ANDs the conditions on an event entry with the global ones, so a repository
+    filter written on the entry decides whether the trigger fires too.
+    """
+    _lowercase_repository_properties(filters.get("properties"))
+    events = filters.get("events")
+    for event in events if isinstance(events, list) else []:
+        if isinstance(event, dict) and event.get("id") == "$github_event_received":
+            _lowercase_repository_properties(event.get("properties"))
 
 
 # Exact is the only operator that names channels. Channel ids are opaque (C0...), so
