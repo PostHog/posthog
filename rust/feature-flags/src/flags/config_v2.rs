@@ -108,7 +108,7 @@ impl fmt::Debug for Outcome {
 }
 
 impl Config {
-    pub fn parse(document: &Map<String, Value>) -> Result<Self, ParseError> {
+    pub(super) fn parse(document: &Map<String, Value>) -> Result<Self, ParseError> {
         // Match the existing writer's default document ceiling. Deployment-specific
         // writer limits can be lower; metadata remains part of the whole document.
         if estimate_json_map_size(document) + 2 > MAX_CONFIG_BYTES {

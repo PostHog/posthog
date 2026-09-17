@@ -39,6 +39,34 @@ fn result(flag: &FeatureFlag) -> &Result<Config, ParseError> {
 
 #[test]
 fn original_numeric_tokens_control_precision_and_survive_cache_round_trips() {
+    for hundredths in 0..=10_000 {
+        for number in [
+            format!("{}.{:02}", hundredths / 100, hundredths % 100),
+            format!("{hundredths}e-2"),
+            if hundredths == 0 {
+                "0e-27".to_owned()
+            } else {
+                format!("{hundredths}0000000000000000000000000e-27")
+            },
+        ] {
+            let document = config().to_string().replace("33.33", &number);
+            let encoded = format!(r#"{{"id":1,"team_id":1,"key":"example","filters":{document}}}"#);
+            let flag: FeatureFlag = serde_json::from_str(&encoded).unwrap();
+            let parsed = result(&flag)
+                .as_ref()
+                .unwrap_or_else(|error| panic!("{number}: {error:?}"));
+            match parsed.rules[0].outcome {
+                Outcome::PercentageRollout {
+                    rollout_percentage, ..
+                } => assert_eq!(
+                    rollout_percentage,
+                    number.parse::<f64>().unwrap(),
+                    "{number}"
+                ),
+                _ => unreachable!(),
+            }
+        }
+    }
     for (number, accepted) in [
         ("33.33", true),
         ("3333e-2", true),
@@ -390,6 +418,8 @@ fn person_properties_are_closed_before_reusing_operator_types() {
         ("is_date_exact", json!("-10000d")),
         ("semver_gt", json!("not-a-version")),
         ("semver_gt", json!(123)),
+        ("semver_eq", json!("1.2.3+meta")),
+        ("semver_eq", json!("v1.2.3")),
     ] {
         let mut document = config();
         document["rules"][0]["targeting"]["properties"] =
@@ -495,4 +525,13 @@ fn preparation_reuses_parsing_and_accounts_for_raw_and_typed_data() {
     assert!(result(&wrapper.flags[0]).is_ok());
     assert!(wrapper.flags[1].filters.non_v1.is_none());
     assert_eq!(wrapper.flags[1].filters.groups.len(), 1);
+
+    let values = vec![json!({"items": vec![Value::Null; 1000]}); 50];
+    let mut document = config();
+    document["rules"][0]["targeting"]["properties"] =
+        json!([{"key": "example", "type": "person", "value": values}]);
+    let flag = read(document.clone());
+    assert!(result(&flag).is_ok());
+    let weighted = prepared(flag).estimated_size_bytes();
+    assert!(weighted > document.to_string().len() + 50_000 * std::mem::size_of::<Value>());
 }

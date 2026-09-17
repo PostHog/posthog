@@ -5,7 +5,6 @@ use serde_json::Value;
 use super::{closed, object, required, string, ParseError};
 use crate::properties::property_matching::to_semver_representation;
 use crate::properties::property_models::OperatorType;
-use crate::utils::json_size::estimate_json_size;
 
 #[derive(Clone)]
 pub struct PersonPredicate {
@@ -121,7 +120,7 @@ impl PersonPredicate {
     }
 
     pub(super) fn estimated_heap_bytes(&self) -> usize {
-        self.key.capacity() + self.value.as_ref().map_or(0, estimate_json_size)
+        self.key.capacity() + self.value.as_ref().map_or(0, value_heap_bytes)
     }
 }
 
@@ -142,12 +141,20 @@ fn validate_value(operator: OperatorType, value: Option<&Value>) -> Result<(), P
         IcontainsMulti | NotIcontainsMulti => value.is_some_and(Value::is_array),
         SemverGt | SemverGte | SemverLt | SemverLte | SemverEq | SemverNeq | SemverTilde
         | SemverCaret | SemverWildcard => value.and_then(Value::as_str).is_some_and(|s| {
+            // The writer requires numeric components before the prerelease suffix;
+            // the evaluator's broader version normalization cannot replace that check.
             let s = if operator == SemverWildcard {
                 s.trim_end_matches(['.', '*'])
             } else {
                 s
             };
-            to_semver_representation(&Value::String(s.to_owned())).is_some()
+            s.split('-')
+                .next()
+                .unwrap_or_default()
+                .split('.')
+                .take(3)
+                .all(|part| part.trim().parse::<u64>().is_ok())
+                && to_semver_representation(&Value::String(s.to_owned())).is_some()
         }),
         IsDateExact | IsDateAfter | IsDateBefore => value
             .and_then(Value::as_str)
@@ -159,6 +166,29 @@ fn validate_value(operator: OperatorType, value: Option<&Value>) -> Result<(), P
         Ok(())
     } else {
         Err(ParseError::Malformed("property.value"))
+    }
+}
+
+fn value_heap_bytes(value: &Value) -> usize {
+    match value {
+        Value::Null | Value::Bool(_) | Value::Number(_) => 0,
+        Value::String(value) => value.capacity(),
+        Value::Array(values) => {
+            values.capacity() * std::mem::size_of::<Value>()
+                + values.iter().map(value_heap_bytes).sum::<usize>()
+        }
+        Value::Object(values) => {
+            // BTreeMap exposes no allocation capacity. Budget a root node and
+            // spare entry/child slots conservatively instead of weighing JSON text.
+            let entries = values.len()
+                * (3 * std::mem::size_of::<(String, Value)>() + 4 * std::mem::size_of::<usize>());
+            let root = if values.is_empty() { 0 } else { 1024 };
+            root + entries
+                + values
+                    .iter()
+                    .map(|(key, value)| key.capacity() + value_heap_bytes(value))
+                    .sum::<usize>()
+        }
     }
 }
 

@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use super::{read, result};
-use feature_flags::flags::config_v2::{Config, ParseError};
+use feature_flags::flags::config_v2::ParseError;
 use feature_flags::flags::flag_models::FeatureFlag;
 
 fn root() -> PathBuf {
@@ -62,17 +62,18 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
             continue;
         }
         let document = load(path);
-        let parsed = Config::parse(document.as_object().unwrap());
+        let flag = read(document.clone());
+        let parsed = flag.filters.non_v1.as_ref().unwrap().parsed_v2.as_ref();
         if fixture["expected"] == "valid" {
             if path.ends_with("version_float_literal.json")
                 || path.ends_with("boolean_targeted_and_percentage_rollout.json")
             {
-                assert!(parsed.is_ok(), "{path}: {parsed:?}");
+                assert!(parsed.unwrap().is_ok(), "{path}: {parsed:?}");
                 assert!(result(&read(document.clone())).is_ok());
                 totals[0] += 1;
             } else {
                 assert!(
-                    matches!(parsed, Err(ParseError::Unsupported(_))),
+                    matches!(parsed, Some(Err(ParseError::Unsupported(_)))),
                     "{path}: {parsed:?}"
                 );
                 totals[1] += 1;
@@ -80,10 +81,9 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
         } else {
             // Reserved families have no semantic implementation. Their schema errors
             // are checked by the released contract suite, separately from admission.
-            assert!(parsed.is_err(), "{path}");
+            assert!(parsed.is_none_or(Result::is_err), "{path}");
             totals[2] += 1;
         }
-        let flag = read(document.clone());
         assert_eq!(
             serde_json::to_value(flag).unwrap()["filters"],
             document,
