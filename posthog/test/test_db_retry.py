@@ -17,18 +17,18 @@ class FakeConnection:
 
 
 class TestRetryDroppedConnection(SimpleTestCase):
-    def _run(self, read, connections: list[FakeConnection] | None = None):
-        registry = patch("posthog.db_retry.connections")
-        with registry as mocked:
-            mocked.all.return_value = connections or []
+    def setUp(self) -> None:
+        self.attempts = 0
+
+    def _run(self, read, connections: list[FakeConnection]):
+        with patch("posthog.db_retry.connections") as registry:
+            registry.all.return_value = connections
             return retry_dropped_connection("test", read)
 
     def test_retries_once_on_a_dropped_connection_and_returns_the_second_result(self) -> None:
-        attempts = []
-
         def read() -> str:
-            attempts.append(None)
-            if len(attempts) == 1:
+            self.attempts += 1
+            if self.attempts == 1:
                 raise OperationalError("server closed the connection unexpectedly")
             return "served"
 
@@ -36,43 +36,37 @@ class TestRetryDroppedConnection(SimpleTestCase):
         healthy = FakeConnection()
 
         assert self._run(read, [failed, healthy]) == "served"
-        assert len(attempts) == 2
+        assert self.attempts == 2
         assert failed.closed
         assert not healthy.closed
 
     def test_reraises_when_the_connection_drops_twice(self) -> None:
-        attempts = []
-
         def read() -> None:
-            attempts.append(None)
+            self.attempts += 1
             raise InterfaceError("connection already closed")
 
         with self.assertRaises(InterfaceError):
             self._run(read, [FakeConnection(errors_occurred=True)])
-        assert len(attempts) == 2
+        assert self.attempts == 2
 
     def test_does_not_retry_a_failure_that_a_fresh_connection_would_not_clear(self) -> None:
-        attempts = []
-
         def read() -> None:
-            attempts.append(None)
+            self.attempts += 1
             raise OperationalError("query_wait_timeout")
 
         with self.assertRaises(OperationalError):
             self._run(read, [FakeConnection(errors_occurred=True)])
-        assert len(attempts) == 1
+        assert self.attempts == 1
 
     def test_does_not_retry_inside_an_atomic_block(self) -> None:
         # The transaction went down with the connection, so a retry can only fail again.
-        attempts = []
-
         def read() -> None:
-            attempts.append(None)
+            self.attempts += 1
             raise OperationalError("server closed the connection unexpectedly")
 
         failed = FakeConnection(errors_occurred=True, in_atomic_block=True)
 
         with self.assertRaises(OperationalError):
             self._run(read, [failed])
-        assert len(attempts) == 1
+        assert self.attempts == 1
         assert not failed.closed
