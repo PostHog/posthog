@@ -3,16 +3,19 @@ from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
 import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.db import OperationalError
 from django.test import Client, SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.ingress.contracts import DeliveryOwnership
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -49,6 +52,8 @@ from products.conversations.backend.services.mailgun_events import (
     MAX_RECIPIENTS,
     MailgunMessage,
     _parse_addresses,
+    mailgun_inbound_delivery_ownership,
+    mailgun_outbound_delivery_ownership,
 )
 from products.customer_analytics.backend.facade.email_matching import recalculate_email_thread_links
 
@@ -760,3 +765,42 @@ class TestParseSentAt(SimpleTestCase):
         message = MailgunMessage(mailgun_delivery({"Date": date_header, "timestamp": "1749565800"}))
 
         assert message.sent_at() == expected
+
+
+class TestOwnershipOfATimedOutChannelLookup(SimpleTestCase):
+    STATEMENT_TIMEOUT = OperationalError("canceling statement due to statement timeout")
+
+    def test_an_outbound_lookup_that_times_out_does_not_answer_elsewhere(self) -> None:
+        delivery = mailgun_delivery(
+            {
+                "recipient": "sent@mg.posthog.com",
+                "from": "Customer success <csm@example.com>",
+                "sender": "csm@example.com",
+                "message-headers": json.dumps(
+                    [
+                        ["X-Mailgun-Spf", "Fail"],
+                        ["X-Mailgun-Dkim-Check-Result", "Pass"],
+                        ["DKIM-Signature", "v=1; a=rsa-sha256; d=example.com; s=mail"],
+                    ]
+                ),
+            },
+            app="outbound",
+        )
+
+        with (
+            patch(
+                "products.conversations.backend.services.mailgun_events._channel_for_outbound_sender",
+                side_effect=self.STATEMENT_TIMEOUT,
+            ),
+            pytest.raises(OperationalError),
+        ):
+            mailgun_outbound_delivery_ownership(delivery)
+
+    def test_an_inbound_lookup_that_times_out_still_answers_elsewhere(self) -> None:
+        delivery = mailgun_delivery({"recipient": "team-abc123@mg.posthog.com"})
+
+        with patch(
+            "products.conversations.backend.services.mailgun_events._channel_for_inbound_token",
+            side_effect=self.STATEMENT_TIMEOUT,
+        ):
+            assert mailgun_inbound_delivery_ownership(delivery) is DeliveryOwnership.ELSEWHERE

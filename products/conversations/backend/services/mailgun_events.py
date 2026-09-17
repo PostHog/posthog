@@ -869,8 +869,8 @@ def _ownership_of_channel(channel: EmailChannel | None) -> DeliveryOwnership:
     """A channel this region does not hold is `ELSEWHERE` rather than undecided.
 
     The other region is the only one that can tell a channel it holds from one nobody holds, so
-    the delivery has to reach it. A lookup that timed out answers the same way, because a lookup
-    that never finished has not shown ownership here.
+    the delivery has to reach it. This takes an answered lookup: a lookup that never finished has
+    not shown that no channel here holds the delivery either.
     """
     return DeliveryOwnership.LOCAL if channel is not None else DeliveryOwnership.ELSEWHERE
 
@@ -900,6 +900,9 @@ def mailgun_outbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOw
     An unauthenticated sender is undecided rather than elsewhere: the From header is the only
     thing naming a channel, and an unauthenticated one must not make this region replay the
     delivery to the other one.
+
+    Inbound keeps its own timeout handling, because an inbox token is minted per channel rather
+    than chosen, so the same token cannot be active in both regions.
     """
     message = MailgunMessage(delivery)
     if not _is_outbound_capture_recipient(message.recipient):
@@ -909,15 +912,11 @@ def mailgun_outbound_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOw
     if not sender_email or not message.outbound_sender_authenticated(sender_email):
         return DeliveryOwnership.UNDECIDED
 
-    try:
-        channel = _channel_for_outbound_sender(sender_email)
-    except OperationalError as error:
-        if not is_statement_timeout(error):
-            raise
-        logger.warning("email_outbound_channel_lookup_timed_out")
-        return DeliveryOwnership.ELSEWHERE
-
-    return _ownership_of_channel(channel)
+    # A lookup that raises is not caught here, unlike the inbound one. The same sender can be
+    # active in both regions, and forwarding on an unfinished lookup hands the capture to a region
+    # that ingests it at once, because only the primary runs the ambiguity probe. A failed lookup
+    # has to cost the receipt so Mailgun asks again.
+    return _ownership_of_channel(_channel_for_outbound_sender(sender_email))
 
 
 def mailgun_capture_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:

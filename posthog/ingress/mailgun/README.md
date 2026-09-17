@@ -71,6 +71,7 @@ Conversations registers one consumer per app, in `products/conversations/backend
 All three declare `ownership`, because a team's email channel lives in one region.
 The inbound apps resolve the channel by the `team-<token>@` inbound address, the outbound app by the sending address on an active customer-communication channel.
 An address this region does not hold answers `ELSEWHERE`, so the delivery reaches the region that does.
+The outbound app is the exception when the lookup does not finish: the same sending address can be active in both regions, so it raises instead of answering `ELSEWHERE`, because a forward on an unfinished lookup reaches a region that ingests the capture at once.
 
 `retry_status` is 502 on this provider, so a forward that never landed and a consumer that raised both cost the request its receipt and Mailgun redelivers.
 See the [Endpoints table](../README.md#endpoints).
