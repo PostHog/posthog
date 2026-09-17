@@ -264,6 +264,32 @@ describe('heatmapsBrowserLogic', () => {
 
             expect(logic.values.redirectDestination).toBe('https://example.com/app/home')
         })
+
+        // A pasted page URL can carry whitespace, and the probe runs on the trimmed URL, so a
+        // verdict matched against the raw one would be thrown away as stale.
+        it('reads the verdict when the page URL carries whitespace', async () => {
+            const logic = heatmapsBrowserLogic({ iframeRef: { current: null } })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setDisplayUrl('https://example.com/pricing ')
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                heatmapDataLogic({ context: 'in-app' }).actions.loadHeatmapSuccess({ results: [] } as any)
+            }).toDispatchActions(['checkPagePreflight'])
+
+            logic.actions.checkPagePreflightSuccess({
+                url: 'https://example.com/pricing',
+                framing: 'allowed',
+                blocked_by: null,
+                http_status: 200,
+                body_excerpt: null,
+                resolved_url: 'https://example.com/app/pricing',
+            })
+
+            expect(logic.values.redirectDestination).toBe('https://example.com/app/pricing')
+        })
     })
 
     describe('iframeBanner', () => {

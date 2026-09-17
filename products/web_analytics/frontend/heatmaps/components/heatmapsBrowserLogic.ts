@@ -619,7 +619,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         currentPagePreflight: [
             (s) => [s.pagePreflight, s.displayUrl],
             (pagePreflight: PagePreflight | null, displayUrl: string | null): PagePreflight | null =>
-                pagePreflight?.url === displayUrl ? pagePreflight : null,
+                isSameHeatmapUrl(pagePreflight?.url ?? null, displayUrl) ? pagePreflight : null,
         ],
         preflightMessage: [
             (s) => [s.currentPagePreflight],
