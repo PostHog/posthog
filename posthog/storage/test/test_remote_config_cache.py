@@ -79,7 +79,9 @@ class TestRefreshExpiringRemoteConfigCaches(BaseTest):
         _, kwargs = mock_hypercache.set_cache_value_redis_only.call_args
         assert kwargs["track_expiry"] is True
 
-    @patch("posthog.storage.remote_config_cache.push_hypercache_teams_processed_metrics")
+    # Patched at the Pushgateway seam rather than at push_refresh_metrics, so the
+    # shared helper still runs and the backlog it counts is what gets asserted.
+    @patch("posthog.storage.cache_expiry_manager.push_hypercache_teams_processed_metrics")
     @patch("posthog.storage.cache_expiry_manager.get_client")
     def test_an_empty_run_still_reports_its_counts_and_backlog(self, mock_get_client, mock_push):
         mock_redis = MagicMock()

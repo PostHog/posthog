@@ -168,6 +168,29 @@ class RefreshPacing:
             raise ValueError("pacing delays must not be negative")
 
 
+def push_refresh_metrics(
+    config: HyperCacheManagementConfig, counts: CacheRefreshCounts, ttl_threshold_hours: int = 24
+) -> None:
+    """
+    Push a refresh run's counts and its expiry backlog to Pushgateway.
+
+    Every sweep over the expiry sorted set ends here, including the batch-loading fork
+    in remote_config_cache. One function so the next field added reaches both without
+    anyone having to remember the fork exists.
+
+    An empty run pushes too. Pushgateway keeps serving the last value pushed, so
+    skipping it would latch a drained backlog at whatever the last busy run saw.
+    """
+    push_hypercache_teams_processed_metrics(
+        namespace=config.namespace,
+        cache_name=config.cache_name,
+        successful=counts.successful,
+        failed=counts.failed,
+        enqueued=counts.enqueued,
+        expiry_backlog=count_expiring_caches(config, ttl_threshold_hours),
+    )
+
+
 def refresh_expiring_caches(
     config: HyperCacheManagementConfig,
     ttl_threshold_hours: int = 24,
@@ -209,18 +232,7 @@ def refresh_expiring_caches(
         total=len(teams),
     )
 
-    # Push metrics to Pushgateway (Gauges work better than Counters for batch jobs).
-    # Pushed on an empty run too, because a backlog that has drained to zero is the
-    # reading the gauge exists to make legible, and stale counts from the last
-    # non-empty run would hide it.
-    push_hypercache_teams_processed_metrics(
-        namespace=config.namespace,
-        cache_name=config.cache_name,
-        successful=counts.successful,
-        failed=counts.failed,
-        enqueued=counts.enqueued,
-        expiry_backlog=count_expiring_caches(config, ttl_threshold_hours),
-    )
+    push_refresh_metrics(config, counts, ttl_threshold_hours)
 
     return counts
 
