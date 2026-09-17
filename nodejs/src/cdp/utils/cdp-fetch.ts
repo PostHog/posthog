@@ -182,7 +182,35 @@ export const isFetchResponseRetriable = (response: FetchResponse | null, error: 
     return canRetry
 }
 
-export const getNextRetryTime = (backoffBaseMs: number, backoffMaxMs: number, tries: number): DateTime => {
-    const backoffMs = Math.min(backoffBaseMs * tries + Math.floor(Math.random() * backoffBaseMs), backoffMaxMs)
-    return DateTime.utc().plus({ milliseconds: backoffMs })
+// Cap a provider-supplied Retry-After: honoring it is the point, but a hostile or misconfigured
+// value must not park an invocation for hours.
+export const MAX_RETRY_AFTER_MS = 5 * 60 * 1000
+
+// Retry-After is delta-seconds or an HTTP-date. Returns a bounded millisecond delay, or undefined if
+// the header is absent or unparseable so the caller falls back to exponential backoff.
+export const parseRetryAfterMs = (response: FetchResponse | null): number | undefined => {
+    const header = response?.headers?.['retry-after']
+    if (!header) {
+        return undefined
+    }
+    const seconds = Number(header)
+    const ms = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now()
+    if (!Number.isFinite(ms) || ms <= 0) {
+        return undefined
+    }
+    return Math.min(ms, MAX_RETRY_AFTER_MS)
+}
+
+// A provider's own interval wins over the backoff, which is shorter than most rate-limit windows.
+// Jitter rides on top of it so a burst of jobs held by the same limit does not all come back at once.
+export const getNextRetryTime = (
+    backoffBaseMs: number,
+    backoffMaxMs: number,
+    tries: number,
+    retryAfterMs?: number
+): DateTime => {
+    const jitterMs = Math.floor(Math.random() * backoffBaseMs)
+    const backoffMs = Math.min(backoffBaseMs * tries + jitterMs, backoffMaxMs)
+    const waitMs = Math.max(backoffMs, retryAfterMs ? retryAfterMs + jitterMs : 0)
+    return DateTime.utc().plus({ milliseconds: waitMs })
 }

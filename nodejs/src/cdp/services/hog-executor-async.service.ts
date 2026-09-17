@@ -1,4 +1,3 @@
-import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
@@ -18,7 +17,13 @@ import type {
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
 import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
-import { cdpTrackedFetch, fetchErrorDetail, isFetchResponseRetriable } from '../utils/cdp-fetch'
+import {
+    cdpTrackedFetch,
+    fetchErrorDetail,
+    getNextRetryTime,
+    isFetchResponseRetriable,
+    parseRetryAfterMs,
+} from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
@@ -47,6 +52,7 @@ const cdpEmailQueuedTotal = new Counter({
 export interface HogExecutorAsyncConfig {
     googleAdwordsDeveloperToken: string
     fetchRetries: number
+    fetchRateLimitRetries: number
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
     siteUrl: string
@@ -520,14 +526,22 @@ export class HogExecutorAsyncService {
                 : undefined
             const isNonFailure = isNonFailureStatus(fetchResponse?.status, nonFailureConfig)
 
-            const backoffMs = Math.min(
-                this.config.fetchBackoffBaseMs * result.invocation.state.attempts +
-                    Math.floor(Math.random() * this.config.fetchBackoffBaseMs),
-                this.config.fetchBackoffMaxMs
+            // A rate-limited provider keeps refusing until its window rolls over, so the few
+            // general-purpose attempts all land inside that same window and the delivery is lost.
+            // Wait as long as the provider asked, and give it more attempts to get through.
+            const isRateLimited = fetchResponse?.status === 429
+            const retryAfterMs = isRateLimited ? parseRetryAfterMs(fetchResponse) : undefined
+            const retryAt = getNextRetryTime(
+                this.config.fetchBackoffBaseMs,
+                this.config.fetchBackoffMaxMs,
+                result.invocation.state.attempts,
+                retryAfterMs
             )
 
             const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
-            const maxRetries = options?.maxFetchRetries ?? this.config.fetchRetries
+            const maxRetries =
+                options?.maxFetchRetries ??
+                (isRateLimited ? this.config.fetchRateLimitRetries : this.config.fetchRetries)
             // `canRetry` only says the failure class is retriable. On the last attempt it is still
             // true while no retry follows, so the customer-facing log has to gate on the same
             // condition the scheduling below does.
@@ -551,7 +565,7 @@ export class HogExecutorAsyncService {
                 await fetchResponse?.dump()
                 result.invocation.queueParameters = params
                 result.invocation.queuePriority = invocation.queuePriority + 1
-                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
+                result.invocation.queueScheduledAt = retryAt
 
                 return result
             } else if (!isNonFailure) {

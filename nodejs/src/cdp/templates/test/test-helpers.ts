@@ -231,6 +231,7 @@ export class TemplateTester {
             {
                 googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
                 fetchRetries: config.CDP_FETCH_RETRIES,
+                fetchRateLimitRetries: config.CDP_FETCH_RATE_LIMIT_RETRIES,
                 fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: config.SITE_URL,

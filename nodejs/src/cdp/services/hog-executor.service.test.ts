@@ -92,6 +92,7 @@ describe('Hog Executor', () => {
             {
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
                 fetchRetries: hub.CDP_FETCH_RETRIES,
+                fetchRateLimitRetries: hub.CDP_FETCH_RATE_LIMIT_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: hub.SITE_URL,
@@ -1469,6 +1470,38 @@ describe('Hog Executor', () => {
                 }
             `)
             expect(result.invocation.queue).toBe('hog')
+        })
+
+        // A provider that rate-limits says when its window rolls over. The general retry budget
+        // spends every attempt inside that window, which is how deliveries were lost outright.
+        it('waits the interval a rate-limited provider asked for, and keeps more attempts for it', async () => {
+            mockRequest.mockImplementation((req: any, res: any) => {
+                res.writeHead(429, { 'Content-Type': 'text/plain', 'Retry-After': '5' })
+                res.end('Rate limit exceeded')
+            })
+
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'POST',
+                body: 'test body',
+            })
+
+            let result = await executor.executeFetch(invocation)
+
+            // 5s from the provider rather than the 1s first backoff step, plus jitter
+            expect(result.invocation.queueScheduledAt?.toISO()).toMatchInlineSnapshot(`"2025-01-01T00:00:05.500Z"`)
+
+            const maxRetries = executor['config'].fetchRateLimitRetries
+            expect(maxRetries).toBeGreaterThan(executor['config'].fetchRetries)
+
+            for (let attempt = 1; attempt < maxRetries; attempt++) {
+                expect(result.error).toBeUndefined()
+                expect(result.invocation.state.attempts).toBe(attempt)
+                result = await executor.executeFetch(result.invocation)
+            }
+
+            expect(result.error.message).toContain(`HTTP fetch failed on attempt ${maxRetries}`)
+            expect(result.invocation.queueScheduledAt).toBeUndefined()
         })
 
         it('sets result.error after retries are exhausted', async () => {
