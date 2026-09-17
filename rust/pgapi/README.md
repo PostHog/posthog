@@ -81,4 +81,5 @@ src/queries.rs   every question the API can answer, as SQL → JSON (shared by R
 src/api.rs       REST routes
 src/mcp.rs       MCP tools
 src/db.rs        read-only pool, row → JSON
+src/ui/          embedded browser UI (charts use uPlot, loaded from jsDelivr with a pinned version and integrity hash)
 ```
